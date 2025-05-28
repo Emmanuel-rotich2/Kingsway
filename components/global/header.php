@@ -33,7 +33,7 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="?route=profile">Profile</a></li>
-                    <li><a class="dropdown-item text-danger" href="?route=logout">Logout</a></li>
+                    <li><a class="dropdown-item text-danger" href="?route=logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
                 </ul>
             </div>
         </div>

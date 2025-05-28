@@ -41,6 +41,9 @@ body {
   height: 100vh;
   background-color: #800000;
   transition: width 0.3s;
+  align-items: center;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
+  justify-content: center;
   overflow-x: hidden;
   z-index: 1050;
   display: flex;
@@ -48,7 +51,7 @@ body {
   padding: 0;
 }
 
-.logo{
+.logo {
   background-color: #28a745;
   height: 70px;
   color: white;
@@ -56,6 +59,11 @@ body {
 
 .sidebar.sidebar-collapsed {
   width: 60px;
+  overflow: hidden;
+  transition: width 0.3s;
+  justify-content: center;
+  align-items: center;
+  display: flex;
 }
 
 .sidebar .shadow-sm {
@@ -72,6 +80,8 @@ body {
 
 .sidebar.sidebar-collapsed .list-group-item {
   justify-content: center;
+  align-items: center;
+
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
@@ -79,6 +89,7 @@ body {
 .sidebar .list-group-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   color: white;
   background: none;
   border: none;
@@ -119,6 +130,14 @@ body {
   height: 100%;
 }
 
+.card-rounded {
+  border-radius: 1rem;
+}
+
+.small-card {
+  min-height: 120px;
+}
+
 /* Responsive for mobile */
 @media (max-width: 991.98px) {
   .sidebar {
@@ -126,9 +145,11 @@ body {
     width: 250px;
     transition: left 0.3s, width 0.3s;
   }
+
   .sidebar.sidebar-visible-mobile {
     left: 0;
   }
+
   .main-flex-layout,
   .main-content,
   .collapsed-main {
