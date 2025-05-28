@@ -4,6 +4,13 @@ session_start();
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
+// Handle logout before any output
+if (isset($_GET['route']) && $_GET['route'] === 'logout') {
+    session_destroy();
+    header('Location: ../index.php');
+    exit;
+}
+
 $user_role = $_SESSION['role'];
 
 $sidebar_items_admin = [
@@ -186,17 +193,13 @@ if (!isset($_GET['route']) || empty($_GET['route']) || $_GET['route'] === 'dashb
                 <?php
                 $page_file = __DIR__ . '/../pages/' . $route . '.php';
                 $dash_file = __DIR__ . '/../components/dashboards/' . $route . '.php';
-                
+
                 if (isset($content_file) && file_exists($content_file)) {
                     include $content_file;
                 } else if (file_exists($page_file)) {
                     include $page_file;
                 } else if (file_exists($dash_file)) {
                     include $dash_file;
-                } else if ($route === 'logout') {
-                    session_destroy();
-                    header('Location: ../index.php');
-                    exit;
                 } else {
                     echo "<div class='alert alert-warning'>Page not found.</div>";
                 }

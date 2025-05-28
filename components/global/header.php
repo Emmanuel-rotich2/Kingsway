@@ -1,4 +1,12 @@
 <!--components/global/header.php-->
+<?php
+// Handle logout before any output
+if (isset($_GET['route']) && $_GET['route'] === 'logout') {
+    session_destroy();
+    header('Location: ../../index.php');
+    exit;
+}
+?>
 <div class="school-header d-flex align-items-center justify-content-start px-3">
 
 

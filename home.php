@@ -1,5 +1,13 @@
 <?php
 session_start();
+
+// Handle logout before any output
+if (isset($_GET['route']) && $_GET['route'] === 'logout') {
+    session_destroy();
+    header('Location: ./index.php');
+    exit;
+}
+
 // Example: get user role from session
 $user_role = $_SESSION['role'];
 if (!$user_role) {
