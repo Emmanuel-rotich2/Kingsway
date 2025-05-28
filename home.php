@@ -1,8 +1,12 @@
 <?php
 session_start();
 // Example: get user role from session
-$user_role = $_SESSION['role'] ?? 'admin';
-
+$user_role = $_SESSION['role'];
+if (!$user_role) {
+    // Redirect to login if not logged in
+    header("Location: ./index.php");
+    exit();
+}
 
 ?>
 <!DOCTYPE html>

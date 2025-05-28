@@ -1,6 +1,7 @@
 <?php
-function renderTable($title, $headers, $rows, $withActions = false) {
-  ?>
+function renderTable($title, $headers, $rows, $withActions = false, $actionOptions = ['Edit', 'Delete','View Profile'])
+{
+?>
   <div class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
       <h5 class="mb-0"><?php echo $title; ?></h5>
@@ -15,13 +16,25 @@ function renderTable($title, $headers, $rows, $withActions = false) {
           </tr>
         </thead>
         <tbody>
-          <?php foreach ($rows as $row): ?>
+          <?php foreach ($rows as $rowIdx => $row): ?>
             <tr>
               <?php foreach ($row as $col) echo "<td>$col</td>"; ?>
               <?php if ($withActions): ?>
                 <td>
-                  <button class="btn btn-sm btn-primary">Edit</button>
-                  <button class="btn btn-sm btn-danger">Delete</button>
+                  <div class="dropdown">
+                    <button class="btn btn-link p-0" type="button" id="actionDropdown<?= $rowIdx ?>" data-bs-toggle="dropdown" aria-expanded="false">
+                      <i class="fas fa-cog fs-5"></i>
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="actionDropdown<?= $rowIdx ?>">
+                      <?php foreach ($actionOptions as $action): ?>
+                        <li>
+                          <a class="dropdown-item action-option" href="#" data-row="<?= htmlspecialchars(json_encode($row)) ?>" data-action="<?= $action ?>">
+                            <?= $action ?>
+                          </a>
+                        </li>
+                      <?php endforeach; ?>
+                    </ul>
+                  </div>
                 </td>
               <?php endif; ?>
             </tr>
@@ -73,8 +86,30 @@ function renderTable($title, $headers, $rows, $withActions = false) {
       }
 
       paginate();
+
+      // Dropdown action handler
+      document.querySelectorAll('.action-option').forEach(item => {
+        item.addEventListener('click', function(e) {
+          e.preventDefault();
+          const action = this.getAttribute('data-action');
+          const rowData = JSON.parse(this.getAttribute('data-row'));
+          // Example: handle actions
+          if (action === 'Edit') {
+            alert('Edit: ' + JSON.stringify(rowData));
+            // Implement your edit logic here
+          } else if (action === 'Delete') {
+            if (confirm('Are you sure you want to delete this row?')) {
+              // Implement your delete logic here
+              alert('Deleted: ' + JSON.stringify(rowData));
+            }
+          } else {
+            alert(action + ': ' + JSON.stringify(rowData));
+            // Implement custom actions here
+          }
+        });
+      });
     });
   </script>
-  <?php
+<?php
 }
 ?>

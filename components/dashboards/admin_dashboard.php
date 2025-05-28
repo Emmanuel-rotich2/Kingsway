@@ -67,7 +67,7 @@ $summaryCards = [
 
 // Chart data for school context
 $months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-$admissions = [30, 40, 35, 50, 60, 55, 70, 68, 90, 75, 80, 100];
+$admissions = [30, 40, 35, 50, 60, 55, 70, 68, 90, 75, 80, 1000];
 $feePayments = [200000, 180000, 220000, 250000, 210000, 230000, 240000, 260000, 270000, 250000, 245000, 255000];
 
 $doughnutData = [1175, 65]; // Present vs Absent today
