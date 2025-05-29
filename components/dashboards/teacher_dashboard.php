@@ -51,7 +51,7 @@ $summaryCards = [
   ],
   [
     'title' => 'Attendance Rate',
-    'count' => '98%',
+    'count' => 98,
     'percent' => 98,
     'days' => 1,
     'icon' => 'bi-person-check-fill',
