@@ -6,9 +6,7 @@ include __DIR__ . '/../components/tables/table.php';
 $studentHeaders = ['No', 'Name', 'Admission Number', 'Class', 'Status'];
 $studentRows = [
   [1, 'Faith Wanjiku', 'ADM001', 'Grade 4', 'Pending'],
-  [2, 'Brian Otieno', 'ADM002', 'Form 1', 'Active'],
   [3, 'Mercy Mwikali', 'ADM003', 'Grade 8', 'Inactive'],
-  [4, 'Samuel Kiptoo', 'ADM004', 'Form 2', 'Active'],
   [5, 'Janet Njeri', 'ADM005', 'Grade 6', 'Pending'],
 ];
 // Actions for admin: Approve, Activate, Deactivate, Edit, View Profile

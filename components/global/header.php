@@ -33,10 +33,17 @@
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="?route=profile">Profile</a></li>
-                    <li><a class="dropdown-item text-danger" href="?route=logout"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()" ><i class="fas fa-sign-out-alt"></i> Logout</a></li>
                 </ul>
             </div>
         </div>
     </div>
 </div>
 <script src="../../js/index.js" type="text/js"></script>
+<script>
+function confirmLogout() {
+    if (confirm("Are you sure you want to logout?")) {
+        window.location.href = 'logout.php';
+    }
+}
+</script>

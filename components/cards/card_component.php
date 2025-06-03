@@ -19,6 +19,9 @@ function renderSummaryCard($options)
         $iconHtml = "<i class='bi $icon $iconSize $iconColor ms-3'></i>";
     }
 
+    // Ensure $count is a number or display as-is if not
+    $displayCount = is_numeric($count) ? number_format((float)$count) : htmlspecialchars($count);
+
     echo "
     <div class='col-md-6 col-xl-3'>
         <div class='card $textColor $cardClass' style='background-color: $bgColor;'>
@@ -26,7 +29,7 @@ function renderSummaryCard($options)
                 " . ($iconPosition === 'start' ? $iconHtml : '') . "
                 <div>
                     <small>$title</small>
-                    <h5 class='mb-0'>" . number_format($count) . "</h5>
+                    <h5 class='mb-0'>$displayCount</h5>
                     <small class='$subTextColor'>{$percent}% Increase in {$days} Days</small>
                 </div>
                 " . ($iconPosition === 'end' ? $iconHtml : '') . "
