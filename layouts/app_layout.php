@@ -42,11 +42,10 @@ $sidebar_items_admin = [
 $sidebar_items_teacher = [
     ['label' => 'Dashboard', 'icon' => 'fas fa-tachometer-alt', 'url' => '?route=teacher_dashboard'],
     ['label' => 'My Classes', 'icon' => 'fas fa-chalkboard', 'url' => '?route=myclasses'],
-    ['label' => 'Exam Results', 'icon' => 'fas fa-poll', 'url' => '?route=exams'],
-    ['label' => 'Attendance', 'icon' => 'fas fa-calendar-check', 'url' => '?route=attendance'],
+    ['label' => 'Exam Results', 'icon' => 'fas fa-poll', 'url' => '?route=enter_results'],
+    ['label' => 'Attendance', 'icon' => 'fas fa-calendar-check', 'url' => '?route=mark_attendance'],
     ['label' => 'Resources', 'icon' => 'fas fa-book', 'url' => '?route=resources'],
     ['label' => 'Settings', 'icon' => 'fas fa-cog', 'url' => '?route=settings'],
-    ['label' => 'Mark_attendace', 'icon' => 'fas fa-cog', 'url' => '?route=mark_attendance'],
 ];
 
 $sidebar_items_accountant = [
