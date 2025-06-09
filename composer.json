@@ -1,0 +1,26 @@
+{
+    "require": {
+        "php": ">=7.4",
+        "phpmailer/phpmailer": "^6.8",
+        "firebase/php-jwt": "^6.4",
+        "endroid/qr-code": "^4.8",
+        "phpoffice/phpspreadsheet": "^4.3",
+        "tecnickcom/tcpdf": "^6.6",
+        "psr/log": "^3.0",
+        "symfony/polyfill-intl-idn": "^1.29",
+        "dompdf/dompdf": "^3.1",
+        "phpoffice/phpword": "^1.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "./",
+            "App\\API\\": "api/",
+            "App\\API\\Modules\\": "api/modules/",
+            "App\\API\\Includes\\": "api/includes/",
+            "App\\Config\\": "config/",
+            "App\\Database\\": "db_connection/",
+            "App\\API\\Services\\": "api/services/"
+        }
+    }
+
+}

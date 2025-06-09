@@ -27,8 +27,65 @@ function toggleSidebar() {
     }
 }
 
+// Sidebar UI re-initializer for dynamic sidebar
+window.initSidebarUI = function() {
+    // Sidebar submenu accordion (open/close on click)
+    document.querySelectorAll('.sidebar-toggle').forEach(function (toggle) {
+        toggle.addEventListener('click', function (e) {
+            e.preventDefault();
+            const target = document.querySelector(this.getAttribute('href'));
+            if (!target) return;
+            if (target.classList.contains('show')) {
+                target.classList.remove('show');
+                this.setAttribute('aria-expanded', 'false');
+            } else {
+                // Close all open submenus
+                document.querySelectorAll('.list-group .collapse.show').forEach(function (open) {
+                    open.classList.remove('show');
+                });
+                document.querySelectorAll('.sidebar-toggle[aria-expanded="true"]').forEach(function (btn) {
+                    btn.setAttribute('aria-expanded', 'false');
+                });
+                // Open the clicked submenu
+                target.classList.add('show');
+                this.setAttribute('aria-expanded', 'true');
+            }
+        });
+    });
+
+    // Responsive sidebar behavior on resize
+    window.addEventListener('resize', function () {
+        const sidebar = document.querySelector('.sidebar');
+        const mainFlex = document.querySelector('.main-flex-layout');
+        if (!sidebar || !mainFlex) return;
+        if (window.innerWidth < 992) {
+            sidebar.classList.add('sidebar-collapsed');
+            sidebar.classList.remove('sidebar-visible-mobile');
+            mainFlex.style.marginLeft = '0';
+            document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
+            document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
+        } else {
+            sidebar.classList.remove('sidebar-visible-mobile');
+            sidebar.classList.remove('sidebar-collapsed');
+            mainFlex.style.marginLeft = '250px';
+            document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = '');
+            document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
+        }
+    });
+};
+// Call on DOMContentLoaded for initial sidebar
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', window.initSidebarUI);
+} else {
+    window.initSidebarUI();
+}
+
 // Sidebar submenu accordion (open/close on click)
 document.addEventListener('DOMContentLoaded', function () {
+    // Only run sidebar logic if sidebar exists
+    const sidebar = document.querySelector('.sidebar');
+    if (!sidebar) return;
+
     // Make sidebar scrollable if overflow
     const sidebarScroll = document.querySelector('.sidebar .shadow-sm');
     if (sidebarScroll) {
@@ -89,3 +146,50 @@ window.addEventListener('resize', function () {
         document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
     }
 });
+
+window.toggleSidebar = toggleSidebar;
+
+function getRouteFromUrl(url) {
+    if (!url) return '';
+    const match = url.match(/route=([a-zA-Z0-9_]+)/);
+    return match ? match[1] : '';
+}
+
+// Navigation handler for sidebar links
+window.addEventListener('click', function(e) {
+    if (e.target.classList && e.target.classList.contains('sidebar-link')) {
+        e.preventDefault();
+        const route = e.target.getAttribute('data-route');
+        if (route) {
+            navigateToRoute(route);
+            // Update URL
+            window.history.pushState({}, '', '?route=' + route);
+        }
+    }
+});
+
+// Navigation function for loading dashboard/pages
+async function navigateToRoute(route) {
+    let html = '';
+    try {
+        html = await fetchContent(`/Kingsway/components/dashboards/${route}.php`);
+    } catch {
+        try {
+            html = await fetchContent(`/Kingsway/pages/${route}.php`);
+        } catch {
+            html = "<div class='alert alert-warning'>Page not found.</div>";
+        }
+    }
+    document.getElementById('main-content-segment').innerHTML = html;
+}
+
+async function fetchContent(path) {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error('Not found');
+    return await res.text();
+}
+
+// Initial load: load sidebar and default dashboard if needed
+if (typeof loadSidebarAndDefault === 'function') {
+    document.addEventListener('DOMContentLoaded', loadSidebarAndDefault);
+}

@@ -1,20 +1,28 @@
+/* Global Reset */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   padding: 0;
-  box-sizing: border-box;
   font-family: 'Segoe UI', sans-serif;
 }
 
+/* Header */
 .school-header {
-  background-color: #28a745;
+  background-color:  #198754 ;
   padding: 1rem;
   color: white;
   display: flex;
   align-items: center;
   justify-content: space-between;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  z-index: 1001;
   height: 70px;
+  z-index: 1001;
+  position: relative;
 }
 
 .school-header img {
@@ -23,53 +31,32 @@ body {
   object-fit: cover;
 }
 
-.main-flex-layout {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  margin-left: 250px;
-  transition: margin-left 0.3s;
-  width: 100%;
-}
-
-/* Sidebar styles */
+/* Sidebar */
 .sidebar {
   position: fixed;
   top: 0;
   left: 0;
   width: 250px;
   height: 100vh;
-  background-color: #800000;
-  transition: width 0.3s;
-  align-items: center;
+  background-color: #198754 ;
   box-shadow: 2px 0 5px rgba(0, 0, 0, 0.1);
-  justify-content: center;
-  overflow-x: hidden;
   z-index: 1050;
   display: flex;
   flex-direction: column;
   padding: 0;
+  transition: width 0.3s ease;
+  overflow-x: hidden;
 }
 
 .logo {
   background-color: #28a745;
   height: 70px;
-  color: white;
+  color: darkturquoise;
 }
 
+/* Sidebar Collapsed */
 .sidebar.sidebar-collapsed {
   width: 60px;
-  overflow: hidden;
-  transition: width 0.3s;
-  justify-content: center;
-  align-items: center;
-  display: flex;
-}
-
-.sidebar .shadow-sm {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
 }
 
 .sidebar.sidebar-collapsed .sidebar-text,
@@ -80,8 +67,6 @@ body {
 
 .sidebar.sidebar-collapsed .list-group-item {
   justify-content: center;
-  align-items: center;
-
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
@@ -89,7 +74,6 @@ body {
 .sidebar .list-group-item {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
   color: white;
   background: none;
   border: none;
@@ -98,7 +82,8 @@ body {
 }
 
 .sidebar .list-group-item:hover {
-  background-color: #a00000;
+  background-color: gold;
+  color: teal ;
 }
 
 .sidebar .list-group-item i {
@@ -110,40 +95,88 @@ body {
   margin-right: 0;
 }
 
-/* Main content shifts right of sidebar */
-.main-content {
-  flex: 1 1 auto;
-  transition: margin-left 0.3s;
-  padding: 1.5rem 1rem 1rem 1rem;
+/* Main Layout */
+.app-layout {
+  display: flex;
+  margin: 0;
+  padding: 0;
+}
+
+.main-flex-layout {
+  flex-grow: 1;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  min-height: 100vh;
+  transition: margin-left 0.3s;
+  margin-left: 250px;
 }
 
 .collapsed-main {
   margin-left: 60px !important;
 }
 
-.card {
-  border-radius: 1rem;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  height: 100%;
+.main-content {
+  flex: 1;
+  padding: 1.5rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  transition: margin-left 0.3s;
 }
 
+/* Cards */
+.card,
 .card-rounded {
   border-radius: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .small-card {
   min-height: 120px;
 }
+.hero-bg {
+  background: linear-gradient(135deg, #6f42c1 60%, #20c997 100%);
+  color: #fff;
+  min-height: 350px;
+  position: relative;
+  overflow: hidden;
+}
 
-/* Responsive for mobile */
+.hero-graphic {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 350px;
+  opacity: 0.15;
+  z-index: 0;
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+}
+
+/* Summary Card */
+.summary-card {
+  min-width: 180px;
+  border-radius: 1rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+}
+
+/* School Logo */
+.school-logo {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+}
+
+/* Responsive Sidebar */
 @media (max-width: 991.98px) {
   .sidebar {
     left: -250px;
-    width: 250px;
-    transition: left 0.3s, width 0.3s;
+    transition: left 0.3s ease;
   }
 
   .sidebar.sidebar-visible-mobile {

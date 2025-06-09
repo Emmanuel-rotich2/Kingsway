@@ -1,6 +1,5 @@
 <?php
 // School Admin Dashboard (Kenya Primary/Secondary School)
-include 'config/db_connection.php';
 include 'components/charts/chart.php';
 include 'components/tables/table.php';
 include 'components/cards/card_component.php';
@@ -271,5 +270,4 @@ $studentRows = [
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+

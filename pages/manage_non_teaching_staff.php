@@ -22,8 +22,7 @@ $actionOptions = ['Edit', 'Assign Role', 'Set Permissions', 'Activate', 'Deactiv
             <i class="bi bi-person-plus"></i> Add Staff
         </button>
     </h2>
-
-    <?php renderTable("Staff List", $staffHeaders, $staffRows, true, $actionOptions); ?>
+    <div id="staff-table-container"></div>
 </div>
 
 <!-- Add Staff Modal -->
@@ -158,56 +157,85 @@ $actionOptions = ['Edit', 'Assign Role', 'Set Permissions', 'Activate', 'Deactiv
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Add Staff AJAX (replace with real API endpoint)
-    document.getElementById('add-staff-form').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const formData = new FormData(this);
-        fetch('/Kingsway/api/add_staff.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload(); // Reload to show new staff (or use AJAX to update table)
-                }
-            });
-    });
+const staffHeaders = <?php echo json_encode($staffHeaders); ?>;
+const actionOptions = <?php echo json_encode($actionOptions); ?>;
 
-    // Action handler for admin actions
-    document.addEventListener('DOMContentLoaded', function() {
-        document.querySelectorAll('.action-option').forEach(item => {
-            item.addEventListener('click', function(e) {
-                e.preventDefault();
-                const action = this.getAttribute('data-action');
-                const rowData = JSON.parse(this.getAttribute('data-row'));
-                if (action === 'Edit') {
-                    alert('Edit staff: ' + rowData[1]);
-                    // Open edit modal or form here
-                } else if (action === 'Assign Role') {
-                    alert('Assign role to: ' + rowData[1]);
-                    // Open role assignment modal here
-                } else if (action === 'Set Permissions') {
-                    alert('Set permissions for: ' + rowData[1]);
-                    // Open permissions modal here
-                } else if (action === 'Activate') {
-                    alert('Activate staff: ' + rowData[1]);
-                    // Implement activate logic here
-                } else if (action === 'Deactivate') {
-                    alert('Deactivate staff: ' + rowData[1]);
-                    // Implement deactivate logic here
-                } else if (action === 'Delete') {
-                    if (confirm('Delete staff: ' + rowData[1] + '?')) {
-                        // Call delete API here
-                        alert('Deleted: ' + rowData[1]);
-                    }
-                } else if (action === 'View Profile') {
-                    alert('View profile for: ' + rowData[1]);
-                    // Redirect or show modal
-                }
+function renderStaffTable(rows) {
+    let html = `<table class="table table-bordered table-hover">
+        <thead><tr>`;
+    staffHeaders.forEach(h => html += `<th>${h}</th>`);
+    if (actionOptions.length) html += '<th>Actions</th>';
+    html += `</tr></thead><tbody>`;
+    if (!rows.length) {
+        html += `<tr><td colspan="${staffHeaders.length + 1}" class="text-center">No staff found.</td></tr>`;
+    } else {
+        rows.forEach((row, idx) => {
+            html += '<tr>';
+            row.forEach(cell => html += `<td>${cell}</td>`);
+            // Actions
+            html += '<td>';
+            actionOptions.forEach(opt => {
+                html += `<button class="btn btn-sm btn-outline-primary me-1 action-option" data-action="${opt}" data-row='${JSON.stringify(row)}'>${opt}</button>`;
             });
+            html += '</td></tr>';
         });
+    }
+    html += '</tbody></table>';
+    document.getElementById('staff-table-container').innerHTML = html;
+}
+
+function reloadStaffTable() {
+    if (!window.StaffAPI) return;
+    StaffAPI.list().then(res => {
+        let rows = [];
+        if (res && res.data && Array.isArray(res.data.staff)) {
+            rows = res.data.staff.map((s, i) => [
+                i + 1,
+                s.name || (s.first_name + ' ' + s.last_name),
+                s.staff_no,
+                s.department,
+                s.role,
+                s.status
+            ]);
+        }
+        // Use dummy data if no real data
+        if (!rows.length) {
+            rows = [
+                [1, 'Jane Wambui', 'STF001', 'Accounts', 'Bursar', 'Active'],
+                [2, 'Peter Njoroge', 'STF002', 'Maintenance', 'Caretaker', 'Active'],
+                [3, 'Lucy Atieno', 'STF003', 'Administration', 'Secretary', 'Inactive'],
+                [4, 'Samuel Kiprotich', 'STF004', 'Security', 'Guard', 'Active'],
+                [5, 'Agnes Mwikali', 'STF005', 'Kitchen', 'Cook', 'Active'],
+            ];
+        }
+        renderStaffTable(rows);
+        attachStaffActionHandlers();
+    }).catch(() => {
+        renderStaffTable([]);
     });
+}
+
+function attachStaffActionHandlers() {
+    document.querySelectorAll('.action-option').forEach(item => {
+        item.onclick = function(e) {
+            e.preventDefault();
+            const action = this.getAttribute('data-action');
+            const rowData = JSON.parse(this.getAttribute('data-row'));
+            showNotification(`Action: ${action} on ${rowData[1]}`, 'info');
+            // TODO: Implement real action logic
+        };
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    reloadStaffTable();
+    setInterval(reloadStaffTable, 30000);
+    handleFormSubmit('#add-staff-form', (data, files) => StaffAPI.create(data, files), (result) => {
+        showNotification('Staff added successfully!', 'success');
+        reloadStaffTable();
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addStaffModal'));
+        modal.hide();
+    });
+});
 </script>

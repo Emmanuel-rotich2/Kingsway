@@ -1,3 +1,4 @@
+
 <?php
 // Teacher Dashboard (Kenya Primary/Secondary School)
 include 'config/db_connection.php';
@@ -235,6 +236,3 @@ $studentRows = [
     </div>
   </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

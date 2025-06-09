@@ -9,13 +9,29 @@ ini_set('display_errors', 1);
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kingsway Preparatory School</title>
+  <link rel="icon" type="image/png" href="images/favicon/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="images/favicon/favicon.svg" />
+  <link rel="shortcut icon" href="images/favicon/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
+  <link rel="manifest" href="images/favicon/site.webmanifest" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <link rel="stylesheet" href="king.css">
   <style>
+    body {
+      background-color: #fffdf5;
+    }
+
+    .navbar-custom {
+      background-color: #198754;
+      /* Bootstrap green */
+    }
+
     .hero-bg {
-      background: linear-gradient(135deg, #6f42c1 60%, #20c997 100%);
+      background: linear-gradient(135deg, #f9c80e 60%, #198754 100%);
       color: #fff;
       min-height: 350px;
       position: relative;
@@ -40,6 +56,7 @@ ini_set('display_errors', 1);
       min-width: 180px;
       border-radius: 1rem;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
+      background-color: #fff8e1;
     }
 
     .school-logo {
@@ -50,12 +67,27 @@ ini_set('display_errors', 1);
       background: #fff;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
     }
+
+    footer {
+      background-color: #198754;
+    }
   </style>
 </head>
 
 <body>
+
+  <div class="modal fade" id="notificationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content notification-info">
+        <div class="modal-body d-flex align-items-center">
+          <span class="notification-icon me-3"><i class="bi bi-info-circle"></i></span>
+          <span class="notification-message"></span>
+        </div>
+      </div>
+    </div>
+  </div>
   <!-- Navbar -->
-  <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+  <nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm">
     <div class="container">
       <a class="navbar-brand d-flex align-items-center" href="#">
         <img src="./images/download (16).jpg" alt="Kingsway Logo" class="school-logo me-2">
@@ -83,24 +115,27 @@ ini_set('display_errors', 1);
     </div>
   </nav>
 
-  <!-- Hero Section with Graphitis -->
+  <!-- Hero Section -->
   <section class="hero-bg d-flex align-items-center">
     <div class="container hero-content py-5">
+      <div class="text-center mb-4">
+        <h2 class="fw-bold">KINGSWAY PREPARATORY SCHOOL</h2>
+        <p class="mb-0">P.O BOX 203-20203, LONDIANI | PHONE: 0720113030 / 0720113031</p>
+        <em>Motto: "In God We Soar"</em>
+      </div>
       <div class="row align-items-center">
         <div class="col-md-7">
-          <h1 class="display-5 fw-bold">Welcome to Kingsway Preparatory School</h1>
-          <p class="lead mb-4">Nurturing Excellence, Character & Leadership.<br>
-            Discover our vibrant community, holistic programs, and outstanding results.</p>
-          <button class="btn btn-light btn-lg shadow" data-bs-toggle="modal" data-bs-target="#loginModal">
+          <h1 class="display-5 fw-bold">Welcome to Kingsway</h1>
+          <p class="lead">Nurturing Excellence, Character & Leadership.</p>
+          <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#loginModal">
             <i class="bi bi-box-arrow-in-right"></i> Admin/Staff Login
           </button>
         </div>
         <div class="col-md-5 d-none d-md-block">
-          <!-- SVG Graphiti Illustration -->
           <svg class="hero-graphic" viewBox="0 0 400 300">
             <ellipse cx="200" cy="150" rx="180" ry="90" fill="#fff" />
-            <circle cx="120" cy="120" r="40" fill="#20c997" />
-            <circle cx="280" cy="180" r="60" fill="#6f42c1" />
+            <circle cx="120" cy="120" r="40" fill="#198754" />
+            <circle cx="280" cy="180" r="60" fill="#f9c80e" />
             <rect x="170" y="60" width="60" height="120" rx="30" fill="#fd7e14" opacity="0.7" />
             <polygon points="200,30 220,70 180,70" fill="#0d6efd" opacity="0.8" />
           </svg>
@@ -113,21 +148,21 @@ ini_set('display_errors', 1);
   <div class="container my-5">
     <div class="row g-4 justify-content-center">
       <div class="col-md-3">
-        <div class="bg-white summary-card p-4 text-center">
-          <div class="mb-2"><i class="bi bi-people-fill fs-1 text-primary"></i></div>
+        <div class="summary-card p-4 text-center">
+          <div class="mb-2"><i class="bi bi-people-fill fs-1 text-success"></i></div>
           <h4>1200+</h4>
           <p class="mb-0 text-muted">Students Enrolled</p>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="bg-white summary-card p-4 text-center">
+        <div class="summary-card p-4 text-center">
           <div class="mb-2"><i class="bi bi-mortarboard-fill fs-1 text-success"></i></div>
           <h4>98%</h4>
           <p class="mb-0 text-muted">JSS Pass Rate</p>
         </div>
       </div>
       <div class="col-md-3">
-        <div class="bg-white summary-card p-4 text-center">
+        <div class="summary-card p-4 text-center">
           <div class="mb-2"><i class="bi bi-award-fill fs-1 text-warning"></i></div>
           <h4>30+</h4>
           <p class="mb-0 text-muted">Co-curricular Awards</p>
@@ -136,12 +171,12 @@ ini_set('display_errors', 1);
     </div>
   </div>
 
-  <!-- About, Programs, Performance, History -->
+  <!-- About and Downloads -->
   <div class="container my-5" id="about">
     <div class="row g-4">
       <div class="col-md-6" id="history">
         <h3>Our History</h3>
-        <p>Kingsway Preparatory School was founded in 1995 with a vision to provide quality education and holistic development. Over the years, we have grown into a leading institution, producing top performers and responsible citizens.</p>
+        <p>Kingsway Preparatory School was founded to provide quality education and holistic development. We have grown into a leading institution.</p>
       </div>
       <div class="col-md-6" id="programs">
         <h3>Our Programs</h3>
@@ -155,7 +190,7 @@ ini_set('display_errors', 1);
       </div>
       <div class="col-md-6" id="performance">
         <h3>Performance</h3>
-        <p>Consistently ranked among the top schools in the county, Kingsway boasts a 98% KCPE pass rate and numerous awards in academics and co-curricular activities.</p>
+        <p>Kingsway has a 98% KCPE pass rate and many awards in academics and co-curricular activities.</p>
       </div>
       <div class="col-md-6" id="downloads">
         <h3>Downloads</h3>
@@ -167,6 +202,7 @@ ini_set('display_errors', 1);
       </div>
     </div>
   </div>
+
 
   <!-- Contact Section -->
   <div class="container my-5" id="contact">
@@ -198,66 +234,80 @@ ini_set('display_errors', 1);
   <!-- Login Modal -->
   <div class="modal fade" id="loginModal" tabindex="-1">
     <div class="modal-dialog">
-      <form class="modal-content" id="login-form">
+      <form class="modal-content" id="loginForm">
         <div class="modal-header">
           <h5 class="modal-title">Admin/Staff Login</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <input name="username" class="form-control mb-2" placeholder="Username" required>
-          <input name="password" type="password" class="form-control mb-2" placeholder="Password" required>
-          <div id="login-error" class="text-danger small"></div>
+          <div class="mb-3">
+            <input type="text"
+              name="username"
+              class="form-control"
+              placeholder="Username or Email"
+              autocomplete="username"
+              required>
+          </div>
+          <div class="mb-3">
+            <input type="password"
+              name="password"
+              class="form-control"
+              placeholder="Password"
+              autocomplete="current-password"
+              required>
+          </div>
+          <div id="loginError" class="alert alert-danger d-none"></div>
         </div>
         <div class="modal-footer">
-          <button class="btn btn-primary" type="submit">Login</button>
+          <button type="submit" class="btn btn-primary">Login</button>
         </div>
       </form>
     </div>
   </div>
 
-  <footer class="bg-primary text-white text-center py-3 mt-5">
-    &copy; <?= date('Y') ?> Kingsway Preparatory School. All rights reserved.
+  <!-- Notification -->
+  <div id="notification" class="alert d-none"></div>
+
+  <!-- Footer -->
+  <footer class="text-white py-4 mt-5">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4">
+          <h5>Contact Info</h5>
+          <p>P.O BOX 203-20203, LONDIANI<br>
+            Phone: 0720113030 / 0720113031<br>
+            Email: info@kingsway.ac.ke</p>
+        </div>
+        <div class="col-md-4">
+          <h5>Quick Links</h5>
+          <ul class="list-unstyled">
+            <li><a href="#" class="text-white">About Us</a></li>
+            <li><a href="#" class="text-white">Admissions</a></li>
+            <li><a href="#" class="text-white">News & Events</a></li>
+            <li><a href="#" class="text-white">Contact Us</a></li>
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <h5>Follow Us</h5>
+          <div class="d-flex gap-3 fs-4">
+            <a href="#" class="text-white"><i class="bi bi-facebook"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-twitter"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-instagram"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-youtube"></i></a>
+          </div>
+        </div>
+      </div>
+      <hr class="my-4">
+      <div class="text-center">
+        <small>&copy; 2025 Kingsway Preparatory School. All rights reserved.</small>
+      </div>
+    </div>
   </footer>
 
-  <script>
-    // Login handler
-    document.getElementById('login-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(this);
-      fetch('api/login.php', {
-          method: 'POST',
-          body: formData
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            window.location = 'home.php';
-          } else {
-            document.getElementById('login-error').textContent = data.message || 'Invalid credentials';
-          }
-        });
-    });
-
-    // Contact form handler (AJAX)
-    document.getElementById('contact-form').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const formData = new FormData(this);
-      fetch('api/contact.php', {
-          method: 'POST',
-          body: formData
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            document.getElementById('contact-success').textContent = "Message sent successfully!";
-            this.reset();
-          } else {
-            document.getElementById('contact-success').textContent = "Failed to send message. Try again.";
-          }
-        });
-    });
-  </script>
+  <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/main.js"></script>
 </body>
 
 </html>
