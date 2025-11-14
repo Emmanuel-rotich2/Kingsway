@@ -11,39 +11,41 @@ use RuntimeException;
 use Exception;
 use finfo;
 
-class BaseAPI {
+class BaseAPI
+{
     protected $db;
     protected $user_id;
     protected $module;
     protected $request_id;
 
-    public function __construct($module = '') {
+    public function __construct($module = '')
+    {
         // Initialize database connection
         $this->db = Database::getInstance()->getConnection();
         $this->module = $module;
         $this->user_id = $this->getCurrentUserId();
         $this->request_id = uniqid('req_');
-        
-        // Handle CORS for all API requests
-        handleCORS();
+
+        // NOTE: CORS handling moved to CORSMiddleware in the Router pipeline
+        // This prevents double-handling and keeps middleware concerns in middleware
 
         // Log API request
         $this->logRequest();
     }
 
-    protected function getCurrentUserId() {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-        return isset($_SESSION['user_id']) ? $_SESSION['user_id'] : null;
+    protected function getCurrentUserId()
+    {
+        // User ID is now set by AuthMiddleware in $_REQUEST['user']['id']
+        return $_REQUEST['user']['id'] ?? null;
     }
 
-    protected function logRequest() {
+    protected function logRequest()
+    {
         $method = $_SERVER['REQUEST_METHOD'];
         $endpoint = $_SERVER['REQUEST_URI'];
         $ip = $_SERVER['REMOTE_ADDR'];
         $params = [];
-        
+
         // Get request parameters based on method
         if ($method === 'GET') {
             $params = $_GET;
@@ -85,7 +87,8 @@ class BaseAPI {
         $this->logAction('request', null, $message);
     }
 
-    protected function logAction($action_type, $record_id, $description) {
+    protected function logAction($action_type, $record_id, $description)
+    {
         try {
             // Log to system activity log file
             $this->logToFile('system_activity.log', [
@@ -129,7 +132,8 @@ class BaseAPI {
         }
     }
 
-    protected function logError($e, $context = '') {
+    protected function logError($e, $context = '')
+    {
         $errorData = [
             'request_id' => $this->request_id,
             'timestamp' => date('Y-m-d H:i:s'),
@@ -177,7 +181,8 @@ class BaseAPI {
         }
     }
 
-    protected function logAudit($action, $record_id, $description) {
+    protected function logAudit($action, $record_id, $description)
+    {
         try {
             $stmt = $this->db->prepare("
                 INSERT INTO audit_logs (
@@ -202,7 +207,8 @@ class BaseAPI {
         }
     }
 
-    protected function logToFile($filename, $data) {
+    protected function logToFile($filename, $data)
+    {
         try {
             $logDir = __DIR__ . '/../../logs';
             if (!is_dir($logDir)) {
@@ -211,23 +217,15 @@ class BaseAPI {
 
             $logFile = $logDir . '/' . $filename;
             $logEntry = json_encode($data) . "\n";
-            
+
             file_put_contents($logFile, $logEntry, FILE_APPEND);
         } catch (Exception $e) {
             error_log("Failed to write to log file {$filename}: " . $e->getMessage());
         }
     }
 
-    protected function response($data, $status = 200) {
-        return formatResponse(
-            $data['status'] ?? 'success',
-            $data['data'] ?? null,
-            $data['message'] ?? '',
-            $status
-        );
-    }
-
-    protected function validateRequired($data, $fields) {
+    protected function validateRequired($data, $fields)
+    {
         $missing = [];
         foreach ($fields as $field) {
             if (!isset($data[$field]) || empty($data[$field])) {
@@ -237,23 +235,28 @@ class BaseAPI {
         return $missing;
     }
 
-    protected function sanitizeInput($data) {
+    protected function sanitizeInput($data)
+    {
         return sanitizeInput($data);
     }
 
-    protected function beginTransaction() {
+    protected function beginTransaction()
+    {
         return Database::getInstance()->beginTransaction();
     }
 
-    protected function commit() {
+    protected function commit()
+    {
         return Database::getInstance()->commit();
     }
 
-    protected function rollback() {
+    protected function rollback()
+    {
         return Database::getInstance()->rollback();
     }
 
-    protected function handleException($e) {
+    protected function handleException($e)
+    {
         if ($this->db && $this->db->inTransaction()) {
             $this->rollback();
         }
@@ -261,37 +264,32 @@ class BaseAPI {
         // Log the error with full context
         $this->logError($e, 'Unhandled exception in ' . $this->module);
 
-        // Return user-friendly response
-        return $this->response([
-            'status' => 'error',
-            'message' => 'An error occurred. Please try again later.',
-            'debug' => DEBUG ? [
-                'message' => $e->getMessage(),
-                'code' => $e->getCode(),
-                'request_id' => $this->request_id
-            ] : null
-        ], 500);
+        // Throw exception so Controller can format the response
+        throw $e;
     }
 
-    protected function getPaginationParams() {
-        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
-        $limit = isset($_GET['limit']) ? 
-            min((int)$_GET['limit'], MAX_PAGE_SIZE) : 
+    protected function getPaginationParams()
+    {
+        $page = isset($_GET['page']) ? (int) $_GET['page'] : 1;
+        $limit = isset($_GET['limit']) ?
+            min((int) $_GET['limit'], MAX_PAGE_SIZE) :
             DEFAULT_PAGE_SIZE;
         $offset = ($page - 1) * $limit;
         return [$page, $limit, $offset];
     }
 
-    protected function getSearchParams() {
+    protected function getSearchParams()
+    {
         $search = isset($_GET['search']) ? $this->sanitizeInput($_GET['search']) : '';
         $sort = isset($_GET['sort']) ? $this->sanitizeInput($_GET['sort']) : 'id';
         $order = isset($_GET['order']) ? strtoupper($this->sanitizeInput($_GET['order'])) : 'ASC';
         $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
-        
+
         return [$search, $sort, $order];
     }
 
-    protected function uploadFile($file, $destination, $allowedTypes = ['jpg', 'jpeg', 'png', 'pdf']) {
+    protected function uploadFile($file, $destination, $allowedTypes = ['jpg', 'jpeg', 'png', 'pdf'])
+    {
         try {
             if (!isset($file['error']) || is_array($file['error'])) {
                 throw new RuntimeException('Invalid parameters.');
@@ -362,5 +360,66 @@ class BaseAPI {
         } catch (RuntimeException $e) {
             throw new RuntimeException($e->getMessage());
         }
+    }
+
+    // ---------- Stored routine helpers ----------
+    protected function routineExists($name, $type = 'PROCEDURE')
+    {
+        $sql = "SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = DATABASE() AND ROUTINE_NAME = ? AND ROUTINE_TYPE = ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$name, strtoupper($type)]);
+        return (bool) $stmt->fetchColumn();
+    }
+
+    protected function callProcedure($name, array $params = [], $expectResult = true)
+    {
+        $placeholders = implode(',', array_fill(0, count($params), '?'));
+        $sql = "CALL {$name}(" . $placeholders . ")";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(array_values($params));
+        if ($expectResult) {
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        return true;
+    }
+
+    protected function callFunction($name, array $params = [])
+    {
+        $placeholders = implode(',', array_fill(0, count($params), '?'));
+        $sql = "SELECT {$name}(" . $placeholders . ") AS value";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute(array_values($params));
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? $row['value'] : null;
+    }
+
+    protected function emitEvent($eventType, array $data = [])
+    {
+        try {
+            // Prefer stored procedure if available
+            if ($this->routineExists('sp_emit_event', 'PROCEDURE')) {
+                $this->callProcedure('sp_emit_event', [$eventType, json_encode($data)], false);
+                return;
+            }
+            // Fallback direct insert
+            $stmt = $this->db->prepare("INSERT INTO system_events (event_type, event_data, created_at) VALUES (?, ?, NOW())");
+            $stmt->execute([$eventType, json_encode($data)]);
+        } catch (Exception $e) {
+            // Swallow errors to avoid breaking main flow
+            $this->logError($e, 'emitEvent failed');
+        }
+    }
+
+    // ---------- RBAC helpers ----------
+    protected function getCurrentUserRole()
+    {
+        // User role is now set by AuthMiddleware in $_REQUEST['user']['role']
+        return $_REQUEST['user']['role'] ?? null;
+    }
+
+    protected function getCurrentUser()
+    {
+        // Full user object set by AuthMiddleware
+        return $_REQUEST['user'] ?? null;
     }
 }

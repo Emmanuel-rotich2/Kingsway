@@ -66,7 +66,6 @@ class AuthAPI extends BaseAPI
             ]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user || !password_verify($data['password'], $user['password'])) {
                 return [
                     'status' => 'error',
                     'message' => 'Invalid username or password'
@@ -167,7 +166,6 @@ class AuthAPI extends BaseAPI
             $stmt->execute([$data['email']]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user) {
                 return [
                     'status' => 'error',
                     'message' => 'Email not found'
@@ -235,7 +233,6 @@ class AuthAPI extends BaseAPI
             $stmt->execute([$data['user_id']]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user) {
                 return [
                     'status' => 'error',
                     'message' => 'User not found'
@@ -243,7 +240,6 @@ class AuthAPI extends BaseAPI
             }
 
             // Verify current password
-            if (!password_verify($data['current_password'], $user['password'])) {
                 return [
                     'status' => 'error',
                     'message' => 'Current password is incorrect'

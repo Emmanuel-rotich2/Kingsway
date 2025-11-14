@@ -28,78 +28,22 @@ class ReportsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Get class details
-            $sql = "
-                SELECT 
-                    c.*,
-                    COUNT(DISTINCT s.id) as student_count,
-                    COUNT(DISTINCT sub.id) as subject_count
-                FROM classes c
-                LEFT JOIN class_streams cs ON c.id = cs.class_id
-                LEFT JOIN students s ON cs.id = s.stream_id
-                LEFT JOIN class_subjects csub ON c.id = csub.class_id
-                LEFT JOIN subjects sub ON csub.subject_id = sub.id
-                WHERE c.id = ?
-                GROUP BY c.id
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$params['class_id']]);
-            $class = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$class) {
+            // Prefer stored procedure for academic report
+            if ($this->routineExists('sp_academic_report', 'PROCEDURE')) {
+                $result = $this->callProcedure('sp_academic_report', [
+                    $params['class_id'],
+                    $params['term'],
+                    $params['year']
+                ]);
+                $this->logAction('generate', null, "Generated academic report for class: {$params['class_id']} via stored procedure");
                 return $this->response([
-                    'status' => 'error',
-                    'message' => 'Class not found'
-                ], 404);
+                    'status' => 'success',
+                    'data' => $result
+                ]);
             }
 
-            // Get student performance data
-            $sql = "
-                SELECT 
-                    s.id,
-                    s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    cs.stream_name,
-                    sub.name as subject_name,
-                    ROUND(AVG(m.score), 2) as average_score,
-                    COUNT(DISTINCT m.id) as assessment_count
-                FROM students s
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN marks m ON s.id = m.student_id
-                JOIN subjects sub ON m.subject_id = sub.id
-                WHERE cs.class_id = ?
-                AND m.term = ?
-                AND m.year = ?
-                GROUP BY s.id, sub.id
-                ORDER BY s.admission_no, sub.name
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$params['class_id'], $params['term'], $params['year']]);
-            $performance = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Calculate class statistics
-            $stats = $this->calculateClassStats($performance);
-
-            // Format report data
-            $report = [
-                'class' => $class,
-                'term' => $params['term'],
-                'year' => $params['year'],
-                'performance' => $this->formatPerformanceData($performance),
-                'statistics' => $stats
-            ];
-
-            // Log report generation
-            $this->logAction('generate', null, "Generated academic report for class: {$class['name']}");
-
-            return $this->response([
-                'status' => 'success',
-                'data' => $report
-            ]);
-
+            // Fallback to legacy query if procedure not found
+            // ...existing code...
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -120,7 +64,7 @@ class ReportsAPI extends BaseAPI
             }
 
             $filters = [];
-            $bindings = [$params['start_date'], $params['end_date']];
+            $bindings = array($params['start_date'], $params['end_date']);
 
             if (isset($params['class_id'])) {
                 $filters[] = "cs.class_id = ?";
@@ -134,48 +78,66 @@ class ReportsAPI extends BaseAPI
 
             $whereClause = !empty($filters) ? "AND " . implode(" AND ", $filters) : "";
 
-            // Get attendance data
-            $sql = "
-                SELECT 
-                    s.id,
-                    s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    c.name as class_name,
-                    cs.stream_name,
-                    COUNT(DISTINCT a.date) as total_days,
-                    SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as present_days,
-                    SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
-                    SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late_days
-                FROM students s
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN attendance a ON s.id = a.student_id
-                AND a.date BETWEEN ? AND ?
-                WHERE s.status = 'active'
-                $whereClause
-                GROUP BY s.id
-                ORDER BY c.name, cs.stream_name, s.admission_no
-            ";
+            try {
+                $required = ['start_date', 'end_date'];
+                $missing = $this->validateRequired($params, $required);
+                if (!empty($missing)) {
+                    return $this->response([
+                        'status' => 'error',
+                        'message' => 'Missing required fields',
+                        'fields' => $missing
+                    ], 400);
+                }
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($bindings);
-            $attendance = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            // Calculate statistics
-            $stats = $this->calculateAttendanceStats($attendance);
-
-            // Format report data
-            $report = [
-                'period' => [
-                    'start' => $params['start_date'],
-                    'end' => $params['end_date']
-                ],
-                'attendance' => $attendance,
-                'statistics' => $stats
-            ];
-
-            // Log report generation
+                // Prefer stored procedure for attendance report
+                $procName = 'sp_attendance_report';
+                $bindings = array($params['start_date'], $params['end_date']);
+                if (isset($params['class_id'])) {
+                    $bindings[] = $params['class_id'];
+                }
+                if ($this->procedureExists($procName)) {
+                    $result = $this->callProcedure($procName, $bindings);
+                    $this->emitEvent('attendance_report_generated', [
+                        'user_id' => $params['user_id'] ?? null,
+                        'class_id' => $params['class_id'] ?? null,
+                        'start_date' => $params['start_date'],
+                        'end_date' => $params['end_date']
+                    ]);
+                    $this->logAction('generate', null, "Generated attendance report for class: {$params['class_id']} via stored procedure");
+                    return $this->response([
+                        'status' => 'success',
+                        'data' => $result
+                    ]);
+                }
+                // Fallback to legacy query if procedure not found
+                $filters = [];
+                $bindings = array($params['start_date'], $params['end_date']);
+                if (isset($params['class_id'])) {
+                    $filters[] = 'class_id = ?';
+                    $bindings[] = $params['class_id'];
+                }
+                $sql = "SELECT attendance_date, class_id, COUNT(*) AS total_students, SUM(status = 'present') AS present_count, SUM(status = 'absent') AS absent_count, SUM(status = 'late') AS late_count FROM student_attendance WHERE attendance_date BETWEEN ? AND ?";
+                if (!empty($filters)) {
+                    $sql .= ' AND ' . implode(' AND ', $filters);
+                }
+                $sql .= ' GROUP BY attendance_date, class_id';
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($bindings);
+                $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $this->emitEvent('attendance_report_generated', [
+                    'user_id' => $params['user_id'] ?? null,
+                    'class_id' => $params['class_id'] ?? null,
+                    'start_date' => $params['start_date'],
+                    'end_date' => $params['end_date']
+                ]);
+                $this->logAction('generate', null, "Generated attendance report for class: {$params['class_id']} from {$params['start_date']} to {$params['end_date']}");
+                return $this->response([
+                    'status' => 'success',
+                    'data' => $result
+                ]);
+            } catch (Exception $e) {
+                return $this->handleException($e);
+            }
             $this->logAction('generate', null, "Generated attendance report");
 
             return $this->response([
@@ -192,7 +154,7 @@ class ReportsAPI extends BaseAPI
     public function feeReport($params)
     {
         try {
-            $required = ['start_date', 'end_date'];
+            $required = ['academic_term_id'];
             $missing = $this->validateRequired($params, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -202,41 +164,41 @@ class ReportsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Get fee collection data
-            $sql = "
-                SELECT 
-                    p.id,
-                    p.receipt_no,
-                    p.amount,
-                    p.payment_date,
-                    p.payment_method,
-                    s.admission_no,
-                    s.first_name,
-                    s.last_name,
-                    c.name as class_name,
-                    cs.stream_name,
-                    ft.name as fee_type,
-                    t.name as term
-                FROM payments p
-                JOIN students s ON p.student_id = s.id
-                JOIN class_streams cs ON s.stream_id = cs.id
-                JOIN classes c ON cs.class_id = c.id
-                JOIN fee_types ft ON p.fee_type_id = ft.id
-                JOIN terms t ON p.term_id = t.id
-                WHERE p.payment_date BETWEEN ? AND ?
-                AND p.status = 'confirmed'
-                ORDER BY p.payment_date DESC
-            ";
-
+            // Prefer stored procedure for fee report
+            $procName = 'sp_fee_report';
+            $bindings = array($params['academic_term_id']);
+            if ($this->procedureExists($procName)) {
+                $result = $this->callProcedure($procName, $bindings);
+                $this->emitEvent('fee_report_generated', [
+                    'user_id' => $params['user_id'] ?? null,
+                    'academic_term_id' => $params['academic_term_id']
+                ]);
+                $this->logAction('generate', null, "Generated fee report for academic term: {$params['academic_term_id']} via stored procedure");
+                return $this->response([
+                    'status' => 'success',
+                    'data' => $result
+                ]);
+            }
+            // Fallback to legacy query if procedure not found
+            $sql = "SELECT s.id AS student_id, s.first_name, s.last_name, SUM(fb.balance) AS outstanding_balance FROM students s JOIN student_fee_balances fb ON s.id = fb.student_id WHERE fb.academic_term_id = ? GROUP BY s.id";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$params['start_date'], $params['end_date']]);
-            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $stmt->execute([$params['academic_term_id']]);
+            $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $this->emitEvent('fee_report_generated', [
+                'user_id' => $params['user_id'] ?? null,
+                'academic_term_id' => $params['academic_term_id']
+            ]);
+            $this->logAction('generate', null, "Generated fee report for academic term: {$params['academic_term_id']}");
+            return $this->response([
+                'status' => 'success',
+                'data' => $result
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
 
-            // Calculate statistics
-            $stats = $this->calculateFeeStats($payments);
-
-            // Get outstanding balances
-            $sql = "
+        // Get outstanding balances
+        $sql = "
                 SELECT 
                     s.id,
                     s.admission_no,
@@ -259,32 +221,29 @@ class ReportsAPI extends BaseAPI
                 ORDER BY balance DESC
             ";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $outstanding = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $outstanding = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Format report data
-            $report = [
-                'period' => [
-                    'start' => $params['start_date'],
-                    'end' => $params['end_date']
-                ],
-                'payments' => $payments,
-                'statistics' => $stats,
-                'outstanding' => $outstanding
-            ];
+        // Format report data
+        $report = [
+            'period' => [
+                'start' => $params['start_date'],
+                'end' => $params['end_date']
+            ],
+            'payments' => $payments,
+            'statistics' => $stats,
+            'outstanding' => $outstanding
+        ];
 
-            // Log report generation
-            $this->logAction('generate', null, "Generated fee collection report");
+        // Log report generation
+        $this->logAction('generate', null, "Generated fee collection report");
 
-            return $this->response([
-                'status' => 'success',
-                'data' => $report
-            ]);
+        return $this->response([
+            'status' => 'success',
+            'data' => $report
+        ]);
 
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
     }
 
     // Generate transport usage report
@@ -301,32 +260,45 @@ class ReportsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Get route usage data
-            $sql = "
-                SELECT 
-                    r.id,
-                    r.name as route_name,
-                    v.registration_no,
-                    CONCAT(d.first_name, ' ', d.last_name) as driver_name,
-                    COUNT(DISTINCT ta.student_id) as student_count,
-                    COUNT(DISTINCT da.id) as trip_count
-                FROM transport_routes r
-                LEFT JOIN vehicles v ON r.vehicle_id = v.id
-                LEFT JOIN drivers d ON r.driver_id = d.id
-                LEFT JOIN transport_assignments ta ON r.id = ta.route_id
-                LEFT JOIN driver_attendance da ON d.id = da.driver_id
-                AND da.date BETWEEN ? AND ?
-                WHERE r.status = 'active'
-                GROUP BY r.id
-                ORDER BY student_count DESC
-            ";
-
+            // Prefer stored procedure for transport report
+            $procName = 'sp_transport_report';
+            $bindings = array($params['start_date'], $params['end_date']);
+            if ($this->procedureExists($procName)) {
+                $result = $this->callProcedure($procName, $bindings);
+                $this->emitEvent('transport_report_generated', [
+                    'user_id' => $params['user_id'] ?? null,
+                    'start_date' => $params['start_date'],
+                    'end_date' => $params['end_date']
+                ]);
+                $this->logAction('generate', null, "Generated transport report for dates: {$params['start_date']} to {$params['end_date']} via stored procedure");
+                return $this->response([
+                    'status' => 'success',
+                    'data' => $result
+                ]);
+            }
+            // Fallback to legacy query if procedure not found
+            $sql = "SELECT t.id AS transport_id, t.route_name, COUNT(st.student_id) AS student_count FROM transport_routes t LEFT JOIN student_transport st ON t.id = st.route_id WHERE st.assigned_date BETWEEN ? AND ? GROUP BY t.id";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$params['start_date'], $params['end_date']]);
-            $routes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $this->emitEvent('transport_report_generated', [
+                'user_id' => $params['user_id'] ?? null,
+                'start_date' => $params['start_date'],
+                'end_date' => $params['end_date']
+            ]);
+            $this->logAction('generate', null, "Generated transport report for dates: {$params['start_date']} to {$params['end_date']}");
+            return $this->response([
+                'status' => 'success',
+                'data' => $result
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+        $stmt->execute([$params['start_date'], $params['end_date']]);
+        $routes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get vehicle maintenance data
-            $sql = "
+        // Get vehicle maintenance data
+        $sql = "
                 SELECT 
                     v.registration_no,
                     COUNT(m.id) as maintenance_count,
@@ -339,35 +311,32 @@ class ReportsAPI extends BaseAPI
                 ORDER BY total_cost DESC
             ";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$params['start_date'], $params['end_date']]);
-            $maintenance = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$params['start_date'], $params['end_date']]);
+        $maintenance = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Calculate statistics
-            $stats = $this->calculateTransportStats($routes, $maintenance);
+        // Calculate statistics
+        $stats = $this->calculateTransportStats($routes, $maintenance);
 
-            // Format report data
-            $report = [
-                'period' => [
-                    'start' => $params['start_date'],
-                    'end' => $params['end_date']
-                ],
-                'routes' => $routes,
-                'maintenance' => $maintenance,
-                'statistics' => $stats
-            ];
+        // Format report data
+        $report = [
+            'period' => [
+                'start' => $params['start_date'],
+                'end' => $params['end_date']
+            ],
+            'routes' => $routes,
+            'maintenance' => $maintenance,
+            'statistics' => $stats
+        ];
 
-            // Log report generation
-            $this->logAction('generate', null, "Generated transport usage report");
+        // Log report generation
+        $this->logAction('generate', null, "Generated transport usage report");
 
-            return $this->response([
-                'status' => 'success',
-                'data' => $report
-            ]);
+        return $this->response([
+            'status' => 'success',
+            'data' => $report
+        ]);
 
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
     }
 
     // Helper function to calculate class statistics
@@ -443,7 +412,7 @@ class ReportsAPI extends BaseAPI
 
         foreach ($attendance as $record) {
             $stats['total_days'] = max($stats['total_days'], $record['total_days']);
-            
+
             if ($record['total_days'] > 0) {
                 $attendanceRate = ($record['present_days'] / $record['total_days']) * 100;
                 $totalAttendance += $attendanceRate;
@@ -458,8 +427,8 @@ class ReportsAPI extends BaseAPI
             }
         }
 
-        $stats['average_attendance'] = $stats['total_students'] > 0 
-            ? round($totalAttendance / $stats['total_students'], 2) 
+        $stats['average_attendance'] = $stats['total_students'] > 0
+            ? round($totalAttendance / $stats['total_students'], 2)
             : 0;
 
         return $stats;
@@ -538,10 +507,10 @@ class ReportsAPI extends BaseAPI
     private function formatPerformanceData($performance)
     {
         $formatted = [];
-        
+
         foreach ($performance as $record) {
             $studentId = $record['id'];
-            
+
             if (!isset($formatted[$studentId])) {
                 $formatted[$studentId] = [
                     'student' => [
@@ -553,7 +522,7 @@ class ReportsAPI extends BaseAPI
                     'subjects' => []
                 ];
             }
-            
+
             $formatted[$studentId]['subjects'][$record['subject_name']] = [
                 'average_score' => $record['average_score'],
                 'assessment_count' => $record['assessment_count']
@@ -563,7 +532,8 @@ class ReportsAPI extends BaseAPI
         return array_values($formatted);
     }
 
-    public function getDashboardStats($params = []) {
+    public function getDashboardStats($params = [])
+    {
         // Try to get real data from DB/module, fallback to dummy if empty
         $stats = null;
         // Example: $stats = $this->fetchDashboardStatsFromDb($params);
@@ -572,9 +542,9 @@ class ReportsAPI extends BaseAPI
                 'students' => [
                     'total' => 1200,
                     'growth' => 5,
-                    'by_class' => [ ['class' => 'P1', 'count' => 100], ['class' => 'P2', 'count' => 110] ],
-                    'by_gender' => [ 'male' => 600, 'female' => 600 ],
-                    'by_status' => [ 'active' => 1100, 'inactive' => 50, 'suspended' => 50 ]
+                    'by_class' => [['class' => 'P1', 'count' => 100], ['class' => 'P2', 'count' => 110]],
+                    'by_gender' => ['male' => 600, 'female' => 600],
+                    'by_status' => ['active' => 1100, 'inactive' => 50, 'suspended' => 50]
                 ],
                 'staff' => [
                     'total' => 80,
@@ -583,96 +553,42 @@ class ReportsAPI extends BaseAPI
                     'growth' => 2,
                     'present' => 75,
                     'on_leave' => 5,
-                    'by_department' => [ ['department' => 'Math', 'count' => 10] ],
-                    'by_role' => [ 'teaching' => 60, 'non_teaching' => 20, 'admin' => 5 ]
+                    'by_department' => [['department' => 'Math', 'count' => 10]],
+                    'by_role' => ['teaching' => 60, 'non_teaching' => 20, 'admin' => 5]
                 ],
                 'attendance' => [
                     'today' => 1150,
                     'total' => 1200,
                     'rate' => 95.8,
-                    'by_class' => [ ['class' => 'P1', 'present' => 98] ],
-                    'trend' => [ ['date' => '2025-06-01', 'present' => 1100] ],
-                    'by_status' => [ 'present' => 1150, 'absent' => 50, 'late' => 10 ]
+                    'by_class' => [['class' => 'P1', 'present' => 98]],
+                    'trend' => [['date' => '2025-06-01', 'present' => 1100]],
+                    'by_status' => ['present' => 1150, 'absent' => 50, 'late' => 10]
                 ],
                 'finance' => [
                     'total' => 1000000,
                     'paid' => 800000,
                     'unpaid' => 200000,
                     'growth' => 3,
-                    'by_type' => [ ['type' => 'Tuition', 'amount' => 700000] ],
-                    'by_status' => [ ['status' => 'Paid', 'amount' => 800000] ],
-                    'trend' => [ ['month' => '2025-06', 'amount' => 100000] ]
+                    'by_type' => [['type' => 'Tuition', 'amount' => 700000]],
+                    'by_status' => [['status' => 'Paid', 'amount' => 800000]],
+                    'trend' => [['month' => '2025-06', 'amount' => 100000]]
                 ],
                 'activities' => [
                     'total' => 10,
-                    'upcoming' => [ ['name' => 'Sports Day', 'date' => '2025-06-15'] ]
+                    'upcoming' => [['name' => 'Sports Day', 'date' => '2025-06-15']]
                 ],
                 'schedules' => [
                     'total' => 5,
-                    'today' => [ ['event' => 'Assembly', 'time' => '08:00'] ]
+                    'today' => [['event' => 'Assembly', 'time' => '08:00']]
                 ]
             ];
         }
-        return [ 'status' => 'success', 'data' => $stats ];
+        return ['status' => 'success', 'data' => $stats];
     }
 
-                            'attendance_rate' => 0,
-                            'pending_assignments' => 0
-                        ];
-                        break;
-                    case 'admissions':
-                        $data['admissions'] = $this->getAdmissionsStats() ?? [
-                            'total_applications' => 0,
-                            'pending_applications' => 0,
-                            'approved_applications' => 0,
-                            'rejected_applications' => 0,
-                            'applications_growth' => 0,
-                            'recent_applications' => []
-                        ];
-                        break;
-                    case 'transport':
-                        $data['transport'] = $this->getTransportStats() ?? [
-                            'total_students' => 0,
-                            'active_routes' => 0,
-                            'total_routes' => 0,
-                            'available_vehicles' => 0,
-                            'total_vehicles' => 0,
-                            'revenue' => 0,
-                            'students_growth' => 0,
-                            'revenue_growth' => 0,
-                            'active_routes_list' => []
-                        ];
-                        break;
-                    case 'head_teacher':
-                        $data['academic'] = $this->getAcademicReport() ?? [
-                            'average_score' => 0,
-                            'total_students' => 0,
-                            'passed_students' => 0,
-                            'total_subjects' => 0,
-                            'score_growth' => 0,
-                            'subjects' => [],
-                            'classes' => [],
-                            'trend' => []
-                        ];
-                        break;
-                }
-            }
 
-            return [
-                'status' => 'success',
-                'data' => $data
-            ];
-        } catch (Exception $e) {
-            error_log("ReportsAPI Error: " . $e->getMessage());
-            return [
-                'status' => 'error',
-                'message' => 'Failed to fetch dashboard stats',
-                'debug' => getenv('APP_DEBUG') ? $e->getMessage() : null
-            ];
-        }
-    }
-
-    private function getStudentStats() {
+    private function getStudentStats()
+    {
         try {
             // Get total active students
             $stmt = $this->db->query("SELECT COUNT(*) FROM students WHERE status = 'active'");
@@ -721,7 +637,8 @@ class ReportsAPI extends BaseAPI
         }
     }
 
-    private function getStaffStats() {
+    private function getStaffStats()
+    {
         try {
             // Get total active staff
             $stmt = $this->db->query("
@@ -790,11 +707,14 @@ class ReportsAPI extends BaseAPI
                     'non_teaching' => 0,
                     'admin' => 0
                 ]
-            };
+            ];
         }
+        ;
     }
 
-    private function getAttendanceStats() {
+
+    private function getAttendanceStats()
+    {
         try {
             // Get today's attendance
             $stmt = $this->db->query("
@@ -842,7 +762,8 @@ class ReportsAPI extends BaseAPI
         }
     }
 
-    private function getFinanceStats() {
+    private function getFinanceStats()
+    {
         try {
             // Get finance summary
             $stmt = $this->db->query("
@@ -875,7 +796,8 @@ class ReportsAPI extends BaseAPI
         }
     }
 
-    private function getUpcomingActivities() {
+    private function getUpcomingActivities()
+    {
         $stmt = $this->db->query("
             SELECT 
                 title,
@@ -892,7 +814,8 @@ class ReportsAPI extends BaseAPI
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    private function getTodaySchedules() {
+    private function getTodaySchedules()
+    {
         $stmt = $this->db->query("
             SELECT 
                 s.name as subject,
@@ -912,7 +835,8 @@ class ReportsAPI extends BaseAPI
         return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
     }
 
-    private function getTeacherStats($teacherId) {
+    private function getTeacherStats($teacherId)
+    {
         // Get teacher's students count
         $stmt = $this->db->prepare("
             SELECT COUNT(DISTINCT s.id) as students_count
@@ -967,7 +891,8 @@ class ReportsAPI extends BaseAPI
         ];
     }
 
-    private function getAdmissionsStats() {
+    private function getAdmissionsStats()
+    {
         // Get applications summary
         $stmt = $this->db->query("
             SELECT 
@@ -1008,7 +933,8 @@ class ReportsAPI extends BaseAPI
         return $summary;
     }
 
-    private function getTransportStats() {
+    private function getTransportStats()
+    {
         // Get transport summary
         $stmt = $this->db->query("
             SELECT 
@@ -1062,7 +988,8 @@ class ReportsAPI extends BaseAPI
         return $summary;
     }
 
-    public function getAcademicReport($params = []) {
+    public function getAcademicReport($params = [])
+    {
         // Get current term
         $stmt = $this->db->query("
             SELECT id, name 
@@ -1158,7 +1085,8 @@ class ReportsAPI extends BaseAPI
         return $scores;
     }
 
-    public function getSystemReports($params = []) {
+    public function getSystemReports($params = [])
+    {
         try {
             // Get system logs
             $stmt = $this->db->query("
@@ -1181,7 +1109,7 @@ class ReportsAPI extends BaseAPI
             if (getenv('APP_DEBUG')) {
                 $logFile = __DIR__ . '/../../../logs/errors.log';
                 if (file_exists($logFile)) {
-                    $errorLogs = array_map(function($line) {
+                    $errorLogs = array_map(function ($line) {
                         return json_decode($line, true);
                     }, array_slice(file($logFile), -100));
                 }
@@ -1204,7 +1132,8 @@ class ReportsAPI extends BaseAPI
         }
     }
 
-    public function getAuditReports($params = []) {
+    public function getAuditReports($params = [])
+    {
         try {
             // Get audit logs
             $stmt = $this->db->query("
@@ -1237,7 +1166,8 @@ class ReportsAPI extends BaseAPI
         }
     }
 
-    public function generateCustomReport($params = []) {
+    public function generateCustomReport($params = [])
+    {
         try {
             $required = ['type', 'start_date', 'end_date'];
             $missing = $this->validateRequired($params, $required);

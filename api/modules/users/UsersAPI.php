@@ -117,7 +117,6 @@ class UsersAPI extends BaseAPI {
             $stmt->execute([$id]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user) {
                 return $this->response(['status' => 'error', 'message' => 'User not found'], 404);
             }
 
@@ -199,7 +198,6 @@ class UsersAPI extends BaseAPI {
             $data['first_name'] = trim($data['first_name']);
             $data['last_name'] = trim($data['last_name']);
             $username = $this->generateUsername($data);
-            if (!$username) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Unable to generate unique username.'
@@ -475,7 +473,6 @@ class UsersAPI extends BaseAPI {
             $stmt->execute([$id]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user || !password_verify($data['current_password'], $user['password'])) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Current password is incorrect'
@@ -761,7 +758,6 @@ class UsersAPI extends BaseAPI {
             $stmt = $this->db->prepare("SELECT role_id FROM users WHERE id = ?");
             $stmt->execute([$id]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$user) {
                 return $this->response(['status' => 'error', 'message' => 'User not found'], 404);
             }
 
@@ -823,7 +819,6 @@ class UsersAPI extends BaseAPI {
             $stmt->execute([$data['username']]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$user || !password_verify($data['password'], $user['password'])) {
                 return $this->response(['status' => 'error', 'message' => 'Invalid username or password'], 401);
             }
 

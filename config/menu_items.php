@@ -1,5 +1,5 @@
 <?php
-return [
+return ([
     'admin' => [
         [
             'label' => 'Dashboard',
@@ -219,7 +219,7 @@ return [
     ],
 
     'transport' => [
-      
+
         [
             'label' => 'Fleet Management',
             'icon' => 'bi bi-truck',
@@ -339,6 +339,18 @@ return [
             'label' => 'Settings',
             'icon' => 'bi bi-gear',
             'url' => 'settings'
+        ],
+        [
+            'label' => 'CBE Assessments',
+            'icon' => 'fa fa-clipboard-check',
+            'roles' => ['admin', 'teacher', 'director', 'head_teacher'],
+            'url' => '/pages/cbe_assessments.php',
+        ],
+        [
+            'label' => 'CBE Reports',
+            'icon' => 'fa fa-chart-bar',
+            'roles' => ['admin', 'teacher', 'director', 'head_teacher'],
+            'url' => '/pages/cbe_reports.php',
         ]
     ]
-];
+]);
