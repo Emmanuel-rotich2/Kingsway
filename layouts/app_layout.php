@@ -40,12 +40,17 @@ $sidebar_items_admin = [
 ];
 
 $sidebar_items_teacher = [
-    ['label' => 'Dashboard', 'icon' => 'fas fa-tachometer-alt', 'url' => '?route=teacher_dashboard'],
-    ['label' => 'My Classes', 'icon' => 'fas fa-chalkboard', 'url' => '?route=myclasses'],
-    ['label' => 'Exam Results', 'icon' => 'fas fa-poll', 'url' => '?route=enter_results'],
-    ['label' => 'Attendance', 'icon' => 'fas fa-calendar-check', 'url' => '?route=mark_attendance'],
-    ['label' => 'Resources', 'icon' => 'fas fa-book', 'url' => '?route=resources'],
-    ['label' => 'Settings', 'icon' => 'fas fa-cog', 'url' => '?route=settings'],
+  ['label' => 'Dashboard', 'icon' => 'fas fa-tachometer-alt', 'url' => '?route=teacher_dashboard'], 
+    ['label' => 'Class Management', 'icon' => 'fas fa-chalkboard-teacher', 'url' => '?route=myclasses'], 
+    ['label' => 'Attendance Management', 'icon' => 'fas fa-user-check', 'url' => '?route=mark_attendance'], 
+    ['label' => 'Results Management', 'icon' => 'fas fa-graduation-cap', 'url' => '?route=enter_results'], 
+    ['label' => 'Assignments', 'icon' => 'fas fa-tasks', 'url' => '?route=resources'], 
+    ['label' => 'Timetable', 'icon' => 'fas fa-calendar-alt', 'url' => '?route=timetable'], 
+    ['label' => 'Communications', 'icon' => 'fas fa-comments', 'url' => '?route=communications'], 
+    ['label' => 'CATs and Reports', 'icon' => 'fas fa-chart-line', 'url' => '?route=cats_reports'], 
+    ['label' => 'STG', 'icon' => 'fas fa-lightbulb', 'url' => '?route=stg'], 
+    ['label' => 'Report & Analysis', 'icon' => 'fas fa-chart-pie', 'url' => '?route=report_analysis'], 
+    ['label' => 'Profile Settings', 'icon' => 'fas fa-user-cog', 'url' => '?route=settings'], 
 ];
 
 $sidebar_items_accountant = [
