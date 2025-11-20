@@ -2,906 +2,411 @@
 
 namespace App\API\Modules\communications;
 
-require_once __DIR__ . '/../../../vendor/autoload.php';
-require_once __DIR__ . '/../../../config/config.php';
-
 use App\API\Includes\BaseAPI;
-use PDO;
-use Exception;
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception as PHPMailerException;
-use App\API\Services\SMS\SMSGateway;
+
+use App\API\Modules\Communications\CommunicationsManager;
+use App\API\Modules\Communications\Templates\TemplateLoader;
+use App\API\Modules\Communications\CommunicationWorkflowHandler;
+use App\API\Modules\Communications\ContactDirectoryManager;
+use App\API\Modules\Communications\ExternalInboundManager;
+use App\API\Modules\Communications\ForumManager;
+use App\API\Modules\Communications\InternalAnnouncementManager;
+use App\API\Modules\Communications\InternalCommManager;
+use App\API\Modules\Communications\ParentPortalMessageManager;
+use App\API\Modules\Communications\StaffForumManager;
+use App\API\Modules\Communications\StaffRequestManager;
+
 
 
 class CommunicationsAPI extends BaseAPI
 {
-    private $smsGateway;
+    /**
+     * Send SMS using a template category and variables.
+     * @param array $recipients
+     * @param array $variables
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
+    public function sendTemplateSMS($recipients, $variables, $category = 'fee_payment_received', $type = 'sms')
+    {
+        return $this->manager->sendSMSToRecipients($recipients, $variables, $type, $category);
+    }
+    // Public method to send a reset email (or any email) using the manager
+    public function sendResetEmail($recipients, $subject, $body, $attachments = [], $signature = '', $footer = '', $schoolDetails = [])
+    {
+        return $this->manager->sendEmailToRecipients($recipients, $subject, $body, $attachments, $signature, $footer, $schoolDetails);
+    }
+
+    // --- Callback/Inbound Support Methods ---
+    /**
+     * Update delivery status for a recipient (for delivery report callbacks)
+     */
+    public function updateDeliveryStatus($recipientId, $status, $deliveredAt = null, $errorMessage = null)
+    {
+        return $this->manager->updateDeliveryStatus($recipientId, $status, $deliveredAt, $errorMessage);
+    }
+
+    /**
+     * Mark a recipient as opted out (for opt-out callbacks)
+     */
+    public function markOptOut($recipientIdentifier, $channel)
+    {
+        return $this->manager->markOptOut($recipientIdentifier, $channel);
+    }
+
+    /**
+     * Store incoming message (for subscription/inbound callbacks)
+     */
+    public function storeIncomingMessage($data)
+    {
+        return $this->manager->storeIncomingMessage($data);
+    }
+
+
+    private $manager;
+    private $templateLoader;
+    private $workflowHandler;
+    private $contactDirectoryManager;
+    private $externalInboundManager;
+    private $forumManager;
+    private $internalAnnouncementManager;
+    private $internalCommManager;
+    private $parentPortalMessageManager;
+    private $staffForumManager;
+    private $staffRequestManager;
 
     public function __construct()
     {
         parent::__construct('communications');
-        $this->smsGateway = new SMSGateway([
-            'provider' => \SMS_PROVIDER,
-            'api_key' => \SMS_API_KEY,
-            'username' => \SMS_USERNAME,
-            'account_sid' => \SMS_ACCOUNT_SID,
-            'auth_token' => \SMS_AUTH_TOKEN,
-            'from' => \SMS_FROM_NUMBER
-        ]);
+        $this->manager = new CommunicationsManager($this->db);
+        $this->templateLoader = new TemplateLoader();
+        $this->workflowHandler = new CommunicationWorkflowHandler();
+        $this->contactDirectoryManager = new ContactDirectoryManager($this->db);
+        $this->externalInboundManager = new ExternalInboundManager($this->db);
+        $this->forumManager = new ForumManager($this->db);
+        $this->internalAnnouncementManager = new InternalAnnouncementManager($this->db);
+        $this->internalCommManager = new InternalCommManager($this->db);
+        $this->parentPortalMessageManager = new ParentPortalMessageManager($this->db);
+        $this->staffForumManager = new StaffForumManager($this->db);
+        $this->staffRequestManager = new StaffRequestManager($this->db);
     }
-
-    public function list($params = [])
+    // --- Contact Directory API ---
+    public function createContact($data)
     {
-        try {
-            [$page, $limit, $offset] = $this->getPaginationParams();
-            [$search, $sort, $order] = $this->getSearchParams();
-
-            $where = '';
-            $bindings = [];
-            if (!empty($search)) {
-                $where = "WHERE subject LIKE ? OR message LIKE ?";
-                $searchTerm = "%$search%";
-                $bindings = [$searchTerm, $searchTerm];
-            }
-
-            // Get total count
-            $stmt = $this->db->prepare("SELECT COUNT(*) FROM communications $where");
-            $stmt->execute($bindings);
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results
-            $sql = "
-                SELECT 
-                    c.*,
-                    u.username as sender_name
-                FROM communications c
-                LEFT JOIN users u ON c.sender_id = u.id
-                $where
-                ORDER BY $sort $order 
-                LIMIT ? OFFSET ?
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($bindings, [$limit, $offset]));
-            $communications = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return [
-                'status' => 'success',
-                'data' => [
-                    'communications' => $communications,
-                    'pagination' => [
-                        'page' => $page,
-                        'limit' => $limit,
-                        'total' => $total,
-                        'total_pages' => ceil($total / $limit)
-                    ]
-                ]
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->contactDirectoryManager->createContact($data);
     }
-
-    public function get($id)
+    public function getContact($id)
     {
-        try {
-            $stmt = $this->db->prepare("
-                SELECT 
-                    c.*,
-                    u.username as sender_name
-                FROM communications c
-                LEFT JOIN users u ON c.sender_id = u.id
-                WHERE c.id = ?
-            ");
-            $stmt->execute([$id]);
-            $communication = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$communication) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Communication not found'
-                ];
-            }
-
-            return [
-                'status' => 'success',
-                'data' => $communication
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->contactDirectoryManager->getContact($id);
     }
-
-    public function create($data)
+    public function updateContact($id, $data)
     {
-        try {
-            $this->beginTransaction();
-
-            $required = ['subject', 'message', 'type', 'recipients'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ];
-            }
-
-            $stmt = $this->db->prepare("
-                INSERT INTO communications (
-                    subject,
-                    message,
-                    type,
-                    recipients,
-                    sender_id,
-                    status,
-                    scheduled_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ");
-
-            $stmt->execute([
-                $data['subject'],
-                $data['message'],
-                $data['type'],
-                json_encode($data['recipients']),
-                $_SESSION['user_id'],
-                $data['status'] ?? 'pending',
-                $data['scheduled_at'] ?? null
-            ]);
-
-            $id = $this->db->lastInsertId();
-
-            $this->logAction('create', $id, "Created new communication: {$data['subject']}");
-
-            $this->commit();
-
-            return [
-                'status' => 'success',
-                'message' => 'Communication created successfully',
-                'data' => ['id' => $id]
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->contactDirectoryManager->updateContact($id, $data);
     }
-
-    public function update($id, $data)
+    public function deleteContact($id)
     {
-        try {
-            $this->beginTransaction();
-
-            $stmt = $this->db->prepare("SELECT id FROM communications WHERE id = ?");
-            $stmt->execute([$id]);
-            if (!$stmt->fetch()) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Communication not found'
-                ];
-            }
-
-            $updates = [];
-            $params = [];
-            $allowedFields = ['subject', 'message', 'type', 'recipients', 'status', 'scheduled_at'];
-
-            foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
-                    if ($field === 'recipients') {
-                        $updates[] = "$field = ?";
-                        $params[] = json_encode($data[$field]);
-                    } else {
-                        $updates[] = "$field = ?";
-                        $params[] = $data[$field];
-                    }
-                }
-            }
-
-            if (!empty($updates)) {
-                $params[] = $id;
-                $sql = "UPDATE communications SET " . implode(', ', $updates) . " WHERE id = ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute($params);
-            }
-
-            $this->logAction('update', $id, "Updated communication details");
-
-            $this->commit();
-
-            return [
-                'status' => 'success',
-                'message' => 'Communication updated successfully'
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->contactDirectoryManager->deleteContact($id);
     }
-
-    public function delete($id)
+    public function listContacts($filters = [])
     {
-        try {
-            $stmt = $this->db->prepare("UPDATE communications SET status = 'deleted' WHERE id = ?");
-            $stmt->execute([$id]);
-
-            if ($stmt->rowCount() === 0) {
-                return [
-                    'status' => 'error',
-                    'message' => 'Communication not found'
-                ];
-            }
-
-            $this->logAction('delete', $id, "Deleted communication");
-
-            return [
-                'status' => 'success',
-                'message' => 'Communication deleted successfully'
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->contactDirectoryManager->listContacts($filters);
     }
 
-    public function getAnnouncements($params)
+    // --- External Inbound API ---
+    public function createInbound($data)
     {
-        try {
-            [$page, $limit, $offset] = $this->getPaginationParams();
-
-            $where = "WHERE type = 'announcement'";
-            $bindings = [];
-
-            if (!empty($params['category'])) {
-                $where .= " AND category = ?";
-                $bindings[] = $params['category'];
-            }
-
-            // Get total count
-            $stmt = $this->db->prepare("SELECT COUNT(*) FROM communications $where");
-            $stmt->execute($bindings);
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results
-            $sql = "
-                SELECT 
-                    c.*,
-                    u.username as sender_name
-                FROM communications c
-                LEFT JOIN users u ON c.sender_id = u.id
-                $where
-                ORDER BY created_at DESC 
-                LIMIT ? OFFSET ?
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($bindings, [$limit, $offset]));
-            $announcements = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return [
-                'status' => 'success',
-                'data' => [
-                    'announcements' => $announcements,
-                    'pagination' => [
-                        'page' => $page,
-                        'limit' => $limit,
-                        'total' => $total,
-                        'total_pages' => ceil($total / $limit)
-                    ]
-                ]
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->externalInboundManager->createInbound($data);
     }
-
-    public function getNotifications($params)
+    public function getInbound($id)
     {
-        try {
-            [$page, $limit, $offset] = $this->getPaginationParams();
-
-            $userId = $_SESSION['user_id'];
-            $where = "WHERE type = 'notification' AND JSON_CONTAINS(recipients, ?, '$')";
-            $bindings = [$userId];
-
-            if (!empty($params['status'])) {
-                $where .= " AND status = ?";
-                $bindings[] = $params['status'];
-            }
-
-            // Get total count
-            $stmt = $this->db->prepare("SELECT COUNT(*) FROM communications $where");
-            $stmt->execute($bindings);
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results
-            $sql = "
-                SELECT 
-                    c.*,
-                    u.username as sender_name
-                FROM communications c
-                LEFT JOIN users u ON c.sender_id = u.id
-                $where
-                ORDER BY created_at DESC 
-                LIMIT ? OFFSET ?
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(array_merge($bindings, [$limit, $offset]));
-            $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return [
-                'status' => 'success',
-                'data' => [
-                    'notifications' => $notifications,
-                    'pagination' => [
-                        'page' => $page,
-                        'limit' => $limit,
-                        'total' => $total,
-                        'total_pages' => ceil($total / $limit)
-                    ]
-                ]
-            ];
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->externalInboundManager->getInbound($id);
     }
-
-    public function sendAnnouncement($data)
+    public function updateInbound($id, $data)
     {
-        try {
-            $data['type'] = 'announcement';
-            return $this->create($data);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->externalInboundManager->updateInbound($id, $data);
     }
-
-    public function sendNotification($data)
+    public function deleteInbound($id)
     {
-        try {
-            $this->validateNotificationData($data);
-            $results = [];
-            
-            if ($data['send_email']) {
-                $results['email'] = $this->sendEmail([
-                    'to' => $data['email'],
-                    'subject' => $data['subject'],
-                    'message' => $data['message'],
-                    'attachments' => $data['attachments'] ?? []
-                ]);
-            }
-            
-            if ($data['send_sms']) {
-                $results['sms'] = $this->sendSingleSMS($data['phone'], $data['message']);
-            }
-            
-            return $this->response(['status' => 'success', 'data' => $results]);
-        } catch (Exception $e) {
-            return $this->response(['status' => 'error', 'message' => $e->getMessage()]);
-        }
+        return $this->externalInboundManager->deleteInbound($id);
     }
-
-    /**
-     * Send bulk SMS to a list of recipients
-     */
-    public function sendBulkSMS($data)
+    public function listInbounds($filters = [])
     {
-        try {
-            $this->validateBulkSMSData($data);
-            $results = [];
-            foreach ($data['recipients'] as $recipient) {
-                $message = $this->parseTemplate($data['template'], $recipient['data'] ?? []);
-                $results[] = $this->sendSingleSMS($recipient['phone'], $message);
-            }
-            return $this->response(['status' => 'success', 'data' => $results]);
-        } catch (Exception $e) {
-            return $this->response(['status' => 'error', 'message' => $e->getMessage()]);
-        }
+        return $this->externalInboundManager->listInbounds($filters);
     }
 
-    /**
-     * Send bulk Email to a list of recipients
-     */
-    public function sendBulkEmail($data)
+    // --- Forum API ---
+    public function createThread($data)
     {
-        try {
-            $this->validateBulkEmailData($data);
-            $results = [];
-            foreach ($data['recipients'] as $recipient) {
-                $message = $this->parseTemplate($data['template'], $recipient['data'] ?? []);
-                $results[] = $this->sendSingleEmail(
-                    $recipient['email'],
-                    $data['subject'],
-                    $message,
-                    $data['attachments'] ?? []
-                );
-            }
-            return $this->response(['status' => 'success', 'data' => $results]);
-        } catch (Exception $e) {
-            return $this->response(['status' => 'error', 'message' => $e->getMessage()]);
-        }
+        return $this->forumManager->createThread($data);
     }
-
-    private function sendEmail($data)
+    public function getThread($id)
     {
-        try {
-            $this->validateEmailData($data);
-            return $this->sendSingleEmail($data['to'], $data['subject'], $data['message'], $data['attachments'] ?? []);
-        } catch (Exception $e) {
-            return $this->response(['status' => 'error', 'message' => $e->getMessage()]);
-        }
+        return $this->forumManager->getThread($id);
     }
-
-    private function sendSingleEmail($to, $subject, $message, $attachments = [])
+    public function updateThread($id, $data)
     {
-        try {
-            $mail = new PHPMailer(true);
-            $mail->isSMTP();
-            $mail->Host = \SMTP_HOST;
-            $mail->SMTPAuth = true;
-            $mail->Username = \SMTP_USERNAME;
-            $mail->Password = \SMTP_PASSWORD;
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port = \SMTP_PORT;
-            $mail->setFrom(\SMTP_FROM_EMAIL, \SMTP_FROM_NAME);
-            $mail->addAddress($to);
-
-            // Set content
-            $mail->isHTML(true);
-            $mail->Subject = $subject;
-            $mail->Body = nl2br($message);
-            $mail->AltBody = strip_tags($message);
-
-            // Add attachments
-            foreach ($attachments as $attachment) {
-                if (isset($attachment['path']) && file_exists($attachment['path'])) {
-                    $mail->addAttachment(
-                        $attachment['path'],
-                        $attachment['name'] ?? basename($attachment['path'])
-                    );
-                }
-            }
-
-            return $mail->send();
-        } catch (PHPMailerException $e) {
-            throw new Exception("Failed to send email: " . $e->getMessage());
-        }
+        return $this->forumManager->updateThread($id, $data);
     }
-
-    private function sendSingleSMS($to, $message)
+    public function deleteThread($id)
     {
-        try {
-            return $this->smsGateway->send($to, $message);
-        } catch (Exception $e) {
-            throw new Exception("Failed to send SMS: " . $e->getMessage());
-        }
+        return $this->forumManager->deleteThread($id);
     }
-
-    private function validateEmailData($data)
+    public function listThreads($filters = [])
     {
-        $required = ['to', 'subject', 'message'];
-        $missing = $this->validateRequired($data, $required);
-        if (!empty($missing)) {
-            throw new Exception('Missing required fields: ' . implode(', ', $missing));
-        }
-        if (!filter_var($data['to'], FILTER_VALIDATE_EMAIL)) {
-            throw new Exception('Invalid email address');
-        }
+        return $this->forumManager->listThreads($filters);
     }
 
-    private function validateBulkEmailData($data)
+    // --- Internal Announcement API ---
+    public function createAnnouncement($data)
     {
-        $required = ['recipients', 'subject', 'template'];
-        $missing = $this->validateRequired($data, $required);
-        if (!empty($missing)) {
-            throw new Exception('Missing required fields: ' . implode(', ', $missing));
-        }
-        if (empty($data['recipients'])) {
-            throw new Exception('Recipients list cannot be empty');
-        }
+        return $this->internalAnnouncementManager->createAnnouncement($data);
     }
-
-    private function validateSMSData($data)
+    public function getAnnouncement($id)
     {
-        $required = ['to', 'message'];
-        $missing = $this->validateRequired($data, $required);
-        if (!empty($missing)) {
-            throw new Exception('Missing required fields: ' . implode(', ', $missing));
-        }
+        return $this->internalAnnouncementManager->getAnnouncement($id);
     }
-
-    private function validateBulkSMSData($data)
+    public function updateAnnouncement($id, $data)
     {
-        $required = ['recipients', 'template'];
-        $missing = $this->validateRequired($data, $required);
-        if (!empty($missing)) {
-            throw new Exception('Missing required fields: ' . implode(', ', $missing));
-        }
-        if (empty($data['recipients'])) {
-            throw new Exception('Recipients list cannot be empty');
-        }
+        return $this->internalAnnouncementManager->updateAnnouncement($id, $data);
     }
-
-    private function validateNotificationData($data)
+    public function deleteAnnouncement($id)
     {
-        $required = ['subject', 'message'];
-        $missing = $this->validateRequired($data, $required);
-        if (!empty($missing)) {
-            throw new Exception('Missing required fields: ' . implode(', ', $missing));
-        }
-        
-        if ($data['send_email'] && empty($data['email'])) {
-            throw new Exception('Email address required for email notification');
-        }
-        
-        if ($data['send_sms'] && empty($data['phone'])) {
-            throw new Exception('Phone number required for SMS notification');
-        }
+        return $this->internalAnnouncementManager->deleteAnnouncement($id);
     }
-
-    public function getTemplates($type = null)
+    public function listAnnouncements($filters = [])
     {
-        try {
-            $sql = "SELECT * FROM notification_templates";
-            $params = [];
-
-            if ($type) {
-                $sql .= " WHERE type = ?";
-                $params[] = $type;
-            }
-
-            $sql .= " ORDER BY name";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response(['status' => 'success', 'data' => $templates]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->internalAnnouncementManager->listAnnouncements($filters);
     }
 
-    public function createTemplate($data)
+    // --- Internal Comm API ---
+    public function createInternalRequest($data)
     {
-        try {
-            $required = ['type', 'name', 'email_subject', 'email_body'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
-            }
-
-            $sql = "
-                INSERT INTO notification_templates (
-                    type,
-                    name,
-                    description,
-                    email_subject,
-                    email_body,
-                    sms_body,
-                    send_email,
-                    send_sms,
-                    variables,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['type'],
-                $data['name'],
-                $data['description'] ?? null,
-                $data['email_subject'],
-                $data['email_body'],
-                $data['sms_body'] ?? null,
-                $data['send_email'] ?? true,
-                $data['send_sms'] ?? false,
-                json_encode($data['variables'] ?? []),
-                'active'
-            ]);
-
-            $templateId = $this->db->lastInsertId();
-
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Template created successfully',
-                'data' => ['id' => $templateId]
-            ], 201);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->internalCommManager->createRequest($data);
     }
-
-    public function getGroups()
+    public function getInternalRequest($id)
     {
-        try {
-            $sql = "
-                SELECT 
-                    c.*,
-                    COUNT(DISTINCT cr.recipient_id) as member_count,
-                    u.username as created_by_name
-                FROM communications c
-                LEFT JOIN communication_recipients cr ON c.id = cr.communication_id
-                LEFT JOIN users u ON c.sender_id = u.id
-                WHERE c.type = 'group'
-                GROUP BY c.id
-                ORDER BY c.subject
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $groups = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response(['status' => 'success', 'data' => $groups]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->internalCommManager->getRequest($id);
+    }
+    public function updateInternalRequest($id, $data)
+    {
+        return $this->internalCommManager->updateRequest($id, $data);
+    }
+    public function deleteInternalRequest($id)
+    {
+        return $this->internalCommManager->deleteRequest($id);
+    }
+    public function listInternalRequests($filters = [])
+    {
+        return $this->internalCommManager->listRequests($filters);
     }
 
+    // --- Parent Portal Message API ---
+    public function createParentMessage($data)
+    {
+        return $this->parentPortalMessageManager->createMessage($data);
+    }
+    public function getParentMessage($id)
+    {
+        return $this->parentPortalMessageManager->getMessage($id);
+    }
+    public function updateParentMessage($id, $data)
+    {
+        return $this->parentPortalMessageManager->updateMessage($id, $data);
+    }
+    public function deleteParentMessage($id)
+    {
+        return $this->parentPortalMessageManager->deleteMessage($id);
+    }
+    public function listParentMessages($filters = [])
+    {
+        return $this->parentPortalMessageManager->listMessages($filters);
+    }
+
+    // --- Staff Forum API ---
+    public function createStaffForumTopic($data)
+    {
+        return $this->staffForumManager->createForumTopic($data);
+    }
+    public function getStaffForumTopic($id)
+    {
+        return $this->staffForumManager->getForumTopic($id);
+    }
+    public function updateStaffForumTopic($id, $data)
+    {
+        return $this->staffForumManager->updateForumTopic($id, $data);
+    }
+    public function deleteStaffForumTopic($id)
+    {
+        return $this->staffForumManager->deleteForumTopic($id);
+    }
+    public function listStaffForumTopics($filters = [])
+    {
+        return $this->staffForumManager->listForumTopics($filters);
+    }
+
+    // --- Staff Request API ---
+    public function createStaffRequest($data)
+    {
+        return $this->staffRequestManager->createRequest($data);
+    }
+    public function getStaffRequest($id)
+    {
+        return $this->staffRequestManager->getRequest($id);
+    }
+    public function updateStaffRequest($id, $data)
+    {
+        return $this->staffRequestManager->updateRequest($id, $data);
+    }
+    public function deleteStaffRequest($id)
+    {
+        return $this->staffRequestManager->deleteRequest($id);
+    }
+    public function listStaffRequests($filters = [])
+    {
+        return $this->staffRequestManager->listRequests($filters);
+    }
+
+    // --- Communication Workflow API ---
+    public function initiateCommunicationWorkflow($reference_type, $reference_id, $data = [])
+    {
+        return $this->workflowHandler->initiateCommunicationWorkflow($reference_type, $reference_id, $data);
+    }
+    public function approveCommunication($instance_id, $action_data = [])
+    {
+        return $this->workflowHandler->approveCommunication($instance_id, $action_data);
+    }
+    public function escalateCommunication($instance_id, $action_data = [])
+    {
+        return $this->workflowHandler->escalateCommunication($instance_id, $action_data);
+    }
+    public function completeCommunication($instance_id, $completion_data = [])
+    {
+        return $this->workflowHandler->completeCommunication($instance_id, $completion_data);
+    }
+    public function getCommunicationWorkflowInstance($instance_id)
+    {
+        return $this->workflowHandler->getCommunicationWorkflowInstance($instance_id);
+    }
+    public function listCommunicationWorkflows($filters = [])
+    {
+        return $this->workflowHandler->listCommunicationWorkflows($filters);
+    }
+
+    // --- Communications CRUD ---
+    public function createCommunication($data)
+    {
+        return $this->manager->createCommunication($data);
+    }
+    public function getCommunication($id)
+    {
+        return $this->manager->getCommunication($id);
+    }
+    public function updateCommunication($id, $data)
+    {
+        return $this->manager->updateCommunication($id, $data);
+    }
+    public function deleteCommunication($id)
+    {
+        return $this->manager->deleteCommunication($id);
+    }
+    public function listCommunications($filters = [])
+    {
+        return $this->manager->listCommunications($filters);
+    }
+
+    // --- Attachments CRUD ---
+    public function addAttachment($communicationId, $fileData)
+    {
+        return $this->manager->addAttachment($communicationId, $fileData);
+    }
+    public function getAttachment($id)
+    {
+        return $this->manager->getAttachment($id);
+    }
+    public function deleteAttachment($id)
+    {
+        return $this->manager->deleteAttachment($id);
+    }
+    public function listAttachments($communicationId)
+    {
+        return $this->manager->listAttachments($communicationId);
+    }
+
+    // --- Groups CRUD ---
     public function createGroup($data)
     {
-        try {
-            $required = ['name', 'type'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
-            }
-
-            $this->beginTransaction();
-
-            // Create group as a special type of communication
-            $sql = "
-                INSERT INTO communications (
-                    subject,
-                    message,
-                    type,
-                    status,
-                    sender_id
-                ) VALUES (?, ?, 'group', 'active', ?)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['name'],
-                $data['description'] ?? null,
-                $this->user_id
-            ]);
-
-            $groupId = $this->db->lastInsertId();
-
-            // Add members if provided
-            if (!empty($data['members'])) {
-                $sql = "
-                    INSERT INTO communication_recipients (
-                        communication_id,
-                        recipient_type,
-                        recipient_id
-                    ) VALUES (?, ?, ?)
-                ";
-
-                $stmt = $this->db->prepare($sql);
-                foreach ($data['members'] as $member) {
-                    $stmt->execute([
-                        $groupId,
-                        $member['type'],
-                        $member['id']
-                    ]);
-                }
-            }
-
-            $this->commit();
-
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Group created successfully',
-                'data' => ['id' => $groupId]
-            ], 201);
-        } catch (Exception $e) {
-            $this->rollback();
-            return $this->handleException($e);
-        }
+        return $this->manager->createGroup($data);
     }
-
-    public function getSMSTemplates()
+    public function getGroup($id)
     {
-        try {
-            $sql = "SELECT * FROM message_templates WHERE type = 'sms' AND status = 'active' ORDER BY name";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response(['status' => 'success', 'data' => $templates]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->getGroup($id);
     }
-
-    public function getEmailTemplates()
+    public function updateGroup($id, $data)
     {
-        try {
-            $sql = "SELECT * FROM message_templates WHERE type = 'email' AND status = 'active' ORDER BY name";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $templates = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response(['status' => 'success', 'data' => $templates]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->updateGroup($id, $data);
     }
-
-    public function createSMSTemplate($data)
+    public function deleteGroup($id)
     {
-        try {
-            $required = ['name', 'content'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
-            }
-
-            $sql = "
-                INSERT INTO message_templates (
-                    name,
-                    description,
-                    content,
-                    type,
-                    variables,
-                    status
-                ) VALUES (?, ?, ?, 'sms', ?, ?)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['name'],
-                $data['description'] ?? null,
-                $data['content'],
-                json_encode($data['variables'] ?? []),
-                'active'
-            ]);
-
-            $templateId = $this->db->lastInsertId();
-
-            return $this->response([
-                'status' => 'success',
-                'message' => 'SMS template created successfully',
-                'data' => ['id' => $templateId]
-            ], 201);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->deleteGroup($id);
     }
-
-    public function createEmailTemplate($data)
+    public function listGroups($filters = [])
     {
-        try {
-            $required = ['name', 'subject', 'body'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
-            }
-
-            $sql = "
-                INSERT INTO message_templates (
-                    name,
-                    description,
-                    subject,
-                    content,
-                    type,
-                    variables,
-                    status
-                ) VALUES (?, ?, ?, ?, 'email', ?, ?)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['name'],
-                $data['description'] ?? null,
-                $data['subject'],
-                $data['body'],
-                json_encode($data['variables'] ?? []),
-                'active'
-            ]);
-
-            $templateId = $this->db->lastInsertId();
-
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Email template created successfully',
-                'data' => ['id' => $templateId]
-            ], 201);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->listGroups($filters);
     }
 
-    public function getSMSConfig()
+    // --- Logs CRUD ---
+    public function addLog($data)
     {
-        try {
-            $sql = "SELECT * FROM sms_config WHERE status = 'active' LIMIT 1";
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $config = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($config) {
-                // Remove sensitive data
-                unset($config['api_key']);
-                unset($config['api_secret']);
-            }
-
-            return $this->response(['status' => 'success', 'data' => $config]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->addLog($data);
     }
-
-    public function updateSMSConfig($data)
+    public function getLog($id)
     {
-        try {
-            $required = ['provider', 'api_key'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
-            }
-
-            $sql = "
-                INSERT INTO sms_config (
-                    provider,
-                    api_key,
-                    api_secret,
-                    sender_id,
-                    webhook_url,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE
-                    api_key = VALUES(api_key),
-                    api_secret = VALUES(api_secret),
-                    sender_id = VALUES(sender_id),
-                    webhook_url = VALUES(webhook_url)
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['provider'],
-                $data['api_key'],
-                $data['api_secret'] ?? null,
-                $data['sender_id'] ?? null,
-                $data['webhook_url'] ?? null,
-                'active'
-            ]);
-
-            return $this->response([
-                'status' => 'success',
-                'message' => 'SMS configuration updated successfully'
-            ]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->manager->getLog($id);
+    }
+    public function listLogs($filters = [])
+    {
+        return $this->manager->listLogs($filters);
     }
 
-    /**
-     * Parse a template with given data
-     */
-    private function parseTemplate($template, $data = []) {
-        $parsed = $template;
-        foreach ($data as $key => $value) {
-            $parsed = str_replace('{{' . $key . '}}', $value, $parsed);
-        }
-        return $parsed;
+    // --- Recipients CRUD ---
+    public function addRecipient($data)
+    {
+        return $this->manager->addRecipient($data);
     }
+    public function getRecipient($id)
+    {
+        return $this->manager->getRecipient($id);
+    }
+    public function deleteRecipient($id)
+    {
+        return $this->manager->deleteRecipient($id);
+    }
+    public function listRecipients($communicationId)
+    {
+        return $this->manager->listRecipients($communicationId);
+    }
+
+    // --- Templates CRUD ---
+    public function createTemplate($data)
+    {
+        return $this->manager->createTemplate($data);
+    }
+    public function getTemplate($id)
+    {
+        return $this->manager->getTemplate($id);
+    }
+    public function updateTemplate($id, $data)
+    {
+        return $this->manager->updateTemplate($id, $data);
+    }
+    public function deleteTemplate($id)
+    {
+        return $this->manager->deleteTemplate($id);
+    }
+    public function listTemplates($filters = [])
+    {
+        return $this->manager->listTemplates($filters);
+    }
+
 }

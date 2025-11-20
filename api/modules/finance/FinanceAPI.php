@@ -2,22 +2,6 @@
 
 namespace App\API\Modules\Finance;
 
-require_once __DIR__ . '/../../includes/BaseAPI.php';
-require_once __DIR__ . '/FeeManager.php';
-require_once __DIR__ . '/PaymentManager.php';
-require_once __DIR__ . '/BudgetManager.php';
-require_once __DIR__ . '/ExpenseManager.php';
-require_once __DIR__ . '/ReportingManager.php';
-require_once __DIR__ . '/FeeApprovalWorkflow.php';
-require_once __DIR__ . '/BudgetApprovalWorkflow.php';
-require_once __DIR__ . '/ExpenseApprovalWorkflow.php';
-require_once __DIR__ . '/PayrollWorkflow.php';
-require_once __DIR__ . '/../../services/Payments/DisbursementManager.php';
-require_once __DIR__ . '/../../services/Payments/MpesaB2CService.php';
-require_once __DIR__ . '/../../services/Payments/MpesaPaymentService.php';
-require_once __DIR__ . '/../../services/Payments/KcbFundsTransferService.php';
-require_once __DIR__ . '/../../services/Workflows/PayrollApprovalWorkflow.php';
-
 use App\API\Includes\BaseAPI;
 use App\API\Modules\Communications\CommunicationsAPI;
 use App\API\Modules\Finance\FeeManager;
@@ -71,6 +55,7 @@ use function App\API\Includes\formatResponse;
  * - payrolls, staff_payments (managed by PayrollApprovalWorkflow & DisbursementManager)
  * - mpesa_transactions, bank_transactions, payment_webhooks_log
  */
+
 class FinanceAPI extends BaseAPI
 {
     // Managers
@@ -80,6 +65,7 @@ class FinanceAPI extends BaseAPI
     private $expenseManager;
     private $reportingManager;
     private $disbursementManager;
+    private $departmentBudgetManager;
 
     // Workflows
     private $feeWorkflow;
@@ -96,6 +82,7 @@ class FinanceAPI extends BaseAPI
     // Communications
     private $communicationsApi;
 
+
     public function __construct()
     {
         parent::__construct('finance');
@@ -107,6 +94,7 @@ class FinanceAPI extends BaseAPI
         $this->expenseManager = new ExpenseManager();
         $this->reportingManager = new ReportingManager();
         $this->disbursementManager = new DisbursementManager();
+        $this->departmentBudgetManager = new DepartmentBudgetManager($this->db);
 
         // Initialize Workflows
         $this->feeWorkflow = new FeeApprovalWorkflow('FEE_APPROVAL');
@@ -122,6 +110,97 @@ class FinanceAPI extends BaseAPI
 
         // Initialize Communications
         $this->communicationsApi = new CommunicationsAPI();
+    }
+
+    /**
+     * Department Budget: Submit a new proposal
+     */
+    public function proposeDepartmentBudget($data)
+    {
+        try {
+            $proposalId = $this->departmentBudgetManager->submitProposal($data);
+            return formatResponse(true, ['proposal_id' => $proposalId], 'Proposal submitted');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: List proposals
+     */
+    public function listDepartmentBudgetProposals($filters = [])
+    {
+        try {
+            $proposals = $this->departmentBudgetManager->listProposals($filters);
+            return formatResponse(true, $proposals);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: Approve/Reject proposal
+     */
+    public function updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy)
+    {
+        try {
+            $result = $this->departmentBudgetManager->updateProposalStatus($proposalId, $status, $reviewedBy);
+            return formatResponse(true, ['rows_affected' => $result], 'Proposal status updated');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: Allocate funds
+     */
+    public function allocateDepartmentBudget($departmentId, $amount, $allocatedBy)
+    {
+        try {
+            $allocationId = $this->departmentBudgetManager->allocateFunds($departmentId, $amount, $allocatedBy);
+            return formatResponse(true, ['allocation_id' => $allocationId], 'Funds allocated');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: Request funds (loan/overdraft)
+     */
+    public function requestDepartmentFunds($data)
+    {
+        try {
+            $requestId = $this->departmentBudgetManager->requestFund($data);
+            return formatResponse(true, ['request_id' => $requestId], 'Fund request submitted');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: List fund requests
+     */
+    public function listDepartmentFundRequests($filters = [])
+    {
+        try {
+            $requests = $this->departmentBudgetManager->listFundRequests($filters);
+            return formatResponse(true, $requests);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department Budget: Approve/Reject fund request
+     */
+    public function updateDepartmentFundRequestStatus($requestId, $status, $reviewedBy)
+    {
+        try {
+            $result = $this->departmentBudgetManager->updateFundRequestStatus($requestId, $status, $reviewedBy);
+            return formatResponse(true, ['rows_affected' => $result], 'Fund request status updated');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     /**
@@ -938,29 +1017,30 @@ class FinanceAPI extends BaseAPI
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            if (!$student) {
+            if (!$student || empty($student['parent_phone'])) {
                 return;
             }
 
-            if (!empty($student['parent_phone'])) {
-                $message = sprintf(
-                    'Dear Parent, Payment of KES %s has been received for %s %s (%s). Thank you.',
-                    number_format($amount, 2),
-                    $student['first_name'],
-                    $student['last_name'],
-                    $student['admission_no']
-                );
-
-                $this->communicationsApi->sendBulkSMS([
-                    'recipients' => [$student['parent_phone']],
-                    'message' => $message
-                ]);
+            // Use the communications template system
+            $recipients = [$student['parent_phone']];
+            $variables = [
+                'amount' => number_format($amount, 2),
+                'first_name' => $student['first_name'],
+                'last_name' => $student['last_name'],
+                'admission_no' => $student['admission_no']
+            ];
+            // Category must match the template definition, e.g., 'fee_payment_received'
+            $category = 'fee_payment_received';
+            $type = 'sms';
+            if (method_exists($this->communicationsApi, 'sendTemplateSMS')) {
+                $this->communicationsApi->sendTemplateSMS($recipients, $variables, $category, $type);
             }
         } catch (Exception $e) {
             error_log('Failed to send payment notification: ' . $e->getMessage());
         }
     }
 
+    
     // ============================================================================
     // ANNUAL FEE STRUCTURE MANAGEMENT (Academic Year Integration)
     // ============================================================================

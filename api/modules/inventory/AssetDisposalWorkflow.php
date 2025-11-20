@@ -408,6 +408,8 @@ class AssetDisposalWorkflow extends WorkflowHandler
                 'board' => PHP_INT_MAX
             ];
 
+            // Check if user has authority
+            if (!isset($approvalLevels[$userRole]) || $totalBookValue > $approvalLevels[$userRole]) {
                 return formatResponse(false, null, "You do not have authority to approve this disposal (Book value: KES " . number_format($totalBookValue, 2) . ")");
             }
 
@@ -596,6 +598,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
                     }
                     return ['success' => true, 'message' => 'Accounting complete', 'next_stage' => 'inventory_removal'];
 
+
                 case 'inventory_removal':
                     if ($instance_id) {
                         $this->logAction('update', $instance_id, "Assets removed from inventory");
@@ -610,4 +613,5 @@ class AssetDisposalWorkflow extends WorkflowHandler
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
-}
+
+}              

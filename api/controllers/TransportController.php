@@ -11,8 +11,10 @@ use Exception;
  * All methods follow signature: methodName($id = null, $data = [], $segments = [])
  * Router calls with: $controller->methodName($id, $data, $segments)
  */
+
 class TransportController extends BaseController
 {
+
     private TransportAPI $api;
 
     public function __construct() {
@@ -20,47 +22,217 @@ class TransportController extends BaseController
         $this->api = new TransportAPI();
     }
 
+    /**
+     * POST /api/transport/verify-student
+     * Verify student by admission number or phone (for transport payments)
+     */
+    public function postVerifyStudent($id = null, $data = [], $segments = [])
+    {
+        $admissionNo = $data['admission_no'] ?? null;
+        $phone = $data['phone'] ?? null;
+        if (!$admissionNo && !$phone) {
+            return $this->badRequest('admission_no or phone is required');
+        }
+        $result = $this->api->verifyStudent($admissionNo, $phone);
+        return $this->handleResponse($result);
+    }
+
+
     // ========================================
-    // SECTION 1: Base CRUD Operations
+    // SECTION 6: Exported TransportAPI Methods
     // ========================================
 
-    /**
-     * GET /api/transport - List all transport records
-     * GET /api/transport/{id} - Get single transport record
-     */
-    public function get($id = null, $data = [], $segments = [])
+    // ROUTE ENDPOINTS
+    public function getRoute($id = null, $data = [], $segments = [])
     {
-        if ($id !== null && empty($segments)) {
-            $result = $this->api->get($id);
-            return $this->handleResponse($result);
-        }
-        
-        if (!empty($segments)) {
-            $resource = array_shift($segments);
-            return $this->routeNestedGet($resource, $id, $data, $segments);
-        }
-        
-        $result = $this->api->list($data);
+        $result = $this->api->getRoute($id);
+        return $this->handleResponse($result);
+    }
+    public function getAllRoutes($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAllRoutes();
+        return $this->handleResponse($result);
+    }
+    public function postRoute($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createRoute($data);
+        return $this->handleResponse($result);
+    }
+    public function putRoute($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateRoute($id, $data);
+        return $this->handleResponse($result);
+    }
+    public function deleteRoute($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteRoute($id);
+        return $this->handleResponse($result);
+    }
+
+    // STOP ENDPOINTS
+    public function getStop($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getStop($id);
+        return $this->handleResponse($result);
+    }
+    public function getAllStops($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAllStops();
+        return $this->handleResponse($result);
+    }
+    public function postStop($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createStop($data);
+        return $this->handleResponse($result);
+    }
+    public function putStop($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateStop($id, $data);
+        return $this->handleResponse($result);
+    }
+    public function deleteStop($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteStop($id);
+        return $this->handleResponse($result);
+    }
+
+    // VEHICLE ENDPOINTS
+    public function getVehicle($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getVehicle($id);
+        return $this->handleResponse($result);
+    }
+
+    // DRIVER ENDPOINTS
+    public function getDriver($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getDriver($id);
+        return $this->handleResponse($result);
+    }
+    public function getAllDrivers($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAllDrivers();
+        return $this->handleResponse($result);
+    }
+    public function postDriver($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createDriver($data);
+        return $this->handleResponse($result);
+    }
+    public function putDriver($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateDriver($id, $data);
+        return $this->handleResponse($result);
+    }
+    public function deleteDriver($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteDriver($id);
+        return $this->handleResponse($result);
+    }
+    public function postDriverAssign($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->assignDriverToRoute($data['driver_id'], $data['route_id']);
+        return $this->handleResponse($result);
+    }
+
+    // ASSIGNMENT ENDPOINTS
+    public function postAssignStudent($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->assignStudent($data['student_id'], $data['route_id'], $data['stop_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function postWithdrawAssignment($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->withdrawAssignment($data['student_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function getAssignments($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAssignments($data['student_id']);
+        return $this->handleResponse($result);
+    }
+    public function getStudentsByRoute($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getStudentsByRoute($data['route_id'], $data['month'] ?? null, $data['year'] ?? null);
+        return $this->handleResponse($result);
+    }
+
+    // PAYMENT ENDPOINTS
+    public function postRecordPayment($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->recordPayment($data['student_id'], $data['amount'], $data['month'], $data['year'], $data['payment_date'], $data['payment_method'], $data['transaction_id']);
+        return $this->handleResponse($result);
+    }
+    public function putPaymentStatus($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updatePaymentStatus($id, $data['status']);
+        return $this->handleResponse($result);
+    }
+    public function getPayments($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getPayments($data['student_id']);
+        return $this->handleResponse($result);
+    }
+    public function getPaymentSummary($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getPaymentSummary($data['student_id']);
+        return $this->handleResponse($result);
+    }
+    public function getRoutePaymentSummary($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getRoutePaymentSummary($data['route_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function getAllArrearsCredits($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAllArrearsCredits();
+        return $this->handleResponse($result);
+    }
+
+    // STATUS & MANIFEST ENDPOINTS
+    public function getCheckStatus($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->checkStatus($data['student_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function getCurrentStatus($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getCurrentStatus($data['student_id']);
+        return $this->handleResponse($result);
+    }
+    public function getFullStatus($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getFullStatus($data['student_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function getRouteManifest($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getRouteManifest($data['route_id'], $data['month'], $data['year']);
+        return $this->handleResponse($result);
+    }
+    public function getStudentSummary($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getStudentSummary($data['student_id']);
+        return $this->handleResponse($result);
+    }
+    public function getRouteSummary($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getRouteSummary($data['route_id'], $data['month'], $data['year']);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/transport - Create new transport record
      */
-    public function post($id = null, $data = [], $segments = [])
-    {
-        if ($id !== null) {
-            $data['id'] = $id;
-        }
-        
-        if (!empty($segments)) {
-            $resource = array_shift($segments);
-            return $this->routeNestedPost($resource, $id, $data, $segments);
-        }
-        
-        $result = $this->api->create($data);
-        return $this->handleResponse($result);
-    }
+    // public function post($id = null, $data = [], $segments = [])
+    // {
+    //     if (!empty($segments)) {
+    //         $resource = array_shift($segments);
+    //         return $this->routeNestedPost($resource, $id, $data, $segments);
+    //     }
+    //     $result = $this->api->create($data);
+    //     return $this->handleResponse($result);
+    // }
 
     /**
      * PUT /api/transport/{id} - Update transport record

@@ -1,14 +1,269 @@
 <?php
-namespace App\API\Modules\schedules;
+namespace App\API\Modules\Schedules;
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\Schedules\SchedulesManager;
+use App\API\Modules\Schedules\SchedulesWorkflow;
+use App\API\Modules\Schedules\TermHolidayManager;
+use App\API\Modules\Schedules\TermHolidayWorkflow;
+use function App\API\Includes\errorResponse;
+use function App\API\Includes\successResponse;
 use PDO;
 use Exception;
 use DateTime;
 
 class SchedulesAPI extends BaseAPI {
+    private SchedulesManager $manager;
+    private SchedulesWorkflow $workflow;
+    private $termHolidayManager;
+    private $termHolidayWorkflow;
+
     public function __construct() {
         parent::__construct('schedules');
+        $this->manager = new SchedulesManager();
+        $this->workflow = new SchedulesWorkflow();
+        $this->termHolidayManager = new TermHolidayManager($this->db);
+        $this->termHolidayWorkflow = new TermHolidayWorkflow();
+        // (Instantiate other workflow handlers as needed)
+    }
+
+    // =============================
+    // Role-Specific Schedule Coordination Methods
+    // =============================
+
+    // TEACHING STAFF: Get timetable for a teacher
+    public function getTeacherSchedule($teacherId, $termId = null)
+    {
+        try {
+            $result = $this->manager->getTeacherSchedule($teacherId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // SUBJECT SPECIALIST: Get teaching load for a subject
+    public function getSubjectTeachingLoad($subjectId, $termId = null)
+    {
+        try {
+            $result = $this->manager->getSubjectTeachingLoad($subjectId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ACTIVITIES COORDINATOR: Get all activity schedules
+    public function getAllActivitySchedules($filters = [])
+    {
+        try {
+            $result = $this->manager->getAllActivitySchedules($filters);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // DRIVER: Get transport schedules for a driver
+    public function getDriverSchedule($driverId, $termId = null)
+    {
+        try {
+            $result = $this->manager->getDriverSchedule($driverId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // NON-TEACHING STAFF: Get duty schedules
+    public function getStaffDutySchedule($staffId, $termId = null)
+    {
+        try {
+            $result = $this->manager->getStaffDutySchedule($staffId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ADMIN: Get master schedule (all classes, activities, events, transport)
+    public function getMasterSchedule($filters = [])
+    {
+        try {
+            $result = $this->manager->getMasterSchedule($filters);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ANALYTICS: Get schedule analytics (utilization, conflicts, compliance)
+    public function getScheduleAnalytics($filters = [])
+    {
+        try {
+            $result = $this->manager->getScheduleAnalytics($filters);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+    // STUDENT: Get all schedules relevant to a student (classes, exams, events, holidays)
+
+    public function getStudentSchedules($studentId, $termId = null)
+    {
+        try {
+            $result = $this->termHolidayManager->getStudentSchedules($studentId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getStaffSchedules($staffId, $termId = null)
+    {
+        try {
+            $result = $this->termHolidayManager->getStaffSchedules($staffId, $termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getAdminTermOverview($termId)
+    {
+        try {
+            $result = $this->termHolidayManager->getAdminTermOverview($termId);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // =============================
+    // Term & Holiday Workflow Endpoints
+    // =============================
+
+    public function defineTermDates($data)
+    {
+        try {
+            $result = $this->termHolidayWorkflow->defineTermDates($data);
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function reviewTermDates($instanceId)
+    {
+        try {
+            $result = $this->termHolidayWorkflow->reviewTermDates($instanceId);
+            // (Add similar endpoints for ExamsWorkflow, EventsWorkflow, etc. as needed)
+            return successResponse($result);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+
+    public function checkResourceAvailability($resourceType, $resourceId, $start, $end)
+    {
+        try {
+            $available = $this->manager->checkResourceAvailability($resourceType, $resourceId, $start, $end);
+            return successResponse(['available' => $available]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function findOptimalSchedule($entityType, $entityId, $constraints = [])
+    {
+        try {
+            $slots = $this->manager->findOptimalSchedule($entityType, $entityId, $constraints);
+            return successResponse(['slots' => $slots]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function detectScheduleConflicts($entityType, $entityId, $proposedSchedule)
+    {
+        try {
+            $conflicts = $this->manager->detectScheduleConflicts($entityType, $entityId, $proposedSchedule);
+            return successResponse(['conflicts' => $conflicts]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function generateMasterSchedule($scope, $filters = [])
+    {
+        try {
+            $schedule = $this->manager->generateMasterSchedule($scope, $filters);
+            return successResponse(['schedule' => $schedule]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function validateScheduleCompliance($scheduleId)
+    {
+        try {
+            $compliant = $this->manager->validateScheduleCompliance($scheduleId);
+            return successResponse(['compliant' => $compliant]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // =============================
+    // Scheduling Workflow Methods
+    // =============================
+
+    public function startSchedulingWorkflow($data)
+    {
+        try {
+            // Expecting $data to contain reference_type, reference_id, and optionally initial_data
+            if (!isset($data['reference_type']) || !isset($data['reference_id'])) {
+                return errorResponse('Missing required workflow parameters: reference_type, reference_id');
+            }
+            $reference_type = $data['reference_type'];
+            $reference_id = $data['reference_id'];
+            $initial_data = isset($data['initial_data']) ? $data['initial_data'] : [];
+            $result = $this->workflow->startWorkflow($reference_type, $reference_id, $initial_data);
+            return successResponse(['workflow' => $result]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function advanceSchedulingWorkflow($workflowId, $action, $data = [])
+    {
+        try {
+            // No advanceWorkflow method in SchedulesWorkflow or WorkflowHandler; return error
+            return errorResponse('advanceWorkflow is not implemented for SchedulesWorkflow.');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getSchedulingWorkflowStatus($workflowId)
+    {
+        try {
+            $status = $this->workflow->getWorkflowStatus($workflowId);
+            return successResponse(['workflow_status' => $status]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function listSchedulingWorkflows($filters = [])
+    {
+        try {
+            $workflows = $this->workflow->listWorkflows($filters);
+            return successResponse(['workflows' => $workflows]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     public function list($params = []) {
@@ -36,16 +291,13 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response([
-                'status' => 'success',
-                'data' => [
-                    'schedules' => $schedules,
-                    'pagination' => [
-                        'page' => $page,
-                        'limit' => $limit,
-                        'total' => $total,
-                        'total_pages' => ceil($total / $limit)
-                    ]
+            return successResponse([
+                'schedules' => $schedules,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => ceil($total / $limit)
                 ]
             ]);
         } catch (Exception $e) {
@@ -60,10 +312,10 @@ class SchedulesAPI extends BaseAPI {
             $schedule = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$schedule) {
-                return $this->response(['status' => 'error', 'message' => 'Schedule not found'], 404);
+                return errorResponse('Schedule not found', 404);
             }
 
-            return $this->response(['status' => 'success', 'data' => $schedule]);
+            return successResponse($schedule);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -74,11 +326,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['title', 'start_date', 'end_date', 'type'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -104,11 +352,7 @@ class SchedulesAPI extends BaseAPI {
 
             $id = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Schedule created successfully',
-                'data' => ['id' => $id]
-            ], 201);
+            return successResponse(['id' => $id, 'message' => 'Schedule created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -119,7 +363,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt = $this->db->prepare("SELECT id FROM schedules WHERE id = ?");
             $stmt->execute([$id]);
             if (!$stmt->fetch()) {
-                return $this->response(['status' => 'error', 'message' => 'Schedule not found'], 404);
+                return errorResponse('Schedule not found', 404);
             }
 
             $updates = [];
@@ -140,10 +384,7 @@ class SchedulesAPI extends BaseAPI {
                 $stmt->execute($params);
             }
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Schedule updated successfully'
-            ]);
+            return successResponse(['message' => 'Schedule updated successfully']);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -155,13 +396,10 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute([$id]);
 
             if ($stmt->rowCount() === 0) {
-                return $this->response(['status' => 'error', 'message' => 'Schedule not found'], 404);
+                return errorResponse(['status' => 'error', 'message' => 'Schedule not found'], 404);
             }
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Schedule deleted successfully'
-            ]);
+            return successResponse(['message' => 'Schedule deleted successfully']);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -189,7 +427,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $timetable = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $timetable]);
+            return successResponse($timetable);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -200,11 +438,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['class_id', 'learning_area_id', 'teacher_id', 'day_of_week', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -234,11 +468,7 @@ class SchedulesAPI extends BaseAPI {
 
             $entryId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Timetable entry created successfully',
-                'data' => ['id' => $entryId]
-            ], 201);
+            return successResponse(['id' => $entryId, 'message' => 'Timetable entry created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -264,7 +494,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $schedule = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $schedule]);
+            return successResponse($schedule);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -275,11 +505,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['exam_id', 'learning_area_id', 'exam_date', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -309,11 +535,7 @@ class SchedulesAPI extends BaseAPI {
 
             $scheduleId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Exam schedule created successfully',
-                'data' => ['id' => $scheduleId]
-            ], 201);
+            return successResponse(['id' => $scheduleId, 'message' => 'Exam schedule created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -337,7 +559,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $events = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $events]);
+            return successResponse($events);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -348,11 +570,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['name', 'start_date', 'end_date', 'organizer_id'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -388,11 +606,7 @@ class SchedulesAPI extends BaseAPI {
 
             $eventId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Event created successfully',
-                'data' => ['id' => $eventId]
-            ], 201);
+            return successResponse(['id' => $eventId, 'message' => 'Event created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -418,7 +632,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $schedules]);
+            return successResponse($schedules);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -429,11 +643,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['activity_id', 'day_of_week', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -463,11 +673,7 @@ class SchedulesAPI extends BaseAPI {
 
             $scheduleId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Activity schedule created successfully',
-                'data' => ['id' => $scheduleId]
-            ], 201);
+            return successResponse(['id' => $scheduleId, 'message' => 'Activity schedule created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -494,7 +700,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $rooms]);
+            return successResponse($rooms);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -505,11 +711,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['name', 'capacity'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -537,11 +739,7 @@ class SchedulesAPI extends BaseAPI {
 
             $roomId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Room created successfully',
-                'data' => ['id' => $roomId]
-            ], 201);
+            return successResponse(['id' => $roomId, 'message' => 'Room created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -563,7 +761,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $reports = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $reports]);
+            return successResponse($reports);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -574,11 +772,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['name', 'report_type', 'frequency', 'recipient_id'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -624,11 +818,7 @@ class SchedulesAPI extends BaseAPI {
 
             $reportId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Scheduled report created successfully',
-                'data' => ['id' => $reportId]
-            ], 201);
+            return successResponse(['id' => $reportId, 'message' => 'Scheduled report created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -657,7 +847,7 @@ class SchedulesAPI extends BaseAPI {
             $stmt->execute();
             $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return $this->response(['status' => 'success', 'data' => $schedules]);
+            return successResponse($schedules);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -668,11 +858,7 @@ class SchedulesAPI extends BaseAPI {
             $required = ['route_id', 'day_of_week', 'pickup_time', 'dropoff_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Missing required fields',
-                    'fields' => $missing
-                ], 400);
+                return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
             $sql = "
@@ -702,11 +888,7 @@ class SchedulesAPI extends BaseAPI {
 
             $scheduleId = $this->db->lastInsertId();
 
-            return $this->response([
-                'status' => 'success',
-                'message' => 'Route schedule created successfully',
-                'data' => ['id' => $scheduleId]
-            ], 201);
+            return successResponse(['id' => $scheduleId, 'message' => 'Route schedule created successfully'], 201);
         } catch (Exception $e) {
             return $this->handleException($e);
         }

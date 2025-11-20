@@ -79,10 +79,9 @@ define('SMTP_FROM_NAME', 'Kingsway Preparatory School');
 
 // SMS Configuration
 define('SMS_PROVIDER', 'africastalking'); // or 'twilio'
-define('SMS_API_KEY', 'your-api-key');
-define('SMS_USERNAME', 'your-username');
-define('SMS_ACCOUNT_SID', 'your-account-sid'); // For Twilio
-define('SMS_AUTH_TOKEN', 'your-auth-token'); // For Twilio
+define('SMS_API_KEY', 'atsk_f2dcfc5b1306188b28520c4bf1dfbb8e446ffbf2f960f38cb5a5720a14963e4fdeee2901');
+define('SMS_USERNAME', 'KWPS');
+define('SMS_APPNAME', 'KingsWay Preparatory School');
 define('SMS_FROM_NUMBER', 'your-from-number');
 
 // Base URL Configuration (Update this with your actual domain)

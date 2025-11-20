@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Student Results SMS",
+    "template_type": "sms",
+    "category": "results",
+    "subject": null,
+    "template_body": "Kingsway Academy Results:\n{{student_name}}, {{term_name}}\n\nSummative\n{{summative_lines}}\nMean: GPA {{summative_gpa}}, GRADE {{summative_grade}}\n\nFormative Summary\n{{formative_lines}}\nMean: GPA {{formative_gpa}}, GRADE {{formative_grade}}\n\nAverage\n{{average_lines}}\nMean: GPA {{average_gpa}}, GRADE {{average_grade}}",
+    "variables_json": "{\"student_name\":\"string\",\"term_name\":\"string\",\"summative_lines\":\"string\",\"summative_gpa\":\"string\",\"summative_grade\":\"string\",\"formative_lines\":\"string\",\"formative_gpa\":\"string\",\"formative_grade\":\"string\",\"average_lines\":\"string\",\"average_gpa\":\"string\",\"average_grade\":\"string\"}",
+    "example_output": "Kingsway Academy Results:\nJohn Doe, Term 2\n\nSummative\nMath: SCORE 85 POINTS 3.5,\nEnglish: SCORE 78 POINTS 3.0,\n...\nMean: GPA 4.0, GRADE EE1\n\nFormative Summary\nMath: SCORE 85 POINTS 3.5,\nEnglish: SCORE 78 POINTS 3.0,\n...\nMean: GPA 4.0, GRADE EE1\n\nAverage\nMath: SCORE 85 POINTS 3.5,\nEnglish: SCORE 78 POINTS 3.0,\n...\nMean: GPA 4.0, GRADE EE1"
+  },
+  {
+    "name": "Fees Payment Reminder SMS",
+    "template_type": "sms",
+    "category": "fees",
+    "subject": null,
+    "template_body": "Kingsway Academy Fees Reminder:\nDear {{parent_name}},\nOutstanding Fees: KES {{amount_due}} for {{student_name}} (Class {{class_name}}).\nDue Date: {{due_date}}.\nPlease pay promptly to avoid interruption.",
+    "variables_json": "{\"parent_name\":\"string\",\"amount_due\":\"string\",\"student_name\":\"string\",\"class_name\":\"string\",\"due_date\":\"string\"}",
+    "example_output": "Kingsway Academy Fees Reminder:\nDear Jane Doe,\nOutstanding Fees: KES 12,000 for John Doe (Class 6B).\nDue Date: 2025-11-30.\nPlease pay promptly to avoid interruption."
+  },
+  {
+    "name": "Announcement to Parents SMS",
+    "template_type": "sms",
+    "category": "announcement",
+    "subject": null,
+    "template_body": "Kingsway Academy Announcement:\n{{announcement_body}}\n- {{school_name}}",
+    "variables_json": "{\"announcement_body\":\"string\",\"school_name\":\"string\"}",
+    "example_output": "Kingsway Academy Announcement:\nSchool will close on Friday at 1pm.\n- Kingsway Academy"
+  },
+  {
+    "name": "Notification to Parents SMS",
+    "template_type": "sms",
+    "category": "notification",
+    "subject": null,
+    "template_body": "Kingsway Academy Notification:\n{{notification_body}}\n- {{school_name}}",
+    "variables_json": "{\"notification_body\":\"string\",\"school_name\":\"string\"}",
+    "example_output": "Kingsway Academy Notification:\nYour child John Doe was absent today.\n- Kingsway Academy"
+  }
+]

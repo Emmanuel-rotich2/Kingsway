@@ -26,7 +26,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
     public function __construct()
     {
-        parent::__construct();
+        parent::__construct($this->workflowType);
         $this->performanceManager = new StaffPerformanceManager();
     }
 
@@ -116,14 +116,12 @@ class EvaluationWorkflow extends WorkflowHandler
                 'review_id' => $reviewId
             ];
 
-            $result = $this->startWorkflow('staff_evaluation', $staffId, $userId, $workflowData);
+            $workflowId = $this->startWorkflow('staff_evaluation', $staffId, $workflowData);
 
-            if (!$result['success']) {
+            if (!$workflowId) {
                 $this->rollback();
-                return $result;
+                return formatResponse(false, null, 'Failed to start workflow');
             }
-
-            $workflowId = $result['data']['workflow_id'];
 
             // Update performance review with workflow ID
             $stmt = $this->db->prepare("
@@ -148,7 +146,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -214,7 +213,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -243,6 +243,7 @@ class EvaluationWorkflow extends WorkflowHandler
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
             // Validate user is the supervisor
+            if ($userId != ($workflowData['supervisor_id'] ?? null)) {
                 return formatResponse(false, null, 'Only the assigned supervisor can complete this review');
             }
 
@@ -294,7 +295,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -351,7 +353,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -397,16 +400,11 @@ class EvaluationWorkflow extends WorkflowHandler
             $workflowData['final_grade'] = $completeResult['data']['performance_grade'] ?? null;
 
             // Complete workflow
-            $result = $this->completeWorkflow(
-                $workflowId,
-                $userId,
-                'Evaluation completed successfully',
-                $workflowData
-            );
+            $complete = $this->completeWorkflow($workflowId, $workflowData);
 
-            if (!$result['success']) {
+            if (!$complete) {
                 $this->rollback();
-                return $result;
+                return formatResponse(false, null, 'Failed to complete workflow');
             }
 
             $this->commit();
@@ -424,7 +422,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -467,7 +466,8 @@ class EvaluationWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 }

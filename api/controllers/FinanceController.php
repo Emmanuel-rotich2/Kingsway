@@ -11,13 +11,84 @@ use Exception;
  * All methods follow signature: methodName($id = null, $data = [], $segments = [])
  * Router calls with: $controller->methodName($id, $data, $segments)
  */
+
 class FinanceController extends BaseController
 {
+
+
     private FinanceAPI $api;
 
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
+    }
+
+    // ========================================
+    // SECTION X: Department Budget Workflows
+    // ========================================
+
+    /**
+     * POST /api/finance/department-budgets/propose
+     * Department submits a budget proposal
+     */
+    public function postDepartmentBudgetsPropose($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->proposeDepartmentBudget($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/department-budgets/proposals
+     * View all department budget proposals (optionally filter by department/status)
+     */
+    public function getDepartmentBudgetsProposals($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->listDepartmentBudgetProposals($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/department-budgets/approve
+     * Approve or reject a department budget proposal
+     */
+    public function postDepartmentBudgetsApprove($id = null, $data = [], $segments = [])
+    {
+        // Expecting: $data['proposal_id'], $data['status'], $data['reviewed_by']
+        $proposalId = $data['proposal_id'] ?? null;
+        $status = $data['status'] ?? null;
+        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
+        if (!$proposalId || !$status) {
+            return $this->badRequest('proposal_id and status are required');
+        }
+        $result = $this->api->updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/department-budgets/allocate
+     * Allocate funds to a department budget
+     */
+    public function postDepartmentBudgetsAllocate($id = null, $data = [], $segments = [])
+    {
+        // Expecting: $data['department_id'], $data['amount'], $data['allocated_by']
+        $departmentId = $data['department_id'] ?? null;
+        $amount = $data['amount'] ?? null;
+        $allocatedBy = $data['allocated_by'] ?? $this->getCurrentUserId();
+        if (!$departmentId || !$amount) {
+            return $this->badRequest('department_id and amount are required');
+        }
+        $result = $this->api->allocateDepartmentBudget($departmentId, $amount, $allocatedBy);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/department-budgets/request-funds
+     * Department requests funds from allocated budget
+     */
+    public function postDepartmentBudgetsRequestFunds($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->requestDepartmentFunds($data);
+        return $this->handleResponse($result);
     }
 
     // ========================================
@@ -326,8 +397,8 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 4: Fee Structure Operations
     // ========================================
-
     /**
+        private FinanceAPI $api;
      * POST /api/finance/fees/create-annual-structure
      */
     public function postFeesCreateAnnualStructure($id = null, $data = [], $segments = [])

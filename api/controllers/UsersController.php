@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 use App\API\Modules\Users\UsersAPI;
 use Exception;
 
+
 /**
  * UsersController - REST endpoints for user management
  * Handles user accounts, roles, permissions, and authentication
@@ -20,6 +21,7 @@ class UsersController extends BaseController
         $this->api = new UsersAPI();
     }
 
+   
     // ========================================
     // SECTION 1: Base CRUD Operations
     // ========================================
@@ -325,6 +327,105 @@ class UsersController extends BaseController
 
         return $this->success($result);
     }
+
+     // =============================
+    // SECTION: Bulk & Fine-grained Operations
+    // =============================
+
+    // --- Bulk Role Operations ---
+    public function postRolesBulkCreate($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkCreateRoles($data['roles'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function putRolesBulkUpdate($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkUpdateRoles($data['roles'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deleteRolesBulkDelete($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkDeleteRoles($data['role_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+
+    // --- Bulk Permission Operations ---
+    public function postPermissionsBulkAssignToRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignPermissionsToRole($data['role_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deletePermissionsBulkRevokeFromRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokePermissionsFromRole($data['role_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function postPermissionsBulkAssignToUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignPermissionsToUser($data['user_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deletePermissionsBulkRevokeFromUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokePermissionsFromUser($data['user_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+
+    // --- Bulk UserRole Operations ---
+    public function postRolesBulkAssignToUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignRolesToUser($data['user_id'], $data['role_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deleteRolesBulkRevokeFromUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokeRolesFromUser($data['user_id'], $data['role_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function postUsersBulkAssignToRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignUsersToRole($data['role_id'], $data['user_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deleteUsersBulkRevokeFromRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokeUsersFromRole($data['role_id'], $data['user_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+
+    // --- Bulk UserPermission Operations ---
+    public function postPermissionsBulkAssignToUserDirect($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignPermissionsToUserDirect($data['user_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deletePermissionsBulkRevokeFromUserDirect($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokePermissionsFromUserDirect($data['user_id'], $data['permissions'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function postUsersBulkAssignToPermission($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkAssignUsersToPermission($data['permission'], $data['user_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+    public function deleteUsersBulkRevokeFromPermission($id = null, $data = [], $segments = []) {
+        $result = $this->api->bulkRevokeUsersFromPermission($data['permission'], $data['user_ids'] ?? []);
+        return $this->handleResponse($result);
+    }
+
+    // --- Fine-grained assign/revoke endpoints ---
+    public function postRoleAssignToUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->assignRoleToUser($data['user_id'], $data['role_id']);
+        return $this->handleResponse($result);
+    }
+    public function deleteRoleRevokeFromUser($id = null, $data = [], $segments = []) {
+        $result = $this->api->revokeRoleFromUser($data['user_id'], $data['role_id']);
+        return $this->handleResponse($result);
+    }
+    public function postPermissionAssignToUserDirect($id = null, $data = [], $segments = []) {
+        $result = $this->api->assignPermissionToUserDirect($data['user_id'], $data['permission']);
+        return $this->handleResponse($result);
+    }
+    public function deletePermissionRevokeFromUserDirect($id = null, $data = [], $segments = []) {
+        $result = $this->api->revokePermissionFromUserDirect($data['user_id'], $data['permission']);
+        return $this->handleResponse($result);
+    }
+    public function postPermissionAssignToRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->assignPermissionToRole($data['role_id'], $data['permission']);
+        return $this->handleResponse($result);
+    }
+    public function deletePermissionRevokeFromRole($id = null, $data = [], $segments = []) {
+        $result = $this->api->revokePermissionFromRole($data['role_id'], $data['permission']);
+        return $this->handleResponse($result);
+    }
+
 
     /**
      * Get current authenticated user ID

@@ -1,32 +1,30 @@
 <?php
+
 namespace App\API\Controllers;
 
-use App\API\Modules\staff\StaffAPI;
-use Exception;
+use App\API\Modules\Staff\StaffAPI;
 
 /**
- * StaffController - REST endpoints for all staff operations
- * Handles staff CRUD, assignments, attendance, leave, payroll, and performance
+ * StaffController - Explicit REST endpoints for Staff Management
  * 
- * All methods follow signature: methodName($id = null, $data = [], $segments = [])
- * Router calls with: $controller->methodName($id, $data, $segments)
+ * Every method in StaffAPI has its own unique, explicit endpoint
+ * Router calls methods with signature: methodName($id, $data, $segments)
  */
 class StaffController extends BaseController
 {
-    private StaffAPI $api;
+    private $api;
 
-    public function __construct() {
+    public function __construct()
+    {
         parent::__construct();
         $this->api = new StaffAPI();
     }
 
-    // ========================================
-    // SECTION 1: Base CRUD Operations
-    // ========================================
+    // ==================== BASE CRUD OPERATIONS ====================
 
     /**
-     * GET /api/staff - List all staff members
-     * GET /api/staff/{id} - Get single staff member
+     * GET /api/staff - List all staff
+     * GET /api/staff/{id} - Get specific staff member
      */
     public function get($id = null, $data = [], $segments = [])
     {
@@ -71,11 +69,6 @@ class StaffController extends BaseController
             return $this->badRequest('Staff ID is required for update');
         }
         
-        if (!empty($segments)) {
-            $resource = array_shift($segments);
-            return $this->routeNestedPut($resource, $id, $data, $segments);
-        }
-        
         $result = $this->api->update($id, $data);
         return $this->handleResponse($result);
     }
@@ -93,163 +86,123 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 2: Staff Information
-    // ========================================
+    // ==================== STAFF INFORMATION ====================
 
     /**
-     * GET /api/staff/{id}/profile
+     * GET /api/staff/profile/get - Get staff profile
      */
-    public function getProfile($id = null, $data = [], $segments = [])
+    public function getProfileGet($id = null, $data = [], $segments = [])
     {
-        if ($id === null && isset($data['id'])) {
-            $id = $data['id'];
-        }
-        
-        if ($id === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
-        $result = $this->api->getProfile($id);
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $result = $this->api->getProfile($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/{id}/schedule
+     * GET /api/staff/schedule/get - Get staff schedule
      */
-    public function getSchedule($id = null, $data = [], $segments = [])
+    public function getScheduleGet($id = null, $data = [], $segments = [])
     {
-        if ($id === null && isset($data['id'])) {
-            $id = $data['id'];
-        }
-        
-        if ($id === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
-        $result = $this->api->getSchedule($id);
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $result = $this->api->getSchedule($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/departments
+     * GET /api/staff/departments/get - Get all departments
      */
-    public function getDepartments($id = null, $data = [], $segments = [])
+    public function getDepartmentsGet($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getDepartments();
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 3: Assignment Operations
-    // ========================================
+    // ==================== ASSIGNMENT OPERATIONS ====================
 
     /**
-     * POST /api/staff/{id}/assign-class
+     * POST /api/staff/assign/class - Assign staff to class
      */
     public function postAssignClass($id = null, $data = [], $segments = [])
     {
-        if ($id === null && isset($data['id'])) {
-            $id = $data['id'];
-        }
-        
-        if ($id === null) {
+        $staffId = $id ?? $data['staff_id'] ?? null;
+        if (!$staffId) {
             return $this->badRequest('Staff ID is required');
         }
         
-        $result = $this->api->assignClass($id, $data);
+        $result = $this->api->assignClass($staffId, $data);
         return $this->handleResponse($result);
     }
 
     /**
-     * POST /api/staff/{id}/assign-subject
+     * POST /api/staff/assign/subject - Assign staff to subject
      */
     public function postAssignSubject($id = null, $data = [], $segments = [])
     {
-        if ($id === null && isset($data['id'])) {
-            $id = $data['id'];
-        }
-        
-        if ($id === null) {
+        $staffId = $id ?? $data['staff_id'] ?? null;
+        if (!$staffId) {
             return $this->badRequest('Staff ID is required');
         }
         
-        $result = $this->api->assignSubject($id, $data);
+        $result = $this->api->assignSubject($staffId, $data);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/assignments/get
+     * GET /api/staff/assignments/get - Get staff assignments
      */
     public function getAssignmentsGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $academicYearId = $data['academic_year_id'] ?? null;
         $includeHistory = $data['include_history'] ?? false;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->getStaffAssignments($staffId, $academicYearId, $includeHistory);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/assignments/current
+     * GET /api/staff/assignments/current - Get current assignments
      */
     public function getAssignmentsCurrent($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $result = $this->api->getCurrentAssignments($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/workload/get
+     * GET /api/staff/workload/get - Get staff workload
      */
     public function getWorkloadGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $academicYearId = $data['academic_year_id'] ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->getStaffWorkload($staffId, $academicYearId);
         return $this->handleResponse($result);
     }
 
     /**
-     * POST /api/staff/assignment/initiate
+     * POST /api/staff/assignment/initiate - Initiate assignment workflow
      */
     public function postAssignmentInitiate($id = null, $data = [], $segments = [])
     {
         $staffId = $data['staff_id'] ?? null;
         $classStreamId = $data['class_stream_id'] ?? null;
         $academicYearId = $data['academic_year_id'] ?? null;
-        $userId = $this->getCurrentUserId();
         
-        if ($staffId === null || $classStreamId === null || $academicYearId === null) {
-            return $this->badRequest('Staff ID, class stream ID, and academic year ID are required');
+        if (!$staffId || !$classStreamId || !$academicYearId) {
+            return $this->badRequest('Staff ID, Class Stream ID, and Academic Year ID are required');
         }
         
-        $result = $this->api->initiateAssignment($staffId, $classStreamId, $academicYearId, $userId, $data);
+        $result = $this->api->initiateAssignment($staffId, $classStreamId, $academicYearId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 4: Attendance Operations
-    // ========================================
+    // ==================== ATTENDANCE OPERATIONS ====================
 
     /**
-     * GET /api/staff/attendance/get
+     * GET /api/staff/attendance/get - Get staff attendance records
      */
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
@@ -258,7 +211,7 @@ class StaffController extends BaseController
     }
 
     /**
-     * POST /api/staff/attendance/mark
+     * POST /api/staff/attendance/mark - Mark staff attendance
      */
     public function postAttendanceMark($id = null, $data = [], $segments = [])
     {
@@ -266,12 +219,10 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 5: Leave Management
-    // ========================================
+    // ==================== LEAVE MANAGEMENT ====================
 
     /**
-     * GET /api/staff/leaves/list
+     * GET /api/staff/leaves/list - List leave requests
      */
     public function getLeavesList($id = null, $data = [], $segments = [])
     {
@@ -280,7 +231,7 @@ class StaffController extends BaseController
     }
 
     /**
-     * POST /api/staff/leaves/apply
+     * POST /api/staff/leaves/apply - Apply for leave
      */
     public function postLeavesApply($id = null, $data = [], $segments = [])
     {
@@ -289,231 +240,171 @@ class StaffController extends BaseController
     }
 
     /**
-     * PUT /api/staff/leaves/{id}/update-status
+     * PUT /api/staff/leaves/update-status - Update leave status
      */
     public function putLeavesUpdateStatus($id = null, $data = [], $segments = [])
     {
-        if ($id === null && isset($data['id'])) {
-            $id = $data['id'];
-        }
-        
-        if ($id === null) {
+        $leaveId = $id ?? $data['leave_id'] ?? null;
+        if (!$leaveId) {
             return $this->badRequest('Leave ID is required');
         }
         
-        $result = $this->api->updateLeaveStatus($id, $data);
+        $result = $this->api->updateLeaveStatus($leaveId, $data);
         return $this->handleResponse($result);
     }
 
     /**
-     * POST /api/staff/leave/initiate-request
+     * POST /api/staff/leave/initiate-request - Initiate leave request workflow
      */
     public function postLeaveInitiateRequest($id = null, $data = [], $segments = [])
     {
         $staffId = $data['staff_id'] ?? null;
-        $userId = $this->getCurrentUserId();
         
-        if ($staffId === null) {
+        if (!$staffId) {
             return $this->badRequest('Staff ID is required');
         }
         
-        $result = $this->api->initiateLeaveRequest($staffId, $userId, $data);
+        $result = $this->api->initiateLeaveRequest($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 6: Payroll Operations
-    // ========================================
+    // ==================== PAYROLL OPERATIONS ====================
 
     /**
-     * GET /api/staff/payroll/payslip
+     * GET /api/staff/payroll/payslip - View payslip
      */
     public function getPayrollPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        $month = $data['month'] ?? null;
-        $year = $data['year'] ?? null;
-        
-        if ($staffId === null || $month === null || $year === null) {
-            return $this->badRequest('Staff ID, month, and year are required');
-        }
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $month = $data['month'] ?? date('m');
+        $year = $data['year'] ?? date('Y');
         
         $result = $this->api->viewPayslip($staffId, $month, $year);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/history
+     * GET /api/staff/payroll/history - Get payroll history
      */
     public function getPayrollHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->getPayrollHistory($staffId, $startDate, $endDate);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/allowances
+     * GET /api/staff/payroll/allowances - View allowances
      */
     public function getPayrollAllowances($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $result = $this->api->viewAllowances($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/deductions
+     * GET /api/staff/payroll/deductions - View deductions
      */
     public function getPayrollDeductions($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $result = $this->api->viewDeductions($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/loan-details
+     * GET /api/staff/payroll/loan-details - Get loan details
      */
     public function getPayrollLoanDetails($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $loanId = $data['loan_id'] ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->getLoanDetails($staffId, $loanId);
         return $this->handleResponse($result);
     }
 
     /**
-     * POST /api/staff/payroll/request-advance
+     * POST /api/staff/payroll/request-advance - Request salary advance
      */
     public function postPayrollRequestAdvance($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        $userId = $this->getCurrentUserId();
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
-        $result = $this->api->requestAdvance($staffId, $userId, $data);
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $result = $this->api->requestAdvance($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
 
     /**
-     * POST /api/staff/payroll/apply-loan
+     * POST /api/staff/payroll/apply-loan - Apply for loan
      */
     public function postPayrollApplyLoan($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        $userId = $this->getCurrentUserId();
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
-        $result = $this->api->applyForLoan($staffId, $userId, $data);
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $result = $this->api->applyForLoan($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/download-p9
+     * GET /api/staff/payroll/download-p9 - Download P9 form
      */
     public function getPayrollDownloadP9($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        $year = $data['year'] ?? null;
-        
-        if ($staffId === null || $year === null) {
-            return $this->badRequest('Staff ID and year are required');
-        }
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $year = $data['year'] ?? date('Y');
         
         $result = $this->api->downloadP9Form($staffId, $year);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/download-payslip
+     * GET /api/staff/payroll/download-payslip - Download payslip
      */
     public function getPayrollDownloadPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        $month = $data['month'] ?? null;
-        $year = $data['year'] ?? null;
-        
-        if ($staffId === null || $month === null || $year === null) {
-            return $this->badRequest('Staff ID, month, and year are required');
-        }
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $month = $data['month'] ?? date('m');
+        $year = $data['year'] ?? date('Y');
         
         $result = $this->api->downloadPayslip($staffId, $month, $year);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/payroll/export-history
+     * GET /api/staff/payroll/export-history - Export payroll history
      */
     public function getPayrollExportHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->exportPayrollHistory($staffId, $startDate, $endDate);
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 7: Performance Management
-    // ========================================
+    // ==================== PERFORMANCE MANAGEMENT ====================
 
     /**
-     * GET /api/staff/performance/review-history
+     * GET /api/staff/performance/review-history - Get review history
      */
     public function getPerformanceReviewHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
-        
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $result = $this->api->getReviewHistory($staffId);
         return $this->handleResponse($result);
     }
 
     /**
-     * GET /api/staff/performance/generate-report
+     * GET /api/staff/performance/generate-report - Generate performance report
      */
     public function getPerformanceGenerateReport($id = null, $data = [], $segments = [])
     {
-        $reviewId = $data['review_id'] ?? $id ?? null;
-        
-        if ($reviewId === null) {
+        $reviewId = $id ?? $data['review_id'] ?? null;
+        if (!$reviewId) {
             return $this->badRequest('Review ID is required');
         }
         
@@ -522,28 +413,19 @@ class StaffController extends BaseController
     }
 
     /**
-     * GET /api/staff/performance/academic-kpi-summary
+     * GET /api/staff/performance/academic-kpi-summary - Get academic KPI summary
      */
     public function getPerformanceAcademicKpiSummary($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? $id ?? null;
+        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
         $academicYearId = $data['academic_year_id'] ?? null;
-        
-        if ($staffId === null) {
-            return $this->badRequest('Staff ID is required');
-        }
         
         $result = $this->api->getAcademicKPISummary($staffId, $academicYearId);
         return $this->handleResponse($result);
     }
 
-    // ========================================
-    // SECTION 8: Helper Methods
-    // ========================================
+    // ==================== HELPER METHODS ====================
 
-    /**
-     * Route nested POST requests to appropriate methods
-     */
     private function routeNestedPost($resource, $id, $data, $segments)
     {
         $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
@@ -551,20 +433,17 @@ class StaffController extends BaseController
         if ($action) {
             $methodName .= ucfirst($action);
         }
-        
+
         if (method_exists($this, $methodName)) {
             if ($id !== null) {
                 $data['id'] = $id;
             }
             return $this->$methodName($id, $data, []);
         }
-        
+
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    /**
-     * Route nested GET requests to appropriate methods
-     */
     private function routeNestedGet($resource, $id, $data, $segments)
     {
         $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
@@ -572,20 +451,17 @@ class StaffController extends BaseController
         if ($action) {
             $methodName .= ucfirst($action);
         }
-        
+
         if (method_exists($this, $methodName)) {
             if ($id !== null) {
                 $data['id'] = $id;
             }
             return $this->$methodName($id, $data, []);
         }
-        
+
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    /**
-     * Route nested PUT requests to appropriate methods
-     */
     private function routeNestedPut($resource, $id, $data, $segments)
     {
         $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
@@ -593,28 +469,19 @@ class StaffController extends BaseController
         if ($action) {
             $methodName .= ucfirst($action);
         }
-        
+
         if (method_exists($this, $methodName)) {
-            if ($id !== null) {
-                $data['id'] = $id;
-            }
             return $this->$methodName($id, $data, []);
         }
-        
+
         return $this->notFound("Method '{$methodName}' not found");
     }
 
-    /**
-     * Convert kebab-case to camelCase
-     */
     private function toCamelCase($string)
     {
         return lcfirst(str_replace('-', '', ucwords($string, '-')));
     }
 
-    /**
-     * Handle API response and format appropriately
-     */
     private function handleResponse($result)
     {
         if (is_array($result)) {
@@ -627,15 +494,7 @@ class StaffController extends BaseController
             }
             return $this->success($result);
         }
-        
-        return $this->success($result);
-    }
 
-    /**
-     * Get current authenticated user ID
-     */
-    private function getCurrentUserId()
-    {
-        return $this->user['id'] ?? null;
+        return $this->success($result);
     }
 }

@@ -1,3 +1,4 @@
+
 -- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
@@ -831,162 +832,160 @@ END IF;
 
 SELECT COALESCE(tc.avg_overall_percentage, 0),
   COALESCE(tc.avg_overall_grade, 'BE2') INTO v_term1_score,
-  v_term1_grade
-FROM term_consolidations tc
-  JOIN academic_terms at ON tc.term_id = at.id
-WHERE tc.student_id = v_student_id
-  AND at.year = p_academic_year
-  AND at.term_number = 1
-LIMIT 1;
 
-SELECT COALESCE(tc.avg_overall_percentage, 0),
-  COALESCE(tc.avg_overall_grade, 'BE2') INTO v_term2_score,
-  v_term2_grade
-FROM term_consolidations tc
-  JOIN academic_terms at ON tc.term_id = at.id
-WHERE tc.student_id = v_student_id
-  AND at.year = p_academic_year
-  AND at.term_number = 2
-LIMIT 1;
+  --
+  DROP TABLE IF EXISTS `communication_templates`;
+  CREATE TABLE IF NOT EXISTS `communication_templates` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `name` varchar(255) NOT NULL,
+    `template_type` enum('internal_message','sms','email','announcement') NOT NULL DEFAULT 'sms',
+    `category` varchar(100) DEFAULT NULL,
+    `subject` varchar(255) DEFAULT NULL,
+    `template_body` longtext NOT NULL,
+    `variables_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`variables_json`)),
+    `example_output` text DEFAULT NULL,
+    `created_by` int(10) UNSIGNED NOT NULL,
+    `status` enum('active','inactive','archived') NOT NULL DEFAULT 'active',
+    `usage_count` int(11) NOT NULL DEFAULT 0,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    PRIMARY KEY (`id`),
+    KEY `template_type` (`template_type`),
+    KEY `category` (`category`),
+    KEY `created_by` (`created_by`),
+    KEY `idx_status` (`status`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-SELECT COALESCE(tc.avg_overall_percentage, 0),
-  COALESCE(tc.avg_overall_grade, 'BE2') INTO v_term3_score,
-  v_term3_grade
-FROM term_consolidations tc
-  JOIN academic_terms at ON tc.term_id = at.id
-WHERE tc.student_id = v_student_id
-  AND at.year = p_academic_year
-  AND at.term_number = 3
-LIMIT 1;
+  -- RELATIONSHIPS FOR TABLE `communication_templates`:
+  --   `created_by`
+  --       `staff` -> `id`
 
-SET v_annual_percentage = ROUND(
-    (v_term1_score * p_term1_weight) + (v_term2_score * p_term2_weight) + (v_term3_score * p_term3_weight),
-    2
-  );
+  -- Truncate table before insert `communication_templates`
 
-SET v_annual_score = v_annual_percentage;
+  TRUNCATE TABLE `communication_templates`;
+  -- --------------------------------------------------------
 
-SET v_annual_grade = calculate_grade(v_annual_percentage);
-SET v_annual_points = calculate_points(v_annual_percentage);
+  -- Parent Portal Messaging (Inbox/Outbox)
+  DROP TABLE IF EXISTS `parent_portal_messages`;
+  CREATE TABLE IF NOT EXISTS `parent_portal_messages` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `parent_id` int(10) UNSIGNED NOT NULL,
+    `student_id` int(10) UNSIGNED DEFAULT NULL,
+    `sender_type` enum('parent','school','staff','admin') NOT NULL,
+    `sender_id` int(10) UNSIGNED NOT NULL,
+    `recipient_type` enum('parent','school','staff','admin') NOT NULL,
+    `recipient_id` int(10) UNSIGNED NOT NULL,
+    `subject` varchar(255) NOT NULL,
+    `body` text NOT NULL,
+    `status` enum('sent','read','archived','deleted') NOT NULL DEFAULT 'sent',
+    `is_reply` tinyint(1) NOT NULL DEFAULT 0,
+    `reply_to_id` int(10) UNSIGNED DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    PRIMARY KEY (`id`),
+    KEY `parent_id` (`parent_id`),
+    KEY `student_id` (`student_id`),
+    KEY `sender_id` (`sender_id`),
+    KEY `recipient_id` (`recipient_id`),
+    KEY `reply_to_id` (`reply_to_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-SELECT COUNT(*) + 1,
-  COUNT(DISTINCT s.id) INTO v_annual_rank,
-  v_grade_total
-FROM annual_scores ans
-  JOIN students s ON ans.student_id = s.id
-WHERE s.grade_level_id = v_grade_level_id
-  AND ans.academic_year = p_academic_year
-  AND ans.annual_percentage > v_annual_percentage;
+  -- External Inbound Messages (SMS, Email, etc)
+  DROP TABLE IF EXISTS `external_inbound_messages`;
+  CREATE TABLE IF NOT EXISTS `external_inbound_messages` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `source_type` enum('sms','email','web','other') NOT NULL,
+    `source_address` varchar(255) NOT NULL,
+    `received_at` datetime NOT NULL,
+    `linked_user_id` int(10) UNSIGNED DEFAULT NULL,
+    `linked_parent_id` int(10) UNSIGNED DEFAULT NULL,
+    `linked_student_id` int(10) UNSIGNED DEFAULT NULL,
+    `subject` varchar(255) DEFAULT NULL,
+    `body` text NOT NULL,
+    `status` enum('pending','processed','archived','error') NOT NULL DEFAULT 'pending',
+    `processing_notes` text DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `linked_user_id` (`linked_user_id`),
+    KEY `linked_parent_id` (`linked_parent_id`),
+    KEY `linked_student_id` (`linked_student_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-IF v_grade_total > 0 THEN
-SET v_grade_percentile = ROUND(
-    (
-      (v_grade_total - v_annual_rank + 1) / v_grade_total
-    ) * 100,
-    2
-  );
-ELSE
-SET v_grade_percentile = 0;
-SET v_annual_rank = 1;
-SET v_grade_total = 1;
-END IF;
+  -- Forums and Threads (for bulletin boards, discussions)
+  DROP TABLE IF EXISTS `forum_threads`;
+  CREATE TABLE IF NOT EXISTS `forum_threads` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` varchar(255) NOT NULL,
+    `created_by` int(10) UNSIGNED NOT NULL,
+    `forum_type` enum('general','class','staff','parent','custom') NOT NULL DEFAULT 'general',
+    `status` enum('open','closed','archived') NOT NULL DEFAULT 'open',
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+    PRIMARY KEY (`id`),
+    KEY `created_by` (`created_by`),
+    KEY `forum_type` (`forum_type`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-SELECT ROUND(AVG(formative_percentage), 2),
-  ROUND(AVG(summative_percentage), 2) INTO v_avg_formative,
-  v_avg_summative
-FROM term_subject_scores tss
-  JOIN academic_terms at ON tss.term_id = at.id
-WHERE tss.student_id = v_student_id
-  AND at.year = p_academic_year;
+  DROP TABLE IF EXISTS `forum_posts`;
+  CREATE TABLE IF NOT EXISTS `forum_posts` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `thread_id` int(10) UNSIGNED NOT NULL,
+    `author_id` int(10) UNSIGNED NOT NULL,
+    `author_type` enum('student','staff','parent','admin') NOT NULL,
+    `body` text NOT NULL,
+    `reply_to_id` int(10) UNSIGNED DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    PRIMARY KEY (`id`),
+    KEY `thread_id` (`thread_id`),
+    KEY `author_id` (`author_id`),
+    KEY `reply_to_id` (`reply_to_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+  -- Contact Directory (for institution, staff, parents, students)
+  DROP TABLE IF EXISTS `contact_directory`;
+  CREATE TABLE IF NOT EXISTS `contact_directory` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `contact_type` enum('staff','student','parent','department','external') NOT NULL,
+    `linked_id` int(10) UNSIGNED DEFAULT NULL,
+    `name` varchar(255) NOT NULL,
+    `email` varchar(255) DEFAULT NULL,
+    `phone` varchar(50) DEFAULT NULL,
+    `department` varchar(100) DEFAULT NULL,
+    `role` varchar(100) DEFAULT NULL,
+    `notes` text DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    PRIMARY KEY (`id`),
+    KEY `contact_type` (`contact_type`),
+    KEY `linked_id` (`linked_id`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+  -- Workflow Integration: Communication Approval/Escalation
+  DROP TABLE IF EXISTS `communication_workflow_instances`;
+  CREATE TABLE IF NOT EXISTS `communication_workflow_instances` (
+    `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+    `communication_id` int(10) UNSIGNED NOT NULL,
+    `workflow_code` varchar(50) NOT NULL,
+    `current_stage` varchar(50) NOT NULL,
+    `status` enum('active','completed','cancelled','escalated') NOT NULL DEFAULT 'active',
+    `initiated_by` int(10) UNSIGNED NOT NULL,
+    `initiated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+    `completed_at` timestamp NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `communication_id` (`communication_id`),
+    KEY `workflow_code` (`workflow_code`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-
-IF v_avg_formative >= 75
-AND v_avg_summative >= 75 THEN
-SET v_pathway_classification = 'excelling';
-ELSEIF v_avg_formative < 40
-OR v_avg_summative < 40 THEN
-SET v_pathway_classification = 'support_needed';
-ELSE
-SET v_pathway_classification = 'on_track';
-END IF;
-
-SET v_insights_summary = JSON_OBJECT(
-    'pathway',
-    v_pathway_classification,
-    'annual_performance',
-    v_annual_grade,
-    'annual_percentage',
-    v_annual_percentage,
-    'class_rank',
-    CONCAT(v_annual_rank, ' out of ', v_grade_total),
-    'percentile',
-    v_grade_percentile,
-    'formative_engagement',
-    v_avg_formative,
-    'summative_mastery',
-    v_avg_summative,
-    'recommendation',
-    CASE
-      WHEN v_pathway_classification = 'excelling' THEN 'Student is excelling! Consider advanced/enrichment pathways. Leverage strengths across all competencies.'
-      WHEN v_pathway_classification = 'support_needed' THEN 'Student needs additional support. Work with teachers to identify specific competency gaps and develop targeted interventions.'
-      ELSE 'Student is on track. Continue current learning pathways while monitoring growth areas.'
-    END,
-    'next_steps',
-    JSON_ARRAY(
-      'Review strong and weak subject areas with the student',
-      'Set specific competency development goals for next term',
-      'Consider enrichment or remedial activities based on pathway',
-      'Engage parents in supporting student learning journey'
-    )
-  );
-
-INSERT INTO annual_scores (
-    student_id,
-    academic_year,
-    term1_weight,
-    term1_score,
-    term1_grade,
-    term2_weight,
-    term2_score,
-    term2_grade,
-    term3_weight,
-    term3_score,
-    term3_grade,
-    annual_score,
-    annual_percentage,
-    annual_grade,
-    annual_points,
-    annual_rank,
-    grade_total_students,
-    grade_percentile,
-    avg_formative_percentage,
-    avg_summative_percentage,
-    pathway_classification,
-    insights_summary,
-    calculated_at
-  )
-VALUES (
-    v_student_id,
-    p_academic_year,
-    p_term1_weight,
-    v_term1_score,
-    v_term1_grade,
-    p_term2_weight,
-    v_term2_score,
-    v_term2_grade,
-    p_term3_weight,
-    v_term3_score,
-    v_term3_grade,
-    v_annual_score,
-    v_annual_percentage,
-    v_annual_grade,
-    v_annual_points,
-    v_annual_rank,
-    v_grade_total,
-    v_grade_percentile,
-    v_avg_formative,
+  -- Trigger: Auto-log communication workflow initiation
+  DELIMITER $$
+  DROP TRIGGER IF EXISTS trg_auto_start_comm_workflow$$
+  CREATE TRIGGER trg_auto_start_comm_workflow
+  AFTER INSERT ON communications
+  FOR EACH ROW
+  BEGIN
+    IF NEW.status = 'scheduled' OR NEW.status = 'sent' THEN
+      INSERT INTO communication_workflow_instances (communication_id, workflow_code, current_stage, status, initiated_by, initiated_at)
+      VALUES (NEW.id, 'communication_approval', 'initiated', 'active', NEW.sender_id, NOW());
+    END IF;
+  END$$
+  DELIMITER ;
     v_avg_summative,
     v_pathway_classification,
     v_insights_summary,
@@ -7521,33 +7520,130 @@ TRUNCATE TABLE `communication_recipients`;
 -- --------------------------------------------------------
 
 --
--- Table structure for table `communication_templates`
---
--- Creation: Nov 09, 2025 at 11:15 PM
---
 
 DROP TABLE IF EXISTS `communication_templates`;
-CREATE TABLE IF NOT EXISTS `communication_templates` (
+
+-- Parent Portal Messaging (Inbox/Outbox)
+DROP TABLE IF EXISTS `parent_portal_messages`;
+CREATE TABLE IF NOT EXISTS `parent_portal_messages` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
-  `name` varchar(255) NOT NULL,
-  `template_type` enum('internal_message','sms','email','announcement') NOT NULL DEFAULT 'sms',
-  `category` varchar(100) DEFAULT NULL,
+  `parent_id` int(10) UNSIGNED NOT NULL,
+  `student_id` int(10) UNSIGNED DEFAULT NULL,
+  `sender_type` enum('parent','school','staff','admin') NOT NULL,
+  `sender_id` int(10) UNSIGNED NOT NULL,
+  `recipient_type` enum('parent','school','staff','admin') NOT NULL,
+  `recipient_id` int(10) UNSIGNED NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `body` text NOT NULL,
+  `status` enum('sent','read','archived','deleted') NOT NULL DEFAULT 'sent',
+  `is_reply` tinyint(1) NOT NULL DEFAULT 0,
+  `reply_to_id` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `parent_id` (`parent_id`),
+  KEY `student_id` (`student_id`),
+  KEY `sender_id` (`sender_id`),
+  KEY `recipient_id` (`recipient_id`),
+  KEY `reply_to_id` (`reply_to_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- External Inbound Messages (SMS, Email, etc)
+DROP TABLE IF EXISTS `external_inbound_messages`;
+CREATE TABLE IF NOT EXISTS `external_inbound_messages` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `source_type` enum('sms','email','web','other') NOT NULL,
+  `source_address` varchar(255) NOT NULL,
+  `received_at` datetime NOT NULL,
+  `linked_user_id` int(10) UNSIGNED DEFAULT NULL,
+  `linked_parent_id` int(10) UNSIGNED DEFAULT NULL,
+  `linked_student_id` int(10) UNSIGNED DEFAULT NULL,
   `subject` varchar(255) DEFAULT NULL,
-  `template_body` longtext NOT NULL,
-  `variables_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`variables_json`)),
-  `example_output` text DEFAULT NULL,
+  `body` text NOT NULL,
+  `status` enum('pending','processed','archived','error') NOT NULL DEFAULT 'pending',
+  `processing_notes` text DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `linked_user_id` (`linked_user_id`),
+  KEY `linked_parent_id` (`linked_parent_id`),
+  KEY `linked_student_id` (`linked_student_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Forums and Threads (for bulletin boards, discussions)
+DROP TABLE IF EXISTS `forum_threads`;
+CREATE TABLE IF NOT EXISTS `forum_threads` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `title` varchar(255) NOT NULL,
   `created_by` int(10) UNSIGNED NOT NULL,
-  `status` enum('active','inactive','archived') NOT NULL DEFAULT 'active',
-  `usage_count` int(11) NOT NULL DEFAULT 0,
+  `forum_type` enum('general','class','staff','parent','custom') NOT NULL DEFAULT 'general',
+  `status` enum('open','closed','archived') NOT NULL DEFAULT 'open',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `template_type` (`template_type`),
-  KEY `category` (`category`),
   KEY `created_by` (`created_by`),
-  KEY `idx_status` (`status`)
+  KEY `forum_type` (`forum_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+DROP TABLE IF EXISTS `forum_posts`;
+CREATE TABLE IF NOT EXISTS `forum_posts` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `thread_id` int(10) UNSIGNED NOT NULL,
+  `author_id` int(10) UNSIGNED NOT NULL,
+  `author_type` enum('student','staff','parent','admin') NOT NULL,
+  `body` text NOT NULL,
+  `reply_to_id` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `thread_id` (`thread_id`),
+  KEY `author_id` (`author_id`),
+  KEY `reply_to_id` (`reply_to_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Contact Directory (for institution, staff, parents, students)
+DROP TABLE IF EXISTS `contact_directory`;
+CREATE TABLE IF NOT EXISTS `contact_directory` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `contact_type` enum('staff','student','parent','department','external') NOT NULL,
+  `linked_id` int(10) UNSIGNED DEFAULT NULL,
+  `name` varchar(255) NOT NULL,
+  `email` varchar(255) DEFAULT NULL,
+  `phone` varchar(50) DEFAULT NULL,
+  `department` varchar(100) DEFAULT NULL,
+  `role` varchar(100) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `contact_type` (`contact_type`),
+  KEY `linked_id` (`linked_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Workflow Integration: Communication Approval/Escalation
+DROP TABLE IF EXISTS `communication_workflow_instances`;
+CREATE TABLE IF NOT EXISTS `communication_workflow_instances` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `communication_id` int(10) UNSIGNED NOT NULL,
+  `workflow_code` varchar(50) NOT NULL,
+  `current_stage` varchar(50) NOT NULL,
+  `status` enum('active','completed','cancelled','escalated') NOT NULL DEFAULT 'active',
+  `initiated_by` int(10) UNSIGNED NOT NULL,
+  `initiated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `completed_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `communication_id` (`communication_id`),
+  KEY `workflow_code` (`workflow_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- Trigger: Auto-log communication workflow initiation
+DELIMITER $$
+DROP TRIGGER IF EXISTS trg_auto_start_comm_workflow$$
+CREATE TRIGGER trg_auto_start_comm_workflow
+AFTER INSERT ON communications
+FOR EACH ROW
+BEGIN
+  IF NEW.status = 'scheduled' OR NEW.status = 'sent' THEN
+    INSERT INTO communication_workflow_instances (communication_id, workflow_code, current_stage, status, initiated_by, initiated_at)
+    VALUES (NEW.id, 'communication_approval', 'initiated', 'active', NEW.sender_id, NOW());
+  END IF;
+END$$
+DELIMITER ;
 --
 -- RELATIONSHIPS FOR TABLE `communication_templates`:
 --   `created_by`
@@ -8164,10 +8260,6 @@ DELIMITER ;
 -- --------------------------------------------------------
 
 --
--- Table structure for table `external_institutions`
---
--- Creation: Nov 09, 2025 at 11:15 PM
---
 
 DROP TABLE IF EXISTS `external_institutions`;
 CREATE TABLE IF NOT EXISTS `external_institutions` (
@@ -8176,25 +8268,56 @@ CREATE TABLE IF NOT EXISTS `external_institutions` (
   `institution_type` enum('government','ngo','school','university','supplier','other') NOT NULL DEFAULT 'other',
   `email_addresses` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`email_addresses`)),
   `phone_numbers` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`phone_numbers`)),
-  `contact_person_name` varchar(255) DEFAULT NULL,
-  `contact_person_phone` varchar(20) DEFAULT NULL,
-  `contact_person_email` varchar(100) DEFAULT NULL,
-  `address` text DEFAULT NULL,
-  `website` varchar(255) DEFAULT NULL,
-  `status` enum('active','inactive','archived') NOT NULL DEFAULT 'active',
-  `notes` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+--
+--
+-- Table structure for table `activity_schedules`
+--
+-- Creation: Nov 14, 2025 at 04:30 PM
+--
+
+DROP TABLE IF EXISTS `activity_schedules`;
+CREATE TABLE IF NOT EXISTS `activity_schedules` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `class_id` int(10) UNSIGNED DEFAULT NULL,
+  `staff_id` int(10) UNSIGNED DEFAULT NULL,
+  `activity_id` int(10) UNSIGNED DEFAULT NULL,
+  `venue_id` int(10) UNSIGNED DEFAULT NULL,
+  `day_of_week` varchar(16) DEFAULT NULL,
+  `start_time` time DEFAULT NULL,
+  `end_time` time DEFAULT NULL,
+  `term_id` int(10) UNSIGNED DEFAULT NULL,
+  `academic_year` year DEFAULT NULL,
+  `status` varchar(32) DEFAULT 'scheduled',
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
-  KEY `idx_institution_type` (`institution_type`),
+  KEY `idx_class_id` (`class_id`),
+  KEY `idx_staff_id` (`staff_id`),
+  KEY `idx_activity_id` (`activity_id`),
+  KEY `idx_venue_id` (`venue_id`),
+  KEY `idx_day_of_week` (`day_of_week`),
+  KEY `idx_term_year` (`term_id`, `academic_year`),
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
--- RELATIONSHIPS FOR TABLE `external_institutions`:
+-- RELATIONSHIPS FOR TABLE `activity_schedules`:
+--   `class_id` -> `classes`.`id`
+--   `staff_id` -> `staff`.`id`
+--   `activity_id` -> `activities`.`id`
+--   `venue_id` -> `rooms`.`id`
 --
 
 --
+-- Truncate table before insert `activity_schedules`
+--
+
+TRUNCATE TABLE `activity_schedules`;
+-- --------------------------------------------------------
+-- RELATIONSHIPS FOR TABLE `external_institutions`:
 -- Truncate table before insert `external_institutions`
 --
 
@@ -9065,6 +9188,135 @@ TRUNCATE TABLE `internal_conversations`;
 -- --------------------------------------------------------
 
 --
+
+CREATE OR REPLACE VIEW vw_master_schedule AS
+SELECT 'class' AS schedule_type, cs.id AS schedule_id, cs.class_id, cs.teacher_id, cs.room_id, cs.day_of_week, cs.start_time, cs.end_time, cs.term_id, cs.academic_year, NULL AS exam_id, NULL AS activity_id
+UNION ALL
+
+SELECT 'activity', actsch.id, actsch.class_id, actsch.staff_id, actsch.venue_id, actsch.day_of_week, actsch.start_time, actsch.end_time, actsch.term_id, actsch.academic_year, NULL, actsch.activity_id
+  FROM activity_schedules actsch;
+
+-- Teacher schedule view
+CREATE OR REPLACE VIEW vw_teacher_schedule AS
+SELECT * FROM vw_master_schedule WHERE teacher_id IS NOT NULL;
+
+-- Room schedule view
+CREATE OR REPLACE VIEW vw_room_schedule AS
+SELECT * FROM vw_master_schedule WHERE room_id IS NOT NULL;
+
+-- Student schedule view (by class membership)
+CREATE OR REPLACE VIEW vw_student_schedule AS
+SELECT s.id AS student_id, ms.*
+  FROM students s
+  JOIN vw_master_schedule ms ON s.class_id = ms.class_id;
+
+-- 2. PROCEDURES
+
+-- Detect schedule conflicts (across teachers, rooms, students)
+DELIMITER $$
+DROP PROCEDURE IF EXISTS sp_detect_schedule_conflicts$$
+CREATE PROCEDURE sp_detect_schedule_conflicts(IN p_start DATETIME, IN p_end DATETIME, IN p_room_id INT, IN p_teacher_id INT)
+BEGIN
+  -- Room conflict
+  SELECT 'room' AS conflict_type, id, 'class_schedules' AS table_name FROM class_schedules
+    WHERE room_id = p_room_id AND (
+      (start_time < p_end AND end_time > p_start)
+    )
+  UNION ALL
+  SELECT 'room', id, 'exam_schedules' FROM exam_schedules
+    WHERE room_id = p_room_id AND (
+      (start_time < p_end AND end_time > p_start)
+    );
+  -- Teacher conflict
+  SELECT 'teacher', id, 'class_schedules' FROM class_schedules
+    WHERE teacher_id = p_teacher_id AND (
+      (start_time < p_end AND end_time > p_start)
+    )
+  UNION ALL
+  SELECT 'teacher', id, 'exam_schedules' FROM exam_schedules
+    WHERE invigilator_id = p_teacher_id AND (
+      (start_time < p_end AND end_time > p_start)
+    );
+END$$
+DELIMITER ;
+
+-- Suggest optimal slot (find next available slot for a room/teacher)
+DELIMITER $$
+DROP PROCEDURE IF EXISTS sp_suggest_optimal_slot$$
+CREATE PROCEDURE sp_suggest_optimal_slot(IN p_room_id INT, IN p_teacher_id INT, IN p_term_id INT, IN p_academic_year YEAR)
+BEGIN
+  -- Example: Suggest first free slot between 8am-5pm, Mon-Fri
+  DECLARE v_day INT DEFAULT 1;
+  DECLARE v_found INT DEFAULT 0;
+  DECLARE v_start TIME;
+  DECLARE v_end TIME;
+  WHILE v_day <= 5 AND v_found = 0 DO
+    SET v_start = '08:00:00';
+    WHILE v_start < '17:00:00' AND v_found = 0 DO
+      SET v_end = ADDTIME(v_start, '01:00:00');
+      -- Check for conflicts
+      CALL sp_detect_schedule_conflicts(CONCAT('2025-01-0', v_day, ' ', v_start), CONCAT('2025-01-0', v_day, ' ', v_end), p_room_id, p_teacher_id);
+      -- If no rows returned, slot is free (pseudo, actual implementation may need a temp table or OUT param)
+      -- For brevity, just output candidate slots
+      SELECT v_day AS day_of_week, v_start AS start_time, v_end AS end_time;
+      SET v_start = ADDTIME(v_start, '01:00:00');
+    END WHILE;
+    SET v_day = v_day + 1;
+  END WHILE;
+END$$
+DELIMITER ;
+
+-- Generate master schedule (aggregate all schedules for a term/year)
+DELIMITER $$
+DROP PROCEDURE IF EXISTS sp_generate_master_schedule$$
+CREATE PROCEDURE sp_generate_master_schedule(IN p_term_id INT, IN p_academic_year YEAR)
+BEGIN
+  SELECT * FROM vw_master_schedule WHERE term_id = p_term_id AND academic_year = p_academic_year;
+END$$
+DELIMITER ;
+
+-- Validate schedule compliance (e.g., min/max hours, required breaks)
+DELIMITER $$
+DROP PROCEDURE IF EXISTS sp_validate_schedule_compliance$$
+CREATE PROCEDURE sp_validate_schedule_compliance(IN p_class_id INT, IN p_term_id INT, IN p_academic_year YEAR)
+BEGIN
+  -- Example: Check total scheduled hours per week
+  SELECT class_id, SUM(TIMESTAMPDIFF(MINUTE, start_time, end_time))/60 AS total_hours
+    FROM class_schedules
+    WHERE class_id = p_class_id AND term_id = p_term_id AND academic_year = p_academic_year
+    GROUP BY class_id;
+  -- Add more compliance checks as needed
+END$$
+DELIMITER ;
+
+-- 3. TRIGGERS
+
+-- Prevent double-booking in class_schedules
+DELIMITER $$
+DROP TRIGGER IF EXISTS trg_prevent_class_schedule_conflict$$
+CREATE TRIGGER trg_prevent_class_schedule_conflict
+BEFORE INSERT ON class_schedules
+FOR EACH ROW
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM class_schedules
+      WHERE room_id = NEW.room_id
+        AND day_of_week = NEW.day_of_week
+        AND ((start_time < NEW.end_time AND end_time > NEW.start_time))
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Room is already booked for this time slot.';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM class_schedules
+      WHERE teacher_id = NEW.teacher_id
+        AND day_of_week = NEW.day_of_week
+        AND ((start_time < NEW.end_time AND end_time > NEW.start_time))
+  ) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Teacher is already booked for this time slot.';
+  END IF;
+END$$
+DELIMITER ;
+
 -- Table structure for table `internal_messages`
 --
 -- Creation: Nov 09, 2025 at 11:15 PM
@@ -10107,9 +10359,186 @@ CREATE TABLE IF NOT EXISTS `learner_values_acquisition` (
 --
 
 TRUNCATE TABLE `learner_values_acquisition`;
+
+
+CREATE TABLE IF NOT EXISTS `user_roles` (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    role_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (role_id) REFERENCES roles(id)
+);
+
+
+-- --------------------------------------------------------
+-- Table structure for table `student_transport_assignments`
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `student_transport_assignments` (
+  `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `student_id` INT UNSIGNED NOT NULL,
+  `route_id` INT UNSIGNED NOT NULL,
+  `stop_id` INT UNSIGNED NOT NULL,
+  `month` TINYINT NOT NULL,
+  `year` SMALLINT NOT NULL,
+  `status` ENUM('active','inactive','withdrawn') NOT NULL DEFAULT 'active',
+  `assigned_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_student_month_year` (`student_id`, `month`, `year`),
+  KEY `idx_route` (`route_id`),
+  KEY `idx_stop` (`stop_id`),
+  CONSTRAINT `fk_sta_student` FOREIGN KEY (`student_id`) REFERENCES `students`(`id`),
+  CONSTRAINT `fk_sta_route` FOREIGN KEY (`route_id`) REFERENCES `transport_routes`(`id`),
+  CONSTRAINT `fk_sta_stop` FOREIGN KEY (`stop_id`) REFERENCES `transport_stops`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- Table structure for table `student_transport_payments`
+-- --------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `student_transport_payments` (
+  `id` INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  `student_id` INT UNSIGNED NOT NULL,
+  `admission_no` VARCHAR(20) NOT NULL,
+  `month` TINYINT NOT NULL,
+  `year` SMALLINT NOT NULL,
+  `amount_paid` DECIMAL(10,2) NOT NULL,
+  `payment_date` DATE NOT NULL,
+  `transaction_ref` VARCHAR(100),
+  `paybill` VARCHAR(20),
+  `status` ENUM('paid','pending','arrears','reversed') NOT NULL DEFAULT 'pending',
+  `arrears` DECIMAL(10,2) DEFAULT 0.00,
+  `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_student_month_year` (`student_id`, `month`, `year`),
+  KEY `idx_admission_no` (`admission_no`),
+  CONSTRAINT `fk_stp_student` FOREIGN KEY (`student_id`) REFERENCES `students`(`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- --------------------------------------------------------
+-- View for student transport status
+-- --------------------------------------------------------
+DROP VIEW IF EXISTS `vw_student_transport_status`;
+CREATE OR REPLACE VIEW `vw_student_transport_status` AS
+SELECT
+  s.id AS student_id,
+  s.admission_no,
+  s.first_name,
+  s.last_name,
+  sta.route_id,
+  tr.name AS route_name,
+  sta.stop_id,
+  ts.name AS stop_name,
+  sta.month,
+  sta.year,
+  sta.status AS assignment_status,
+  stp.amount_paid,
+  stp.status AS payment_status,
+  stp.arrears
+FROM students s
+LEFT JOIN student_transport_assignments sta
+  ON s.id = sta.student_id AND sta.month = MONTH(CURDATE()) AND sta.year = YEAR(CURDATE())
+LEFT JOIN transport_routes tr ON sta.route_id = tr.id
+LEFT JOIN transport_stops ts ON sta.stop_id = ts.id
+LEFT JOIN student_transport_payments stp
+  ON s.id = stp.student_id AND stp.month = MONTH(CURDATE()) AND stp.year = YEAR(CURDATE());
+
+-- --------------------------------------------------------
+-- Procedures for transport assignment and payment
+-- --------------------------------------------------------
+DELIMITER $$
+DROP PROCEDURE IF EXISTS `sp_assign_student_transport`$$
+CREATE PROCEDURE `sp_assign_student_transport` (
+  IN p_student_id INT UNSIGNED,
+  IN p_route_id INT UNSIGNED,
+  IN p_stop_id INT UNSIGNED,
+  IN p_month TINYINT,
+  IN p_year SMALLINT
+)
+BEGIN
+  INSERT INTO student_transport_assignments (student_id, route_id, stop_id, month, year, status)
+  VALUES (p_student_id, p_route_id, p_stop_id, p_month, p_year, 'active')
+  ON DUPLICATE KEY UPDATE route_id = p_route_id, stop_id = p_stop_id, status = 'active', updated_at = CURRENT_TIMESTAMP;
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_record_transport_payment`$$
+CREATE PROCEDURE `sp_record_transport_payment` (
+  IN p_student_id INT UNSIGNED,
+  IN p_admission_no VARCHAR(20),
+  IN p_month TINYINT,
+  IN p_year SMALLINT,
+  IN p_amount_paid DECIMAL(10,2),
+  IN p_payment_date DATE,
+  IN p_transaction_ref VARCHAR(100),
+  IN p_paybill VARCHAR(20)
+)
+BEGIN
+  INSERT INTO student_transport_payments (student_id, admission_no, month, year, amount_paid, payment_date, transaction_ref, paybill, status)
+  VALUES (p_student_id, p_admission_no, p_month, p_year, p_amount_paid, p_payment_date, p_transaction_ref, p_paybill, 'paid')
+  ON DUPLICATE KEY UPDATE amount_paid = p_amount_paid, payment_date = p_payment_date, transaction_ref = p_transaction_ref, paybill = p_paybill, status = 'paid', updated_at = CURRENT_TIMESTAMP;
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_check_student_transport_status`$$
+CREATE PROCEDURE `sp_check_student_transport_status` (
+  IN p_student_id INT UNSIGNED,
+  IN p_month TINYINT,
+  IN p_year SMALLINT
+)
+BEGIN
+  SELECT s.id AS student_id, s.admission_no, s.first_name, s.last_name,
+         sta.route_id, tr.name AS route_name, sta.stop_id, ts.name AS stop_name,
+         stp.amount_paid, stp.status AS payment_status, stp.arrears
+  FROM students s
+  LEFT JOIN student_transport_assignments sta
+    ON s.id = sta.student_id AND sta.month = p_month AND sta.year = p_year
+  LEFT JOIN transport_routes tr ON sta.route_id = tr.id
+  LEFT JOIN transport_stops ts ON sta.stop_id = ts.id
+  LEFT JOIN student_transport_payments stp
+    ON s.id = stp.student_id AND stp.month = p_month AND stp.year = p_year
+  WHERE s.id = p_student_id;
+END$$
+DELIMITER ;
+
+-- --------------------------------------------------------
+-- Triggers for transport assignment/payment
+-- --------------------------------------------------------
+DELIMITER $$
+DROP TRIGGER IF EXISTS `trg_update_transport_arrears`$$
+CREATE TRIGGER `trg_update_transport_arrears` AFTER INSERT ON student_transport_payments
+FOR EACH ROW BEGIN
+  IF NEW.status = 'arrears' THEN
+    INSERT INTO notifications (user_id, type, title, message, priority, created_at)
+    VALUES (
+      (SELECT user_id FROM students WHERE id = NEW.student_id),
+      'info',
+      'Transport Payment Arrears',
+      CONCAT('Transport payment for ', NEW.month, '/', NEW.year, ' is in arrears.'),
+      'high',
+      NOW()
+    );
+  END IF;
+END$$
+
+DROP TRIGGER IF EXISTS `trg_notify_transport_assignment`$$
+CREATE TRIGGER `trg_notify_transport_assignment` AFTER INSERT ON student_transport_assignments
+FOR EACH ROW BEGIN
+  INSERT INTO notifications (user_id, type, title, message, priority, created_at)
+  VALUES (
+    (SELECT user_id FROM students WHERE id = NEW.student_id),
+    'info',
+    'Transport Assignment',
+    CONCAT('You have been assigned to route ', NEW.route_id, ', stop ', NEW.stop_id, ' for ', NEW.month, '/', NEW.year),
+    'normal',
+    NOW()
+  );
+END$$
+DELIMITER ;
+
+
 --
 -- Triggers `learner_values_acquisition`
 --
+
+
 DROP TRIGGER IF EXISTS `trg_log_value_demonstration`;
 DELIMITER $$
 CREATE TRIGGER `trg_log_value_demonstration` AFTER INSERT ON `learner_values_acquisition` FOR EACH ROW BEGIN

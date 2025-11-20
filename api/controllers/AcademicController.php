@@ -512,7 +512,8 @@ class AcademicController extends BaseController
      */
     public function postCurriculumCreateScheme($data = [])
     {
-        $result = $this->api->createCurriculumScheme($data);
+        // Assuming createCurriculumScheme expects ($instanceId, $data)
+        $result = $this->api->createCurriculumScheme($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
 
@@ -588,7 +589,13 @@ class AcademicController extends BaseController
      */
     public function postCompetencyRecordEvidence($data = [])
     {
-        $result = $this->api->recordCompetencyEvidence($data);
+        // Assuming recordCompetencyEvidence expects ($studentId, $competencyId, $evidence, $data)
+        $result = $this->api->recordCompetencyEvidence(
+            $data['student_id'] ?? null,
+            $data['competency_id'] ?? null,
+            $data['evidence'] ?? null,
+            $data
+        );
         return $this->handleResponse($result);
     }
 
@@ -597,7 +604,12 @@ class AcademicController extends BaseController
      */
     public function postCompetencyRecordCoreValueEvidence($data = [])
     {
-        $result = $this->api->recordCoreValueEvidence($data);
+        // Assuming recordCoreValueEvidence expects ($studentId, $coreValueId, $data)
+        $result = $this->api->recordCoreValueEvidence(
+            $data['student_id'] ?? null,
+            $data['core_value_id'] ?? null,
+            $data
+        );
         return $this->handleResponse($result);
     }
 
@@ -702,7 +714,8 @@ class AcademicController extends BaseController
      */
     public function postStreamsCreate($data = [])
     {
-        $result = $this->api->createStream($data);
+        // Assuming createStream expects ($classId, $data)
+        $result = $this->api->createStream($data['class_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
 
@@ -1006,7 +1019,8 @@ class AcademicController extends BaseController
      */
     public function getWorkflowStatus($data = [])
     {
-        $result = $this->api->getWorkflowStatus($data['instance_id'] ?? null);
+        // Assuming getWorkflowStatus expects ($instanceId, $data)
+        $result = $this->api->getWorkflowStatus($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
 
@@ -1017,7 +1031,12 @@ class AcademicController extends BaseController
      */
     public function getCustom($data = [])
     {
-        $result = $this->api->handleCustomGet($data);
+        // Assuming handleCustomGet expects ($action, $params, $data)
+        $result = $this->api->handleCustomGet(
+            $data['action'] ?? null,
+            $data['params'] ?? [],
+            $data
+        );
         return $this->handleResponse($result);
     }
 
@@ -1026,7 +1045,12 @@ class AcademicController extends BaseController
      */
     public function postCustom($data = [])
     {
-        $result = $this->api->handleCustomPost($data);
+        // Assuming handleCustomPost expects ($action, $params, $data)
+        $result = $this->api->handleCustomPost(
+            $data['action'] ?? null,
+            $data['params'] ?? [],
+            $data
+        );
         return $this->handleResponse($result);
     }
 }

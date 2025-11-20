@@ -13,6 +13,7 @@ use Exception;
  */
 class WorkflowHandler extends BaseAPI
 {
+   
     protected $workflow_code;
     protected $workflow_id;
     protected $workflow_config;
@@ -22,6 +23,47 @@ class WorkflowHandler extends BaseAPI
         parent::__construct('workflow');
         $this->workflow_code = $workflow_code;
         $this->loadWorkflowDefinition();
+    }
+
+     /**
+     * List all workflow instances for this workflow
+     * @param array $filters
+     * @return array
+     */
+
+    public function listWorkflows($filters = [])
+    {
+        $sql = "SELECT wi.*, wd.code as workflow_code, wd.name as workflow_name, ws.name as current_stage_name, ws.description as stage_description, u.username as started_by_username
+                FROM workflow_instances wi
+                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
+                LEFT JOIN workflow_stages ws ON wi.workflow_id = ws.workflow_id AND wi.current_stage = ws.code
+                LEFT JOIN users u ON wi.started_by = u.id
+                WHERE wi.workflow_id = :workflow_id";
+
+        $params = ['workflow_id' => $this->workflow_id];
+        if (!empty($filters['reference_type'])) {
+            $sql .= " AND wi.reference_type = :reference_type";
+            $params['reference_type'] = $filters['reference_type'];
+        }
+        if (!empty($filters['reference_id'])) {
+            $sql .= " AND wi.reference_id = :reference_id";
+            $params['reference_id'] = $filters['reference_id'];
+        }
+        if (!empty($filters['status'])) {
+            $sql .= " AND wi.status = :status";
+            $params['status'] = $filters['status'];
+        }
+        $sql .= " ORDER BY wi.started_at DESC";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $instances = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        foreach ($instances as &$instance) {
+            if ($instance['data_json']) {
+                $instance['data'] = json_decode($instance['data_json'], true);
+            }
+        }
+        return $instances;
     }
 
     /**

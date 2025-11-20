@@ -107,7 +107,7 @@ class LeaveWorkflow extends WorkflowHandler
             ];
 
             // Start workflow
-            $instanceId = $this->startWorkflow('staff_leave', $leaveId, $userId, $workflowData);
+            $instanceId = $this->startWorkflow('staff_leave', $leaveId, $workflowData);
 
             // Update leave status
             $stmt = $this->db->prepare("
@@ -139,7 +139,8 @@ class LeaveWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -167,15 +168,9 @@ class LeaveWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot perform supervisor review. Current stage is: {$currentStage}");
             }
 
+
             // Validate supervisor
             $workflowData = json_decode($workflow['data_json'], true);
-                // Check if user has admin or HR role
-                $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
-                $stmt->execute([$userId]);
-                $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                }
-            }
 
             $this->beginTransaction();
 
@@ -229,7 +224,8 @@ class LeaveWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -260,92 +256,49 @@ class LeaveWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
             $stmt->execute([$userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            if ($user['role'] !== 'hr_manager') {
                 return formatResponse(false, null, 'Only HR managers can perform HR approval');
             }
-
             $workflowData = json_decode($workflow['data_json'], true);
-
             $this->beginTransaction();
-
             if ($action === 'reject') {
-                // Reject leave
-                $this->advanceStage(
-                    $instanceId,
-                    'rejected',
-                    'hr_rejected',
-                    $workflowData
-                );
-
-                // Update leave status
-                $stmt = $this->db->prepare("
-                    UPDATE staff_leaves 
-                    SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ?
-                    WHERE id = ?
-                ");
+                $this->advanceStage($instanceId, 'rejected', 'hr_rejected', $workflowData);
+                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
-
                 $this->commit();
-
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
                     'stage' => 'rejected'
                 ], 'Leave request rejected by HR');
             }
-
-            // Approve
             $workflowData['hr_approved_by'] = $userId;
             $workflowData['hr_approved_at'] = date('Y-m-d H:i:s');
             $workflowData['hr_remarks'] = $data['remarks'] ?? null;
-
-            // Check if director approval is required (> 5 days)
             if ($workflowData['requires_director_approval']) {
-                $this->advanceStage(
-                    $instanceId,
-                    'director_approval',
-                    'hr_approved',
-                    $workflowData
-                );
-
+                $this->advanceStage($instanceId, 'director_approval', 'hr_approved', $workflowData);
                 $this->commit();
-
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'current_stage' => 'director_approval',
                     'status' => 'pending_director_approval'
                 ], 'Leave approved by HR, forwarded to Director for final approval');
             }
-
-            // No director approval needed - approve directly
-            $this->advanceStage(
-                $instanceId,
-                'approved',
-                'hr_approved',
-                $workflowData
-            );
-
-            // Update leave status
-            $stmt = $this->db->prepare("
-                UPDATE staff_leaves 
-                SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ?
-                WHERE id = ?
-            ");
+            $this->advanceStage($instanceId, 'approved', 'hr_approved', $workflowData);
+            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
             $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
-
             $this->commit();
-
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
                 'stage' => 'approved'
             ], 'Leave request approved');
-
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 
@@ -376,73 +329,40 @@ class LeaveWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
             $stmt->execute([$userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            if ($user['role'] !== 'director') {
                 return formatResponse(false, null, 'Only the Director can perform final approval');
             }
-
             $workflowData = json_decode($workflow['data_json'], true);
-
             $this->beginTransaction();
-
             if ($action === 'reject') {
-                // Reject leave
-                $this->advanceStage(
-                    $instanceId,
-                    'rejected',
-                    'director_rejected',
-                    $workflowData
-                );
-
-                // Update leave status
-                $stmt = $this->db->prepare("
-                    UPDATE staff_leaves 
-                    SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ?
-                    WHERE id = ?
-                ");
+                $this->advanceStage($instanceId, 'rejected', 'director_rejected', $workflowData);
+                $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'rejected', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
                 $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
-
                 $this->commit();
-
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
                     'stage' => 'rejected'
                 ], 'Leave request rejected by Director');
             }
-
-            // Approve
             $workflowData['director_approved_by'] = $userId;
             $workflowData['director_approved_at'] = date('Y-m-d H:i:s');
             $workflowData['director_remarks'] = $data['remarks'] ?? null;
-
-            $this->advanceStage(
-                $instanceId,
-                'approved',
-                'director_approved',
-                $workflowData
-            );
-
-            // Update leave status
-            $stmt = $this->db->prepare("
-                UPDATE staff_leaves 
-                SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ?
-                WHERE id = ?
-            ");
+            $this->advanceStage($instanceId, 'approved', 'director_approved', $workflowData);
+            $stmt = $this->db->prepare("UPDATE staff_leaves SET status = 'approved', approved_by = ?, approval_date = NOW(), approval_comments = ? WHERE id = ?");
             $stmt->execute([$userId, $data['remarks'] ?? null, $workflowData['leave_id']]);
-
             $this->commit();
-
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
                 'stage' => 'approved'
             ], 'Leave request approved by Director');
-
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return formatResponse(false, null, 'Internal server error');
         }
     }
 

@@ -1,12 +1,30 @@
 <?php
 namespace App\API\Services\SMS;
 
+
 class SMSGateway {
+    // Public method to send WhatsApp message using the provider
+    public function sendWhatsApp($to, $message, $media = null)
+    {
+        if (method_exists($this->provider, 'sendWhatsApp')) {
+            return $this->provider->sendWhatsApp($to, $message, $media);
+        }
+        throw new \Exception('WhatsApp sending not supported by this provider');
+    }
     private $config;
     private $provider;
 
-    public function __construct($config) {
-        $this->config = $config;
+    public function __construct($config = [])
+    {
+        // Always load from config.php if not provided
+        $defaults = [
+            'provider' => defined('SMS_PROVIDER') ? SMS_PROVIDER : 'africastalking',
+            'api_key' => defined('SMS_API_KEY') ? SMS_API_KEY : '',
+            'username' => defined('SMS_USERNAME') ? SMS_USERNAME : '',
+            'from' => defined('SMS_FROM_NUMBER') ? SMS_FROM_NUMBER : '',
+            'wa_number' => defined('SMS_WHATSAPP_NUMBER') ? constant('SMS_WHATSAPP_NUMBER') : '',
+        ];
+        $this->config = array_merge($defaults, $config);
         $this->provider = $this->initializeProvider();
     }
 
@@ -30,45 +48,112 @@ interface SMSProvider {
     public function sendMessage($to, $message);
 }
 
+
 class AfricasTalkingProvider implements SMSProvider {
     private $config;
+    private $at; // Africa's Talking SDK instance
 
     public function __construct($config) {
         $this->config = $config;
+        $this->at = null;
     }
 
     public function sendMessage($to, $message) {
-        // Implementation for Africa's Talking API
-        $url = 'https://api.africastalking.com/version1/messaging';
-        $headers = [
-            'ApiKey' => $this->config['api_key'],
-            'Content-Type' => 'application/x-www-form-urlencoded',
-            'Accept' => 'application/json'
-        ];
-        
-        $data = [
-            'username' => $this->config['username'],
+        // Use Africa's Talking PHP SDK
+        $this->initAfricasTalking();
+        $sms = $this->at->sms();
+        $from = $this->config['from'] ?? null;
+        $options = [];
+        if ($from) {
+            $options['from'] = $from;
+        }
+        $result = $sms->send([
             'to' => $to,
-            'message' => $message
-        ];
+            'message' => $message,
+            'from' => $from
+        ]);
+        return $result;
+    }
 
-        // Send request using cURL
+    /**
+     * Send MMS using Africa's Talking
+     * @param string $to
+     * @param string $message
+     * @param string $mediaUrl
+     * @return mixed
+     */
+    public function sendMMS($to, $message, $mediaUrl)
+    {
+        $this->initAfricasTalking();
+        $sms = $this->at->sms();
+        $from = $this->config['from'] ?? null;
+        $result = $sms->send([
+            'to' => $to,
+            'message' => $message,
+            'from' => $from,
+            'mediaUrl' => $mediaUrl
+        ]);
+        return $result;
+    }
+
+    /**
+     * Send WhatsApp message using Africa's Talking
+     * @param string $to
+     * @param string $message
+     * @return mixed
+     */
+    /**
+     * Send WhatsApp message using Africa's Talking HTTP API
+     * @param string $to
+     * @param string $message
+     * @param array|null $media (optional)
+     * @return mixed
+     */
+    public function sendWhatsApp($to, $message, $media = null)
+    {
+        $url = 'https://chat.africastalking.com/whatsapp/message/send';
+        $apiKey = $this->config['api_key'];
+        $username = $this->config['username'];
+        $waNumber = $this->config['wa_number'] ?? null;
+        $body = [
+            'username' => $username,
+            'waNumber' => $waNumber,
+            'phoneNumber' => $to,
+            'body' => ['message' => $message]
+        ];
+        if ($media && is_array($media)) {
+            $body['body'] = array_merge($body['body'], $media);
+        }
+        $headers = [
+            'apiKey: ' . $apiKey,
+            'Content-Type: application/json',
+            'Accept: application/json'
+        ];
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($data));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        
         $response = curl_exec($ch);
         $error = curl_error($ch);
         curl_close($ch);
-
         if ($error) {
-            throw new \Exception("SMS sending failed: $error");
+            throw new \Exception("WhatsApp sending failed: $error");
         }
-
         return json_decode($response, true);
+    }
+
+    private function initAfricasTalking()
+    {
+        if ($this->at === null) {
+            // Use Composer autoload
+            require_once __DIR__ . '/../../../vendor/autoload.php';
+            $this->at = new \AfricasTalking\SDK\AfricasTalking(
+                $this->config['username'],
+                $this->config['api_key']
+            );
+        }
     }
 }
 
@@ -113,4 +198,4 @@ class TwilioProvider implements SMSProvider {
 
         return json_decode($response, true);
     }
-} 
+}

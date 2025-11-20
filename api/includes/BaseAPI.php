@@ -13,6 +13,18 @@ use finfo;
 
 class BaseAPI
 {
+    /**
+     * Standard API response formatter
+     * @param array $data
+     * @param int $statusCode
+     * @return array
+     */
+    protected function response(array $data, int $statusCode = 200)
+    {
+        // You can adjust this to return JSON if needed, or just return the array for controller to handle
+        $data['status_code'] = $statusCode;
+        return $data;
+    }
     protected $db;
     protected $user_id;
     protected $module;

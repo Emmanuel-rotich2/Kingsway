@@ -1,5 +1,5 @@
 <?php
-namespace App\Config;
+namespace App\Database;
 
 use PDO;
 use PDOException;
@@ -76,4 +76,3 @@ class Database {
         return $this->connection->lastInsertId();
     }
 }
-?>

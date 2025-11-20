@@ -16,165 +16,230 @@ class ReportsController extends BaseController
 {
     private ReportsAPI $api;
 
-    public function __construct() {
+    public function __construct()
+    {
         parent::__construct();
         $this->api = new ReportsAPI();
     }
 
-    // ========================================
-    // SECTION 1: Academic Reports
-    // ========================================
-
-    /**
-     * GET /api/reports/academic
-     */
-    public function getAcademic($id = null, $data = [], $segments = [])
+    // --- Admissions Reports ---
+    public function admissionStats($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->academicReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->admissionStats($data));
+    }
+    public function conversionRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->conversionRates($data));
+    }
+    public function alumniStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->alumniStats($data));
     }
 
-    /**
-     * GET /api/reports/academic-report
-     */
-    public function getAcademicReport($id = null, $data = [], $segments = [])
+    // --- Student Reports ---
+    public function totalStudents($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAcademicReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->totalStudents($data));
+    }
+    public function enrollmentTrends($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->enrollmentTrends($data));
+    }
+    public function attendanceRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->attendanceRates($data));
+    }
+    public function promotionRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->promotionRates($data));
+    }
+    public function dropoutRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->dropoutRates($data));
+    }
+    public function scoreDistributions($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->scoreDistributions($data));
+    }
+    public function studentProgressionRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->studentProgressionRates($data));
+    }
+    public function examReports($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->examReports($data));
+    }
+    public function academicYearReports($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->academicYearReports($data));
     }
 
-    // ========================================
-    // SECTION 2: Attendance Reports
-    // ========================================
-
-    /**
-     * GET /api/reports/attendance
-     */
-    public function getAttendance($id = null, $data = [], $segments = [])
+    // --- Staff Reports ---
+    public function totalStaff($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->attendanceReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->totalStaff($data));
+    }
+    public function staffAttendanceRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->staffAttendanceRates($data));
+    }
+    public function activeStaffCount($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->activeStaffCount($data));
+    }
+    public function staffLoanStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->staffLoanStats($data));
+    }
+    public function payrollSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->payrollSummary($data));
     }
 
-    // ========================================
-    // SECTION 3: Fee Reports
-    // ========================================
-
-    /**
-     * GET /api/reports/fee
-     */
-    public function getFee($id = null, $data = [], $segments = [])
+    // --- Finance Reports ---
+    public function feeSummary($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->feeReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->feeSummary($data));
+    }
+    public function feePaymentTrends($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->feePaymentTrends($data));
+    }
+    public function discountStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->discountStats($data));
+    }
+    public function arrearsStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->arrearsStats($data));
+    }
+    public function financialTransactionsSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->financialTransactionsSummary($data));
+    }
+    public function bankTransactionsSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->bankTransactionsSummary($data));
+    }
+    public function feeStructureChangeLog($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->feeStructureChangeLog($data));
     }
 
-    // ========================================
-    // SECTION 4: Transport Reports
-    // ========================================
-
-    /**
-     * GET /api/reports/transport
-     */
-    public function getTransport($id = null, $data = [], $segments = [])
+    // --- Inventory Reports ---
+    public function transportReport($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->transportReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->transportReport($data));
+    }
+    public function inventoryStockLevels($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->inventoryStockLevels($data));
+    }
+    public function inventoryUsageRates($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->inventoryUsageRates($data));
+    }
+    public function requisitionsSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->requisitionsSummary($data));
+    }
+    public function assetMaintenanceStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->assetMaintenanceStats($data));
+    }
+    public function inventoryAdjustmentLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->inventoryAdjustmentLogs($data));
     }
 
-    // ========================================
-    // SECTION 5: Dashboard & Statistics
-    // ========================================
-
-    /**
-     * GET /api/reports/dashboard-stats
-     */
-    public function getDashboardStats($id = null, $data = [], $segments = [])
+    // --- Meal Reports ---
+    public function mealAllocations($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getDashboardStats($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->mealAllocations($data));
+    }
+    public function foodConsumptionTrends($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->foodConsumptionTrends($data));
     }
 
-    // ========================================
-    // SECTION 6: System & Audit Reports
-    // ========================================
-
-    /**
-     * GET /api/reports/system
-     */
-    public function getSystem($id = null, $data = [], $segments = [])
+    // --- Logs Reports ---
+    public function communicationLogs($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getSystemReports($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->communicationLogs($data));
+    }
+    public function feeStructureLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->feeStructureLogs($data));
+    }
+    public function inventoryLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->inventoryLogs($data));
+    }
+    public function systemLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->systemLogs($data));
     }
 
-    /**
-     * GET /api/reports/audit
-     */
-    public function getAudit($id = null, $data = [], $segments = [])
+    // --- System Reports ---
+    public function loginActivity($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAuditReports($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->loginActivity($data));
+    }
+    public function accountUnlocks($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->accountUnlocks($data));
+    }
+    public function auditTrailSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->auditTrailSummary($data));
+    }
+    public function blockedDevicesStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->blockedDevicesStats($data));
     }
 
-    // ========================================
-    // SECTION 7: Custom Report Generation
-    // ========================================
-
-    /**
-     * POST /api/reports/custom/generate
-     */
-    public function postCustomGenerate($id = null, $data = [], $segments = [])
+    // --- Workflow Reports ---
+    public function workflowInstanceStats($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->generateCustomReport($data);
-        return $this->handleResponse($result);
+        return $this->handleResponse($this->api->workflowInstanceStats($data));
+    }
+    public function workflowStageTimes($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->workflowStageTimes($data));
+    }
+    public function workflowTransitionFrequencies($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->workflowTransitionFrequencies($data));
     }
 
-    // ========================================
-    // SECTION 8: Helper Methods
-    // ========================================
-
-    /**
-     * Route nested POST requests to appropriate methods
-     */
-    private function routeNestedPost($resource, $id, $data, $segments)
+    // --- Discipline Reports ---
+    public function conductCasesStats($id = null, $data = [], $segments = [])
     {
-        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
-        $methodName = 'post' . ucfirst($this->toCamelCase($resource));
-        if ($action) {
-            $methodName .= ucfirst($action);
-        }
-
-        if (method_exists($this, $methodName)) {
-            if ($id !== null) {
-                $data['id'] = $id;
-            }
-            return $this->$methodName($id, $data, []);
-        }
-
-        return $this->notFound("Method '{$methodName}' not found");
+        return $this->handleResponse($this->api->conductCasesStats($data));
+    }
+    public function disciplinaryTrends($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->disciplinaryTrends($data));
     }
 
-    /**
-     * Route nested GET requests to appropriate methods
-     */
-    private function routeNestedGet($resource, $id, $data, $segments)
+    // --- Communication Reports ---
+    public function communicationsStats($id = null, $data = [], $segments = [])
     {
-        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
-        $methodName = 'get' . ucfirst($this->toCamelCase($resource));
-        if ($action) {
-            $methodName .= ucfirst($action);
-        }
-
-        if (method_exists($this, $methodName)) {
-            if ($id !== null) {
-                $data['id'] = $id;
-            }
-            return $this->$methodName($id, $data, []);
-        }
-
-        return $this->notFound("Method '{$methodName}' not found");
+        return $this->handleResponse($this->api->communicationsStats($data));
     }
+    public function parentPortalStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->parentPortalStats($data));
+    }
+    public function forumActivityStats($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->forumActivityStats($data));
+    }
+    public function announcementReach($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->announcementReach($data));
+    }
+
 
     /**
      * Convert kebab-case to camelCase

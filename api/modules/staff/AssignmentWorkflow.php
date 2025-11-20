@@ -126,7 +126,8 @@ class AssignmentWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return [];
         }
     }
 
@@ -219,7 +220,8 @@ class AssignmentWorkflow extends WorkflowHandler
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return [];
         }
     }
 
@@ -235,29 +237,22 @@ class AssignmentWorkflow extends WorkflowHandler
     {
         try {
             $workflow = $this->getWorkflowInstance($instanceId);
-
             if (!$workflow) {
                 return formatResponse(false, null, 'Workflow instance not found');
             }
-
             $currentStage = $workflow['current_stage'];
-
             if ($currentStage !== 'head_teacher_approval') {
                 return formatResponse(false, null, "Cannot perform head teacher approval. Current stage is: {$currentStage}");
             }
-
             // Validate Head Teacher or Admin role
             $stmt = $this->db->prepare("SELECT role FROM users WHERE id = ?");
             $stmt->execute([$userId]);
             $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            if (!$user || $user['role'] !== 'Head Teacher') {
                 return formatResponse(false, null, 'Only Head Teacher can approve assignments');
             }
-
             $workflowData = json_decode($workflow['data_json'], true);
-
             $this->beginTransaction();
-
             if ($action === 'reject') {
                 // Reject assignment
                 $this->advanceStage(
@@ -266,7 +261,6 @@ class AssignmentWorkflow extends WorkflowHandler
                     'head_teacher_rejected',
                     $workflowData
                 );
-
                 // Update assignment status
                 $stmt = $this->db->prepare("
                     UPDATE staff_class_assignments 
@@ -274,28 +268,23 @@ class AssignmentWorkflow extends WorkflowHandler
                     WHERE id = ?
                 ");
                 $stmt->execute([$data['remarks'] ?? 'Rejected by Head Teacher', $workflowData['assignment_id']]);
-
                 $this->commit();
-
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
                     'stage' => 'rejected'
                 ], 'Assignment rejected by Head Teacher');
             }
-
             // Approve
             $workflowData['approved_by'] = $userId;
             $workflowData['approved_at'] = date('Y-m-d H:i:s');
             $workflowData['approval_remarks'] = $data['remarks'] ?? null;
-
             $this->advanceStage(
                 $instanceId,
                 'approved',
                 'head_teacher_approved',
                 $workflowData
             );
-
             // Update assignment status to active
             $stmt = $this->db->prepare("
                 UPDATE staff_class_assignments 
@@ -303,20 +292,18 @@ class AssignmentWorkflow extends WorkflowHandler
                 WHERE id = ?
             ");
             $stmt->execute([$workflowData['assignment_id']]);
-
             $this->commit();
-
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
                 'stage' => 'approved'
             ], 'Assignment approved and activated');
-
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
                 $this->rollback();
             }
-            return $this->handleException($e);
+            $this->handleException($e);
+            return [];
         }
     }
 
@@ -339,7 +326,8 @@ class AssignmentWorkflow extends WorkflowHandler
             return formatResponse(true, $workload ?? [], 'Workload analysis retrieved');
 
         } catch (Exception $e) {
-            return $this->handleException($e);
+            $this->handleException($e);
+            return [];
         }
     }
 
