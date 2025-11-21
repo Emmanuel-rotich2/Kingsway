@@ -1,0 +1,107 @@
+<?php
+namespace App\API\Modules\Communications;
+
+use PDO;
+
+class StaffForumManager
+{
+    private $db;
+    public function __construct(PDO $db)
+    {
+        $this->db = $db;
+    }
+
+    public function createForumTopic($data)
+    {
+        $sql = "INSERT INTO staff_forum_topics (title, created_by, status, created_at) VALUES (:title, :created_by, 'open', NOW())";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            ':title' => $data['title'],
+            ':created_by' => $data['created_by']
+        ]);
+        return $this->db->lastInsertId();
+    }
+
+    public function getForumTopic($id)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM staff_forum_topics WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function updateForumTopic($id, $data)
+    {
+        $sql = "UPDATE staff_forum_topics SET title = :title, updated_at = NOW() WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            ':title' => $data['title'],
+            ':id' => $id
+        ]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public function deleteForumTopic($id)
+    {
+        $stmt = $this->db->prepare("DELETE FROM staff_forum_topics WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public function listForumTopics($filters = [])
+    {
+        $sql = "SELECT * FROM staff_forum_topics WHERE 1=1";
+        $params = [];
+        if (isset($filters['status'])) {
+            $sql .= " AND status = :status";
+            $params[':status'] = $filters['status'];
+        }
+        $sql .= " ORDER BY created_at DESC";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function createForumPost($topicId, $data)
+    {
+        $sql = "INSERT INTO staff_forum_posts (topic_id, content, created_by, status, created_at) VALUES (:topic_id, :content, :created_by, 'visible', NOW())";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            ':topic_id' => $topicId,
+            ':content' => $data['content'],
+            ':created_by' => $data['created_by']
+        ]);
+        return $this->db->lastInsertId();
+    }
+
+    public function getForumPost($id)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM staff_forum_posts WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function updateForumPost($id, $data)
+    {
+        $sql = "UPDATE staff_forum_posts SET content = :content, updated_at = NOW() WHERE id = :id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            ':content' => $data['content'],
+            ':id' => $id
+        ]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public function deleteForumPost($id)
+    {
+        $stmt = $this->db->prepare("DELETE FROM staff_forum_posts WHERE id = ?");
+        $stmt->execute([$id]);
+        return $stmt->rowCount() > 0;
+    }
+
+    public function listForumPosts($topicId)
+    {
+        $stmt = $this->db->prepare("SELECT * FROM staff_forum_posts WHERE topic_id = ? ORDER BY created_at ASC");
+        $stmt->execute([$topicId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+}

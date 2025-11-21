@@ -1,3 +1,4 @@
+
 <?php
 // Teacher Dashboard (Kenya Primary/Secondary School)
 include 'config/db_connection.php';
@@ -51,7 +52,7 @@ $summaryCards = [
   ],
   [
     'title' => 'Attendance Rate',
-    'count' => '98%',
+    'count' => 98,
     'percent' => 98,
     'days' => 1,
     'icon' => 'bi-person-check-fill',
@@ -235,6 +236,3 @@ $studentRows = [
     </div>
   </div>
 </div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

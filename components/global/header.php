@@ -1,13 +1,22 @@
 <!--components/global/header.php-->
+<?php
+// Handle logout before any output
+if (isset($_GET['route']) && $_GET['route'] === 'logout') {
+    session_destroy();
+    header('Location: ../../index.php');
+    exit;
+}
+
+// Provide user info for header
+$user_role = $_SESSION['main_role'] ?? ($_SESSION['roles'][0] ?? 'Guest');
+$username = $_SESSION['username'] ?? 'Guest';
+?>
 <div class="school-header d-flex align-items-center justify-content-start px-3">
-
-
     <div class="header-items d-flex align-items-center justify-content-between flex-grow-1">
         <div class="topbar d-flex align-items-center flex-grow-1 gap-4">
             <button class="btn btn-light" onclick="toggleSidebar()">☰</button>
             <div>Welcome <?php echo ucfirst($user_role); ?></div>
         </div>
-
         <!-- Actions -->
         <div class="d-flex align-items-center gap-2 ms-3">
             <!-- Sidebar Toggle (mobile only) -->
@@ -29,7 +38,7 @@
             <!-- User Dropdown -->
             <div class="dropdown">
                 <button class="btn btn-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-user"></i> <?php echo $_SESSION['username'] ?? 'Guest'; ?>
+                    <i class="fas fa-user"></i> <?php echo $username; ?>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="?route=profile">Profile</a></li>

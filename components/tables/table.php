@@ -1,5 +1,5 @@
 <?php
-function renderTable($title, $headers, $rows, $withActions = false, $actionOptions = ['Edit', 'Delete','View Profile'])
+function renderTable($title, $headers, $rows, $withActions = false, $actionOptions = ['Edit', 'Delete', 'View Profile'], $withBulkSelect = false)
 {
 ?>
   <div class="card mb-4">
@@ -11,6 +11,7 @@ function renderTable($title, $headers, $rows, $withActions = false, $actionOptio
       <table class="table table-striped table-hover mb-0" id="dataTable">
         <thead class="table-light">
           <tr>
+            <?php if ($withBulkSelect) echo '<th><input type="checkbox" id="selectAllRows"></th>'; ?>
             <?php foreach ($headers as $header) echo "<th>$header</th>"; ?>
             <?php if ($withActions) echo "<th>Actions</th>"; ?>
           </tr>
@@ -18,6 +19,11 @@ function renderTable($title, $headers, $rows, $withActions = false, $actionOptio
         <tbody>
           <?php foreach ($rows as $rowIdx => $row): ?>
             <tr>
+              <?php if ($withBulkSelect) {
+                // Use admission number, staff number, etc. as unique value (assume 3rd col)
+                $rowId = isset($row[2]) ? htmlspecialchars($row[2]) : $rowIdx;
+                echo '<td><input type="checkbox" class="row-select" value="' . $rowId . '"></td>';
+              } ?>
               <?php foreach ($row as $col) echo "<td>$col</td>"; ?>
               <?php if ($withActions): ?>
                 <td>
@@ -60,7 +66,7 @@ function renderTable($title, $headers, $rows, $withActions = false, $actionOptio
     // Basic Pagination
     document.addEventListener("DOMContentLoaded", () => {
       const rows = document.querySelectorAll("#dataTable tbody tr");
-      const rowsPerPage = 5;
+      const rowsPerPage = 10;
       let currentPage = 1;
 
       function paginate() {
@@ -71,17 +77,66 @@ function renderTable($title, $headers, $rows, $withActions = false, $actionOptio
 
         const pagination = document.getElementById('pagination');
         pagination.innerHTML = '';
-        for (let i = 1; i <= totalPages; i++) {
-          const li = document.createElement('li');
-          li.classList.add('page-item');
-          if (i === currentPage) li.classList.add('active');
-          li.innerHTML = `<a class='page-link' href='#'>${i}</a>`;
-          li.addEventListener('click', e => {
+        
+        // Previous button
+        if (totalPages > 1) {
+          const prevLi = document.createElement('li');
+          prevLi.classList.add('page-item');
+          if (currentPage === 1) prevLi.classList.add('disabled');
+          prevLi.innerHTML = `<a class='page-link' href='#'>&laquo;</a>`;
+          prevLi.addEventListener('click', e => {
             e.preventDefault();
-            currentPage = i;
-            paginate();
+            if (currentPage > 1) {
+              currentPage--;
+              paginate();
+            }
           });
-          pagination.appendChild(li);
+          pagination.appendChild(prevLi);
+        }
+
+        // Page numbers
+        for (let i = 1; i <= totalPages; i++) {
+          if (
+            i === 1 || // First page
+            i === totalPages || // Last page
+            (i >= currentPage - 1 && i <= currentPage + 1) // Pages around current
+          ) {
+            const li = document.createElement('li');
+            li.classList.add('page-item');
+            if (i === currentPage) li.classList.add('active');
+            li.innerHTML = `<a class='page-link' href='#'>${i}</a>`;
+            li.addEventListener('click', e => {
+              e.preventDefault();
+              currentPage = i;
+              paginate();
+            });
+            pagination.appendChild(li);
+          } else if (
+            i === currentPage - 2 ||
+            i === currentPage + 2
+          ) {
+            // Add ellipsis
+            const li = document.createElement('li');
+            li.classList.add('page-item', 'disabled');
+            li.innerHTML = `<a class='page-link' href='#'>...</a>`;
+            pagination.appendChild(li);
+          }
+        }
+
+        // Next button
+        if (totalPages > 1) {
+          const nextLi = document.createElement('li');
+          nextLi.classList.add('page-item');
+          if (currentPage === totalPages) nextLi.classList.add('disabled');
+          nextLi.innerHTML = `<a class='page-link' href='#'>&raquo;</a>`;
+          nextLi.addEventListener('click', e => {
+            e.preventDefault();
+            if (currentPage < totalPages) {
+              currentPage++;
+              paginate();
+            }
+          });
+          pagination.appendChild(nextLi);
         }
       }
 
@@ -108,6 +163,14 @@ function renderTable($title, $headers, $rows, $withActions = false, $actionOptio
           }
         });
       });
+
+      // Bulk select logic
+      const selectAll = document.getElementById('selectAllRows');
+      if (selectAll) {
+        selectAll.addEventListener('change', function() {
+          document.querySelectorAll('.row-select').forEach(cb => { cb.checked = selectAll.checked; });
+        });
+      }
     });
   </script>
 <?php

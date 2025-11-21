@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{subject}}</title>
+  <!-- Bootstrap CDN for email clients that support it -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f8f9fa; }
+    .email-container { max-width: 700px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .email-header { background: #003366; color: #fff; padding: 24px 32px; border-radius: 8px 8px 0 0; }
+    .email-body { padding: 32px; font-size: 1.1em; color: #333; }
+    .email-footer { background: #f2f2f2; color: #666; padding: 20px 32px; border-radius: 0 0 8px 8px; font-size: 0.95em; }
+    .signature { margin-top: 32px; font-style: italic; }
+    .media-block { margin: 24px 0; }
+    a.btn { margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="email-container">
+    <div class="email-header">
+      <h2>Kingsway Academy</h2>
+      <p>{{school_address}} | Tel: {{school_phone}} | Email: {{school_email}}</p>
+    </div>
+    <div class="email-body">
+      {{body}}
+      <div class="media-block">
+        <!-- Media attachments or images can be inserted here -->
+        {{media}}
+      </div>
+      <div class="signature">
+        {{signature}}
+      </div>
+    </div>
+    <div class="email-footer">
+      {{footer}}
+      <br>
+      <a href="https://portal.kingsway.ac.ke" class="btn btn-primary btn-sm">Visit School Portal</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,55 @@
+# Composer dependencies
+/vendor/
+./vendor
+
+# Node modules (if any in the future)
+/node_modules/
+
+# IDE and editor files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+*.vscode/
+.idea/
+.DS_Store
+
+# OS generated files
+Thumbs.db
+
+# PHPStorm and JetBrains
+*.iml
+
+# Logs
+logs/
+*.log
+
+# Environment/config files
+.env
+.env.*
+config/db_connection.php
+
+# Uploads and generated files
+uploads/
+images/qr_codes/
+
+# Cache
+cache/
+
+# Database dumps
+*.sql
+
+# Misc
+*.zip
+*.tar.gz
+*.tar
+*.gz
+*.7z
+*.rar
+
+# Ignore test output
+/test-output/
+
+# Ignore documentation build output
+/docs/_build/

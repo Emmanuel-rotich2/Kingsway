@@ -9,7 +9,14 @@ ini_set('display_errors', 1);
 
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Kingsway Preparatory School</title>
+  <link rel="icon" type="image/png" href="images/favicon/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="images/favicon/favicon.svg" />
+  <link rel="shortcut icon" href="images/favicon/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
+  <link rel="manifest" href="images/favicon/site.webmanifest" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <style>
@@ -18,7 +25,12 @@ ini_set('display_errors', 1);
     }
 
     .navbar-custom {
+<<<<<<< HEAD
       background-color: #198754; /* Bootstrap green */
+=======
+      background-color: #198754;
+      /* Bootstrap green */
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
     }
 
     .hero-bg {
@@ -66,6 +78,17 @@ ini_set('display_errors', 1);
 </head>
 
 <body>
+
+  <div class="modal fade" id="notificationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content notification-info">
+        <div class="modal-body d-flex align-items-center">
+          <span class="notification-icon me-3"><i class="bi bi-info-circle"></i></span>
+          <span class="notification-message"></span>
+        </div>
+      </div>
+    </div>
+  </div>
   <!-- Navbar -->
   <nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm">
     <div class="container">
@@ -101,7 +124,11 @@ ini_set('display_errors', 1);
       <div class="text-center mb-4">
         <h2 class="fw-bold">KINGSWAY PREPARATORY SCHOOL</h2>
         <p class="mb-0">P.O BOX 203-20203, LONDIANI | PHONE: 0720113030 / 0720113031</p>
+<<<<<<< HEAD
         <em>Motto: “In God We Soar”</em>
+=======
+        <em>Motto: "In God We Soar"</em>
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
       </div>
       <div class="row align-items-center">
         <div class="col-md-7">
@@ -183,7 +210,12 @@ ini_set('display_errors', 1);
     </div>
   </div>
 
+<<<<<<< HEAD
   <!-- Contact -->
+=======
+
+  <!-- Contact Section -->
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
   <div class="container my-5" id="contact">
     <div class="row justify-content-center">
       <div class="col-md-8">
@@ -213,23 +245,42 @@ ini_set('display_errors', 1);
   <!-- Login Modal -->
   <div class="modal fade" id="loginModal" tabindex="-1">
     <div class="modal-dialog">
-      <form class="modal-content" id="login-form">
+      <form class="modal-content" id="loginForm">
         <div class="modal-header">
           <h5 class="modal-title">Admin/Staff Login</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
-          <input name="username" class="form-control mb-2" placeholder="Username" required>
-          <input name="password" type="password" class="form-control mb-2" placeholder="Password" required>
-          <div id="login-error" class="text-danger small"></div>
+          <div class="mb-3">
+            <input type="text"
+              name="username"
+              class="form-control"
+              placeholder="Username or Email"
+              autocomplete="username"
+              required>
+          </div>
+          <div class="mb-3">
+            <input type="password"
+              name="password"
+              class="form-control"
+              placeholder="Password"
+              autocomplete="current-password"
+              required>
+          </div>
+          <div id="loginError" class="alert alert-danger d-none"></div>
         </div>
         <div class="modal-footer">
+<<<<<<< HEAD
           <button class="btn btn-success" type="submit">Login</button>
+=======
+          <button type="submit" class="btn btn-primary">Login</button>
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
         </div>
       </form>
     </div>
   </div>
 
+<<<<<<< HEAD
   <!-- Footer -->
   <footer class="text-white pt-4 pb-3">
     <div class="container text-center">
@@ -280,7 +331,51 @@ ini_set('display_errors', 1);
       });
     });
   </script>
+=======
+  <!-- Notification -->
+  <div id="notification" class="alert d-none"></div>
+
+  <!-- Footer -->
+  <footer class="text-white py-4 mt-5">
+    <div class="container">
+      <div class="row">
+        <div class="col-md-4">
+          <h5>Contact Info</h5>
+          <p>P.O BOX 203-20203, LONDIANI<br>
+            Phone: 0720113030 / 0720113031<br>
+            Email: info@kingsway.ac.ke</p>
+        </div>
+        <div class="col-md-4">
+          <h5>Quick Links</h5>
+          <ul class="list-unstyled">
+            <li><a href="#" class="text-white">About Us</a></li>
+            <li><a href="#" class="text-white">Admissions</a></li>
+            <li><a href="#" class="text-white">News & Events</a></li>
+            <li><a href="#" class="text-white">Contact Us</a></li>
+          </ul>
+        </div>
+        <div class="col-md-4">
+          <h5>Follow Us</h5>
+          <div class="d-flex gap-3 fs-4">
+            <a href="#" class="text-white"><i class="bi bi-facebook"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-twitter"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-instagram"></i></a>
+            <a href="#" class="text-white"><i class="bi bi-youtube"></i></a>
+          </div>
+        </div>
+      </div>
+      <hr class="my-4">
+      <div class="text-center">
+        <small>&copy; 2025 Kingsway Preparatory School. All rights reserved.</small>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/main.js"></script>
 </body>
 
 </html>

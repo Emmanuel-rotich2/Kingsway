@@ -23,8 +23,7 @@ $actionOptions = ['Edit', 'Assign Role', 'Set Permissions', 'Activate', 'Deactiv
       <i class="bi bi-person-plus"></i> Add Teacher
     </button>
   </h2>
-
-  <?php renderTable("Teacher List", $teacherHeaders, $teacherRows, true, $actionOptions); ?>
+  <div id="teacher-table-container"></div>
 </div>
 
 <!-- Add Teacher Modal -->
@@ -165,56 +164,85 @@ $actionOptions = ['Edit', 'Assign Role', 'Set Permissions', 'Activate', 'Deactiv
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-  // Add Teacher AJAX (replace with real API endpoint)
-  document.getElementById('add-teacher-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-    const formData = new FormData(this);
-    fetch('/Kingsway/api/add_teacher.php', {
-        method: 'POST',
-        body: formData
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          location.reload(); // Reload to show new teacher (or use AJAX to update table)
-        }
-      });
-  });
+const teacherHeaders = <?php echo json_encode($teacherHeaders); ?>;
+const actionOptions = <?php echo json_encode($actionOptions); ?>;
 
-  // Action handler for admin actions
-  document.addEventListener('DOMContentLoaded', function() {
+function renderTeacherTable(rows) {
+    let html = `<table class="table table-bordered table-hover">
+        <thead><tr>`;
+    teacherHeaders.forEach(h => html += `<th>${h}</th>`);
+    if (actionOptions.length) html += '<th>Actions</th>';
+    html += `</tr></thead><tbody>`;
+    if (!rows.length) {
+        html += `<tr><td colspan="${teacherHeaders.length + 1}" class="text-center">No teachers found.</td></tr>`;
+    } else {
+        rows.forEach((row, idx) => {
+            html += '<tr>';
+            row.forEach(cell => html += `<td>${cell}</td>`);
+            // Actions
+            html += '<td>';
+            actionOptions.forEach(opt => {
+                html += `<button class="btn btn-sm btn-outline-primary me-1 action-option" data-action="${opt}" data-row='${JSON.stringify(row)}'>${opt}</button>`;
+            });
+            html += '</td></tr>';
+        });
+    }
+    html += '</tbody></table>';
+    document.getElementById('teacher-table-container').innerHTML = html;
+}
+
+function reloadTeacherTable() {
+    if (!window.StaffAPI) return;
+    StaffAPI.list({role: 'teacher'}).then(res => {
+        let rows = [];
+        if (res && res.data && Array.isArray(res.data.staff)) {
+            rows = res.data.staff.filter(s => s.role && s.role.toLowerCase().includes('teacher')).map((s, i) => [
+                i + 1,
+                s.name || (s.first_name + ' ' + s.last_name),
+                s.staff_no,
+                s.subject || '-',
+                s.role,
+                s.status
+            ]);
+        }
+        // Use dummy data if no real data
+        if (!rows.length) {
+            rows = [
+                [1, 'Mary Achieng', 'TCH001', 'Mathematics', 'Teacher', 'Active'],
+                [2, 'John Kamau', 'TCH002', 'English', 'Head of Department', 'Active'],
+                [3, 'Ali Hussein', 'TCH003', 'Science', 'Teacher', 'Inactive'],
+                [4, 'Faith Wanjiru', 'TCH004', 'Kiswahili', 'Teacher', 'Active'],
+                [5, 'Brian Otieno', 'TCH005', 'Geography', 'Deputy Principal', 'Active'],
+            ];
+        }
+        renderTeacherTable(rows);
+        attachTeacherActionHandlers();
+    }).catch(() => {
+        renderTeacherTable([]);
+    });
+}
+
+function attachTeacherActionHandlers() {
     document.querySelectorAll('.action-option').forEach(item => {
-      item.addEventListener('click', function(e) {
+        item.onclick = function(e) {
         e.preventDefault();
         const action = this.getAttribute('data-action');
         const rowData = JSON.parse(this.getAttribute('data-row'));
-        if (action === 'Edit') {
-          alert('Edit teacher: ' + rowData[1]);
-          // Open edit modal or form here
-        } else if (action === 'Assign Role') {
-          alert('Assign role to: ' + rowData[1]);
-          // Open role assignment modal here
-        } else if (action === 'Set Permissions') {
-          alert('Set permissions for: ' + rowData[1]);
-          // Open permissions modal here
-        } else if (action === 'Activate') {
-          alert('Activate teacher: ' + rowData[1]);
-          // Implement activate logic here
-        } else if (action === 'Deactivate') {
-          alert('Deactivate teacher: ' + rowData[1]);
-          // Implement deactivate logic here
-        } else if (action === 'Delete') {
-          if (confirm('Delete teacher: ' + rowData[1] + '?')) {
-            // Call delete API here
-            alert('Deleted: ' + rowData[1]);
-          }
-        } else if (action === 'View Profile') {
-          alert('View profile for: ' + rowData[1]);
-          // Redirect or show modal
-        }
-      });
+            showNotification(`Action: ${action} on ${rowData[1]}`, 'info');
+            // TODO: Implement real action logic
+        };
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    reloadTeacherTable();
+    setInterval(reloadTeacherTable, 30000);
+    handleFormSubmit('#add-teacher-form', (data, files) => StaffAPI.create(data, files), (result) => {
+        showNotification('Teacher added successfully!', 'success');
+        reloadTeacherTable();
+        const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addTeacherModal'));
+        modal.hide();
     });
   });
 </script>
