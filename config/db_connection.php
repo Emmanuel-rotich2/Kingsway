@@ -2,7 +2,7 @@
 $servername = "127.0.0.1";
 $username = "root";
 $password = "";
-$dbname = "KingsWayAcademy";
+$dbname = "kingsway";
 $port = 3306;
 
 // Create connection
