@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities;
+namespace App\API\Modules\activities;
 
 require_once __DIR__ . '/../../includes/BaseAPI.php';
 use App\API\Includes\BaseAPI;
@@ -82,13 +82,11 @@ class ActivitiesManager extends BaseAPI
                     a.*,
                     ac.name as category_name,
                     ac.description as category_description,
-                    u.username as created_by_name,
                     COUNT(DISTINCT ap.id) as participant_count,
                     COUNT(DISTINCT ar.id) as resource_count,
                     SUM(CASE WHEN ap.status = 'active' THEN 1 ELSE 0 END) as active_participants
                 FROM activities a
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
-                LEFT JOIN users u ON a.created_by = u.id
                 LEFT JOIN activity_participants ap ON a.id = ap.activity_id
                 LEFT JOIN activity_resources ar ON a.id = ar.activity_id
                 WHERE $whereClause
@@ -131,12 +129,9 @@ class ActivitiesManager extends BaseAPI
                 SELECT 
                     a.*,
                     ac.name as category_name,
-                    ac.description as category_description,
-                    u.username as created_by_name,
-                    u.email as created_by_email
+                    ac.description as category_description
                 FROM activities a
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
-                LEFT JOIN users u ON a.created_by = u.id
                 WHERE a.id = ?
             ";
 
@@ -145,7 +140,11 @@ class ActivitiesManager extends BaseAPI
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$activity) {
-                throw new Exception('Activity not found');
+                return [
+                    'success' => false,
+                    'code' => 404,
+                    'message' => 'Activity not found'
+                ];
             }
 
             // Get participants summary
@@ -194,6 +193,7 @@ class ActivitiesManager extends BaseAPI
      */
     public function createActivity($data, $userId)
     {
+        $transactionStarted = false;
         try {
             // Validate required fields
             $required = ['title', 'category_id', 'start_date', 'end_date'];
@@ -216,54 +216,68 @@ class ActivitiesManager extends BaseAPI
             if (!$stmt->fetch()) {
                 throw new Exception('Invalid category ID');
             }
+            try {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
 
-            $this->beginTransaction();
+                $sql = "
+                    INSERT INTO activities (
+                        title,
+                        description,
+                        category_id,
+                        start_date,
+                        end_date,
+                        location,
+                        max_participants,
+                        status,
+                        created_by,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+                ";
 
-            $sql = "
-                INSERT INTO activities (
-                    title,
-                    description,
-                    category_id,
-                    start_date,
-                    end_date,
-                    location,
-                    max_participants,
-                    status,
-                    created_by,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-            ";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $data['title'],
+                    $data['description'] ?? null,
+                    $data['category_id'],
+                    $data['start_date'],
+                    $data['end_date'],
+                    $data['location'] ?? null,
+                    $data['max_participants'] ?? null,
+                    $data['status'] ?? 'planned',
+                    $userId
+                ]);
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['title'],
-                $data['description'] ?? null,
-                $data['category_id'],
-                $data['start_date'],
-                $data['end_date'],
-                $data['location'] ?? null,
-                $data['max_participants'] ?? null,
-                $data['status'] ?? 'planned',
-                $userId
-            ]);
+                $activityId = $this->db->lastInsertId();
 
-            $activityId = $this->db->lastInsertId();
+                $this->db->commit();
 
-            $this->commit();
+                $this->logAction('create', $activityId, "Created activity: {$data['title']}");
 
-            $this->logAction('create', $activityId, "Created activity: {$data['title']}");
-
-            return [
-                'success' => true,
-                'data' => [
-                    'id' => $activityId,
-                    'title' => $data['title']
-                ],
-                'message' => 'Activity created successfully'
-            ];
+                return [
+                    'success' => true,
+                    'data' => [
+                        'id' => $activityId,
+                        'title' => $data['title']
+                    ],
+                    'message' => 'Activity created successfully'
+                ];
+            } catch (Exception $e) {
+                if ($transactionStarted) {
+                    $this->db->rollBack();
+                }
+                $this->logError($e, 'Failed to create activity');
+                return [
+                    'success' => false,
+                    'code' => 400,
+                    'message' => $e->getMessage()
+                ];
+            }
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to create activity');
             throw $e;
         }
@@ -279,19 +293,37 @@ class ActivitiesManager extends BaseAPI
      */
     public function updateActivity($id, $data, $userId)
     {
+        $transactionStarted = false;
         try {
             // Check if activity exists
             $stmt = $this->db->prepare("SELECT id, title, status FROM activities WHERE id = ?");
             $stmt->execute([$id]);
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            $this->db->beginTransaction();
+            $transactionStarted = true;
+
             if (!$activity) {
-                throw new Exception('Activity not found');
+                if ($transactionStarted) {
+                    $this->db->rollBack();
+                }
+                return [
+                    'success' => false,
+                    'code' => 404,
+                    'message' => 'Activity not found'
+                ];
             }
 
             // Don't allow updates to completed or cancelled activities without explicit override
             if (in_array($activity['status'], ['completed', 'cancelled']) && empty($data['force_update'])) {
-                throw new Exception("Cannot update {$activity['status']} activity without force_update flag");
+                if ($transactionStarted) {
+                    $this->db->rollBack();
+                }
+                return [
+                    'success' => false,
+                    'code' => 400,
+                    'message' => "Cannot update {$activity['status']} activity without force_update flag"
+                ];
             }
 
             // Validate dates if provided
@@ -299,11 +331,16 @@ class ActivitiesManager extends BaseAPI
                 $startDate = strtotime($data['start_date']);
                 $endDate = strtotime($data['end_date']);
                 if ($endDate < $startDate) {
-                    throw new Exception('End date must be after start date');
+                    if ($transactionStarted) {
+                        $this->db->rollBack();
+                    }
+                    return [
+                        'success' => false,
+                        'code' => 400,
+                        'message' => 'End date must be after start date'
+                    ];
                 }
             }
-
-            $this->beginTransaction();
 
             // Build update query
             $updates = [];
@@ -333,19 +370,22 @@ class ActivitiesManager extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
-
+            $this->db->commit();
             $this->logAction('update', $id, "Updated activity: {$activity['title']}");
-
             return [
                 'success' => true,
                 'message' => 'Activity updated successfully'
             ];
-
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to update activity $id");
-            throw $e;
+            return [
+                'success' => false,
+                'code' => 400,
+                'message' => $e->getMessage()
+            ];
         }
     }
 
@@ -358,6 +398,7 @@ class ActivitiesManager extends BaseAPI
      */
     public function deleteActivity($id, $userId)
     {
+        $transactionStarted = false;
         try {
             // Check if activity exists
             $stmt = $this->db->prepare("
@@ -374,15 +415,30 @@ class ActivitiesManager extends BaseAPI
             $stmt->execute([$id]);
             $activity = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            $this->db->beginTransaction();
+            $transactionStarted = true;
+
             if (!$activity) {
-                throw new Exception('Activity not found');
+                if ($transactionStarted) {
+                    $this->db->rollBack();
+                }
+                return [
+                    'success' => false,
+                    'code' => 404,
+                    'message' => 'Activity not found'
+                ];
             }
 
             if ($activity['participant_count'] > 0) {
-                throw new Exception('Cannot delete activity with active participants. Please withdraw all participants first.');
+                if ($transactionStarted) {
+                    $this->db->rollBack();
+                }
+                return [
+                    'success' => false,
+                    'code' => 400,
+                    'message' => 'Cannot delete activity with active participants. Please withdraw all participants first.'
+                ];
             }
-
-            $this->beginTransaction();
 
             // Soft delete - update status to cancelled
             $stmt = $this->db->prepare("
@@ -392,19 +448,22 @@ class ActivitiesManager extends BaseAPI
             ");
             $stmt->execute([$id]);
 
-            $this->commit();
-
+            $this->db->commit();
             $this->logAction('delete', $id, "Deleted activity: {$activity['title']}");
-
             return [
                 'success' => true,
                 'message' => 'Activity deleted successfully'
             ];
-
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to delete activity $id");
-            throw $e;
+            return [
+                'success' => false,
+                'code' => 400,
+                'message' => $e->getMessage()
+            ];
         }
     }
 
@@ -459,7 +518,6 @@ class ActivitiesManager extends BaseAPI
         try {
             $where = ['1=1'];
             $bindings = [];
-
             if (!empty($params['category_id'])) {
                 $where[] = 'category_id = ?';
                 $bindings[] = $params['category_id'];

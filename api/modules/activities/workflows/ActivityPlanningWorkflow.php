@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities\Workflows;
+namespace App\API\Modules\activities\workflows;
 
 require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
@@ -31,6 +31,8 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function proposeActivity($data, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] proposeActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
+        $transactionStarted = false;
         try {
             // Validate required fields
             $required = ['title', 'category_id', 'start_date', 'end_date', 'estimated_budget'];
@@ -40,7 +42,8 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                 }
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
+            $transactionStarted = true;
 
             // Create draft activity
             $stmt = $this->db->prepare("
@@ -73,12 +76,12 @@ class ActivityPlanningWorkflow extends WorkflowHandler
 
             $stmt = $this->db->prepare("
                 INSERT INTO workflow_instances (
-                    workflow_type, entity_type, entity_id, current_stage,
-                    status, initiated_by, metadata, created_at
+                    workflow_id, reference_type, reference_id, current_stage,
+                    status, started_by, data_json, started_at
                 ) VALUES (?, 'activity', ?, 'propose', 'pending', ?, ?, NOW())
             ");
             $stmt->execute([
-                $this->workflowType,
+                $this->workflow_id,
                 $activityId,
                 $userId,
                 json_encode($workflowData)
@@ -88,7 +91,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
 
             $this->recordHistory($workflowId, 'propose', 'Activity proposed', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('create', $workflowId, "Activity planning initiated: {$data['title']}");
 
@@ -103,7 +106,9 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to propose activity');
             throw $e;
         }
@@ -114,6 +119,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function approveBudget($workflowId, $data, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] approveBudget called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -121,12 +127,12 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                 throw new Exception('Workflow must be in propose stage');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'budget_review',
-                    metadata = JSON_SET(metadata, '$.approved_budget', ?, '$.budget_approved_by', ?, '$.budget_notes', ?)
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.approved_budget', ?, '$.budget_approved_by', ?, '$.budget_notes', ?)
                 WHERE id = ?
             ");
             $stmt->execute([
@@ -138,7 +144,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
 
             $this->recordHistory($workflowId, 'budget_review', 'Budget approved', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -147,7 +153,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
@@ -157,11 +163,20 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function scheduleActivity($workflowId, $schedules, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] scheduleActivity called. userId=" . var_export($userId, true) . ", schedules=" . json_encode($schedules) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = null;
+            if (isset($workflow['data_json']) && is_string($workflow['data_json'])) {
+                $metadata = json_decode($workflow['data_json'], true);
+                if ($metadata === null && json_last_error() !== JSON_ERROR_NONE) {
+                    $metadata = [];
+                }
+            } else {
+                $metadata = [];
+            }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Add schedules to activity
             foreach ($schedules as $schedule) {
@@ -171,7 +186,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                     ) VALUES (?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
-                    $workflow['entity_id'],
+                    $workflow['reference_id'],
                     $schedule['day_of_week'],
                     $schedule['start_time'],
                     $schedule['end_time'],
@@ -182,14 +197,14 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'schedule',
-                    metadata = JSON_SET(metadata, '$.scheduled_by', ?, '$.scheduled_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.scheduled_by', ?, '$.scheduled_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $workflowId]);
 
             $this->recordHistory($workflowId, 'schedule', 'Activity scheduled', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -198,7 +213,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
@@ -208,10 +223,11 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function prepareResources($workflowId, $resources, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] prepareResources called. userId=" . var_export($userId, true) . ", resources=" . json_encode($resources) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Add resources
             foreach ($resources as $resource) {
@@ -221,7 +237,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                     ) VALUES (?, ?, ?, ?, ?, ?, NOW())
                 ");
                 $stmt->execute([
-                    $workflow['entity_id'],
+                    $workflow['reference_id'],
                     $resource['name'],
                     $resource['type'],
                     $resource['quantity'] ?? 1,
@@ -233,14 +249,14 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'prepare',
-                    metadata = JSON_SET(metadata, '$.prepared_by', ?, '$.prepared_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.prepared_by', ?, '$.prepared_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $workflowId]);
 
             $this->recordHistory($workflowId, 'prepare', 'Resources prepared', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -249,7 +265,7 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
@@ -259,27 +275,33 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function executeActivity($workflowId, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] executeActivity called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
+        $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
+            if (!$workflow || !is_array($workflow)) {
+                throw new Exception('Workflow instance not found');
+            }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
+            $transactionStarted = true;
 
             // Update activity status to ongoing
             $stmt = $this->db->prepare("UPDATE activities SET status = 'ongoing' WHERE id = ?");
-            $stmt->execute([$workflow['entity_id']]);
+            $stmt->execute([$workflow['reference_id']]);
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'execute',
                     status = 'active',
-                    metadata = JSON_SET(metadata, '$.executed_by', ?, '$.executed_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.executed_by', ?, '$.executed_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $workflowId]);
 
             $this->recordHistory($workflowId, 'execute', 'Activity execution started', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -288,7 +310,9 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }
@@ -298,21 +322,29 @@ class ActivityPlanningWorkflow extends WorkflowHandler
      */
     public function reviewActivity($workflowId, $data, $userId)
     {
+        error_log("[ActivityPlanningWorkflow] reviewActivity called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
+        $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
+            if (!$workflow || !is_array($workflow)) {
+                throw new Exception('Workflow instance not found');
+            }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
+            $transactionStarted = true;
 
             // Update activity status to completed
             $stmt = $this->db->prepare("UPDATE activities SET status = 'completed' WHERE id = ?");
-            $stmt->execute([$workflow['entity_id']]);
+            if (!$stmt->execute([$workflow['reference_id']])) {
+                throw new Exception('Failed to update activity status');
+            }
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'review',
                     status = 'completed',
-                    metadata = JSON_SET(
-                        metadata, 
+                    data_json = JSON_SET(
+                        COALESCE(data_json, '{}'), 
                         '$.actual_budget', ?, 
                         '$.actual_participants', ?,
                         '$.outcomes', ?,
@@ -323,14 +355,18 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                     completed_at = NOW()
                 WHERE id = ?
             ");
-            $stmt->execute([
+            if (
+                !$stmt->execute([
                 $data['actual_budget'] ?? null,
                 $data['actual_participants'] ?? null,
                 $data['outcomes'] ?? null,
                 $data['lessons_learned'] ?? null,
                 $userId,
                 $workflowId
-            ]);
+                ])
+            ) {
+                throw new Exception('Failed to update workflow instance');
+            }
 
             // Mark all participants as completed
             $stmt = $this->db->prepare("
@@ -338,11 +374,13 @@ class ActivityPlanningWorkflow extends WorkflowHandler
                 SET status = 'completed' 
                 WHERE activity_id = ? AND status = 'active'
             ");
-            $stmt->execute([$workflow['entity_id']]);
+            if (!$stmt->execute([$workflow['reference_id']])) {
+                throw new Exception('Failed to update participants status');
+            }
 
             $this->recordHistory($workflowId, 'review', 'Activity reviewed and completed', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -351,7 +389,9 @@ class ActivityPlanningWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             throw $e;
         }
     }

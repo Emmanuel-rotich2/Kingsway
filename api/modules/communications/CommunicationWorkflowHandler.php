@@ -1,6 +1,6 @@
 <?php
 
-namespace App\API\Modules\Communications;
+namespace App\API\Modules\communications;
 
 use App\API\Includes\WorkflowHandler;
 

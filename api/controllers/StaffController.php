@@ -2,7 +2,7 @@
 
 namespace App\API\Controllers;
 
-use App\API\Modules\Staff\StaffAPI;
+use App\API\Modules\staff\StaffAPI;
 
 /**
  * StaffController - Explicit REST endpoints for Staff Management
@@ -19,6 +19,12 @@ class StaffController extends BaseController
         parent::__construct();
         $this->api = new StaffAPI();
     }
+
+    public function index()
+    {
+        return $this->success(['message' => 'Staff API is running']);
+    }
+
 
     // ==================== BASE CRUD OPERATIONS ====================
 

@@ -1,9 +1,9 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\Finance\FeeManager;
+use App\API\Modules\finance\FeeManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -41,7 +41,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
     public function initiateFeeApproval($feeStructureId, $userId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify fee structure exists
             $stmt = $this->db->prepare("
@@ -53,7 +53,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             $feeStructure = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$feeStructure) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Fee structure not found');
             }
 
@@ -67,7 +67,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             $stmt->execute([$feeStructureId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active approval workflow already exists for this fee structure');
             }
 
@@ -88,7 +88,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             );
 
             if (!$instanceId) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to create workflow instance');
             }
 
@@ -105,7 +105,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$feeStructureId]);
 
-            $this->commit();
+            $this->db->commit();
 
             return formatResponse(true, [
                 'workflow_instance_id' => $instanceId,
@@ -114,7 +114,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
         }
@@ -130,18 +130,18 @@ class FeeApprovalWorkflow extends WorkflowHandler
     public function financeReview($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'review') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in review stage');
             }
 
@@ -154,7 +154,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
                     'reviewed_by' => $userId
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Fee structure approved by finance team']);
 
             } elseif ($action === 'reject') {
@@ -170,17 +170,17 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$workflowData['fee_structure_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Fee structure rejected']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to review fee: ' . $e->getMessage());
         }
@@ -196,18 +196,18 @@ class FeeApprovalWorkflow extends WorkflowHandler
     public function directorApproval($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'approval') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in approval stage');
             }
 
@@ -239,7 +239,7 @@ class FeeApprovalWorkflow extends WorkflowHandler
                     'outcome' => 'approved_and_activated'
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Fee structure approved and activated']);
 
             } elseif ($action === 'reject') {
@@ -255,17 +255,17 @@ class FeeApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$workflowData['fee_structure_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Fee structure rejected by director']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to approve fee: ' . $e->getMessage());
         }

@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
 use App\API\Modules\Staff\StaffPerformanceManager;
@@ -53,7 +53,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate staff exists
             $stmt = $this->db->prepare("
@@ -70,7 +70,7 @@ class EvaluationWorkflow extends WorkflowHandler
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
@@ -84,7 +84,7 @@ class EvaluationWorkflow extends WorkflowHandler
             $stmt->execute([$staffId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active evaluation workflow already exists for this staff member');
             }
 
@@ -96,7 +96,7 @@ class EvaluationWorkflow extends WorkflowHandler
             ]);
 
             if (!$reviewResult['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $reviewResult;
             }
 
@@ -119,7 +119,7 @@ class EvaluationWorkflow extends WorkflowHandler
             $workflowId = $this->startWorkflow('staff_evaluation', $staffId, $workflowData);
 
             if (!$workflowId) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to start workflow');
             }
 
@@ -131,7 +131,7 @@ class EvaluationWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$workflowId, $reviewId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $workflowId, "Initiated evaluation workflow for {$staff['first_name']} {$staff['last_name']}");
 
             return formatResponse(true, [
@@ -144,7 +144,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');
@@ -173,7 +173,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot submit self-assessment. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $reviewId = $workflowData['review_id'];
@@ -202,7 +202,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -211,7 +211,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');
@@ -247,7 +247,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Only the assigned supervisor can complete this review');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $reviewId = $workflowData['review_id'];
 
@@ -262,7 +262,7 @@ class EvaluationWorkflow extends WorkflowHandler
                     ]);
 
                     if (!$updateResult['success']) {
-                        $this->rollback();
+                        $this->db->rollBack();
                         return $updateResult;
                     }
                 }
@@ -284,7 +284,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -293,7 +293,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');
@@ -322,7 +322,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot submit HR review. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
@@ -342,7 +342,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -351,7 +351,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');
@@ -380,7 +380,7 @@ class EvaluationWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot finalize evaluation. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $reviewId = $workflowData['review_id'];
@@ -391,7 +391,7 @@ class EvaluationWorkflow extends WorkflowHandler
             ]);
 
             if (!$completeResult['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $completeResult;
             }
 
@@ -403,11 +403,11 @@ class EvaluationWorkflow extends WorkflowHandler
             $complete = $this->completeWorkflow($workflowId, $workflowData);
 
             if (!$complete) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to complete workflow');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Finalized evaluation workflow");
 
             return formatResponse(true, [
@@ -420,7 +420,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');
@@ -437,7 +437,7 @@ class EvaluationWorkflow extends WorkflowHandler
     public function rejectEvaluation($workflowId, $userId, $reason)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $this->cancelWorkflow($workflowId, $reason);
 
@@ -453,7 +453,7 @@ class EvaluationWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$reviewId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Rejected evaluation workflow: {$reason}");
 
             return formatResponse(true, [
@@ -464,7 +464,7 @@ class EvaluationWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return formatResponse(false, null, 'Internal server error');

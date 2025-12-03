@@ -5,15 +5,42 @@ require_once __DIR__ . '/../../includes/BaseAPI.php';
 require_once __DIR__ . '/StaffService.php';
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\system\MediaManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
 class StaffAPI extends BaseAPI {
     private $service;
-    
+    private $mediaManager;
+
     public function __construct() {
         parent::__construct('staff');
         $this->service = new StaffService();
+        $this->mediaManager = new MediaManager($this->db);
+    }
+
+    // --- Media Operations ---
+    // Upload staff document or photo
+    public function uploadStaffMedia($staffId, $file, $type = 'document', $uploaderId = null, $description = '', $tags = '')
+    {
+        $context = 'staff';
+        $entityId = $staffId;
+        $albumId = null;
+        return $this->mediaManager->upload($file, $context, $entityId, $albumId, $uploaderId, $description, $tags);
+    }
+
+    // List staff media
+    public function listStaffMedia($staffId, $filters = [])
+    {
+        $filters['context'] = 'staff';
+        $filters['entity_id'] = $staffId;
+        return $this->mediaManager->listMedia($filters);
+    }
+
+    // Delete staff media
+    public function deleteStaffMedia($mediaId)
+    {
+        return $this->mediaManager->deleteMedia($mediaId);
     }
 
     // List all staff members with pagination and search
@@ -150,7 +177,7 @@ class StaffAPI extends BaseAPI {
             }
 
             // Start transaction
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Create user account first
             $sql = "
@@ -279,7 +306,7 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
-            $this->commit();
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
@@ -288,7 +315,7 @@ class StaffAPI extends BaseAPI {
             ], 201);
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -586,7 +613,7 @@ class StaffAPI extends BaseAPI {
 
     private function submitLeaveRequest($id, $data) {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['leave_type_id', 'start_date', 'end_date', 'reason'];
@@ -615,7 +642,7 @@ class StaffAPI extends BaseAPI {
 
             $leaveId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $leaveId, "Submitted leave request for staff ID: $id");
 
             return $this->response([

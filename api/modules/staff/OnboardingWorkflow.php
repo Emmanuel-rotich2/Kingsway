@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -40,7 +40,7 @@ class OnboardingWorkflow extends WorkflowHandler
     public function initiateOnboarding($staffId, $userId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate staff exists
             $stmt = $this->db->prepare("
@@ -55,7 +55,7 @@ class OnboardingWorkflow extends WorkflowHandler
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Staff member not found');
             }
 
@@ -69,7 +69,7 @@ class OnboardingWorkflow extends WorkflowHandler
             $stmt->execute([$staffId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active onboarding workflow already exists for this staff member');
             }
 
@@ -88,7 +88,7 @@ class OnboardingWorkflow extends WorkflowHandler
             $result = $this->startWorkflow('staff_onboarding', $staffId, $userId, $workflowData);
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
@@ -110,7 +110,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
             $onboardingId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $workflowId, "Initiated onboarding workflow for {$staff['first_name']} {$staff['last_name']}");
 
             return formatResponse(true, [
@@ -123,7 +123,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -288,7 +288,7 @@ class OnboardingWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing system access details: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow data
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
@@ -309,7 +309,7 @@ class OnboardingWorkflow extends WorkflowHandler
             $stmt->execute([$staffId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'User account already exists for this staff member');
             }
 
@@ -342,7 +342,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
             // If advancing the stage succeeded, commit and return a formatted response
             if (is_array($advanceResult) && isset($advanceResult['success']) && $advanceResult['success']) {
-                $this->commit();
+                $this->db->commit();
                 $this->logAction('update', $workflowId, "System access granted and user account created (user_id: {$userId_new})");
                 return formatResponse(
                     true,
@@ -355,12 +355,12 @@ class OnboardingWorkflow extends WorkflowHandler
             }
 
             // Otherwise rollback and return the advance result or a generic failure
-            $this->rollback();
+            $this->db->rollBack();
             return $advanceResult ?? formatResponse(false, null, 'Failed to advance workflow stage after creating user');
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -388,7 +388,7 @@ class OnboardingWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot finalize onboarding. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow data
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
@@ -405,7 +405,7 @@ class OnboardingWorkflow extends WorkflowHandler
             );
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
@@ -420,7 +420,7 @@ class OnboardingWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$staffId, $workflowId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Finalized onboarding workflow");
 
             return formatResponse(true, [
@@ -431,7 +431,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -447,7 +447,7 @@ class OnboardingWorkflow extends WorkflowHandler
     public function rejectOnboarding($workflowId, $userId, $reason)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $this->cancelWorkflow($workflowId, $reason);
 
@@ -463,7 +463,7 @@ class OnboardingWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$reason, $staffId, $workflowId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Rejected onboarding workflow: {$reason}");
 
             return formatResponse(true, [
@@ -473,7 +473,7 @@ class OnboardingWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

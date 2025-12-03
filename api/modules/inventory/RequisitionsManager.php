@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -187,13 +187,13 @@ class RequisitionsManager extends BaseAPI
     public function createRequisition($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['requisition_type', 'items'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     return formatResponse(false, null, "Missing required field: $field");
                 }
             }
@@ -235,7 +235,7 @@ class RequisitionsManager extends BaseAPI
                 ]);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $requisitionId, "Created requisition #{$requisitionId}");
 
             return formatResponse(true, [
@@ -244,7 +244,7 @@ class RequisitionsManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -256,25 +256,25 @@ class RequisitionsManager extends BaseAPI
     public function updateStatus($id, $status, $userId, $remarks = null)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $sql = "UPDATE inventory_requisitions SET status = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$status, $id]);
 
             if ($stmt->rowCount() === 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Requisition not found');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated requisition #{$id} status to {$status}" . ($remarks ? ": $remarks" : ""));
 
             return formatResponse(true, ['requisition_id' => $id, 'status' => $status]);
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -300,21 +300,21 @@ class RequisitionsManager extends BaseAPI
                 return formatResponse(false, null, 'Only pending requisitions can be deleted');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Soft delete
             $sql = "UPDATE inventory_requisitions SET status = 'cancelled', cancelled_at = NOW() WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('delete', $id, "Cancelled requisition #{$id}");
 
             return formatResponse(true, null, 'Requisition cancelled successfully');
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -46,7 +46,7 @@ class StockProcurementWorkflow extends WorkflowHandler
     public function initiateProcurement($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['items', 'quantities', 'estimated_costs', 'justification'];
@@ -116,7 +116,7 @@ class StockProcurementWorkflow extends WorkflowHandler
                 'budget_verified',
                 $actionData
             );
-            $this->commit();
+            $this->db->commit();
             return formatResponse(true, ['workflow_id' => $workflowId], 'Budget verified successfully');
         } catch (Exception $e) {
             $this->handleException($e);
@@ -206,7 +206,7 @@ class StockProcurementWorkflow extends WorkflowHandler
             if ($currentStage !== 'payment_processing') {
                 return formatResponse(false, null, "Cannot complete workflow. Current stage is: {$currentStage}");
             }
-            $this->beginTransaction();
+            $this->db->beginTransaction();
             // Update workflow data
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $workflowData['completion'] = [
@@ -220,7 +220,7 @@ class StockProcurementWorkflow extends WorkflowHandler
                 'procurement_completed',
                 $workflowData
             );
-            $this->commit();
+            $this->db->commit();
             return formatResponse(true, ['workflow_id' => $workflowId], 'Procurement workflow completed successfully');
         } catch (Exception $e) {
             $this->handleException($e);

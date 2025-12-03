@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Academic;
+namespace App\API\Modules\academic;
 
 use App\API\Includes\WorkflowHandler;
 use Exception;

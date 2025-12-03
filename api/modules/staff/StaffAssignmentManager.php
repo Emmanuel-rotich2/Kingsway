@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -44,7 +44,7 @@ class StaffAssignmentManager extends BaseAPI
                 return formatResponse(false, null, 'Invalid role. Must be: ' . implode(', ', $validRoles));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify staff exists and get details
             $stmt = $this->db->prepare("
@@ -59,7 +59,7 @@ class StaffAssignmentManager extends BaseAPI
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
@@ -71,7 +71,7 @@ class StaffAssignmentManager extends BaseAPI
             $academicYear = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$academicYear) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Academic year not found or not active');
             }
 
@@ -86,7 +86,7 @@ class StaffAssignmentManager extends BaseAPI
             $classStream = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$classStream) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Class stream not found');
             }
 
@@ -103,7 +103,7 @@ class StaffAssignmentManager extends BaseAPI
             $result = $this->db->query("SELECT @is_valid AS is_valid, @error_message AS error_message")->fetch(PDO::FETCH_ASSOC);
 
             if (!$result['is_valid']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, $result['error_message'] ?? 'Assignment validation failed');
             }
 
@@ -128,7 +128,7 @@ class StaffAssignmentManager extends BaseAPI
 
             $assignmentId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $assignmentId,
@@ -148,7 +148,7 @@ class StaffAssignmentManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -163,7 +163,7 @@ class StaffAssignmentManager extends BaseAPI
     public function removeAssignment($assignmentId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get assignment details
             $stmt = $this->db->prepare("
@@ -180,12 +180,12 @@ class StaffAssignmentManager extends BaseAPI
             $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$assignment) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Assignment not found');
             }
 
             if ($assignment['status'] === 'completed') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Cannot remove completed assignment');
             }
 
@@ -203,7 +203,7 @@ class StaffAssignmentManager extends BaseAPI
                 $assignmentId
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'update',
                 $assignmentId,
@@ -218,7 +218,7 @@ class StaffAssignmentManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -361,7 +361,7 @@ class StaffAssignmentManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get current assignment
             $stmt = $this->db->prepare("
@@ -374,7 +374,7 @@ class StaffAssignmentManager extends BaseAPI
             $currentAssignment = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$currentAssignment) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active assignment not found');
             }
 
@@ -423,7 +423,7 @@ class StaffAssignmentManager extends BaseAPI
 
             $newAssignmentId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'update',
                 $assignmentId,
@@ -438,7 +438,7 @@ class StaffAssignmentManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

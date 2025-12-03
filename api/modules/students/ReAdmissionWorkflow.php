@@ -1,6 +1,6 @@
 <?php
 
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\WorkflowHandler;
@@ -37,7 +37,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get student current status
             $stmt = $this->db->prepare("
@@ -50,14 +50,14 @@ class ReAdmissionWorkflow extends WorkflowHandler
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$student) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Student not found');
             }
 
             // Validate that student is eligible for re-admission
             $validStatuses = ['transferred', 'graduated', 'suspended', 'inactive'];
             if (!in_array($student['status'], $validStatuses)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, "Student status '{$student['status']}' is not eligible for re-admission");
             }
 
@@ -68,7 +68,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$data['student_id']]);
             if ($stmt->fetchColumn() > 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Student already has a pending re-admission request');
             }
 
@@ -115,7 +115,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
 
             $readmissionId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $readmissionId, "Re-admission request submitted for {$student['first_name']} {$student['last_name']}");
 
             return formatResponse(true, [
@@ -126,7 +126,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
                 'status' => 'pending_review'
             ], 'Re-admission request submitted successfully');
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('submitReAdmission', $e->getMessage());
             return formatResponse(false, null, 'Failed to submit re-admission: ' . $e->getMessage());
         }
@@ -141,7 +141,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
     public function reviewReAdmission($readmissionId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $currentUserId = $this->getCurrentUserId();
 
@@ -160,16 +160,16 @@ class ReAdmissionWorkflow extends WorkflowHandler
             ]);
 
             if ($stmt->rowCount() === 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Re-admission not found or already reviewed');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $readmissionId, 'Re-admission reviewed - documents verification stage');
 
             return formatResponse(true, ['readmission_id' => $readmissionId], 'Re-admission reviewed successfully');
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('reviewReAdmission', $e->getMessage());
             return formatResponse(false, null, 'Failed to review re-admission: ' . $e->getMessage());
         }
@@ -194,7 +194,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Invalid decision. Must be: approved or rejected');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $currentUserId = $this->getCurrentUserId();
             $newStatus = $data['decision'] === 'approved' ? 'approved' : 'rejected';
@@ -223,11 +223,11 @@ class ReAdmissionWorkflow extends WorkflowHandler
             ]);
 
             if ($stmt->rowCount() === 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Re-admission not found');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $readmissionId, "Re-admission {$data['decision']}");
 
             return formatResponse(true, [
@@ -236,7 +236,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
                 'status' => $newStatus
             ], "Re-admission {$data['decision']} successfully");
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('approveReAdmission', $e->getMessage());
             return formatResponse(false, null, 'Failed to approve re-admission: ' . $e->getMessage());
         }
@@ -250,7 +250,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
     public function completeReAdmission($readmissionId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get re-admission details
             $stmt = $this->db->prepare("SELECT * FROM student_readmissions WHERE id = ?");
@@ -258,12 +258,12 @@ class ReAdmissionWorkflow extends WorkflowHandler
             $readmission = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$readmission) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Re-admission not found');
             }
 
             if ($readmission['status'] !== 'approved') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Re-admission must be approved before completion');
             }
 
@@ -284,7 +284,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
             $this->db->prepare("UPDATE student_readmissions SET status = 'completed', completed_at = NOW() WHERE id = ?")
                 ->execute([$readmissionId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $readmissionId, 'Re-admission completed - Student re-activated');
 
             return formatResponse(true, [
@@ -294,7 +294,7 @@ class ReAdmissionWorkflow extends WorkflowHandler
                 'status' => 'completed'
             ], 'Re-admission completed successfully. Student is now active.');
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('completeReAdmission', $e->getMessage());
             return formatResponse(false, null, 'Failed to complete re-admission: ' . $e->getMessage());
         }

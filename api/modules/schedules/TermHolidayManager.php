@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Schedules;
+namespace App\API\Modules\schedules;
 
 use Exception;
 use PDO;

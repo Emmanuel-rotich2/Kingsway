@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/helpers.php';
 
-use App\Config\Database;
+use App\Database\Database;
 use PDO;
 use RuntimeException;
 use Exception;
@@ -29,6 +29,16 @@ class BaseAPI
     protected $user_id;
     protected $module;
     protected $request_id;
+    /**
+     * Common log directory for all APIs
+     * @var string
+     */
+    protected $logDir;
+    /**
+     * Common timestamp for log entries
+     * @var string
+     */
+    protected $timestamp;
 
     public function __construct($module = '')
     {
@@ -37,6 +47,26 @@ class BaseAPI
         $this->module = $module;
         $this->user_id = $this->getCurrentUserId();
         $this->request_id = uniqid('req_');
+        // Canonical log directory (project-root/logs). Keep a single source of truth.
+        $this->logDir = realpath(__DIR__ . '/..') . '/../../logs';
+
+        // If directory doesn't exist, try to create it but do not let logging failures
+        // break the API response flow. Fall back to system temp dir if creation fails.
+        if (!is_dir($this->logDir)) {
+            // Suppress warnings from mkdir and verify after call.
+            @mkdir($this->logDir, 0755, true);
+            if (!is_dir($this->logDir)) {
+                error_log('BaseAPI: Failed to create log directory: ' . $this->logDir);
+                // Use system temp dir as a fallback to avoid throwing and breaking responses
+                $this->logDir = sys_get_temp_dir() . '/kingsway_logs';
+                @mkdir($this->logDir, 0755, true);
+                if (!is_dir($this->logDir)) {
+                    // As a last resort, use system temp dir without subfolder
+                    $this->logDir = sys_get_temp_dir();
+                }
+            }
+        }
+        $this->timestamp = date('Y-m-d H:i:s');
 
         // NOTE: CORS handling moved to CORSMiddleware in the Router pipeline
         // This prevents double-handling and keeps middleware concerns in middleware
@@ -47,7 +77,14 @@ class BaseAPI
 
     protected function getCurrentUserId()
     {
-        // User ID is now set by AuthMiddleware in $_REQUEST['user']['id']
+        // User ID is set by AuthMiddleware in $_SERVER['auth_user']
+        // Also check $_REQUEST['user']['id'] for backward compatibility
+        if (isset($_SERVER['auth_user']['user_id'])) {
+            return $_SERVER['auth_user']['user_id'];
+        }
+        if (isset($_SERVER['auth_user']['id'])) {
+            return $_SERVER['auth_user']['id'];
+        }
         return $_REQUEST['user']['id'] ?? null;
     }
 
@@ -146,91 +183,83 @@ class BaseAPI
 
     protected function logError($e, $context = '')
     {
-        $errorData = [
-            'request_id' => $this->request_id,
-            'timestamp' => date('Y-m-d H:i:s'),
-            'type' => 'error',
-            'module' => $this->module,
-            'context' => $context,
-            'message' => $e->getMessage(),
-            'code' => $e->getCode(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-            'user_id' => $this->user_id,
-            'ip' => $_SERVER['REMOTE_ADDR']
-        ];
-
-        // Log to errors.log
-        $this->logToFile('errors.log', $errorData);
-
-        // Log to database
-        try {
-            $stmt = $this->db->prepare("
-                INSERT INTO error_logs (
-                    request_id, user_id, module, context,
-                    error_message, error_code, file_name,
-                    line_number, stack_trace, created_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()
-                )
-            ");
-
-            $stmt->execute([
-                $this->request_id,
-                $this->user_id,
-                $this->module,
-                $context,
-                $e->getMessage(),
-                $e->getCode(),
-                $e->getFile(),
-                $e->getLine(),
-                $e->getTraceAsString()
-            ]);
-        } catch (Exception $logError) {
-            // Last resort - if we can't log to DB, at least we logged to file
-            error_log("Failed to log error to database: " . $logError->getMessage());
+        // Accept either Exception/Throwable or string
+        if ($e instanceof \Throwable || $e instanceof \Exception) {
+            $errorData = [
+                'request_id' => $this->request_id,
+                'timestamp' => date('Y-m-d H:i:s'),
+                'type' => 'error',
+                'module' => $this->module,
+                'context' => $context,
+                'message' => $e->getMessage(),
+                'code' => $e->getCode(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'user_id' => $this->user_id,
+                'ip' => $_SERVER['REMOTE_ADDR']
+            ];
+        } else {
+            // If string or array, log as message only
+            $errorData = [
+                'request_id' => $this->request_id,
+                'timestamp' => date('Y-m-d H:i:s'),
+                'type' => 'error',
+                'module' => $this->module,
+                'context' => $context,
+                'message' => is_string($e) ? $e : json_encode($e),
+                'user_id' => $this->user_id,
+                'ip' => $_SERVER['REMOTE_ADDR']
+            ];
         }
+        // Log to errors.log only (never DB)
+        $this->logToFile('errors.log', $errorData);
     }
 
     protected function logAudit($action, $record_id, $description)
     {
-        try {
-            $stmt = $this->db->prepare("
-                INSERT INTO audit_logs (
-                    request_id, user_id, action, table_name,
-                    record_id, description, created_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, NOW()
-                )
-            ");
-
-            $stmt->execute([
-                $this->request_id,
-                $this->user_id,
-                $action,
-                $this->module,
-                $record_id,
-                $description
-            ]);
-        } catch (Exception $e) {
-            // Log error but don't throw
-            $this->logError($e, 'Failed to create audit log');
-        }
+        // Write audit log to file only, never to database
+        $auditData = [
+            'request_id' => $this->request_id,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'type' => 'audit',
+            'user_id' => $this->user_id,
+            'action' => $action,
+            'module' => $this->module,
+            'record_id' => $record_id,
+            'description' => $description,
+            'ip' => $_SERVER['REMOTE_ADDR'] ?? null
+        ];
+        $this->logToFile('audit.log', $auditData);
     }
 
     protected function logToFile($filename, $data)
     {
         try {
-            $logDir = __DIR__ . '/../../logs';
+            // Use the instance logDir (set in constructor). If absent, compute a sane default.
+            $logDir = $this->logDir ?? (realpath(__DIR__ . '/..') . '/../../logs');
+
+            // Ensure directory exists and is writable. Try to create if missing, suppress warnings.
             if (!is_dir($logDir)) {
-                mkdir($logDir, 0755, true);
+                @mkdir($logDir, 0755, true);
             }
 
-            $logFile = $logDir . '/' . $filename;
+            if (!is_dir($logDir) || !is_writable($logDir)) {
+                // Attempt to make it writable, but don't throw — fall back to sys temp dir.
+                @chmod($logDir, 0755);
+            }
+
+            if (!is_dir($logDir) || !is_writable($logDir)) {
+                $fallback = sys_get_temp_dir();
+                error_log("BaseAPI: Log directory not writable; falling back to {$fallback}");
+                $logDir = $fallback;
+            }
+
+            $logFile = rtrim($logDir, '\/') . '/' . $filename;
             $logEntry = json_encode($data) . "\n";
 
-            file_put_contents($logFile, $logEntry, FILE_APPEND);
+            // Use @ to suppress potential warnings and handle failure gracefully
+            @file_put_contents($logFile, $logEntry, FILE_APPEND);
         } catch (Exception $e) {
             error_log("Failed to write to log file {$filename}: " . $e->getMessage());
         }
@@ -254,17 +283,26 @@ class BaseAPI
 
     protected function beginTransaction()
     {
-        return Database::getInstance()->beginTransaction();
+        if ($this->db && $this->db instanceof PDO) {
+            return $this->db->beginTransaction();
+        }
+        throw new Exception('No valid database connection for transaction');
     }
 
     protected function commit()
     {
-        return Database::getInstance()->commit();
+        if ($this->db && $this->db instanceof PDO) {
+            return $this->db->commit();
+        }
+        throw new Exception('No valid database connection for commit');
     }
 
     protected function rollback()
     {
-        return Database::getInstance()->rollback();
+        if ($this->db && $this->db instanceof PDO) {
+            return $this->db->rollBack();
+        }
+        throw new Exception('No valid database connection for rollback');
     }
 
     protected function handleException($e)
@@ -425,13 +463,24 @@ class BaseAPI
     // ---------- RBAC helpers ----------
     protected function getCurrentUserRole()
     {
-        // User role is now set by AuthMiddleware in $_REQUEST['user']['role']
+        // User role is set by AuthMiddleware in $_SERVER['auth_user']
+        // Also check $_REQUEST['user']['role'] for backward compatibility
+        if (isset($_SERVER['auth_user']['role'])) {
+            return $_SERVER['auth_user']['role'];
+        }
+        if (isset($_SERVER['auth_user']['roles'][0])) {
+            return $_SERVER['auth_user']['roles'][0];
+        }
         return $_REQUEST['user']['role'] ?? null;
     }
 
     protected function getCurrentUser()
     {
-        // Full user object set by AuthMiddleware
+        // Full user object set by AuthMiddleware in $_SERVER['auth_user']
+        // Also check $_REQUEST['user'] for backward compatibility
+        if (!empty($_SERVER['auth_user'])) {
+            return $_SERVER['auth_user'];
+        }
         return $_REQUEST['user'] ?? null;
     }
 }

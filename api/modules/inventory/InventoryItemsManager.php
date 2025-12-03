@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -218,7 +218,7 @@ class InventoryItemsManager extends BaseAPI
                 return formatResponse(false, null, 'Item code already exists');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Try using stored procedure first
             if ($this->routineExists('sp_add_item_to_inventory', 'PROCEDURE')) {
@@ -271,7 +271,7 @@ class InventoryItemsManager extends BaseAPI
                 $itemId = $this->db->lastInsertId();
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $itemId, "Created inventory item: {$data['item_name']}");
             $this->emitEvent('inventory_item_created', ['item_id' => $itemId, 'item_name' => $data['item_name']]);
 
@@ -279,7 +279,7 @@ class InventoryItemsManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

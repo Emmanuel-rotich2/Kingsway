@@ -1,0 +1,358 @@
+Tables_in_KingsWayAcademy
+academic_terms
+academic_year_archives
+academic_years
+account_unlock_history
+activities
+activity_categories
+activity_participants
+activity_resources
+admission_applications
+admission_documents
+albums
+alumni
+announcement_views
+announcements_bulletin
+annual_scores
+api_tokens
+arrears_settlement_plans
+assessment_benchmarks
+assessment_history
+assessment_results
+assessment_rubrics
+assessment_tools
+assessment_type_classifications
+assessment_types
+assessments
+audit_trail
+auth_sessions
+bank_transactions
+blocked_devices
+blocked_ips
+class_enrollments
+class_promotion_queue
+class_schedules
+class_streams
+class_year_assignments
+classes
+communication_attachments
+communication_groups
+communication_logs
+communication_recipients
+communication_templates
+communication_workflow_instances
+communications
+conduct_tracking
+contact_directory
+conversation_participants
+core_competencies
+core_values
+csl_activities
+curriculum_units
+daily_meal_allocations
+deduction_types
+department_accounts
+department_budget_proposals
+department_fund_requests
+departments
+drivers
+equipment_maintenance
+equipment_maintenance_types
+exam_schedules
+external_emails
+external_inbound_messages
+external_institutions
+failed_auth_attempts
+fee_discounts_waivers
+fee_reminders
+fee_structure_change_log
+fee_structure_rollover_log
+fee_structure_rollover_schedule
+fee_structures
+fee_structures_detailed
+fee_transition_history
+fee_types
+financial_periods
+financial_transactions
+food_consumption_records
+form_permissions
+forum_posts
+forum_threads
+grade_rules
+grading_comments
+grading_scales
+group_members
+ieps
+internal_conversations
+internal_messages
+inventory_adjustments
+inventory_allocations
+inventory_categories
+inventory_count_items
+inventory_counts
+inventory_departments
+inventory_items
+inventory_requisitions
+inventory_transactions
+item_batches
+item_serials
+kpi_achievements
+kpi_definitions
+kpi_targets
+learner_competencies
+learner_csl_participation
+learner_pci_awareness
+learner_values_acquisition
+learning_areas
+learning_outcomes
+leave_types
+lesson_plans
+maintenance_logs
+meal_plans
+media_files
+menu_item_ingredients
+menu_items
+message_read_status
+message_templates
+mpesa_transactions
+notifications
+onboarding_tasks
+parent_communication_preferences
+parent_portal_messages
+parents
+password_resets
+payment_allocations
+payment_allocations_detailed
+payment_reconciliations
+payment_transactions
+payment_webhooks_log
+payroll_configurations
+payslips
+pcis
+performance_levels_cbc
+performance_ratings
+performance_review_kpis
+permission_delegations
+portfolio_artifacts
+portfolios
+promotion_batches
+purchase_orders
+record_permissions
+requisition_items
+role_form_permissions
+roles
+rooms
+route_schedules
+route_stops
+schedule_changes
+schedules
+school_configuration
+school_levels
+school_transactions
+sms_communications
+staff
+staff_allowances
+staff_attendance
+staff_categories
+staff_class_assignments
+staff_contracts
+staff_deductions
+staff_experience
+staff_kpi_templates
+staff_leaves
+staff_loans
+staff_onboarding
+staff_payroll
+staff_performance_reviews
+staff_qualifications
+staff_types
+storage_locations
+student_activities
+student_arrears
+student_attendance
+student_discipline
+student_fee_balances
+student_fee_carryover
+student_fee_obligations
+student_parents
+student_payment_history_summary
+student_promotions
+student_registrations
+student_suspensions
+student_types
+students
+suppliers
+system_events
+tax_brackets
+tax_withholding_history
+template_categories
+term_consolidations
+term_subject_scores
+transport_payments
+transport_routes
+transport_stops
+transport_vehicle_routes
+transport_vehicles
+unit_topics
+user_login_attempts
+user_permissions
+user_roles
+user_sessions
+users
+vehicle_fuel_logs
+vehicle_maintenance
+vw_active_allocations
+vw_active_students_per_class
+vw_all_school_payments
+vw_arrears_summary
+vw_class_rosters
+vw_collection_rate_by_class
+vw_current_enrollments
+vw_current_staff_assignments
+vw_currently_blocked_ips
+vw_failed_attempts_by_ip
+vw_fee_carryover_summary
+vw_fee_collection_by_year
+vw_fee_schedule_by_class
+vw_fee_structure_annual_summary
+vw_fee_transition_audit
+vw_fee_type_collection
+vw_financial_period_summary
+vw_food_consumption_summary
+vw_internal_conversations
+vw_inventory_health
+vw_inventory_low_stock
+vw_lesson_plan_summary
+vw_maintenance_schedule
+vw_outstanding_by_class
+vw_outstanding_fees
+vw_parent_payment_activity
+vw_payment_tracking
+vw_pending_fee_structure_reviews
+vw_pending_requisitions
+vw_pending_sms
+vw_requisition_fulfillment
+vw_sent_emails
+vw_sponsored_students_status
+vw_staff_assignments_detailed
+vw_staff_leave_balance
+vw_staff_leave_balances
+vw_staff_loan_details
+vw_staff_onboarding_progress
+vw_staff_payroll_summary
+vw_staff_performance_summary
+vw_staff_workload
+vw_student_payment_history_multi_year
+vw_student_payment_status
+vw_student_payment_status_enhanced
+vw_unread_announcements
+vw_upcoming_activities
+vw_upcoming_class_schedules
+vw_upcoming_exam_schedules
+vw_user_recent_communications
+workflow_definitions
+workflow_instances
+workflow_notifications
+workflow_stage_history
+workflow_stages
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+username	varchar(50)	NO	UNI	NULL	
+email	varchar(100)	NO	UNI	NULL	
+first_name	varchar(50)	NO		NULL	
+last_name	varchar(50)	NO		NULL	
+password	varchar(255)	NO		NULL	
+role_id	int(10) unsigned	NO	MUL	NULL	
+status	enum('active','inactive','suspended','pending')	NO	MUL	pending	
+last_login	datetime	YES	MUL	NULL	
+password_changed_at	datetime	YES		NULL	
+created_at	timestamp	NO		current_timestamp()	
+updated_at	timestamp	NO		current_timestamp()	on update current_timestamp()
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+admission_no	varchar(20)	NO	UNI	NULL	
+first_name	varchar(50)	NO	MUL	NULL	
+middle_name	varchar(50)	YES		NULL	
+last_name	varchar(50)	NO		NULL	
+date_of_birth	date	NO		NULL	
+gender	enum('male','female','other')	NO		NULL	
+stream_id	int(10) unsigned	NO	MUL	NULL	
+student_type_id	int(10) unsigned	YES	MUL	1	
+user_id	int(10) unsigned	YES	MUL	NULL	
+admission_date	date	NO		NULL	
+nemis_number	varchar(50)	YES	UNI	NULL	
+upi	varchar(50)	YES	UNI	NULL	
+upi_status	enum('not_assigned','assigned','transferred','pending')	NO	MUL	not_assigned	
+status	enum('active','inactive','graduated','transferred','suspended')	NO	MUL	active	
+photo_url	varchar(255)	YES		NULL	
+qr_code_path	varchar(255)	YES	MUL	NULL	
+is_sponsored	tinyint(1)	YES	MUL	0	
+sponsor_name	varchar(100)	YES		NULL	
+sponsor_type	enum('partial','full','conditional')	YES	MUL	NULL	
+sponsor_waiver_percentage	decimal(5,2)	YES		0.00	
+created_at	timestamp	NO		current_timestamp()	
+updated_at	timestamp	NO		current_timestamp()	on update current_timestamp()
+blood_group	varchar(10)	YES		NULL	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+name	varchar(100)	NO	UNI	NULL	
+description	text	YES		NULL	
+is_active	tinyint(1)	NO		1	
+status	enum('active','inactive')	NO		active	
+created_at	timestamp	NO		current_timestamp()	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+title	varchar(255)	NO		NULL	
+description	text	YES		NULL	
+category_id	int(10) unsigned	YES	MUL	NULL	
+start_date	date	YES		NULL	
+end_date	date	YES		NULL	
+status	enum('planned','ongoing','completed','cancelled')	NO		planned	
+created_at	timestamp	NO		current_timestamp()	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+activity_id	int(10) unsigned	NO	MUL	NULL	
+student_id	int(10) unsigned	NO	MUL	NULL	
+joined_at	timestamp	NO		current_timestamp()	
+status	enum('active','withdrawn','completed','pending')	NO		active	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+activity_id	int(10) unsigned	NO	MUL	NULL	
+resource_name	varchar(255)	NO		NULL	
+resource_type	varchar(50)	YES		NULL	
+resource_url	varchar(255)	YES		NULL	
+created_at	timestamp	NO		current_timestamp()	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+code	varchar(50)	NO	UNI	NULL	
+name	varchar(100)	NO		NULL	
+description	text	YES		NULL	
+category	enum('academic','administrative','financial','student_affairs','staff_affairs','general')	NO		NULL	
+handler_class	varchar(255)	NO		NULL	
+config_json	longtext	YES		NULL	
+is_active	tinyint(1)	NO		1	
+created_at	timestamp	NO		current_timestamp()	
+updated_at	timestamp	NO		current_timestamp()	on update current_timestamp()
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+workflow_id	int(10) unsigned	NO	MUL	NULL	
+code	varchar(50)	NO		NULL	
+name	varchar(100)	NO		NULL	
+description	text	YES		NULL	
+sequence	int(11)	NO		NULL	
+required_role	varchar(50)	YES		NULL	
+allowed_transitions	longtext	NO		NULL	
+action_config	longtext	YES		NULL	
+timeout_hours	int(11)	YES		NULL	
+is_active	tinyint(1)	NO		1	
+Field	Type	Null	Key	Default	Extra
+id	int(10) unsigned	NO	PRI	NULL	auto_increment
+workflow_id	int(10) unsigned	NO	MUL	NULL	
+reference_type	varchar(50)	NO		NULL	
+reference_id	int(10) unsigned	NO		NULL	
+current_stage	varchar(50)	NO		NULL	
+status	enum('pending','in_progress','completed','cancelled','error')	NO		pending	
+started_by	int(10) unsigned	NO	MUL	NULL	
+started_at	timestamp	NO		current_timestamp()	
+completed_at	timestamp	YES		NULL	
+data_json	longtext	YES		NULL	

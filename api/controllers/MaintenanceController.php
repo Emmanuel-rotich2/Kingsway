@@ -4,7 +4,7 @@ use Illuminate\Http\Request;
 
 use Exception;
 
-use App\API\Modules\System\SystemAPI;
+use App\API\Modules\system\SystemAPI;
 
 class MaintenanceController extends BaseController
 {
@@ -16,28 +16,34 @@ class MaintenanceController extends BaseController
         $this->systemApi = new SystemAPI();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Maintenance API is running']);
+    }
+
     // GET /api/maintenance
-    public function get($id = null, $data = [], $segments = []) {
+    public function getMaintenance($id = null, $data = [], $segments = [])
+    {
         // Not implemented in SystemAPI, return error
         return $this->badRequest('Not supported');
     }
 
     // POST /api/maintenance
-    public function post($id = null, $data = [], $segments = [])
+    public function postMaintenance($id = null, $data = [], $segments = [])
     {
         // Not implemented in SystemAPI, return error
         return $this->badRequest('Not supported');
     }
 
     // PUT /api/maintenance/{id}
-    public function put($id = null, $data = [], $segments = [])
+    public function putMaintenance($id = null, $data = [], $segments = [])
     {
         // Not implemented in SystemAPI, return error
         return $this->badRequest('Not supported');
     }
 
     // DELETE /api/maintenance/{id}
-    public function delete($id = null, $data = [], $segments = [])
+    public function deleteMaintenance($id = null, $data = [], $segments = [])
     {
         // Not implemented in SystemAPI, return error
         return $this->badRequest('Not supported');

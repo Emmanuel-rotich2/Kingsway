@@ -1,7 +1,6 @@
 <?php
-namespace App\API\Modules\Activities;
+namespace App\API\Modules\activities;
 
-require_once __DIR__ . '/../../includes/BaseAPI.php';
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
@@ -125,6 +124,7 @@ class CategoriesManager extends BaseAPI
      */
     public function createCategory($data, $userId)
     {
+        $transactionStarted = false;
         try {
             // Validate required fields
             if (empty($data['name'])) {
@@ -138,7 +138,8 @@ class CategoriesManager extends BaseAPI
                 throw new Exception('A category with this name already exists');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
+            $transactionStarted = true;
 
             $sql = "
                 INSERT INTO activity_categories (
@@ -158,7 +159,7 @@ class CategoriesManager extends BaseAPI
 
             $categoryId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('create', $categoryId, "Created category: {$data['name']}");
 
@@ -169,7 +170,9 @@ class CategoriesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to create category');
             throw $e;
         }
@@ -204,7 +207,7 @@ class CategoriesManager extends BaseAPI
                 }
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $updates = [];
             $params = [];
@@ -224,7 +227,7 @@ class CategoriesManager extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $id, "Updated category: {$category['name']}");
 
@@ -234,7 +237,7 @@ class CategoriesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to update category $id");
             throw $e;
         }
@@ -272,12 +275,12 @@ class CategoriesManager extends BaseAPI
                 throw new Exception('Cannot delete category with existing activities. Please reassign or delete activities first.');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("DELETE FROM activity_categories WHERE id = ?");
             $stmt->execute([$id]);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('delete', $id, "Deleted category: {$category['name']}");
 
@@ -287,7 +290,7 @@ class CategoriesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to delete category $id");
             throw $e;
         }
@@ -354,12 +357,12 @@ class CategoriesManager extends BaseAPI
 
             $newStatus = $category['is_active'] ? 0 : 1;
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("UPDATE activity_categories SET is_active = ? WHERE id = ?");
             $stmt->execute([$newStatus, $id]);
 
-            $this->commit();
+            $this->db->commit();
 
             $statusText = $newStatus ? 'activated' : 'deactivated';
             $this->logAction('update', $id, "Category {$statusText}: {$category['name']}");
@@ -371,7 +374,7 @@ class CategoriesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to toggle category status $id");
             throw $e;
         }

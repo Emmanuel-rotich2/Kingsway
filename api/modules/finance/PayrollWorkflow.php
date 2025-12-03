@@ -1,8 +1,8 @@
 <?php
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\Staff\StaffPayrollManager;
+use App\API\Modules\staff\StaffPayrollManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -53,7 +53,7 @@ class PayrollWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check for existing active payroll workflow for this period
             $stmt = $this->db->prepare("
@@ -66,7 +66,7 @@ class PayrollWorkflow extends WorkflowHandler
             $stmt->execute([$data['payroll_month'], $data['payroll_year']]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active payroll workflow already exists for this period');
             }
 
@@ -95,7 +95,7 @@ class PayrollWorkflow extends WorkflowHandler
             $staffList = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (empty($staffList)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'No active staff found matching the criteria');
             }
 
@@ -140,7 +140,7 @@ class PayrollWorkflow extends WorkflowHandler
             );
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
@@ -148,7 +148,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             $totalStaff = count($payrollRecords);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $workflowId,
@@ -167,7 +167,7 @@ class PayrollWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -195,7 +195,7 @@ class PayrollWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot verify payroll. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
@@ -203,7 +203,7 @@ class PayrollWorkflow extends WorkflowHandler
             $payrollIds = $workflowData['payroll_records'] ?? [];
 
             if (empty($payrollIds)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'No payroll records found');
             }
 
@@ -239,7 +239,7 @@ class PayrollWorkflow extends WorkflowHandler
 
             if (!empty($verificationIssues)) {
                 // Stay in verification stage if issues found
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(false, [
                     'workflow_id' => $workflowId,
                     'issues' => $verificationIssues
@@ -254,7 +254,7 @@ class PayrollWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -263,7 +263,7 @@ class PayrollWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -291,7 +291,7 @@ class PayrollWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot approve payroll. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
 
@@ -309,7 +309,7 @@ class PayrollWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -318,7 +318,7 @@ class PayrollWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -359,7 +359,7 @@ class PayrollWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $payrollIds = $workflowData['payroll_records'] ?? [];
@@ -387,7 +387,7 @@ class PayrollWorkflow extends WorkflowHandler
             }
 
             if (!empty($failedPayments)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, [
                     'failed_payments' => $failedPayments
                 ], 'Some payments failed to process');
@@ -410,11 +410,11 @@ class PayrollWorkflow extends WorkflowHandler
             );
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Processed payroll payments - {$processedCount} records");
 
             return formatResponse(true, [
@@ -427,7 +427,7 @@ class PayrollWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -494,7 +494,7 @@ class PayrollWorkflow extends WorkflowHandler
     public function rejectPayroll($workflowId, $userId, $reason)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $this->cancelWorkflow($workflowId, $reason);
 
@@ -512,7 +512,7 @@ class PayrollWorkflow extends WorkflowHandler
                 $stmt->execute($payrollIds);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $workflowId, "Rejected payroll workflow: {$reason}");
 
             return formatResponse(true, [
@@ -522,7 +522,7 @@ class PayrollWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

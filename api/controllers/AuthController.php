@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Auth\AuthAPI;
+use App\API\Modules\auth\AuthAPI;
 use Exception;
 
 class AuthController extends BaseController
@@ -14,36 +14,42 @@ class AuthController extends BaseController
         $this->api = new AuthAPI();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Auth API is running']);
+    }
+
     // POST /api/auth/login
-    public function login($id = null, $data = [], $segments = [])
+    // POST /api/auth/login
+    public function postLogin($id = null, $data = [], $segments = [])
     {
         $result = $this->api->login($data);
         return $this->handleResponse($result);
     }
 
     // POST /api/auth/logout
-    public function logout($id = null, $data = [], $segments = [])
+    public function postLogout($id = null, $data = [], $segments = [])
     {
         $result = $this->api->logout($data);
         return $this->handleResponse($result);
     }
 
     // POST /api/auth/forgot-password
-    public function forgotPassword($id = null, $data = [], $segments = [])
+    public function postForgotPassword($id = null, $data = [], $segments = [])
     {
         $result = $this->api->forgotPassword($data);
         return $this->handleResponse($result);
     }
 
     // POST /api/auth/reset-password
-    public function resetPassword($id = null, $data = [], $segments = [])
+    public function postResetPassword($id = null, $data = [], $segments = [])
     {
         $result = $this->api->resetPassword($data);
         return $this->handleResponse($result);
     }
 
     // POST /api/auth/refresh-token
-    public function refreshToken($id = null, $data = [], $segments = [])
+    public function postRefreshToken($id = null, $data = [], $segments = [])
     {
         $result = $this->api->refreshToken($data);
         return $this->handleResponse($result);

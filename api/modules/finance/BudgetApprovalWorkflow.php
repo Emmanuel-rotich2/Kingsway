@@ -1,9 +1,9 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\Finance\BudgetManager;
+use App\API\Modules\finance\BudgetManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -42,7 +42,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
     public function initiateBudgetApproval($budgetId, $userId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify budget exists
             $stmt = $this->db->prepare("
@@ -54,7 +54,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             $budget = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$budget) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Budget not found');
             }
 
@@ -68,7 +68,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             $stmt->execute([$budgetId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active approval workflow already exists for this budget');
             }
 
@@ -100,7 +100,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             );
 
             if (!$instanceId) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to create workflow instance');
             }
 
@@ -118,7 +118,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$budgetId]);
 
-            $this->commit();
+            $this->db->commit();
 
             return formatResponse(true, [
                 'workflow_instance_id' => $instanceId,
@@ -127,7 +127,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
         }
@@ -143,18 +143,18 @@ class BudgetApprovalWorkflow extends WorkflowHandler
     public function departmentalReview($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'departmental_review') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in departmental review stage');
             }
 
@@ -167,7 +167,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                     'reviewed_by' => $userId
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget approved by department head']);
 
             } elseif ($action === 'reject') {
@@ -183,17 +183,17 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$workflowData['budget_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget rejected by department head']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
         }
@@ -209,18 +209,18 @@ class BudgetApprovalWorkflow extends WorkflowHandler
     public function financeReview($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'finance_review') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in finance review stage');
             }
 
@@ -233,7 +233,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                     'reviewed_by' => $userId
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget approved by finance team']);
 
             } elseif ($action === 'reject') {
@@ -249,17 +249,17 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$workflowData['budget_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget rejected by finance team']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to review budget: ' . $e->getMessage());
         }
@@ -275,18 +275,18 @@ class BudgetApprovalWorkflow extends WorkflowHandler
     public function directorApproval($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'director_approval') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in director approval stage');
             }
 
@@ -312,7 +312,7 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                     'approval_notes' => $data['notes'] ?? 'Budget approved by director'
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget approved by director']);
 
             } elseif ($action === 'reject') {
@@ -328,17 +328,17 @@ class BudgetApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$workflowData['budget_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Budget rejected by director']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to approve budget: ' . $e->getMessage());
         }

@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -44,7 +44,7 @@ class StockTransferWorkflow extends WorkflowHandler
     public function initiateTransfer($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['source_location_id', 'destination_location_id', 'items', 'quantities', 'transfer_reason'];
@@ -56,13 +56,13 @@ class StockTransferWorkflow extends WorkflowHandler
             }
 
             if (!empty($missing)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
             // Validate source and destination are different
             if ($data['source_location_id'] == $data['destination_location_id']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Source and destination locations must be different');
             }
 
@@ -79,7 +79,7 @@ class StockTransferWorkflow extends WorkflowHandler
                 $item = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$item || $item['quantity_on_hand'] < $quantity) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     return formatResponse(false, null, "Insufficient stock for item #{$itemId} at source location");
                 }
             }
@@ -134,7 +134,7 @@ class StockTransferWorkflow extends WorkflowHandler
             $result = $this->startWorkflow('stock_transfer', $transferId, $userId, $workflowData);
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
@@ -146,7 +146,7 @@ class StockTransferWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$result['data']['workflow_id'], $transferId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $result['data']['workflow_id'], "Initiated transfer workflow {$transferNumber}");
 
             return formatResponse(true, [
@@ -158,7 +158,7 @@ class StockTransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -243,7 +243,7 @@ class StockTransferWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot pick stock. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $transferId = $workflowData['transfer_id'];
@@ -286,7 +286,7 @@ class StockTransferWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -295,7 +295,7 @@ class StockTransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -431,7 +431,7 @@ class StockTransferWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot receive goods. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $transferId = $workflowData['transfer_id'];
@@ -474,7 +474,7 @@ class StockTransferWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -483,7 +483,7 @@ class StockTransferWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

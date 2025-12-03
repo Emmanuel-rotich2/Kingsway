@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Communications;
+namespace App\API\Modules\communications;
 
 use PDO;
 
@@ -16,46 +16,81 @@ class StaffRequestManager
      */
     public function createRequest($data)
     {
-        $sql = "INSERT INTO staff_requests (staff_id, type, subject, details, status, created_at) VALUES (?, ?, ?, ?, 'pending', NOW())";
+        // Map fields: accept both 'title' and 'subject', both 'body' and 'details'
+        $title = $data['title'] ?? $data['subject'] ?? '';
+        $body = $data['body'] ?? $data['details'] ?? '';
+        $createdBy = $data['staff_id'] ?? $data['requested_by'] ?? $data['created_by'] ?? 1;
+
+        // Create conversation in internal_conversations table
+        $sql = "INSERT INTO internal_conversations (created_by, title, conversation_type, created_at) VALUES (:created_by, :title, 'one_on_one', NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $data['staff_id'],
-            $data['type'],
-            $data['subject'],
-            $data['details']
+            ':created_by' => $createdBy,
+            ':title' => $title
         ]);
-        $requestId = $this->db->lastInsertId();
-        // Notify admin/IT/maintenance by email and SMS
-        $this->notifyRequestCreated($requestId, $data);
-        return $requestId;
+        $conversationId = $this->db->lastInsertId();
+
+        // If body is provided, also create initial message in internal_messages
+        if (!empty($body)) {
+            $msgSql = "INSERT INTO internal_messages (conversation_id, sender_id, subject, message_body, message_type, priority, status, created_at) VALUES (:conversation_id, :sender_id, :subject, :message_body, 'personal', 'normal', 'sent', NOW())";
+            $msgStmt = $this->db->prepare($msgSql);
+            $msgStmt->execute([
+                ':conversation_id' => $conversationId,
+                ':sender_id' => $createdBy,
+                ':subject' => $title,
+                ':message_body' => $body
+            ]);
+        }
+
+        return $conversationId;
     }
 
     public function getRequest($id)
     {
-        $stmt = $this->db->prepare("SELECT * FROM staff_requests WHERE id = ?");
+        $stmt = $this->db->prepare("SELECT * FROM internal_conversations WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function updateRequest($id, $data)
     {
-        $sql = "UPDATE staff_requests SET type=?, subject=?, details=?, status=? WHERE id=?";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            $data['type'],
-            $data['subject'],
-            $data['details'],
-            $data['status'],
-            $id
-        ]);
-        // Notify requester of status change
-        $this->notifyRequestUpdated($id, $data);
+        // Map fields: accept both 'title' and 'subject', both 'body' and 'details'
+        $title = isset($data['title']) ? $data['title'] : (isset($data['subject']) ? $data['subject'] : null);
+
+        // Update the conversation
+        $updateFields = [];
+        $params = [':id' => $id];
+
+        if ($title !== null) {
+            $updateFields[] = "title = :title";
+            $params[':title'] = $title;
+        }
+        if (!empty($updateFields)) {
+            $sql = "UPDATE internal_conversations SET " . implode(", ", $updateFields) . ", updated_at = NOW() WHERE id = :id";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+        }
+
+        // If body is provided, add as a new message to the conversation
+        $body = isset($data['body']) ? $data['body'] : (isset($data['details']) ? $data['details'] : null);
+        if ($body !== null && !empty($body)) {
+            $createdBy = $data['staff_id'] ?? $data['requested_by'] ?? $data['created_by'] ?? 1;
+            $msgSql = "INSERT INTO internal_messages (conversation_id, sender_id, subject, message_body, message_type, status, created_at) VALUES (:conversation_id, :sender_id, :subject, :message_body, 'personal', 'sent', NOW())";
+            $msgStmt = $this->db->prepare($msgSql);
+            $msgStmt->execute([
+                ':conversation_id' => $id,
+                ':sender_id' => $createdBy,
+                ':subject' => $title ?? 'Update',
+                ':message_body' => $body
+            ]);
+        }
+
         return true;
     }
 
     public function deleteRequest($id)
     {
-        $stmt = $this->db->prepare("DELETE FROM staff_requests WHERE id = ?");
+        $stmt = $this->db->prepare("DELETE FROM internal_conversations WHERE id = ?");
         $stmt->execute([$id]);
         return $stmt->rowCount() > 0;
     }
@@ -65,14 +100,14 @@ class StaffRequestManager
         $where = [];
         $params = [];
         if (!empty($filters['staff_id'])) {
-            $where[] = 'staff_id = ?';
+            $where[] = 'created_by = ?';
             $params[] = $filters['staff_id'];
         }
         if (!empty($filters['status'])) {
             $where[] = 'status = ?';
             $params[] = $filters['status'];
         }
-        $sql = "SELECT * FROM staff_requests";
+        $sql = "SELECT * FROM internal_conversations";
         if ($where) {
             $sql .= " WHERE " . implode(' AND ', $where);
         }

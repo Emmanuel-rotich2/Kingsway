@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Inventory\InventoryAPI;
+use App\API\Modules\inventory\InventoryAPI;
 use Exception;
 
 /**
@@ -21,6 +21,11 @@ class InventoryController extends BaseController
         $this->api = new InventoryAPI();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Inventory API is running']);
+    }
+
     // ========================================
     // SECTION 1: Base CRUD Operations
     // ========================================
@@ -29,7 +34,7 @@ class InventoryController extends BaseController
      * GET /api/inventory - List all inventory items
      * GET /api/inventory/{id} - Get single inventory item
      */
-    public function get($id = null, $data = [], $segments = [])
+    public function getInventory($id = null, $data = [], $segments = [])
     {
         if ($id !== null && empty($segments)) {
             $result = $this->api->getItem($id);
@@ -48,7 +53,7 @@ class InventoryController extends BaseController
     /**
      * POST /api/inventory - Create new inventory item
      */
-    public function post($id = null, $data = [], $segments = [])
+    public function postInventory($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
             $data['id'] = $id;
@@ -66,7 +71,7 @@ class InventoryController extends BaseController
     /**
      * PUT /api/inventory/{id} - Update inventory item
      */
-    public function put($id = null, $data = [], $segments = [])
+    public function putInventory($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('Inventory item ID is required for update');
@@ -84,7 +89,7 @@ class InventoryController extends BaseController
     /**
      * DELETE /api/inventory/{id} - Delete inventory item
      */
-    public function delete($id = null, $data = [], $segments = [])
+    public function deleteInventory($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('Inventory item ID is required for deletion');

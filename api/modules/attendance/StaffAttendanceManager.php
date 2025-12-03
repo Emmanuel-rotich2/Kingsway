@@ -1,7 +1,7 @@
 <?php
-namespace App\API\Modules\Attendance;
+namespace App\API\Modules\attendance;
 
-use App\Config\Database;
+use App\Database\Database;
 use PDO;
 
 class StaffAttendanceManager
@@ -63,13 +63,12 @@ class StaffAttendanceManager
      */
     public function getStaffAttendanceHistory($staffId)
     {
-        $sql = "SELECT sa.*, d.department_name, t.term_name, ay.year_name
+        $sql = "SELECT sa.*,
+                       CONCAT(st.first_name, ' ', st.last_name) as staff_name
                 FROM staff_attendance sa
-                LEFT JOIN departments d ON sa.department_id = d.id
-                LEFT JOIN academic_terms t ON sa.term_id = t.id
-                LEFT JOIN academic_years ay ON sa.academic_year = ay.id
+                LEFT JOIN staff st ON sa.staff_id = st.id
                 WHERE sa.staff_id = ?
-                ORDER BY ay.year_name, t.term_name, d.department_name, sa.date";
+                ORDER BY sa.date DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -82,18 +81,15 @@ class StaffAttendanceManager
      */
     public function getStaffAttendanceSummary($staffId)
     {
-        $sql = "SELECT ay.year_name, t.term_name, d.department_name,
+        $sql = "SELECT sa.term_id,
                        COUNT(*) as total_days,
-                       SUM(sa.status = 'present') as present_days,
-                       SUM(sa.status = 'absent') as absent_days,
-                       SUM(sa.status = 'late') as late_days
+                       SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days,
+                       SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+                       SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late_days
                 FROM staff_attendance sa
-                LEFT JOIN departments d ON sa.department_id = d.id
-                LEFT JOIN academic_terms t ON sa.term_id = t.id
-                LEFT JOIN academic_years ay ON sa.academic_year = ay.id
                 WHERE sa.staff_id = ?
-                GROUP BY ay.year_name, t.term_name, d.department_name
-                ORDER BY ay.year_name, t.term_name, d.department_name";
+                GROUP BY sa.term_id
+                ORDER BY sa.term_id DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -108,13 +104,14 @@ class StaffAttendanceManager
      */
     public function getDepartmentAttendance($departmentId, $termId, $yearId)
     {
-        $sql = "SELECT sa.*, s.staff_name
+        $sql = "SELECT sa.*,
+                       CONCAT(s.first_name, ' ', s.last_name) as staff_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                WHERE sa.department_id = ? AND sa.term_id = ? AND sa.academic_year = ?
-                ORDER BY sa.date, s.staff_name";
+                WHERE sa.term_id = ?
+                ORDER BY sa.date, s.first_name, s.last_name";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$departmentId, $termId, $yearId]);
+        $stmt->execute([$termId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -128,11 +125,11 @@ class StaffAttendanceManager
     public function getAttendancePercentage($staffId, $termId, $yearId)
     {
         $sql = "SELECT COUNT(*) as total_days,
-                       SUM(status = 'present') as present_days
+                       SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days
                 FROM staff_attendance
-                WHERE staff_id = ? AND term_id = ? AND academic_year = ?";
+                WHERE staff_id = ? AND term_id = ?";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$staffId, $termId, $yearId]);
+        $stmt->execute([$staffId, $termId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row && $row['total_days'] > 0) {
             return round(100 * $row['present_days'] / $row['total_days'], 2);
@@ -150,18 +147,19 @@ class StaffAttendanceManager
      */
     public function getChronicAbsentees($departmentId, $termId, $yearId, $threshold = 0.2)
     {
-        $sql = "SELECT sa.staff_id, s.staff_name,
+        $sql = "SELECT sa.staff_id,
+                       CONCAT(s.first_name, ' ', s.last_name) as staff_name,
                        COUNT(*) as total_days,
-                       SUM(sa.status = 'absent') as absent_days,
-                       (SUM(sa.status = 'absent') / COUNT(*)) as absent_ratio
+                       SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+                       (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                WHERE sa.department_id = ? AND sa.term_id = ? AND sa.academic_year = ?
-                GROUP BY sa.staff_id, s.staff_name
+                WHERE sa.term_id = ?
+                GROUP BY sa.staff_id
                 HAVING absent_ratio > ?
                 ORDER BY absent_ratio DESC";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$departmentId, $termId, $yearId, $threshold]);
+        $stmt->execute([$termId, $threshold]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

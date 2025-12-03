@@ -1,15 +1,157 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Communications\CommunicationsAPI;
+use App\API\Modules\communications\CommunicationsAPI;
 use Exception;
 
 /**
- * CommunicationsController - REST endpoints for all communication operations
- * Handles announcements, notifications, bulk SMS/Email, templates, groups, and SMS configuration
- * 
- * All methods follow signature: methodName($id = null, $data = [], $segments = [])
- * Router calls with: $controller->methodName($id, $data, $segments)
+ * CommunicationsController
+ *
+ * REST endpoints for all communication operations. Handles:
+ *  - SMS callbacks (delivery reports, opt-outs, incoming/subscription messages)
+ *  - Contact directory CRUD
+ *  - External inbound CRUD
+ *  - Forum threads (staff/parent) CRUD
+ *  - Internal announcements and internal requests CRUD
+ *  - Parent portal messages CRUD
+ *  - Staff forum topics and staff requests CRUD
+ *  - Communications, recipients, attachments, templates, groups, logs CRUD
+ *  - Communication workflow instances (initiate, approve, escalate, complete)
+ *
+ * Controller method convention:
+ *  All public endpoint methods follow the signature:
+ *      methodName($id = null, $data = [], $segments = [])
+ *  - $id: optional resource identifier (required for update/delete/get specific)
+ *  - $data: associative array of request payload or query params
+ *  - $segments: optional URL segment array from the router
+ *
+ * Responses:
+ *  - Uses helper responses: success($data, $message), badRequest($message)
+ *  - Most methods delegate to App\API\Modules\communications\CommunicationsAPI
+ *    and then pass results through handleResponse() which:
+ *      - Interprets arrays that include a 'success' boolean
+ *      - Returns a success response when appropriate
+ *      - Returns badRequest on explicit failure indications
+ *
+ * Important behaviours and expectations per endpoint group:
+ *
+ * SMS Callback Endpoints
+ *  - postSmsDeliveryReport($id = null, $data = [], $segments = [])
+ *      Logs incoming delivery report. If 'message_id' and 'status' are present
+ *      calls updateDeliveryStatus(message_id, status, delivered_at?, error_message?).
+ *      Expected $data keys: message_id, status, delivered_at (optional), error_message (optional).
+ *
+ *  - postSmsOptOutCallback($id = null, $data = [], $segments = [])
+ *      Logs opt-out and calls markOptOut(phone, channel). Expected $data keys:
+ *      phone (required), channel (optional, defaults to 'sms').
+ *
+ *  - postSmsSubscriptionCallback($id = null, $data = [], $segments = [])
+ *      Logs incoming SMS messages and stores them via storeIncomingMessage().
+ *      Expected $data keys: phone (required), message (required), channel (optional),
+ *      received_at (optional). Raw payload is persisted where supported.
+ *
+ * Contact Directory CRUD
+ *  - getContact($id = null, $data = [], $segments = [])
+ *      If $id provided -> getContact($id), otherwise -> listContacts($data).
+ *  - postContact($id = null, $data = [], $segments = [])
+ *      createContact($data)
+ *  - putContact($id = null, $data = [], $segments = [])
+ *      Requires $id -> updateContact($id, $data). Returns badRequest if no $id.
+ *  - deleteContact($id = null, $data = [], $segments = [])
+ *      Requires $id -> deleteContact($id). Returns badRequest if no $id.
+ *
+ * External Inbound CRUD
+ *  - getInbound, postInbound, putInbound, deleteInbound
+ *      Same patterns as contact CRUD. put/delete require $id.
+ *
+ * Forum CRUD (Threads)
+ *  - getThread, postThread, putThread, deleteThread
+ *      Same patterns as contact CRUD. put/delete require $id.
+ *
+ * Internal Announcement CRUD
+ *  - getAnnouncement, postAnnouncement, putAnnouncement, deleteAnnouncement
+ *      Same patterns. put/delete require $id.
+ *
+ * Internal Comm CRUD (Internal Requests)
+ *  - getInternalRequest, postInternalRequest, putInternalRequest, deleteInternalRequest
+ *      Same patterns. put/delete require $id.
+ *
+ * Parent Portal Message CRUD
+ *  - getParentMessage, postParentMessage, putParentMessage, deleteParentMessage
+ *      Same patterns. put/delete require $id.
+ *
+ * Staff Forum/Request CRUD
+ *  - getStaffForumTopic / postStaffForumTopic / putStaffForumTopic / deleteStaffForumTopic
+ *  - getStaffRequest / postStaffRequest / putStaffRequest / deleteStaffRequest
+ *      Same patterns. put/delete require $id.
+ *
+ * Communications CRUD
+ *  - getCommunication, postCommunication, putCommunication, deleteCommunication
+ *      Same patterns. put/delete require $id.
+ *
+ * Attachments CRUD
+ *  - getAttachment($id = null, $data = [], $segments = [])
+ *      If $id provided -> getAttachment($id). If $data contains 'communication_id'
+ *      -> listAttachments(communication_id). Otherwise returns badRequest.
+ *  - postAttachment($id = null, $data = [], $segments = [])
+ *      Requires 'communication_id' in $data -> addAttachment(communication_id, $data).
+ *      Returns badRequest if communication_id missing.
+ *  - deleteAttachment($id = null, $data = [], $segments = [])
+ *      Requires $id -> deleteAttachment($id). Returns badRequest if no $id.
+ *
+ * Groups CRUD
+ *  - getGroup, postGroup, putGroup, deleteGroup
+ *      Same patterns. put/delete require $id.
+ *
+ * Logs CRUD
+ *  - getLog($id = null, $data = [], $segments = [])
+ *      If $id provided -> getLog($id), otherwise -> listLogs($data).
+ *  - postLog($id = null, $data = [], $segments = [])
+ *      addLog($data)
+ *
+ * Recipients CRUD
+ *  - getRecipient($id = null, $data = [], $segments = [])
+ *      If $id provided -> getRecipient($id). If $data contains 'communication_id'
+ *      -> listRecipients(communication_id). Otherwise returns badRequest.
+ *  - postRecipient($id = null, $data = [], $segments = [])
+ *      addRecipient($data)
+ *  - deleteRecipient($id = null, $data = [], $segments = [])
+ *      Requires $id -> deleteRecipient($id). Returns badRequest if no $id.
+ *
+ * Templates CRUD
+ *  - getTemplate, postTemplate, putTemplate, deleteTemplate
+ *      Same patterns. put/delete require $id.
+ *
+ * Workflow Instances (Communication Workflows)
+ *  - getWorkflowInstance($id = null, $data = [], $segments = [])
+ *      If $id -> getCommunicationWorkflowInstance($id). Otherwise -> listCommunicationWorkflows($data).
+ *  - postWorkflowInstance($id = null, $data = [], $segments = [])
+ *      Initiates a workflow and requires both 'reference_type' and 'reference_id'
+ *      in $data. Calls initiateCommunicationWorkflow(reference_type, reference_id, $data).
+ *      Returns badRequest if missing required reference fields.
+ *  - putWorkflowInstance($id = null, $data = [], $segments = [])
+ *      Requires $id. Expects 'action' in $data. Supported actions:
+ *        - 'approve'  -> approveCommunication($id, $data)
+ *        - 'escalate' -> escalateCommunication($id, $data)
+ *        - 'complete' -> completeCommunication($id, $data)
+ *      Returns badRequest on unknown action or if 'action' not provided.
+ *
+ * Helper/Private Behavior
+ *  - handleResponse($result)
+ *      Internal formatter that inspects API module return values and maps them
+ *      to controller success/badRequest responses. Treats arrays with a
+ *      'success' boolean specially.
+ *
+ * Notes & Integration:
+ *  - All heavy lifting is delegated to App\API\Modules\communications\CommunicationsAPI.
+ *  - Callback endpoints log raw payloads (via error_log) for audit/debug.
+ *  - Where endpoints require an identifier or specific data keys, controller
+ *    returns badRequest() immediately if requirements are not met.
+ *  - This controller is intended to be invoked by a router which passes $id,
+ *    $data and $segments using the above conventions.
+ *
+ * @package App\API\Controllers
+ * @see App\API\Modules\communications\CommunicationsAPI
  */
 
 
@@ -26,13 +168,17 @@ class CommunicationsController extends BaseController
         $this->api = new CommunicationsAPI();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Communications API is running']);
+    }
 
     // --- SMS Callback Endpoints ---
     /**
      * Endpoint for SMS Delivery Reports Callback
      * Logs delivery report and updates delivery status if possible
      */
-    public function smsDeliveryReport($id = null, $data = [], $segments = [])
+    public function postSmsDeliveryReport($id = null, $data = [], $segments = [])
     {
         // Log the incoming data
         error_log('SMS Delivery Report: ' . json_encode($data));
@@ -49,7 +195,7 @@ class CommunicationsController extends BaseController
      * Endpoint for SMS Bulk Opt-Out Callback
      * Logs opt-out and updates opt-out list if possible
      */
-    public function smsOptOutCallback($id = null, $data = [], $segments = [])
+    public function postSmsOptOutCallback($id = null, $data = [], $segments = [])
     {
         // Log the incoming data
         error_log('SMS Opt-Out Callback: ' . json_encode($data));
@@ -65,7 +211,7 @@ class CommunicationsController extends BaseController
      * Endpoint for SMS Subscription (incoming message) Callback
      * Logs incoming message and stores it if possible
      */
-    public function smsSubscriptionCallback($id = null, $data = [], $segments = [])
+    public function postSmsSubscriptionCallback($id = null, $data = [], $segments = [])
     {
         // Log the incoming data
         error_log('SMS Subscription Callback: ' . json_encode($data));
@@ -85,6 +231,7 @@ class CommunicationsController extends BaseController
 
 
     // --- Contact Directory CRUD ---
+    
     public function getContact($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
@@ -301,6 +448,43 @@ class CommunicationsController extends BaseController
     }
 
 
+    // --- Advanced SMS/Email/WhatsApp Sending ---
+    /**
+     * Send SMS with template selection
+     * POST /communications/send-sms-template
+     */
+    public function postSendSmsTemplate($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postSendSmsTemplate());
+    }
+
+    /**
+     * Send WhatsApp with document attachments
+     * POST /communications/send-whatsapp
+     */
+    public function postSendWhatsapp($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postSendWhatsapp());
+    }
+
+    /**
+     * Send SMS directly with message
+     * POST /communications/send-sms
+     */
+    public function postSendSms($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postSendSms());
+    }
+
+    /**
+     * Send Email directly with message
+     * POST /communications/send-email
+     */
+    public function postSendEmail($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->postSendEmail());
+    }
+
     // --- Communications CRUD ---
     public function getCommunication($id = null, $data = [], $segments = [])
     {
@@ -337,7 +521,8 @@ class CommunicationsController extends BaseController
         if (isset($data['communication_id'])) {
             return $this->handleResponse($this->api->listAttachments($data['communication_id']));
         }
-        return $this->badRequest('communication_id required');
+        // Return all attachments if no filter provided (fallback for GET without params)
+        return $this->handleResponse($this->api->listAttachments(null));
     }
     public function postAttachment($id = null, $data = [], $segments = [])
     {
@@ -403,7 +588,8 @@ class CommunicationsController extends BaseController
         if (isset($data['communication_id'])) {
             return $this->handleResponse($this->api->listRecipients($data['communication_id']));
         }
-        return $this->badRequest('communication_id required');
+        // Return all recipients if no filter provided (fallback for GET without params)
+        return $this->handleResponse($this->api->listRecipients(null));
     }
     public function postRecipient($id = null, $data = [], $segments = [])
     {

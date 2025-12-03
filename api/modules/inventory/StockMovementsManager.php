@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -26,7 +26,7 @@ class StockMovementsManager extends BaseAPI
     public function recordMovement($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $sql = "
                 INSERT INTO inventory_transactions (
@@ -58,14 +58,14 @@ class StockMovementsManager extends BaseAPI
                 $this->updateItemQuantity($data['item_id'], $data['transaction_type'], $data['quantity']);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $transactionId, "Recorded stock movement: {$data['transaction_type']}");
 
             return formatResponse(true, ['transaction_id' => $transactionId]);
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -318,11 +318,11 @@ class StockMovementsManager extends BaseAPI
     public function adjustStock($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate
             if (empty($data['item_id']) || empty($data['adjustment_type']) || empty($data['quantity'])) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Missing required fields');
             }
 
@@ -340,11 +340,11 @@ class StockMovementsManager extends BaseAPI
             ], $userId);
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
-            $this->commit();
+            $this->db->commit();
 
             return formatResponse(true, [
                 'transaction_id' => $result['data']['transaction_id'],
@@ -354,7 +354,7 @@ class StockMovementsManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

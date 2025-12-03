@@ -2,13 +2,106 @@
 
 namespace App\API\Controllers;
 
-use App\API\Modules\Academic\AcademicAPI;
+use App\API\Modules\academic\AcademicAPI;
 
 /**
- * AcademicController - Explicit REST endpoints for Academic Management
- * 
- * Every method in AcademicAPI has its own unique, explicit endpoint
+ * AcademicController
+ *
+ * Explicit REST endpoints for Academic Management. This controller exposes a
+ * large collection of explicit methods that map to academic workflows and
+ * CRUD operations via a consistent routing convention. It delegates business
+ * logic to App\API\Modules\academic\AcademicAPI and adapts HTTP-style calls
+ * into API method calls.
+ *
+ * Routing & Method Conventions
+ * - Base CRUD endpoints:
+ *     - index()                          -> GET  /api/academic
+ *     - get($id = null, $data = [], ...) -> GET  /api/academic         (list)
+ *     - get($id, ...)                    -> GET  /api/academic/{id}    (retrieve)
+ *     - post($id = null, $data = [], ...) -> POST /api/academic        (create)
+ *     - put($id, $data, ...)             -> PUT  /api/academic/{id}   (update)
+ *     - delete($id, $data, ...)          -> DELETE /api/academic/{id} (delete)
+ *
+ * - Router call signature used by controller methods:
+ *     methodName($id, $data, $segments)
+ *   where:
+ *     - $id       : optional resource id (from URL segment)
+ *     - $data     : associative array of request payload / query params
+ *     - $segments : remaining URL segments for nested routing (array)
+ *
+ * Nested routing & naming
+ * - Nested POST/GET requests are routed through routeNestedPost / routeNestedGet.
+ * - URL segments are converted from kebab-case or snake_case to camelCase
+ *   using toCamelCase().
+ * - Controller method names follow the pattern:
+ *     <httpVerb><Resource><Action>
+ *   Examples:
+ *     - POST /api/academic/exams/start-workflow  -> postExamsStartWorkflow(...)
+ *     - POST /api/academic/promotions/execute    -> postPromotionsExecute(...)
+ * - When an $id is present in the URL it is merged into $data['id'] before
+ *   invoking the target method.
+ *
+ * Data & common parameters
+ * - Many workflow endpoints expect (or optionally accept) common keys in $data:
+ *     - instance_id    : academic instance / school context
+ *     - term_id        : academic term identifier
+ *     - exam_type      : type/category of exam
+ *     - schedule_entries, schedule_entries[] etc.
+ *     - subject_id, student_id, competency_id, core_value_id
+ *     - assignments, marks_data, moderation_data, grading_data
+ *     - promotion_data, year_config, resources, mappings, items
+ *     - filters, params, action (for custom endpoints)
+ *
+ * Example grouped workflows (representative)
+ * - Examination workflow: startExaminationWorkflow, createExamSchedule,
+ *   submitQuestionPaper, prepareExamLogistics, conductExamination,
+ *   assignExamMarking, recordExamMarks, verifyExamMarks, moderateExamMarks,
+ *   compileExamResults, approveExamResults.
+ *
+ * - Promotion workflow: startPromotionWorkflow, identifyPromotionCandidates,
+ *   validatePromotionEligibility, executePromotions, generatePromotionReports.
+ *
+ * - Assessment workflow: startAssessmentWorkflow, createAssessmentItems,
+ *   administerAssessment, markAndGradeAssessment, analyzeAssessmentResults.
+ *
+ * - Reporting, Library, Curriculum, Year Transition and other domain-specific
+ *   workflows follow similar naming and usage patterns.
+ *
+ * Response handling
+ * - handleResponse($result) normalizes API return values and maps them to the
+ *   controller's success/badRequest responses:
+ *     - If $result is an array and contains 'success' (boolean), it is used to
+ *       determine success vs failure; 'data' and 'message' fields are honored.
+ *     - If $result is an array and contains 'status' ('success'/'error'), it
+ *       is similarly honored.
+ *     - If $result is a plain array (without the above keys) it is returned as
+ *       success payload.
+ *     - Non-array results are wrapped as ['result' => $result].
+ *
+ * Error handling & validation notes
+ * - put() and delete() require an $id; otherwise a badRequest response is
+ *   returned.
+ * - routeNestedPost / routeNestedGet return notFound() when the computed
+ *   controller method does not exist.
+ *
+ * BaseController integration
+ * - This controller relies on BaseController helper methods for HTTP responses:
+ *     - success($data, $message = null)
+ *     - badRequest($message = null, $data = [])
+ *     - notFound($message = null)
+ *
+ * Extension points
+ * - Add new workflow endpoints by:
+ *     1) implementing the corresponding method on AcademicAPI, and
+ *     2) adding a controller wrapper method following the <verb><Resource><Action>
+ *        naming convention or letting nested routing invoke it.
+ *
+ * Notes
+ * - This docblock summarizes the controller's routing and expected payload
+ *   conventions; refer to specific endpoint method docblocks (or AcademicAPI)
+ *   for more precise parameter contracts and return schemas for each action.
  */
+
 class AcademicController extends BaseController
 {
     private $api;
@@ -17,6 +110,22 @@ class AcademicController extends BaseController
     {
         parent::__construct();
         $this->api = new AcademicAPI();
+    }
+
+    public function index()
+    {
+        // GET /api/academic/index - API health/info endpoint
+        return $this->success([
+            'message' => 'Academic API is running',
+            'endpoints' => [
+                'list' => '/api/academic (GET)',
+                'create' => '/api/academic (POST)',
+                'update' => '/api/academic/{id} (PUT)',
+                'delete' => '/api/academic/{id} (DELETE)'
+            ],
+            'health' => 'ok',
+            'timestamp' => date('c')
+        ]);
     }
 
     // ==================== BASE CRUD OPERATIONS ====================
@@ -31,11 +140,12 @@ class AcademicController extends BaseController
         if ($id !== null) {
             // GET /api/academic/{id} - Get specific record
             $result = $this->api->get($id, $data);
+            return $this->handleResponse($result);
         } else {
             // GET /api/academic - List all records
             $result = $this->api->list($data);
+            return $this->handleResponse($result);
         }
-        return $this->handleResponse($result);
     }
 
     /**
@@ -188,12 +298,7 @@ class AcademicController extends BaseController
      */
     public function postExamsStartWorkflow($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->startExaminationWorkflow(
-            $data['instance_id'] ?? null,
-            $data['term_id'] ?? null,
-            $data['exam_type'] ?? null,
-            $data
-        );
+        $result = $this->api->startExaminationWorkflow($data);
         return $this->handleResponse($result);
     }
 
@@ -315,7 +420,8 @@ class AcademicController extends BaseController
      */
     public function postPromotionsStartWorkflow($data = [])
     {
-        $result = $this->api->startPromotionWorkflow($data['instance_id'] ?? null, $data['from_year'] ?? null, $data['to_year'] ?? null, $data);
+        $payload = is_array($data) ? $data : [];
+        $result = $this->api->startPromotionWorkflow($payload);
         return $this->handleResponse($result);
     }
 
@@ -362,7 +468,8 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsStartWorkflow($data = [])
     {
-        $result = $this->api->startAssessmentWorkflow($data['instance_id'] ?? null, $data['assessment_type'] ?? null, $data);
+        $payload = is_array($data) ? $data : [];
+        $result = $this->api->startAssessmentWorkflow($payload);
         return $this->handleResponse($result);
     }
 
@@ -371,22 +478,12 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsCreateItems($data = [])
     {
-        $result = $this->api->createAssessmentItems($data['instance_id'] ?? null, $data['items'] ?? [], $data);
-        return $this->handleResponse($result);
+        // ...existing code...
     }
-
-    /**
-     * POST /api/academic/assessments/administer - Administer assessment
-     */
     public function postAssessmentsAdminister($data = [])
     {
-        $result = $this->api->administerAssessment($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
+        // ...existing code...
     }
-
-    /**
-     * POST /api/academic/assessments/mark-and-grade - Mark and grade assessment
-     */
     public function postAssessmentsMarkAndGrade($data = [])
     {
         $result = $this->api->markAndGradeAssessment($data['instance_id'] ?? null, $data['grading_data'] ?? [], $data);
@@ -407,11 +504,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/start-workflow - Start report workflow
      */
-    public function postReportsStartWorkflow($data = [])
-    {
-        $result = $this->api->startReportWorkflow($data['instance_id'] ?? null, $data['term_id'] ?? null, $data);
-        return $this->handleResponse($result);
-    }
+    // (Removed duplicate, correct version already defined above)
 
     /**
      * POST /api/academic/reports/compile-data - Compile report data
@@ -454,11 +547,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/library/start-workflow - Start library workflow
      */
-    public function postLibraryStartWorkflow($data = [])
-    {
-        $result = $this->api->startLibraryWorkflow($data['instance_id'] ?? null, $data);
-        return $this->handleResponse($result);
-    }
+    // (Removed duplicate, correct version already defined above)
 
     /**
      * POST /api/academic/library/review-request - Review library request
@@ -494,7 +583,8 @@ class AcademicController extends BaseController
      */
     public function postCurriculumStartWorkflow($data = [])
     {
-        $result = $this->api->startCurriculumWorkflow($data['instance_id'] ?? null, $data);
+        $payload = is_array($data) ? $data : [];
+        $result = $this->api->startCurriculumWorkflow($payload);
         return $this->handleResponse($result);
     }
 
@@ -533,7 +623,8 @@ class AcademicController extends BaseController
      */
     public function postYearTransitionStartWorkflow($data = [])
     {
-        $result = $this->api->startYearTransitionWorkflow($data['instance_id'] ?? null, $data['from_year'] ?? null, $data['to_year'] ?? null, $data);
+        $payload = is_array($data) ? $data : [];
+        $result = $this->api->startYearTransitionWorkflow($payload);
         return $this->handleResponse($result);
     }
 
@@ -618,7 +709,9 @@ class AcademicController extends BaseController
      */
     public function getCompetencyDashboard($data = [])
     {
-        $result = $this->api->getCompetencyDashboard($data['student_id'] ?? null, $data['term_id'] ?? null);
+        $studentId = isset($data['student_id']) ? $data['student_id'] : null;
+        $termId = isset($data['term_id']) ? $data['term_id'] : null;
+        $result = $this->api->getCompetencyDashboard($studentId, $termId);
         return $this->handleResponse($result);
     }
 

@@ -1,9 +1,9 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\API\Includes\WorkflowHandler;
-use App\API\Modules\Finance\ExpenseManager;
+use App\API\Modules\finance\ExpenseManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -41,7 +41,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
     public function initiateExpenseApproval($expenseId, $userId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify expense exists
             $stmt = $this->db->prepare("
@@ -55,7 +55,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             $expense = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$expense) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Expense not found');
             }
 
@@ -69,7 +69,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             $stmt->execute([$expenseId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active approval workflow already exists for this expense');
             }
 
@@ -104,7 +104,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             );
 
             if (!$instanceId) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Failed to create workflow instance');
             }
 
@@ -122,7 +122,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$expenseId]);
 
-            $this->commit();
+            $this->db->commit();
 
             return formatResponse(true, [
                 'workflow_instance_id' => $instanceId,
@@ -132,7 +132,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to initiate workflow: ' . $e->getMessage());
         }
@@ -148,18 +148,18 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
     public function financeValidation($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'validation') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in validation stage');
             }
 
@@ -172,7 +172,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                     'validated_by' => $userId
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Expense validated by finance team']);
 
             } elseif ($action === 'reject') {
@@ -195,17 +195,17 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                     $workflowData['expense_id']
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Expense rejected during validation']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to validate expense: ' . $e->getMessage());
         }
@@ -221,18 +221,18 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
     public function managerApproval($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'approval') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in approval stage');
             }
 
@@ -258,7 +258,7 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$userId, $workflowData['expense_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Expense approved, ready for payment']);
 
             } elseif ($action === 'reject') {
@@ -281,17 +281,17 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                     $workflowData['expense_id']
                 ]);
 
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, ['message' => 'Expense rejected']);
 
             } else {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid action. Use "approve" or "reject"');
             }
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to approve expense: ' . $e->getMessage());
         }
@@ -307,18 +307,18 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
     public function recordPayment($instanceId, $userId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get workflow instance
             $instance = $this->getWorkflowInstance($instanceId);
             if (!$instance) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow instance not found');
             }
 
             // Verify current stage
             if ($instance['current_stage'] !== 'payment') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Workflow not in payment stage');
             }
 
@@ -349,12 +349,12 @@ class ExpenseApprovalWorkflow extends WorkflowHandler
                 'payment_reference' => $data['payment_reference'] ?? ''
             ]);
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(true, ['message' => 'Payment recorded successfully']);
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return formatResponse(false, null, 'Failed to record payment: ' . $e->getMessage());
         }

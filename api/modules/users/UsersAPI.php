@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Users;
+namespace App\API\Modules\users;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\communications\CommunicationsAPI;

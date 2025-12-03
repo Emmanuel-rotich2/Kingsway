@@ -1,13 +1,13 @@
 <?php
-namespace App\API\Modules\Auth;
+namespace App\API\Modules\auth;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Users\UsersAPI;
-use App\API\Modules\Users\RoleManager;
-use App\API\Modules\Users\PermissionManager;
-use App\API\Modules\Users\UserRoleManager;
-use App\API\Modules\Users\UserPermissionManager;
-use App\API\Modules\Communications\CommunicationsAPI;
+use App\API\Modules\users\UsersAPI;
+use App\API\Modules\users\RoleManager;
+use App\API\Modules\users\PermissionManager;
+use App\API\Modules\users\UserRoleManager;
+use App\API\Modules\users\UserPermissionManager;
+use App\API\Modules\communications\CommunicationsAPI;
 use Firebase\JWT\JWT;
 class AuthAPI extends BaseAPI
 {

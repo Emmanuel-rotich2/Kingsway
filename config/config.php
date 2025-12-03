@@ -6,6 +6,13 @@ use Exception;
 // Debug mode (set to false in production)
 define('DEBUG', true);
 
+// Base URL Configuration (Update this with your actual domain) - MUST BE FIRST
+// Detect if local or production
+$isLocal = ($_SERVER['HTTP_HOST'] ?? 'localhost') === 'localhost' || strpos($_SERVER['HTTP_HOST'] ?? '', '127.0.0.1') !== false;
+$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$baseUrl = $isLocal ? 'http://localhost/Kingsway' : 'https://kingsway.ac.ke';
+define('BASE_URL', $baseUrl);
+
 // File upload paths
 define('UPLOAD_PATH', __DIR__ . '/../uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
@@ -21,10 +28,19 @@ foreach ($directories as $dir) {
 }
 
 // System settings
-define('SCHOOL_NAME', 'Kingsway Academy');
-define('SCHOOL_CODE', 'KWA');
+define('SCHOOL_NAME', 'Kingsway Preparatory School');
+define('SCHOOL_CODE', 'KWPS');
 define('CURRENT_YEAR', date('Y'));
 define('CURRENT_TERM', ceil(date('n') / 3));
+
+// School Contact Details
+define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
+define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
+define('SCHOOL_EMAIL', 'info@kingsway.ac.ke');
+define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
+define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
+define('SCHOOL_MOTTO', 'In God We Soar');
+define('SCHOOL_LOGO_URL', BASE_URL . '/images/logo.jpg'); // School logo image URL
 
 // Pagination defaults
 define('DEFAULT_PAGE_SIZE', 10);
@@ -74,23 +90,24 @@ define('SMTP_HOST', 'smtp.gmail.com');
 define('SMTP_PORT', 587);
 define('SMTP_USERNAME', 'angisofttechnologies@gmail.com');
 define('SMTP_PASSWORD', 'snhtcunelqtkujnp');
-define('SMTP_FROM_EMAIL', 'noreply@kingsway.ac.ke');
+define('SMTP_FROM_EMAIL', 'angisofttechnologies@gmail.com'); // Must match authenticated account
 define('SMTP_FROM_NAME', 'Kingsway Preparatory School');
 
 // SMS Configuration
+// SMS Configuration
 define('SMS_PROVIDER', 'africastalking'); // or 'twilio'
-define('SMS_API_KEY', 'atsk_f2dcfc5b1306188b28520c4bf1dfbb8e446ffbf2f960f38cb5a5720a14963e4fdeee2901');
-define('SMS_USERNAME', 'KWPS');
-define('SMS_APPNAME', 'KingsWay Preparatory School');
-define('SMS_FROM_NUMBER', 'your-from-number');
+define('SMS_API_KEY', 'atsk_c5500c783227e742d2db31baf235dccfbce1ca1923ae3316026cdf8354c1e531e98ebf2c');
+define('SMS_USERNAME', 'sandbox');
+define('SMS_APPNAME', 'Sandbox');
+define('SMS_SENDER_ID', 'Kingsway Preparatory'); // Alphanumeric sender ID  
+define('SMS_SHORTCODE', '20174'); // Fallback shortcode
 
-// Base URL Configuration (Update this with your actual domain)
-define('BASE_URL', 'https://yourdomain.com'); // IMPORTANT: Update this!
+define('SMS_WHATSAPP_NUMBER', '+254710398690'); // WhatsApp business number (update with your number)
 
 // M-Pesa Configuration
 define('MPESA_ENVIRONMENT', 'sandbox'); // 'sandbox' or 'production'
-define('MPESA_CONSUMER_KEY', 'your_mpesa_consumer_key');
-define('MPESA_CONSUMER_SECRET', 'your_mpesa_consumer_secret');
+define('MPESA_CONSUMER_KEY', 'KOuNiCwAxbOoHXgwLhiO19uukdg2AwfDClPeuImtm2dSSN5h');
+define('MPESA_CONSUMER_SECRET', '1xGaj8DxjK0iAK0gOESHUfy2hnfVmQQPDr2AAiMDggwHHNPw16odelfjGGfAO1IV');
 define('MPESA_SHORTCODE', 'your_mpesa_shortcode'); // Your paybill number
 define('MPESA_PASSKEY', 'your_mpesa_passkey');
 define('MPESA_INITIATOR_NAME', 'your_initiator_name');
@@ -113,7 +130,7 @@ define('MPESA_B2C_TIMEOUT_URL', BASE_URL . '/api/payments/mpesa-b2c-timeout.php'
 // M-Pesa Security Credential (Required for B2C transactions)
 // This is your initiator password encrypted with Safaricom's public key
 // Get this from the Daraja Portal under "Security Credentials"
-define('MPESA_SECURITY_CREDENTIAL', 'your_encrypted_security_credential_here');
+define('MPESA_SECURITY_CREDENTIAL', 'OoT56CKkJWtWsO41KlwfK6q4DjA+d+HN7h2OL0TaoECOxujfquTY/PeRduwm3DIKYIUhcS4HE2Bh9MgnHIGAhK8KXueSTgF/c11zNmfP9HNyyeeFGJWGCcA7Wqo+cdwx5GMBT8DIsKbSIcB8VZosS4OhsaNs93CX4ecIRVjzUzTJw7DxnJmTsLqqM2nGD1lkgSEo/4pJXbY+OfNTtHuzjicnCMRGbUQ8i5IJDqqfMZX7YO8hDp1/s+Lu3KaYg+o41PcoEUqEMBsWb3JohLhNSs4G6ZpE1PI4Vg73vcbcQYosrj4euAocU2qGxi2G282qyxAN6QUbPu45hFZ/0GLG4A==');
 
 // KCB Bank Buni Configuration
 define('KCB_ENVIRONMENT', 'sandbox'); // 'sandbox' or 'production'
@@ -150,7 +167,7 @@ define('ALLOWED_ORIGINS', [
     'http://127.0.0.1:8080',
     'http://localhost:8081',
     'http://127.0.0.1:8081'
-    ]);
+]);
 // CBE Curriculum Config
 $CBE_GRADE_LEVELS = [
     'Play Group',

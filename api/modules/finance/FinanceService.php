@@ -1,17 +1,17 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
-use App\API\Modules\Finance\FeeManager;
-use App\API\Modules\Finance\PaymentManager;
-use App\API\Modules\Finance\BudgetManager;
-use App\API\Modules\Finance\ExpenseManager;
-use App\API\Modules\Finance\ReportingManager;
-use App\API\Modules\Finance\PayrollWorkflow;
-use App\API\Modules\Finance\FeeApprovalWorkflow;
-use App\API\Modules\Finance\BudgetApprovalWorkflow;
-use App\API\Modules\Finance\ExpenseApprovalWorkflow;
-use App\API\Modules\Staff\StaffPayrollManager;
+use App\API\Modules\finance\FeeManager;
+use App\API\Modules\finance\PaymentManager;
+use App\API\Modules\finance\BudgetManager;
+use App\API\Modules\finance\ExpenseManager;
+use App\API\Modules\finance\ReportingManager;
+use App\API\Modules\finance\PayrollWorkflow;
+use App\API\Modules\finance\FeeApprovalWorkflow;
+use App\API\Modules\finance\BudgetApprovalWorkflow;
+use App\API\Modules\finance\ExpenseApprovalWorkflow;
+use App\API\Modules\staff\StaffPayrollManager;
 
 /**
  * Finance Service - Central Integration Layer

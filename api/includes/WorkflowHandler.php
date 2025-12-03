@@ -72,24 +72,41 @@ class WorkflowHandler extends BaseAPI
     protected function loadWorkflowDefinition()
     {
         try {
+            // Try to load an active definition first
             $sql = "SELECT id, name, description, category, handler_class, config_json, is_active 
                     FROM workflow_definitions 
                     WHERE code = :code AND is_active = 1";
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['code' => $this->workflow_code]);
             $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
 
+            // If no active workflow found, attempt to load any definition (allow testing with inactive)
             if (!$workflow) {
-                throw new Exception("Workflow '{$this->workflow_code}' not found or inactive");
+                $stmt = $this->db->prepare("SELECT id, name, description, category, handler_class, config_json, is_active FROM workflow_definitions WHERE code = :code LIMIT 1");
+                $stmt->execute(['code' => $this->workflow_code]);
+                $workflow = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($workflow) {
+                    // Found an inactive workflow. Log a warning but continue using it so the module can operate.
+                    $this->logAction('workflow_loaded_inactive', $workflow['id'], "Loaded inactive workflow: {$workflow['name']} (code: {$this->workflow_code})");
+                }
+            } else {
+                $this->logAction('workflow_loaded', $workflow['id'], "Loaded active workflow: {$workflow['name']}");
+            }
+
+            if (!$workflow) {
+                // No workflow definition available. Log and set workflow_id to null so callers can handle gracefully.
+                $this->logAction('workflow_missing', null, "Workflow definition not found for code: {$this->workflow_code}");
+                $this->workflow_id = null;
+                $this->workflow_config = [];
+                return;
             }
 
             $this->workflow_id = $workflow['id'];
             $this->workflow_config = json_decode($workflow['config_json'], true) ?? [];
-
-            $this->logAction('workflow_loaded', $this->workflow_id, "Loaded workflow: {$workflow['name']}");
         } catch (Exception $e) {
-            $this->logError('workflow_load_failed', $e->getMessage());
+            $this->logError($e, 'workflow_load_failed');
             throw $e;
         }
     }
@@ -102,7 +119,7 @@ class WorkflowHandler extends BaseAPI
      * @param array $initial_data Optional initial workflow data
      * @return int Workflow instance ID
      */
-    public function startWorkflow($reference_type, $reference_id, $initial_data = [])
+    public function startWorkflow($reference_type, $reference_id, $initial_data = [], $userId = null)
     {
         try {
             $this->db->beginTransaction();
@@ -120,14 +137,13 @@ class WorkflowHandler extends BaseAPI
                     VALUES 
                     (:workflow_id, :reference_type, :reference_id, :current_stage, 'in_progress', 
                      :started_by, NOW(), :data_json)";
-            
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'workflow_id' => $this->workflow_id,
                 'reference_type' => $reference_type,
                 'reference_id' => $reference_id,
                 'current_stage' => $first_stage['code'],
-                'started_by' => $this->user_id,
+                'started_by' => $userId ?? $this->user_id,
                 'data_json' => json_encode($initial_data)
             ]);
 
@@ -168,7 +184,7 @@ class WorkflowHandler extends BaseAPI
     {
         try {
             // Use stored procedure for atomic stage advancement
-            $sql = "CALL sp_advance_workflow_stage(:instance_id, :to_stage, :action, :user_id, :notes)";
+            $sql = "CALL sp_advance_workflow_stage(:instance_id, :to_stage, :action, :user_id, :remarks, :data_json)";
             
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
@@ -176,7 +192,8 @@ class WorkflowHandler extends BaseAPI
                 'to_stage' => $to_stage,
                 'action' => $action,
                 'user_id' => $this->user_id,
-                'notes' => json_encode($action_data)
+                'remarks' => $action,
+                'data_json' => json_encode($action_data)
             ]);
 
             // Get new stage details
@@ -319,7 +336,7 @@ class WorkflowHandler extends BaseAPI
                 FROM workflow_stage_history wsh
                 LEFT JOIN users u ON wsh.processed_by = u.id
                 WHERE wsh.instance_id = :instance_id
-                ORDER BY wsh.entered_at DESC";
+                ORDER BY wsh.processed_at DESC";
         
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['instance_id' => $instance_id]);
@@ -396,17 +413,24 @@ class WorkflowHandler extends BaseAPI
 
     protected function logStageEntry($instance_id, $stage_code, $notes = '')
     {
+        // Get the current stage before transition
+        $stmt = $this->db->prepare("SELECT current_stage FROM workflow_instances WHERE id = ?");
+        $stmt->execute([$instance_id]);
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        $from_stage = $result ? $result['current_stage'] : 'initial';
+
         $sql = "INSERT INTO workflow_stage_history 
-                (instance_id, stage_code, action_taken, processed_by, entered_at, notes) 
+                (instance_id, from_stage, to_stage, action_taken, processed_by, remarks) 
                 VALUES 
-                (:instance_id, :stage_code, 'entered', :processed_by, NOW(), :notes)";
+                (:instance_id, :from_stage, :to_stage, 'entered', :processed_by, :remarks)";
         
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             'instance_id' => $instance_id,
-            'stage_code' => $stage_code,
+            'from_stage' => $from_stage,
+            'to_stage' => $stage_code,
             'processed_by' => $this->user_id,
-            'notes' => $notes
+            'remarks' => $notes
         ]);
     }
 

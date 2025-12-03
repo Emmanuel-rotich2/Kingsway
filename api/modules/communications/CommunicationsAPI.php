@@ -4,64 +4,22 @@ namespace App\API\Modules\communications;
 
 use App\API\Includes\BaseAPI;
 
-use App\API\Modules\Communications\CommunicationsManager;
-use App\API\Modules\Communications\Templates\TemplateLoader;
-use App\API\Modules\Communications\CommunicationWorkflowHandler;
-use App\API\Modules\Communications\ContactDirectoryManager;
-use App\API\Modules\Communications\ExternalInboundManager;
-use App\API\Modules\Communications\ForumManager;
-use App\API\Modules\Communications\InternalAnnouncementManager;
-use App\API\Modules\Communications\InternalCommManager;
-use App\API\Modules\Communications\ParentPortalMessageManager;
-use App\API\Modules\Communications\StaffForumManager;
-use App\API\Modules\Communications\StaffRequestManager;
+use App\API\Modules\communications\CommunicationsManager;
+use App\API\Modules\communications\templates\TemplateLoader;
+use App\API\Modules\communications\CommunicationWorkflowHandler;
+use App\API\Modules\communications\ContactDirectoryManager;
+use App\API\Modules\communications\ExternalInboundManager;
+use App\API\Modules\communications\ForumManager;
+use App\API\Modules\communications\InternalAnnouncementManager;
+use App\API\Modules\communications\InternalCommManager;
+use App\API\Modules\communications\ParentPortalMessageManager;
+use App\API\Modules\communications\StaffForumManager;
+use App\API\Modules\communications\StaffRequestManager;
 
 
 
 class CommunicationsAPI extends BaseAPI
 {
-    /**
-     * Send SMS using a template category and variables.
-     * @param array $recipients
-     * @param array $variables
-     * @param string $category
-     * @param string $type
-     * @return array
-     */
-    public function sendTemplateSMS($recipients, $variables, $category = 'fee_payment_received', $type = 'sms')
-    {
-        return $this->manager->sendSMSToRecipients($recipients, $variables, $type, $category);
-    }
-    // Public method to send a reset email (or any email) using the manager
-    public function sendResetEmail($recipients, $subject, $body, $attachments = [], $signature = '', $footer = '', $schoolDetails = [])
-    {
-        return $this->manager->sendEmailToRecipients($recipients, $subject, $body, $attachments, $signature, $footer, $schoolDetails);
-    }
-
-    // --- Callback/Inbound Support Methods ---
-    /**
-     * Update delivery status for a recipient (for delivery report callbacks)
-     */
-    public function updateDeliveryStatus($recipientId, $status, $deliveredAt = null, $errorMessage = null)
-    {
-        return $this->manager->updateDeliveryStatus($recipientId, $status, $deliveredAt, $errorMessage);
-    }
-
-    /**
-     * Mark a recipient as opted out (for opt-out callbacks)
-     */
-    public function markOptOut($recipientIdentifier, $channel)
-    {
-        return $this->manager->markOptOut($recipientIdentifier, $channel);
-    }
-
-    /**
-     * Store incoming message (for subscription/inbound callbacks)
-     */
-    public function storeIncomingMessage($data)
-    {
-        return $this->manager->storeIncomingMessage($data);
-    }
 
 
     private $manager;
@@ -91,6 +49,468 @@ class CommunicationsAPI extends BaseAPI
         $this->staffForumManager = new StaffForumManager($this->db);
         $this->staffRequestManager = new StaffRequestManager($this->db);
     }
+
+    /**
+     * Send SMS directly with message text  
+     * Mapped to: POST /communications/send-sms
+     * @param array $recipients Array of phone numbers
+     * @param string $message SMS message text
+     * @param string $type Type of SMS (sms, whatsapp, etc)
+     * @return array
+     */
+    public function postSendSms($recipients = null, $message = null, $type = 'sms')
+    {
+        // Get from JSON body if not passed as params
+        if ($recipients === null || $message === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $recipients = $data['recipients'] ?? [];
+            $message = $data['message'] ?? '';
+            $type = $data['type'] ?? 'sms';
+        }
+
+        // Validate inputs
+        if (empty($recipients) || empty($message)) {
+            return [
+                'status' => 'error',
+                'message' => 'Recipients and message are required',
+                'data' => null
+            ];
+        }
+
+        // Ensure recipients is an array
+        if (!is_array($recipients)) {
+            $recipients = [$recipients];
+        }
+
+        // Send using the SMS gateway directly
+        $gateway = new \App\API\Services\sms\SMSGateway();
+        $sent = 0;
+        $failed = [];
+        $sent_ids = [];
+        $failed_ids = [];
+
+        foreach ($recipients as $phone) {
+            try {
+                if ($type === 'whatsapp') {
+                    $result = $gateway->sendWhatsApp($phone, $message);
+                } else {
+                    $result = $gateway->send($phone, $message);
+                }
+
+                // Handle both boolean and array responses
+                $success = false;
+                if (is_bool($result)) {
+                    $success = $result === true;
+                } else if (is_array($result) && isset($result['status']) && $result['status'] === 'success') {
+                    $success = true;
+                }
+
+                if ($success) {
+                    $sent++;
+
+                    // Store in communications table with sent status
+                    $comm = $this->manager->createCommunication([
+                        'type' => 'sms',
+                        'subject' => substr($message, 0, 100),
+                        'body' => $message,
+                        'recipients' => [$phone],
+                        'status' => 'sent'
+                    ]);
+
+                    if ($comm && isset($comm['id'])) {
+                        $sent_ids[] = $comm['id'];
+                    }
+                } else {
+                    $failed[] = $phone;
+
+                    // Store in communications table with failed status
+                    $comm = $this->manager->createCommunication([
+                        'type' => 'sms',
+                        'subject' => substr($message, 0, 100),
+                        'body' => $message,
+                        'recipients' => [$phone],
+                        'status' => 'failed'
+                    ]);
+
+                    if ($comm && isset($comm['id'])) {
+                        $failed_ids[] = $comm['id'];
+                    }
+                }
+            } catch (\Exception $e) {
+                $failed[] = $phone;
+                error_log("SMS Send Error: " . $e->getMessage());
+            }
+        }
+
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'message' => $sent > 0 ? "Sent $sent SMS" : 'Failed to send SMS',
+            'sent_count' => $sent,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+            'communication_ids' => $sent_ids
+        ];
+    }
+
+    /**
+     * Send email directly
+     * Mapped to: POST /communications/send-email
+     * @param array $recipients Array of emails or [email => name] pairs
+     * @param string $subject Email subject
+     * @param string $body Email body
+     * @param array $attachments File attachments
+     * @param string $signature Email signature
+     * @param string $footer Email footer
+     * @param array $schoolDetails School information for template
+     * @return array
+     */
+    public function postSendEmail($recipients = null, $subject = null, $body = null, $attachments = [], $signature = '', $footer = '', $schoolDetails = [])
+    {
+        // Get from JSON body if not passed as params
+        if ($recipients === null || $subject === null || $body === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $recipients = $data['recipients'] ?? [];
+            $subject = $data['subject'] ?? '';
+            $body = $data['body'] ?? '';
+            $attachments = $data['attachments'] ?? [];
+            $signature = $data['signature'] ?? '';
+            $footer = $data['footer'] ?? '';
+            $schoolDetails = $data['schoolDetails'] ?? [];
+        }
+
+        // Validate inputs
+        if (empty($recipients) || empty($subject) || empty($body)) {
+            return [
+                'status' => 'error',
+                'message' => 'Recipients, subject, and body are required',
+                'data' => null
+            ];
+        }
+
+        // Ensure recipients is an array
+        if (!is_array($recipients)) {
+            $recipients = [$recipients];
+        }
+
+        // Send email
+        $result = $this->manager->sendEmailToRecipients(
+            $recipients,
+            $subject,
+            $body,
+            $attachments,
+            $signature,
+            $footer,
+            $schoolDetails
+        );
+
+        // Store in communications table
+        if ($result['status'] === 'success') {
+            $sent_ids = [];
+            foreach ($recipients as $email => $name) {
+                if (is_int($email)) {
+                    $email = $name;
+                }
+
+                $comm = $this->manager->createCommunication([
+                    'type' => 'email',
+                    'subject' => $subject,
+                    'body' => $body,
+                    'recipients' => [$email],
+                    'status' => 'sent'
+                ]);
+
+                if ($comm && isset($comm['id'])) {
+                    $sent_ids[] = $comm['id'];
+                }
+            }
+
+            $result['communication_ids'] = $sent_ids;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Send SMS using a template category and variables.
+     * @param array $recipients
+     * @param array $variables
+     * @param string $category
+     * @param string $type
+     * @return array
+     */
+    public function sendTemplateSMS($recipients, $variables, $category = 'fee_payment_received', $type = 'sms')
+    {
+        return $this->manager->sendSMSToRecipients($recipients, $variables, $type, $category);
+    }
+
+    /**
+     * Send SMS with template selection - Maps to POST /communications/send-sms-template
+     */
+    public function postSendSmsTemplate($recipients = null, $title = null, $message = null, $variables = [], $template_id = null, $type = 'sms')
+    {
+        if ($recipients === null || $title === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $recipients = $data['recipients'] ?? [];
+            $title = $data['title'] ?? $data['category'] ?? null;
+            $message = $data['message'] ?? '';
+            $variables = $data['variables'] ?? [];
+            $template_id = $data['template_id'] ?? null;
+            $type = $data['type'] ?? 'sms';
+        }
+        if (empty($recipients) || empty($title)) {
+            return ['status' => 'error', 'message' => 'Recipients and title required', 'sent_count' => 0];
+        }
+        if (!is_array($recipients))
+            $recipients = [$recipients];
+        if (!is_array($variables))
+            $variables = [];
+
+        $template = null;
+        if ($template_id)
+            $template = $this->manager->getTemplate($template_id);
+        if (!$template)
+            $template = $this->templateLoader->getTemplate($type, $title);
+
+        $rendered = $message;
+        if ($template && isset($template['template_body'])) {
+            $rendered = $this->templateLoader->renderTemplate($template, $variables);
+        } else if (!$message) {
+            return ['status' => 'error', 'message' => 'Template not found', 'sent_count' => 0];
+        }
+
+        $gateway = new \App\API\Services\sms\SMSGateway();
+        $sent = 0;
+        $failed = [];
+        $sent_ids = [];
+        $template_title = $template['name'] ?? $title;
+
+        foreach ($recipients as $phone) {
+            try {
+                $result = ($type === 'whatsapp' && $template && isset($template['media_urls']))
+                    ? $gateway->sendWhatsApp($phone, $rendered, $template['media_urls'])
+                    : ($type === 'whatsapp' ? $gateway->sendWhatsApp($phone, $rendered) : $gateway->send($phone, $rendered));
+
+                if ($result && isset($result['status']) && $result['status'] === 'success') {
+                    $sent++;
+                    $comm = $this->manager->createCommunication([
+                        'type' => $type,
+                        'subject' => substr($template_title, 0, 100),
+                        'body' => $rendered,
+                        'recipients' => [$phone],
+                        'template_id' => $template_id ?? ($template['id'] ?? null),
+                        'status' => 'sent'
+                    ]);
+                    if ($comm && isset($comm['id']))
+                        $sent_ids[] = $comm['id'];
+                } else {
+                    $failed[] = $phone;
+                }
+            } catch (\Exception $e) {
+                $failed[] = $phone;
+                error_log("SMS Error: " . $e->getMessage());
+            }
+        }
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'sent_count' => $sent,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+            'template_used' => $template_title,
+            'communication_ids' => $sent_ids
+        ];
+    }
+
+    /**
+     * Send WhatsApp with optional document attachments - Maps to POST /communications/send-whatsapp
+     */
+    public function postSendWhatsapp($recipients = null, $message = null, $documents = [], $variables = [], $category = null)
+    {
+        if ($recipients === null || $message === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $recipients = $data['recipients'] ?? [];
+            $message = $data['message'] ?? '';
+            $documents = $data['documents'] ?? [];
+            $variables = $data['variables'] ?? [];
+            $category = $data['category'] ?? null;
+        }
+        if (empty($recipients) || empty($message)) {
+            return ['status' => 'error', 'message' => 'Recipients and message required', 'sent_count' => 0];
+        }
+        if (!is_array($recipients))
+            $recipients = [$recipients];
+
+        $template = null;
+        if ($category) {
+            $template = $this->templateLoader->getTemplate('whatsapp', $category);
+            if ($template && isset($template['template_body'])) {
+                $message = $this->templateLoader->renderTemplate($template, $variables);
+                if (isset($template['media_urls']))
+                    $documents = array_merge($documents, $template['media_urls']);
+            }
+        }
+
+        $gateway = new \App\API\Services\sms\SMSGateway();
+        $sent = 0;
+        $failed = [];
+        $sent_ids = [];
+
+        foreach ($recipients as $phone) {
+            try {
+                $result = !empty($documents)
+                    ? $gateway->sendWhatsApp($phone, $message, $documents)
+                    : $gateway->sendWhatsApp($phone, $message);
+
+                if ($result && isset($result['status']) && $result['status'] === 'success') {
+                    $sent++;
+                    $comm = $this->manager->createCommunication([
+                        'type' => 'whatsapp',
+                        'subject' => 'WhatsApp Message',
+                        'body' => $message,
+                        'recipients' => [$phone],
+                        'status' => 'sent'
+                    ]);
+                    if ($comm && isset($comm['id']))
+                        $sent_ids[] = $comm['id'];
+                } else {
+                    $failed[] = $phone;
+                }
+            } catch (\Exception $e) {
+                $failed[] = $phone;
+                error_log("WhatsApp Error: " . $e->getMessage());
+            }
+        }
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'sent_count' => $sent,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+            'documents_sent' => !empty($documents),
+            'communication_ids' => $sent_ids
+        ];
+    }
+
+    /**
+     * Send SMS directly with message text
+     * @param array $recipients Array of phone numbers
+     * @param string $message SMS message text
+     * @param string $type Type of SMS (sms, whatsapp, etc)
+     * @return array
+     */
+    public function sendSms($recipients, $message, $type = 'sms')
+    {
+        // Convert single message to template variables format
+        $variables = ['message' => $message];
+
+        // Send using the SMS gateway directly
+        $gateway = new \App\API\Services\sms\SMSGateway();
+        $sent = 0;
+        $failed = [];
+
+        foreach ($recipients as $phone) {
+            try {
+                if ($type === 'whatsapp') {
+                    $result = $gateway->sendWhatsApp($phone, $message);
+                } else {
+                    $result = $gateway->send($phone, $message);
+                }
+
+                if ($result && isset($result['status']) && $result['status'] === 'success') {
+                    $sent++;
+
+                    // Store in communications table
+                    $this->manager->createCommunication([
+                        'type' => $type,
+                        'subject' => $message,
+                        'body' => $message,
+                        'recipients' => [$phone],
+                        'status' => 'sent'
+                    ]);
+                } else {
+                    $failed[] = $phone;
+                }
+            } catch (\Exception $e) {
+                $failed[] = $phone;
+            }
+        }
+
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'message' => $sent > 0 ? "Sent $sent SMS" : 'Failed to send SMS',
+            'sent_count' => $sent,
+            'failed' => $failed
+        ];
+    }
+
+    /**
+     * Send email directly
+     * @param array $recipients Array of emails or [email => name] pairs
+     * @param string $subject Email subject
+     * @param string $body Email body
+     * @param array $attachments File attachments
+     * @param string $signature Email signature
+     * @param string $footer Email footer
+     * @param array $schoolDetails School information for template
+     * @return array
+     */
+    public function sendEmail($recipients, $subject, $body, $attachments = [], $signature = '', $footer = '', $schoolDetails = [])
+    {
+        $result = $this->manager->sendEmailToRecipients(
+            $recipients,
+            $subject,
+            $body,
+            $attachments,
+            $signature,
+            $footer,
+            $schoolDetails
+        );
+
+        // Store in communications table
+        if ($result['status'] === 'success') {
+            foreach ($recipients as $email => $name) {
+                if (is_int($email)) {
+                    $email = $name;
+                }
+
+                $this->manager->createCommunication([
+                    'type' => 'email',
+                    'subject' => $subject,
+                    'body' => $body,
+                    'recipients' => [$email],
+                    'status' => 'sent'
+                ]);
+            }
+        }
+
+        return $result;
+    }    // --- Callback/Inbound Support Methods ---
+    /**
+     * Update delivery status for a recipient (for delivery report callbacks)
+     */
+    public function updateDeliveryStatus($recipientId, $status, $deliveredAt = null, $errorMessage = null)
+    {
+        return $this->manager->updateDeliveryStatus($recipientId, $status, $deliveredAt, $errorMessage);
+    }
+
+    /**
+     * Mark a recipient as opted out (for opt-out callbacks)
+     */
+    public function markOptOut($recipientIdentifier, $channel)
+    {
+        return $this->manager->markOptOut($recipientIdentifier, $channel);
+    }
+
+    /**
+     * Store incoming message (for subscription/inbound callbacks)
+     */
+    public function storeIncomingMessage($data)
+    {
+        return $this->manager->storeIncomingMessage($data);
+    }
+
     // --- Contact Directory API ---
     public function createContact($data)
     {
@@ -407,6 +827,168 @@ class CommunicationsAPI extends BaseAPI
     public function listTemplates($filters = [])
     {
         return $this->manager->listTemplates($filters);
+    }
+
+    /**
+     * Send WhatsApp Template Message
+     * Mapped to: POST /communications/send-whatsapp-template
+     * @param array $recipients Array of phone numbers
+     * @param string $templateId WhatsApp template ID
+     * @param array $variables Template variables/parameters
+     * @return array
+     */
+    public function postSendWhatsappTemplate($recipients = null, $templateId = null, $variables = [])
+    {
+        // Get from JSON body if not passed as params
+        if ($recipients === null || $templateId === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $recipients = $data['recipients'] ?? [];
+            $templateId = $data['templateId'] ?? $data['template_id'] ?? '';
+            $variables = $data['variables'] ?? [];
+        }
+
+        // Validate inputs
+        if (empty($recipients) || empty($templateId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Recipients and templateId are required',
+                'data' => null
+            ];
+        }
+
+        // Ensure recipients is an array
+        if (!is_array($recipients)) {
+            $recipients = [$recipients];
+        }
+
+        try {
+            $gateway = new \App\API\Services\whatsapp\WhatsAppGateway();
+            $sent = 0;
+            $failed = [];
+            $sent_ids = [];
+
+            foreach ($recipients as $phone) {
+                try {
+                    $result = $gateway->sendTemplate($phone, $templateId, $variables);
+
+                    if (is_array($result) && $result['status'] === 'success') {
+                        $sent++;
+                        $sent_ids[] = [
+                            'phone' => $phone,
+                            'template_id' => $templateId,
+                            'timestamp' => date('Y-m-d H:i:s')
+                        ];
+                    } else {
+                        $failed[] = [
+                            'phone' => $phone,
+                            'error' => $result['message'] ?? 'Unknown error'
+                        ];
+                    }
+                } catch (\Exception $e) {
+                    $failed[] = [
+                        'phone' => $phone,
+                        'error' => $e->getMessage()
+                    ];
+                }
+            }
+
+            $failedCount = count($failed);
+            $sentStatus = $failedCount === 0 ? 'success' : ($sent > 0 ? 'partial' : 'error');
+
+            return [
+                'status' => $sentStatus,
+                'message' => "Sent to $sent recipient(s), failed: " . $failedCount,
+                'data' => [
+                    'sent' => $sent,
+                    'failed' => $failedCount,
+                    'sent_ids' => $sent_ids,
+                    'failed_details' => $failed
+                ]
+            ];
+        } catch (\Exception $e) {
+            error_log("WhatsApp Template Error: " . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Create WhatsApp Template
+     * Mapped to: POST /communications/create-whatsapp-template
+     * @param string $name Template name (must be unique)
+     * @param string $language Language code (e.g., 'en')
+     * @param string $category Template category (MARKETING, UTILITY, AUTHENTICATION)
+     * @param array $components Template components (header, body, footer, buttons)
+     * @return array
+     */
+    public function postCreateWhatsappTemplate($name = null, $language = null, $category = null, $components = null)
+    {
+        // Get from JSON body if not passed as params
+        if ($name === null || $language === null || $category === null || $components === null) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+            $name = $data['name'] ?? '';
+            $language = $data['language'] ?? 'en';
+            $category = $data['category'] ?? 'UTILITY';
+            $components = $data['components'] ?? [];
+        }
+
+        // Validate inputs
+        if (empty($name) || empty($components)) {
+            return [
+                'status' => 'error',
+                'message' => 'Template name and components are required',
+                'data' => null
+            ];
+        }
+
+        // Validate category
+        $validCategories = ['MARKETING', 'UTILITY', 'AUTHENTICATION'];
+        if (!in_array($category, $validCategories)) {
+            return [
+                'status' => 'error',
+                'message' => "Category must be one of: " . implode(', ', $validCategories),
+                'data' => null
+            ];
+        }
+
+        try {
+            $gateway = new \App\API\Services\whatsapp\WhatsAppGateway();
+
+            $templateConfig = [
+                'name' => $name,
+                'language' => $language,
+                'category' => $category,
+                'components' => $components
+            ];
+
+            $result = $gateway->createTemplate($templateConfig);
+
+            if (is_array($result) && $result['status'] === 'success') {
+                return [
+                    'status' => 'success',
+                    'message' => 'Template created successfully',
+                    'data' => $result['data'] ?? []
+                ];
+            } else {
+                return [
+                    'status' => 'error',
+                    'message' => $result['message'] ?? 'Failed to create template',
+                    'data' => $result['data'] ?? null
+                ];
+            }
+        } catch (\Exception $e) {
+            error_log("Create WhatsApp Template Error: " . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => $e->getMessage(),
+                'data' => null
+            ];
+        }
     }
 
 }

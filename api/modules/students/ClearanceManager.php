@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -143,7 +143,7 @@ class ClearanceManager extends BaseAPI
             if (!empty($missing)) {
                 $response = formatResponse(false, null, 'Missing required field: waiver_reason');
             } else {
-                $this->beginTransaction();
+                $this->db->beginTransaction();
 
                 $currentUserId = $this->getCurrentUserId();
 
@@ -168,17 +168,17 @@ class ClearanceManager extends BaseAPI
                 ]);
 
                 if ($stmt->rowCount() === 0) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     $response = formatResponse(false, null, 'Clearance not found');
                 } else {
-                    $this->commit();
+                    $this->db->commit();
                     $this->logAction('update', $clearanceId, "Waiver granted: {$data['waiver_reason']}");
                     $response = formatResponse(true, ['clearance_id' => $clearanceId], 'Waiver granted successfully');
                 }
             }
         } catch (Exception $e) {
             // ensure any open transaction is rolled back
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('grantWaiver', $e->getMessage());
             $response = formatResponse(false, null, 'Failed to grant waiver: ' . $e->getMessage());
         }
@@ -196,7 +196,7 @@ class ClearanceManager extends BaseAPI
     public function bulkClear($transferId, $departmentCodes)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $currentUserId = $this->getCurrentUserId();
             $clearedCount = 0;
@@ -226,7 +226,7 @@ class ClearanceManager extends BaseAPI
                 $clearedCount++;
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $transferId, "Bulk clearance: {$clearedCount} departments cleared");
 
             return formatResponse(true, [
@@ -235,7 +235,7 @@ class ClearanceManager extends BaseAPI
             ], "{$clearedCount} departments cleared successfully");
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('bulkClear', $e->getMessage());
             return formatResponse(false, null, 'Failed to bulk clear: ' . $e->getMessage());
         }

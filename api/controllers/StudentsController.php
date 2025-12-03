@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Students\StudentsAPI;
+use App\API\Modules\students\StudentsAPI;
 use Exception;
 
 /**
@@ -11,14 +11,64 @@ use Exception;
  * All methods follow signature: methodName($id = null, $data = [], $segments = [])
  * Router calls with: $controller->methodName($id, $data, $segments)
  */
+use App\API\Modules\system\MediaManager;
+
+
 class StudentsController extends BaseController
 {
-    private StudentsAPI $api;
+    private $mediaManager;
+    private $api;
 
-    public function __construct() {
+    public function __construct()
+    {
         parent::__construct();
+        $this->mediaManager = new MediaManager($this->db);
         $this->api = new StudentsAPI();
     }
+    public function index()
+    {
+        return $this->success(['message' => 'Students API is running']);
+    }
+
+    // --- Media Operations ---
+    // Upload student document or photo
+    public function postMediaUpload($id = null, $data = [], $segments = [])
+    {
+        $studentId = $data['student_id'] ?? $id ?? null;
+        $file = $_FILES['file'] ?? null;
+        $uploaderId = $data['uploader_id'] ?? ($_REQUEST['user']['id'] ?? null);
+        $description = $data['description'] ?? '';
+        $tags = $data['tags'] ?? '';
+        if ($studentId === null || !$file) {
+            return $this->badRequest('Student ID and file are required');
+        }
+        $result = $this->mediaManager->upload($file, 'students', $studentId, null, $uploaderId, $description, $tags);
+        return $this->success($result, 'Media uploaded');
+    }
+
+    // List student media
+    public function getMedia($id = null, $data = [], $segments = [])
+    {
+        $studentId = $data['student_id'] ?? $id ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+        $filters = ['context' => 'students', 'entity_id' => $studentId];
+        $result = $this->mediaManager->listMedia($filters);
+        return $this->success($result, 'Media list');
+    }
+
+    // Delete student media
+    public function postMediaDelete($id = null, $data = [], $segments = [])
+    {
+        $mediaId = $data['media_id'] ?? $id ?? null;
+        if ($mediaId === null) {
+            return $this->badRequest('Media ID is required');
+        }
+        $result = $this->mediaManager->deleteMedia($mediaId);
+        return $this->success($result, 'Media deleted');
+    }
+
 
     // ========================================
     // SECTION 1: Base CRUD Operations
@@ -28,7 +78,7 @@ class StudentsController extends BaseController
      * GET /api/students - List all students
      * GET /api/students/{id} - Get single student
      */
-    public function get($id = null, $data = [], $segments = [])
+        public function getStudent($id = null, $data = [], $segments = [])
     {
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
@@ -47,7 +97,7 @@ class StudentsController extends BaseController
     /**
      * POST /api/students - Create new student
      */
-    public function post($id = null, $data = [], $segments = [])
+    public function postStudent($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
             $data['id'] = $id;
@@ -65,7 +115,7 @@ class StudentsController extends BaseController
     /**
      * PUT /api/students/{id} - Update student
      */
-    public function put($id = null, $data = [], $segments = [])
+    public function putStudent($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('Student ID is required for update');
@@ -78,7 +128,7 @@ class StudentsController extends BaseController
     /**
      * DELETE /api/students/{id} - Delete student
      */
-    public function delete($id = null, $data = [], $segments = [])
+    public function deleteStudent($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('Student ID is required for deletion');

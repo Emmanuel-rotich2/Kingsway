@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -53,7 +53,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
     public function initiateDisposal($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['asset_ids', 'disposal_reason', 'suggested_method'];
@@ -65,7 +65,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
             }
 
             if (!empty($missing)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
@@ -81,7 +81,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
             $assets = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (count($assets) !== count($assetIds)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Some assets are not available for disposal');
             }
 
@@ -139,7 +139,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$instance_id, $disposalId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $instance_id, "Initiated disposal workflow for {$disposalId}");
 
             return formatResponse(true, [
@@ -152,7 +152,7 @@ class AssetDisposalWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

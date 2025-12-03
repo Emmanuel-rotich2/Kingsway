@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Reports\ReportsAPI;
+use App\API\Modules\reports\ReportsAPI;
 use Exception;
 
 /**
@@ -22,86 +22,90 @@ class ReportsController extends BaseController
         $this->api = new ReportsAPI();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Reports API is running']);
+    }
     // --- Admissions Reports ---
-    public function admissionStats($id = null, $data = [], $segments = [])
+    public function getAdmissionStats($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->admissionStats($data));
     }
-    public function conversionRates($id = null, $data = [], $segments = [])
+    public function getConversionRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->conversionRates($data));
     }
-    public function alumniStats($id = null, $data = [], $segments = [])
+    public function getAlumniStats($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->alumniStats($data));
     }
 
     // --- Student Reports ---
-    public function totalStudents($id = null, $data = [], $segments = [])
+    public function getTotalStudents($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->totalStudents($data));
     }
-    public function enrollmentTrends($id = null, $data = [], $segments = [])
+    public function getEnrollmentTrends($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->enrollmentTrends($data));
     }
-    public function attendanceRates($id = null, $data = [], $segments = [])
+    public function getAttendanceRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->attendanceRates($data));
     }
-    public function promotionRates($id = null, $data = [], $segments = [])
+    public function getPromotionRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->promotionRates($data));
     }
-    public function dropoutRates($id = null, $data = [], $segments = [])
+    public function getDropoutRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->dropoutRates($data));
     }
-    public function scoreDistributions($id = null, $data = [], $segments = [])
+    public function getScoreDistributions($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->scoreDistributions($data));
     }
-    public function studentProgressionRates($id = null, $data = [], $segments = [])
+    public function getStudentProgressionRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->studentProgressionRates($data));
     }
-    public function examReports($id = null, $data = [], $segments = [])
+    public function getExamReports($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->examReports($data));
     }
-    public function academicYearReports($id = null, $data = [], $segments = [])
+    public function getAcademicYearReports($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->academicYearReports($data));
     }
 
     // --- Staff Reports ---
-    public function totalStaff($id = null, $data = [], $segments = [])
+    public function getTotalStaff($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->totalStaff($data));
     }
-    public function staffAttendanceRates($id = null, $data = [], $segments = [])
+    public function getStaffAttendanceRates($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->staffAttendanceRates($data));
     }
-    public function activeStaffCount($id = null, $data = [], $segments = [])
+    public function getActiveStaffCount($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->activeStaffCount($data));
     }
-    public function staffLoanStats($id = null, $data = [], $segments = [])
+    public function getStaffLoanStats($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->staffLoanStats($data));
     }
-    public function payrollSummary($id = null, $data = [], $segments = [])
+    public function getPayrollSummary($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->payrollSummary($data));
     }
 
     // --- Finance Reports ---
-    public function feeSummary($id = null, $data = [], $segments = [])
+    public function getFeeSummary($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->feeSummary($data));
     }
-    public function feePaymentTrends($id = null, $data = [], $segments = [])
+    public function getFeePaymentTrends($id = null, $data = [], $segments = [])
     {
         return $this->handleResponse($this->api->feePaymentTrends($data));
     }

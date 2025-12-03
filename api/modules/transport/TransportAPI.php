@@ -1,9 +1,9 @@
 <?php
-namespace App\API\Modules\Transport;
+namespace App\API\Modules\transport;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Transport\StudentTransportPaymentManager;
-use App\API\Modules\Transport\StudentTransportStatusManager;
+use App\API\Modules\transport\StudentTransportPaymentManager;
+use App\API\Modules\transport\StudentTransportStatusManager;
 use PDO;
 use Exception;
 

@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Users;
+namespace App\API\Modules\users;
 
 use PDO;
 use Exception;

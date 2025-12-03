@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\WorkflowHandler;
@@ -69,7 +69,7 @@ class TransferWorkflow extends WorkflowHandler
                 }
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get student current information
             $stmt = $this->db->prepare("
@@ -83,7 +83,7 @@ class TransferWorkflow extends WorkflowHandler
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$student) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Student not found');
             }
 
@@ -94,7 +94,7 @@ class TransferWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$data['student_id']]);
             if ($stmt->fetchColumn() > 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Student already has a pending transfer request');
             }
 
@@ -137,7 +137,7 @@ class TransferWorkflow extends WorkflowHandler
             // Initialize clearance records for all mandatory departments
             $this->db->prepare("CALL sp_initialize_transfer_clearances(?)")->execute([$transferId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $transferId, "Transfer request initiated for student {$student['first_name']} {$student['last_name']} - Type: {$data['transfer_type']}");
 
             return formatResponse(true, [
@@ -148,7 +148,7 @@ class TransferWorkflow extends WorkflowHandler
             ], 'Transfer request initiated successfully. Clearance process has started.');
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('initiateTransfer', $e->getMessage());
             return formatResponse(false, null, 'Failed to initiate transfer: ' . $e->getMessage());
         }
@@ -228,7 +228,7 @@ class TransferWorkflow extends WorkflowHandler
     public function processClearance($transferId, $departmentCode, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get student_id from transfer
             $stmt = $this->db->prepare("SELECT student_id FROM student_transfers WHERE id = ?");
@@ -236,7 +236,7 @@ class TransferWorkflow extends WorkflowHandler
             $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$transfer) {
-                $this->rollback();
+                $this->db->rollBack();
                 $response = formatResponse(false, null, 'Transfer not found');
             } else {
                 // Get department
@@ -245,7 +245,7 @@ class TransferWorkflow extends WorkflowHandler
                 $department = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$department) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     $response = formatResponse(false, null, 'Department not found or inactive');
                 } else {
                     // Run automated check if procedure exists
@@ -335,7 +335,7 @@ class TransferWorkflow extends WorkflowHandler
                             ->execute([$transferId]);
                     }
 
-                    $this->commit();
+                    $this->db->commit();
                     $this->logAction('update', $transferId, "Clearance processed for {$department['name']} - Status: {$status}");
 
                     $response = formatResponse(true, [
@@ -350,7 +350,7 @@ class TransferWorkflow extends WorkflowHandler
             return $response;
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('processClearance', $e->getMessage());
             return formatResponse(false, null, 'Failed to process clearance: ' . $e->getMessage());
         }
@@ -429,7 +429,7 @@ class TransferWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Invalid decision. Must be: approved or rejected');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $currentUserId = $this->getCurrentUserId();
             $newStatus = $data['decision'] === 'approved' ? 'approved' : 'rejected';
@@ -461,7 +461,7 @@ class TransferWorkflow extends WorkflowHandler
                     ->execute([$transferId]);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $transferId, "Transfer {$data['decision']} by user {$currentUserId}");
 
             return formatResponse(true, [
@@ -471,7 +471,7 @@ class TransferWorkflow extends WorkflowHandler
             ], "Transfer {$data['decision']} successfully");
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('approveTransfer', $e->getMessage());
             return formatResponse(false, null, 'Failed to approve transfer: ' . $e->getMessage());
         }
@@ -490,7 +490,7 @@ class TransferWorkflow extends WorkflowHandler
     public function markDocumentsReady($transferId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Generate leaving certificate number if not exists
             $stmt = $this->db->prepare("SELECT leaving_certificate_no FROM student_transfers WHERE id = ?");
@@ -521,7 +521,7 @@ class TransferWorkflow extends WorkflowHandler
                 $transferId
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $transferId, 'Transfer documents marked as ready');
 
             return formatResponse(true, [
@@ -530,7 +530,7 @@ class TransferWorkflow extends WorkflowHandler
             ], 'Documents marked as ready');
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('markDocumentsReady', $e->getMessage());
             return formatResponse(false, null, 'Failed to mark documents ready: ' . $e->getMessage());
         }
@@ -549,7 +549,7 @@ class TransferWorkflow extends WorkflowHandler
     public function completeTransfer($transferId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get transfer details
             $stmt = $this->db->prepare("SELECT * FROM student_transfers WHERE id = ?");
@@ -557,12 +557,12 @@ class TransferWorkflow extends WorkflowHandler
             $transfer = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$transfer) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Transfer not found');
             }
 
             if ($transfer['status'] !== 'approved' && $transfer['status'] !== 'documents_ready') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Transfer must be approved before completion');
             }
 
@@ -582,7 +582,7 @@ class TransferWorkflow extends WorkflowHandler
             // Student status will be updated by trigger based on transfer_type
             // The trigger handles: external/graduation -> update status, internal -> update stream
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $transferId, 'Transfer completed successfully');
 
             return formatResponse(true, [
@@ -592,7 +592,7 @@ class TransferWorkflow extends WorkflowHandler
             ], 'Transfer completed successfully');
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('completeTransfer', $e->getMessage());
             return formatResponse(false, null, 'Failed to complete transfer: ' . $e->getMessage());
         }
@@ -658,7 +658,7 @@ class TransferWorkflow extends WorkflowHandler
     public function cancelTransfer($transferId, $reason)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE student_transfers SET status = 'cancelled', approval_notes = ?
@@ -667,17 +667,17 @@ class TransferWorkflow extends WorkflowHandler
             $stmt->execute([$reason, $transferId]);
 
             if ($stmt->rowCount() === 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Transfer cannot be cancelled (already completed or rejected)');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $transferId, "Transfer cancelled: {$reason}");
 
             return formatResponse(true, ['transfer_id' => $transferId], 'Transfer cancelled successfully');
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             $this->logError('cancelTransfer', $e->getMessage());
             return formatResponse(false, null, 'Failed to cancel transfer: ' . $e->getMessage());
         }

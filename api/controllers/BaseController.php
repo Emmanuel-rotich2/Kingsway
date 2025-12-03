@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\Config\Database;
+use App\Database\Database;
 use Exception;
 
 /**
@@ -589,26 +589,26 @@ abstract class BaseController
 
     public function get($id = null, $data = [], $segments = [])
     {
-        return $this->respondWith(405, 'Method not allowed', null);
+        return $this->respondWith(404, 'Endpoint not implemented for this controller', null);
     }
 
     public function post($id = null, $data = [], $segments = [])
     {
-        return $this->respondWith(405, 'Method not allowed', null);
+        return $this->respondWith(404, 'Endpoint not implemented for this controller', null);
     }
 
     public function put($id = null, $data = [], $segments = [])
     {
-        return $this->respondWith(405, 'Method not allowed', null);
+        return $this->respondWith(404, 'Endpoint not implemented for this controller', null);
     }
 
     public function delete($id = null, $data = [], $segments = [])
     {
-        return $this->respondWith(405, 'Method not allowed', null);
+        return $this->respondWith(404, 'Endpoint not implemented for this controller', null);
     }
 
     public function patch($id = null, $data = [], $segments = [])
     {
-        return $this->respondWith(405, 'Method not allowed', null);
+        return $this->respondWith(404, 'Endpoint not implemented for this controller', null);
     }
 }

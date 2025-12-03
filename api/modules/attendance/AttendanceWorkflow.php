@@ -1,6 +1,6 @@
 <?php
 
-namespace App\API\Modules\Attendance;
+namespace App\API\Modules\attendance;
 
 use App\API\Includes\WorkflowHandler;
 

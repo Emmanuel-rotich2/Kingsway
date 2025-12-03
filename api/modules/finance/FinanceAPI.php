@@ -1,23 +1,23 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Communications\CommunicationsAPI;
-use App\API\Modules\Finance\FeeManager;
-use App\API\Modules\Finance\PaymentManager;
-use App\API\Modules\Finance\BudgetManager;
-use App\API\Modules\Finance\ExpenseManager;
-use App\API\Modules\Finance\ReportingManager;
-use App\API\Modules\Finance\FeeApprovalWorkflow;
-use App\API\Modules\Finance\BudgetApprovalWorkflow;
-use App\API\Modules\Finance\ExpenseApprovalWorkflow;
-use App\API\Modules\Finance\PayrollWorkflow;
-use App\API\Services\Payments\DisbursementManager;
-use App\API\Services\Payments\MpesaB2CService;
-use App\API\Services\Payments\MpesaPaymentService;
-use App\API\Services\Payments\KcbFundsTransferService;
-use App\API\Services\Workflows\PayrollApprovalWorkflow;
+use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Modules\finance\FeeManager;
+use App\API\Modules\finance\PaymentManager;
+use App\API\Modules\finance\BudgetManager;
+use App\API\Modules\finance\ExpenseManager;
+use App\API\Modules\finance\ReportingManager;
+use App\API\Modules\finance\FeeApprovalWorkflow;
+use App\API\Modules\finance\BudgetApprovalWorkflow;
+use App\API\Modules\finance\ExpenseApprovalWorkflow;
+use App\API\Modules\finance\PayrollWorkflow;
+use App\API\Services\payments\DisbursementManager;
+use App\API\Services\payments\MpesaB2CService;
+use App\API\Services\payments\MpesaPaymentService;
+use App\API\Services\payments\KcbFundsTransferService;
+use App\API\Services\workflows\PayrollApprovalWorkflow;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;

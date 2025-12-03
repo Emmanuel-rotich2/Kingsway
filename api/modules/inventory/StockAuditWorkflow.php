@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -54,7 +54,7 @@ class StockAuditWorkflow extends WorkflowHandler
     public function initiateAudit($data, $userId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['audit_type', 'audit_scope', 'planned_date'];
@@ -66,7 +66,7 @@ class StockAuditWorkflow extends WorkflowHandler
             }
 
             if (!empty($missing)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
@@ -79,7 +79,7 @@ class StockAuditWorkflow extends WorkflowHandler
             ];
 
             if (!in_array($data['audit_type'], $validTypes)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid audit type');
             }
 
@@ -119,7 +119,7 @@ class StockAuditWorkflow extends WorkflowHandler
             $result = $this->startWorkflow('stock_audit', $auditId, $userId, $workflowData);
 
             if (!$result['success']) {
-                $this->rollback();
+                $this->db->rollBack();
                 return $result;
             }
 
@@ -131,7 +131,7 @@ class StockAuditWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$result['data']['workflow_id'], $auditId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $result['data']['workflow_id'], "Initiated audit workflow {$auditNumber}");
 
             return formatResponse(true, [
@@ -144,7 +144,7 @@ class StockAuditWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -233,7 +233,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot prepare count. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $auditId = $workflowData['audit_id'];
@@ -281,7 +281,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -290,7 +290,7 @@ class StockAuditWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -316,7 +316,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot perform count. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $auditId = $workflowData['audit_id'];
@@ -359,7 +359,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -368,7 +368,7 @@ class StockAuditWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -565,7 +565,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 return formatResponse(false, null, "Cannot post adjustments. Current stage is: {$currentStage}");
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $workflowData = json_decode($workflow['data']['workflow_data'], true) ?? [];
             $auditId = $workflowData['audit_id'];
@@ -621,7 +621,7 @@ class StockAuditWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
             return formatResponse(
                 true,
                 ['workflow_id' => $workflowId],
@@ -630,7 +630,7 @@ class StockAuditWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

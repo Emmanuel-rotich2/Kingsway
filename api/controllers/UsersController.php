@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Users\UsersAPI;
+use App\API\Modules\users\UsersAPI;
 use Exception;
 
 
@@ -21,7 +21,13 @@ class UsersController extends BaseController
         $this->api = new UsersAPI();
     }
 
-   
+
+    public function index()
+    {
+        return $this->success(['message' => 'Users API is running']);
+    }
+
+
     // ========================================
     // SECTION 1: Base CRUD Operations
     // ========================================
@@ -30,7 +36,7 @@ class UsersController extends BaseController
      * GET /api/users - List all users
      * GET /api/users/{id} - Get single user
      */
-    public function get($id = null, $data = [], $segments = [])
+    public function getUser($id = null, $data = [], $segments = [])
     {
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
@@ -49,7 +55,7 @@ class UsersController extends BaseController
     /**
      * POST /api/users - Create new user
      */
-    public function post($id = null, $data = [], $segments = [])
+    public function postUser($id = null, $data = [], $segments = [])
     {
         if ($id !== null) {
             $data['id'] = $id;
@@ -67,7 +73,7 @@ class UsersController extends BaseController
     /**
      * PUT /api/users/{id} - Update user
      */
-    public function put($id = null, $data = [], $segments = [])
+    public function putUser($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('User ID is required for update');
@@ -85,7 +91,7 @@ class UsersController extends BaseController
     /**
      * DELETE /api/users/{id} - Delete user
      */
-    public function delete($id = null, $data = [], $segments = [])
+    public function deleteUser($id = null, $data = [], $segments = [])
     {
         if ($id === null) {
             return $this->badRequest('User ID is required for deletion');

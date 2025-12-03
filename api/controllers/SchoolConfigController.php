@@ -3,7 +3,7 @@ namespace App\API\Controllers;
 
 use Exception;
 
-use App\API\Modules\System\SystemAPI;
+use App\API\Modules\system\SystemAPI;
 
 class SchoolConfigController extends BaseController
 {
@@ -13,6 +13,11 @@ class SchoolConfigController extends BaseController
     public function __construct() {
         parent::__construct();
         $this->systemApi = new SystemAPI();
+    }
+
+    public function index()
+    {
+        return $this->success(['message' => 'School Config API is running']);
     }
 
     // GET /api/school-config

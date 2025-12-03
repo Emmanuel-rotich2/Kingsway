@@ -1,0 +1,2 @@
+✓ Communications endpoints test completed
+✓ Results saved to: test_communications_results.txt

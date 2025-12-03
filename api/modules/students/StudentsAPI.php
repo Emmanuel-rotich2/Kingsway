@@ -1,17 +1,15 @@
 <?php
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Admission\StudentAdmissionWorkflow;
-use App\API\Modules\Academic\AcademicYearManager;
-use App\API\Modules\Students\PromotionManager;
+use App\API\Modules\admission\StudentAdmissionWorkflow;
+use App\API\Modules\academic\AcademicYearManager;
+use App\API\Modules\students\PromotionManager;
 use PDO;
 use Exception;
 
-require_once __DIR__ . '/StudentIDCardGenerator.php';
-require_once __DIR__ . '/../academic/AcademicYearManager.php';
-require_once __DIR__ . '/PromotionManager.php';
+use App\API\Modules\students\StudentIDCardGenerator;
 
 class StudentsAPI extends BaseAPI
 {
@@ -639,7 +637,7 @@ class StudentsAPI extends BaseAPI
     private function transferStudent($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['new_stream_id', 'transfer_date', 'reason'];
@@ -683,7 +681,7 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
             $stmt->execute([$data['new_stream_id'], $id]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Transferred student to new stream");
 
             return $this->response([
@@ -698,7 +696,7 @@ class StudentsAPI extends BaseAPI
     public function recordDisciplineCase($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['incident_date', 'description', 'severity'];
@@ -742,7 +740,7 @@ class StudentsAPI extends BaseAPI
 
             $caseId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $caseId, "Recorded discipline case for student ID: $id");
 
             return $this->response([
@@ -1362,7 +1360,7 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get student current class/stream info
             $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = ?");
@@ -1392,7 +1390,7 @@ class StudentsAPI extends BaseAPI
             ]);
             $transferId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $transferId, "Started transfer request for student ID: {$data['student_id']} to {$data['transfer_to_school']}");
 
             return $this->response([
@@ -1401,7 +1399,7 @@ class StudentsAPI extends BaseAPI
                 'data' => ['transfer_id' => $transferId]
             ], 201);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1457,7 +1455,7 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate decision
             if ($data['decision'] === 'approved') {
@@ -1486,7 +1484,7 @@ class StudentsAPI extends BaseAPI
                 $data['transfer_id']
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $data['transfer_id'], "Transfer decision: {$data['decision']}");
 
             return $this->response([
@@ -1494,7 +1492,7 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Transfer decision recorded successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1512,7 +1510,7 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get transfer data
             $stmt = $this->db->prepare("SELECT * FROM student_promotions WHERE id = ?");
@@ -1540,7 +1538,7 @@ class StudentsAPI extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$transfer['student_id']]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $data['transfer_id'], "Transfer executed - student moved to {$transfer['transfer_to_school']}");
 
             return $this->response([
@@ -1548,7 +1546,7 @@ class StudentsAPI extends BaseAPI
                 'message' => 'Transfer executed successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1817,7 +1815,7 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $promoted = 0;
             foreach ($data['student_ids'] as $studentId) {
@@ -1833,7 +1831,7 @@ class StudentsAPI extends BaseAPI
                 }
             }
 
-            $this->commit();
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
@@ -1841,7 +1839,7 @@ class StudentsAPI extends BaseAPI
                 'data' => ['promoted_count' => $promoted]
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2170,13 +2168,13 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $placeholders = implode(',', array_fill(0, count($data['student_ids']), '?'));
             $stmt = $this->db->prepare("UPDATE students SET status = 'inactive' WHERE id IN ($placeholders)");
             $stmt->execute($data['student_ids']);
 
-            $this->commit();
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
@@ -2184,7 +2182,7 @@ class StudentsAPI extends BaseAPI
                 'data' => ['count' => $stmt->rowCount()]
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2247,7 +2245,7 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Generate admission number if not provided
             if (empty($data['admission_no'])) {
@@ -2305,7 +2303,7 @@ class StudentsAPI extends BaseAPI
             // Generate QR code
             $this->generateQRCode($studentId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('create', $studentId, "Added existing student: {$data['first_name']} {$data['last_name']} (Quick Add)");
 
@@ -2319,7 +2317,7 @@ class StudentsAPI extends BaseAPI
             ], 201);
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2424,7 +2422,7 @@ class StudentsAPI extends BaseAPI
                 'warnings' => []
             ];
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             foreach ($fileResult['data'] as $index => $row) {
                 $rowNum = $index + 2; // +2 for header row and 0-based index
@@ -2519,7 +2517,7 @@ class StudentsAPI extends BaseAPI
                 }
             }
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('create', null, "Imported {$results['successful']} existing students from file");
 
@@ -2530,7 +2528,7 @@ class StudentsAPI extends BaseAPI
             ]);
 
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }

@@ -2,7 +2,7 @@
 
 namespace App\API\Middleware;
 
-use App\Config\Database;
+use App\Database\Database;
 use PDO;
 
 class RateLimitMiddleware

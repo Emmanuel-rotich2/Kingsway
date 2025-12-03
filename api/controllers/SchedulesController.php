@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Schedules\SchedulesAPI;
+use App\API\Modules\schedules\SchedulesAPI;
 use Exception;
 
 /**
@@ -15,176 +15,16 @@ class SchedulesController extends BaseController
 {
     private SchedulesAPI $api;
 
-    // =============================
-    // ADVANCED SCHEDULE/WORKFLOW ENDPOINTS
-    // =============================
 
-    // TEACHING STAFF: Get timetable for a teacher
-    public function getTeacherSchedule($id = null, $data = [], $segments = [])
+    public function __construct()
     {
-        $teacherId = $id ?? ($data['teacher_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getTeacherSchedule($teacherId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    // SUBJECT SPECIALIST: Get teaching load for a subject
-    public function getSubjectTeachingLoad($id = null, $data = [], $segments = [])
-    {
-        $subjectId = $id ?? ($data['subject_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getSubjectTeachingLoad($subjectId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    // ACTIVITIES COORDINATOR: Get all activity schedules
-    public function getAllActivitySchedules($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->getAllActivitySchedules($data);
-        return $this->handleResponse($result);
-    }
-
-    // DRIVER: Get transport schedules for a driver
-    public function getDriverSchedule($id = null, $data = [], $segments = [])
-    {
-        $driverId = $id ?? ($data['driver_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getDriverSchedule($driverId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    // NON-TEACHING STAFF: Get duty schedules
-    public function getStaffDutySchedule($id = null, $data = [], $segments = [])
-    {
-        $staffId = $id ?? ($data['staff_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getStaffDutySchedule($staffId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    // ADMIN: Get master schedule (all classes, activities, events, transport)
-    public function getMasterSchedule($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->getMasterSchedule($data);
-        return $this->handleResponse($result);
-    }
-
-    // ANALYTICS: Get schedule analytics (utilization, conflicts, compliance)
-    public function getScheduleAnalytics($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->getScheduleAnalytics($data);
-        return $this->handleResponse($result);
-    }
-
-    // STUDENT: Get all schedules relevant to a student (classes, exams, events, holidays)
-    public function getStudentSchedules($id = null, $data = [], $segments = [])
-    {
-        $studentId = $id ?? ($data['student_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getStudentSchedules($studentId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    public function getStaffSchedules($id = null, $data = [], $segments = [])
-    {
-        $staffId = $id ?? ($data['staff_id'] ?? null);
-        $termId = $data['term_id'] ?? null;
-        $result = $this->api->getStaffSchedules($staffId, $termId);
-        return $this->handleResponse($result);
-    }
-
-    public function getAdminTermOverview($id = null, $data = [], $segments = [])
-    {
-        $termId = $id ?? ($data['term_id'] ?? null);
-        $result = $this->api->getAdminTermOverview($termId);
-        return $this->handleResponse($result);
-    }
-
-    // Term & Holiday Workflow Endpoints
-    public function postDefineTermDates($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->defineTermDates($data);
-        return $this->handleResponse($result);
-    }
-    public function getReviewTermDates($id = null, $data = [], $segments = [])
-    {
-        $instanceId = $id ?? ($data['instance_id'] ?? null);
-        $result = $this->api->reviewTermDates($instanceId);
-        return $this->handleResponse($result);
-    }
-
-    // Resource/Slot/Conflict/Compliance/Workflow
-    public function getCheckResourceAvailability($id = null, $data = [], $segments = [])
-    {
-        $resourceType = $data['resource_type'] ?? null;
-        $resourceId = $data['resource_id'] ?? null;
-        $start = $data['start'] ?? null;
-        $end = $data['end'] ?? null;
-        $result = $this->api->checkResourceAvailability($resourceType, $resourceId, $start, $end);
-        return $this->handleResponse($result);
-    }
-    public function getFindOptimalSchedule($id = null, $data = [], $segments = [])
-    {
-        $entityType = $data['entity_type'] ?? null;
-        $entityId = $data['entity_id'] ?? null;
-        $constraints = $data['constraints'] ?? [];
-        $result = $this->api->findOptimalSchedule($entityType, $entityId, $constraints);
-        return $this->handleResponse($result);
-    }
-    public function postDetectScheduleConflicts($id = null, $data = [], $segments = [])
-    {
-        $entityType = $data['entity_type'] ?? null;
-        $entityId = $data['entity_id'] ?? null;
-        $proposedSchedule = $data['proposed_schedule'] ?? [];
-        $result = $this->api->detectScheduleConflicts($entityType, $entityId, $proposedSchedule);
-        return $this->handleResponse($result);
-    }
-    public function getGenerateMasterSchedule($id = null, $data = [], $segments = [])
-    {
-        $scope = $data['scope'] ?? null;
-        $filters = $data['filters'] ?? [];
-        $result = $this->api->generateMasterSchedule($scope, $filters);
-        return $this->handleResponse($result);
-    }
-    public function getValidateScheduleCompliance($id = null, $data = [], $segments = [])
-    {
-        $scheduleId = $id ?? ($data['schedule_id'] ?? null);
-        $result = $this->api->validateScheduleCompliance($scheduleId);
-        return $this->handleResponse($result);
-    }
-
-    // Scheduling Workflow Methods
-    public function postStartSchedulingWorkflow($id = null, $data = [], $segments = [])
-    {
-        $result = $this->api->startSchedulingWorkflow($data);
-        return $this->handleResponse($result);
-    }
-    public function postAdvanceSchedulingWorkflow($id = null, $data = [], $segments = [])
-    {
-        $workflowId = $data['workflow_id'] ?? null;
-        $action = $data['action'] ?? null;
-        $payload = $data['data'] ?? [];
-        $result = $this->api->advanceSchedulingWorkflow($workflowId, $action, $payload);
-        return $this->handleResponse($result);
-    }
-    public function getSchedulingWorkflowStatus($id = null, $data = [], $segments = [])
-    {
-        $workflowId = $id ?? ($data['workflow_id'] ?? null);
-        $result = $this->api->getSchedulingWorkflowStatus($workflowId);
-        return $this->handleResponse($result);
-    }
-    public function getListSchedulingWorkflows($id = null, $data = [], $segments = [])
-    {
-        $filters = $data['filters'] ?? [];
-        $result = $this->api->listSchedulingWorkflows($filters);
-        return $this->handleResponse($result);
-    }
-    // ...existing code...
-
-
-    public function __construct() {
         parent::__construct();
         $this->api = new SchedulesAPI();
+    }
+
+    public function index()
+    {
+        return $this->success(['message' => 'Schedules API is running']);
     }
 
     // ========================================
@@ -489,4 +329,171 @@ class SchedulesController extends BaseController
     {
         return $this->user['id'] ?? null;
     }
+
+
+    // =============================
+    // ADVANCED SCHEDULE/WORKFLOW ENDPOINTS
+    // =============================
+
+    // TEACHING STAFF: Get timetable for a teacher
+    public function getTeacherSchedule($id = null, $data = [], $segments = [])
+    {
+        $teacherId = $id ?? ($data['teacher_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getTeacherSchedule($teacherId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    // SUBJECT SPECIALIST: Get teaching load for a subject
+    public function getSubjectTeachingLoad($id = null, $data = [], $segments = [])
+    {
+        $subjectId = $id ?? ($data['subject_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getSubjectTeachingLoad($subjectId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    // ACTIVITIES COORDINATOR: Get all activity schedules
+    public function getAllActivitySchedules($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAllActivitySchedules($data);
+        return $this->handleResponse($result);
+    }
+
+    // DRIVER: Get transport schedules for a driver
+    public function getDriverSchedule($id = null, $data = [], $segments = [])
+    {
+        $driverId = $id ?? ($data['driver_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getDriverSchedule($driverId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    // NON-TEACHING STAFF: Get duty schedules
+    public function getStaffDutySchedule($id = null, $data = [], $segments = [])
+    {
+        $staffId = $id ?? ($data['staff_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getStaffDutySchedule($staffId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    // ADMIN: Get master schedule (all classes, activities, events, transport)
+    public function getMasterSchedule($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getMasterSchedule($data);
+        return $this->handleResponse($result);
+    }
+
+    // ANALYTICS: Get schedule analytics (utilization, conflicts, compliance)
+    public function getScheduleAnalytics($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getScheduleAnalytics($data);
+        return $this->handleResponse($result);
+    }
+
+    // STUDENT: Get all schedules relevant to a student (classes, exams, events, holidays)
+    public function getStudentSchedules($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? ($data['student_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getStudentSchedules($studentId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    public function getStaffSchedules($id = null, $data = [], $segments = [])
+    {
+        $staffId = $id ?? ($data['staff_id'] ?? null);
+        $termId = $data['term_id'] ?? null;
+        $result = $this->api->getStaffSchedules($staffId, $termId);
+        return $this->handleResponse($result);
+    }
+
+    public function getAdminTermOverview($id = null, $data = [], $segments = [])
+    {
+        $termId = $id ?? ($data['term_id'] ?? null);
+        $result = $this->api->getAdminTermOverview($termId);
+        return $this->handleResponse($result);
+    }
+
+    // Term & Holiday Workflow Endpoints
+    public function postDefineTermDates($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->defineTermDates($data);
+        return $this->handleResponse($result);
+    }
+    public function getReviewTermDates($id = null, $data = [], $segments = [])
+    {
+        $instanceId = $id ?? ($data['instance_id'] ?? null);
+        $result = $this->api->reviewTermDates($instanceId);
+        return $this->handleResponse($result);
+    }
+
+    // Resource/Slot/Conflict/Compliance/Workflow
+    public function getCheckResourceAvailability($id = null, $data = [], $segments = [])
+    {
+        $resourceType = $data['resource_type'] ?? null;
+        $resourceId = $data['resource_id'] ?? null;
+        $start = $data['start'] ?? null;
+        $end = $data['end'] ?? null;
+        $result = $this->api->checkResourceAvailability($resourceType, $resourceId, $start, $end);
+        return $this->handleResponse($result);
+    }
+    public function getFindOptimalSchedule($id = null, $data = [], $segments = [])
+    {
+        $entityType = $data['entity_type'] ?? null;
+        $entityId = $data['entity_id'] ?? null;
+        $constraints = $data['constraints'] ?? [];
+        $result = $this->api->findOptimalSchedule($entityType, $entityId, $constraints);
+        return $this->handleResponse($result);
+    }
+    public function postDetectScheduleConflicts($id = null, $data = [], $segments = [])
+    {
+        $entityType = $data['entity_type'] ?? null;
+        $entityId = $data['entity_id'] ?? null;
+        $proposedSchedule = $data['proposed_schedule'] ?? [];
+        $result = $this->api->detectScheduleConflicts($entityType, $entityId, $proposedSchedule);
+        return $this->handleResponse($result);
+    }
+    public function getGenerateMasterSchedule($id = null, $data = [], $segments = [])
+    {
+        $scope = $data['scope'] ?? null;
+        $filters = $data['filters'] ?? [];
+        $result = $this->api->generateMasterSchedule($scope, $filters);
+        return $this->handleResponse($result);
+    }
+    public function getValidateScheduleCompliance($id = null, $data = [], $segments = [])
+    {
+        $scheduleId = $id ?? ($data['schedule_id'] ?? null);
+        $result = $this->api->validateScheduleCompliance($scheduleId);
+        return $this->handleResponse($result);
+    }
+
+    // Scheduling Workflow Methods
+    public function postStartSchedulingWorkflow($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->startSchedulingWorkflow($data);
+        return $this->handleResponse($result);
+    }
+    public function postAdvanceSchedulingWorkflow($id = null, $data = [], $segments = [])
+    {
+        $workflowId = $data['workflow_id'] ?? null;
+        $action = $data['action'] ?? null;
+        $payload = $data['data'] ?? [];
+        $result = $this->api->advanceSchedulingWorkflow($workflowId, $action, $payload);
+        return $this->handleResponse($result);
+    }
+    public function getSchedulingWorkflowStatus($id = null, $data = [], $segments = [])
+    {
+        $workflowId = $id ?? ($data['workflow_id'] ?? null);
+        $result = $this->api->getSchedulingWorkflowStatus($workflowId);
+        return $this->handleResponse($result);
+    }
+    public function getListSchedulingWorkflows($id = null, $data = [], $segments = [])
+    {
+        $filters = $data['filters'] ?? [];
+        $result = $this->api->listSchedulingWorkflows($filters);
+        return $this->handleResponse($result);
+    }
+
 }

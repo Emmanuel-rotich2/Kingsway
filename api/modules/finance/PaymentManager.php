@@ -1,8 +1,8 @@
 <?php
 
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
-use App\Config\Database;
+use App\Database\Database;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;

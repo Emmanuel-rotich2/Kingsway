@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Communications;
+namespace App\API\Modules\communications;
 
 use PDO;
 
@@ -14,10 +14,15 @@ class ForumManager
     // CRUD for forum_threads
     public function createThread($data)
     {
+        // Map 'subject' to 'title' if provided
+        $title = $data['title'] ?? $data['subject'] ?? null;
+        if (!$title) {
+            throw new \Exception("Thread title is required");
+        }
         $sql = "INSERT INTO forum_threads (title, created_by, status, created_at) VALUES (:title, :created_by, 'open', NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':title' => $data['title'],
+            ':title' => $title,
             ':created_by' => $data['created_by']
         ]);
         return $this->db->lastInsertId();

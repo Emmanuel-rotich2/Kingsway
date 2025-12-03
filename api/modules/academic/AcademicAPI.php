@@ -123,6 +123,13 @@ class AcademicAPI extends BaseAPI
     // Dashboard/Reporting
     public function getCompetencyDashboard($studentId, $termId = null, $academicYear = null)
     {
+        if (empty($studentId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing required student_id',
+                'code' => 400
+            ];
+        }
         return $this->examinationWorkflow->getCompetencyDashboard($studentId, $termId, $academicYear);
     }
 
@@ -137,21 +144,49 @@ class AcademicAPI extends BaseAPI
 
     public function identifyPromotionCandidates($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing promotion instance_id',
+                'code' => 400
+            ];
+        }
         return $this->promotionWorkflow->identifyCandidates($instanceId, $data);
     }
 
     public function validatePromotionEligibility($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing promotion instance_id',
+                'code' => 400
+            ];
+        }
         return $this->promotionWorkflow->validateEligibility($instanceId, $data);
     }
 
     public function executePromotions($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing promotion instance_id',
+                'code' => 400
+            ];
+        }
         return $this->promotionWorkflow->executePromotion($instanceId, $data);
     }
 
     public function generatePromotionReports($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing promotion instance_id',
+                'code' => 400
+            ];
+        }
         return $this->promotionWorkflow->generateReports($instanceId, $data);
     }
 
@@ -166,21 +201,49 @@ class AcademicAPI extends BaseAPI
 
     public function createAssessmentItems($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing assessment instance_id',
+                'code' => 400
+            ];
+        }
         return $this->assessmentWorkflow->createItems($instanceId, $data);
     }
 
     public function administerAssessment($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing assessment instance_id',
+                'code' => 400
+            ];
+        }
         return $this->assessmentWorkflow->administerAssessment($instanceId, $data);
     }
 
     public function markAndGradeAssessment($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing assessment instance_id',
+                'code' => 400
+            ];
+        }
         return $this->assessmentWorkflow->markAndGrade($instanceId, $data);
     }
 
     public function analyzeAssessmentResults($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing assessment instance_id',
+                'code' => 400
+            ];
+        }
         return $this->assessmentWorkflow->analyzeResults($instanceId, $data);
     }
 
@@ -224,16 +287,37 @@ class AcademicAPI extends BaseAPI
 
     public function reviewLibraryRequest($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing library instance_id',
+                'code' => 400
+            ];
+        }
         return $this->libraryWorkflow->reviewAndApprove($instanceId, $data);
     }
 
     public function catalogLibraryResources($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing library instance_id',
+                'code' => 400
+            ];
+        }
         return $this->libraryWorkflow->catalogResources($instanceId, $data);
     }
 
     public function distributeAndTrackResources($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing library instance_id',
+                'code' => 400
+            ];
+        }
         return $this->libraryWorkflow->distributeAndTrack($instanceId, $data);
     }
 
@@ -248,16 +332,37 @@ class AcademicAPI extends BaseAPI
 
     public function mapCurriculumOutcomes($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing curriculum instance_id',
+                'code' => 400
+            ];
+        }
         return $this->curriculumWorkflow->mapOutcomes($instanceId, $data);
     }
 
     public function createCurriculumScheme($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing curriculum instance_id',
+                'code' => 400
+            ];
+        }
         return $this->curriculumWorkflow->createScheme($instanceId, $data);
     }
 
     public function reviewAndApproveCurriculum($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing curriculum instance_id',
+                'code' => 400
+            ];
+        }
         return $this->curriculumWorkflow->reviewAndApprove($instanceId, $data);
     }
 
@@ -272,26 +377,61 @@ class AcademicAPI extends BaseAPI
 
     public function archiveAcademicData($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
         return $this->yearTransitionWorkflow->archiveData($instanceId, $data);
     }
 
     public function executeYearPromotions($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
         return $this->yearTransitionWorkflow->executePromotions($instanceId, $data);
     }
 
     public function setupNewAcademicYear($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
         return $this->yearTransitionWorkflow->setupNewYear($instanceId, $data);
     }
 
     public function migrateCompetencyBaselines($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
         return $this->yearTransitionWorkflow->migrateBaselines($instanceId, $data);
     }
 
     public function validateYearReadiness($instanceId, $data)
     {
+        if (empty($instanceId)) {
+            return [
+                'status' => 'error',
+                'message' => 'Missing year transition instance_id',
+                'code' => 400
+            ];
+        }
         return $this->yearTransitionWorkflow->validateReadiness($instanceId, $data);
     }
 
@@ -409,7 +549,7 @@ class AcademicAPI extends BaseAPI
     public function create($data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Validate required fields
             $required = ['name', 'code'];
@@ -433,7 +573,7 @@ class AcademicAPI extends BaseAPI
 
             $subjectId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $subjectId, "Created new learning area: {$data['name']}");
 
             return successResponse([
@@ -451,7 +591,7 @@ class AcademicAPI extends BaseAPI
     public function update($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if learning area exists
             $stmt = $this->db->prepare("SELECT id FROM learning_areas WHERE id = ?");
@@ -479,7 +619,7 @@ class AcademicAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated learning area details");
 
             return successResponse([
@@ -795,7 +935,7 @@ class AcademicAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $sql = "
                 INSERT INTO lesson_plans (
@@ -838,7 +978,7 @@ class AcademicAPI extends BaseAPI
 
             $planId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $planId, "Created lesson plan: {$data['topic']}");
 
             return successResponse([
@@ -847,7 +987,7 @@ class AcademicAPI extends BaseAPI
                 'data' => ['id' => $planId]
             ], 201);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -944,7 +1084,7 @@ class AcademicAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get next order_sequence if not provided
             if (!isset($data['order_sequence'])) {
@@ -1010,7 +1150,7 @@ class AcademicAPI extends BaseAPI
                 }
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $unitId, "Created curriculum unit: {$data['name']}");
 
             return successResponse([
@@ -1019,7 +1159,7 @@ class AcademicAPI extends BaseAPI
                 'data' => ['id' => $unitId]
             ], 201);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1298,7 +1438,7 @@ class AcademicAPI extends BaseAPI
     public function updateCurriculumUnit($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if unit exists
             $stmt = $this->db->prepare("SELECT id, name FROM curriculum_units WHERE id = ?");
@@ -1328,7 +1468,7 @@ class AcademicAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated curriculum unit: {$unit['name']}");
 
             return successResponse([
@@ -1465,7 +1605,7 @@ class AcademicAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get next order_sequence if not provided
             if (!isset($data['order_sequence'])) {
@@ -1501,7 +1641,7 @@ class AcademicAPI extends BaseAPI
 
             $topicId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $topicId, "Created unit topic: {$data['name']}");
 
             return successResponse([
@@ -1510,7 +1650,7 @@ class AcademicAPI extends BaseAPI
                 'data' => ['id' => $topicId]
             ], 201);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1518,7 +1658,7 @@ class AcademicAPI extends BaseAPI
     public function updateUnitTopic($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if topic exists
             $stmt = $this->db->prepare("SELECT id FROM unit_topics WHERE id = ?");
@@ -1546,7 +1686,7 @@ class AcademicAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated unit topic");
 
             return successResponse([
@@ -1620,7 +1760,7 @@ class AcademicAPI extends BaseAPI
     public function updateLessonPlan($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if plan exists
             $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
@@ -1655,7 +1795,7 @@ class AcademicAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated lesson plan");
 
             return successResponse([
@@ -1670,7 +1810,7 @@ class AcademicAPI extends BaseAPI
     public function deleteLessonPlan($id)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if plan exists and status
             $stmt = $this->db->prepare("SELECT status FROM lesson_plans WHERE id = ?");
@@ -1690,7 +1830,7 @@ class AcademicAPI extends BaseAPI
             $stmt = $this->db->prepare("DELETE FROM lesson_plans WHERE id = ?");
             $stmt->execute([$id]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('delete', $id, "Deleted lesson plan");
 
             return successResponse([
@@ -1698,7 +1838,7 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Lesson plan deleted successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1706,7 +1846,7 @@ class AcademicAPI extends BaseAPI
     public function approveLessonPlan($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if plan exists
             $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
@@ -1727,7 +1867,7 @@ class AcademicAPI extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$approver_id, $data['remarks'] ?? null, $id]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Approved lesson plan");
 
             return successResponse([
@@ -1735,7 +1875,7 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Lesson plan approved successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1842,12 +1982,12 @@ class AcademicAPI extends BaseAPI
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check for conflicts
             $conflict = $this->checkScheduleConflict($data);
             if ($conflict !== null) {
-                $this->rollback();
+                $this->db->rollBack();
                 return errorResponse([
                     'status' => 'error',
                     'message' => 'Schedule conflict detected',
@@ -1882,7 +2022,7 @@ class AcademicAPI extends BaseAPI
 
             $scheduleId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $scheduleId, "Created class schedule");
 
             return successResponse([
@@ -1891,7 +2031,7 @@ class AcademicAPI extends BaseAPI
                 'data' => ['id' => $scheduleId]
             ], 201);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1899,7 +2039,7 @@ class AcademicAPI extends BaseAPI
     public function updateClassSchedule($id, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check if schedule exists
             $stmt = $this->db->prepare("SELECT * FROM class_schedules WHERE id = ?");
@@ -1917,7 +2057,7 @@ class AcademicAPI extends BaseAPI
             // Check for conflicts
             $conflict = $this->checkScheduleConflict($checkData);
             if ($conflict !== null) {
-                $this->rollback();
+                $this->db->rollBack();
                 return errorResponse([
                     'status' => 'error',
                     'message' => 'Schedule conflict detected',
@@ -1944,7 +2084,7 @@ class AcademicAPI extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $id, "Updated class schedule");
 
             return successResponse([
@@ -1952,7 +2092,7 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Class schedule updated successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -2183,18 +2323,18 @@ class AcademicAPI extends BaseAPI
     public function assignClassTeacher($streamId, $teacherId)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $sql = "UPDATE class_streams SET teacher_id = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$teacherId, $streamId]);
 
             if ($stmt->rowCount() === 0) {
-                $this->rollback();
+                $this->db->rollBack();
                 return errorResponse('Class stream not found');
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $streamId, "Assigned teacher to class stream");
 
             return successResponse([
@@ -2202,7 +2342,7 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Teacher assigned successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }

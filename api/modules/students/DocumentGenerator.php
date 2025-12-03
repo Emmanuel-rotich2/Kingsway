@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\BaseAPI;

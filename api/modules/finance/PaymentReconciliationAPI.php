@@ -56,7 +56,7 @@ class PaymentReconciliationAPI extends BaseAPI {
                 ], 400);
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $sql = "
                 INSERT INTO payment_reconciliations (
@@ -84,14 +84,14 @@ class PaymentReconciliationAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$data['transaction_id']]);
 
-            $this->commit();
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Transaction reconciled successfully'
             ]);
         } catch (Exception $e) {
-            $this->rollback();
+            $this->db->rollBack();
             return $this->handleException($e);
         }
     }

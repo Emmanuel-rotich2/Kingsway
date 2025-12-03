@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities;
+namespace App\API\Modules\activities;
 
 require_once __DIR__ . '/../../includes/BaseAPI.php';
 use App\API\Includes\BaseAPI;
@@ -35,31 +35,28 @@ class ResourcesManager extends BaseAPI
                 $bindings[] = $params['activity_id'];
             }
 
-            // Filter by type
-            if (!empty($params['type'])) {
-                $where[] = 'ar.type = ?';
-                $bindings[] = $params['type'];
+            // Filter by resource_type
+            if (!empty($params['resource_type'])) {
+                $where[] = 'ar.resource_type = ?';
+                $bindings[] = $params['resource_type'];
             }
 
-            // Filter by availability
-            if (isset($params['available_only']) && $params['available_only']) {
-                $where[] = 'ar.status = ?';
-                $bindings[] = 'available';
-            }
-
-            // Search by name
+            // Search by resource_name
             if (!empty($params['search'])) {
-                $where[] = '(ar.name LIKE ? OR ar.notes LIKE ?)';
-                $searchTerm = '%' . $params['search'] . '%';
-                $bindings[] = $searchTerm;
-                $bindings[] = $searchTerm;
+                $where[] = 'ar.resource_name LIKE ?';
+                $bindings[] = '%' . $params['search'] . '%';
             }
 
             $whereClause = implode(' AND ', $where);
 
             $sql = "
                 SELECT 
-                    ar.*,
+                    ar.id,
+                    ar.activity_id,
+                    ar.resource_name,
+                    ar.resource_type,
+                    ar.resource_url,
+                    ar.created_at,
                     a.title as activity_title,
                     a.start_date,
                     a.end_date,
@@ -68,7 +65,7 @@ class ResourcesManager extends BaseAPI
                 LEFT JOIN activities a ON ar.activity_id = a.id
                 LEFT JOIN activity_categories ac ON a.category_id = ac.id
                 WHERE $whereClause
-                ORDER BY ar.type, ar.name
+                ORDER BY ar.resource_type, ar.resource_name
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -137,9 +134,10 @@ class ResourcesManager extends BaseAPI
      */
     public function addResource($data, $userId)
     {
+        $transactionStarted = false;
         try {
             // Validate required fields
-            $required = ['activity_id', 'name', 'type'];
+            $required = ['activity_id', 'resource_name'];
             foreach ($required as $field) {
                 if (empty($data[$field])) {
                     throw new Exception("Field '$field' is required");
@@ -155,46 +153,39 @@ class ResourcesManager extends BaseAPI
                 throw new Exception('Activity not found');
             }
 
-            // Validate resource type
-            $validTypes = ['equipment', 'venue', 'material', 'transport', 'other'];
-            if (!in_array($data['type'], $validTypes)) {
-                throw new Exception('Invalid resource type. Must be one of: ' . implode(', ', $validTypes));
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
             }
-
-            $this->beginTransaction();
 
             $sql = "
                 INSERT INTO activity_resources (
                     activity_id,
-                    name,
-                    type,
-                    quantity,
-                    status,
-                    cost,
-                    notes,
+                    resource_name,
+                    resource_type,
+                    resource_url,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+                ) VALUES (?, ?, ?, ?, NOW())
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['activity_id'],
-                $data['name'],
-                $data['type'],
-                $data['quantity'] ?? 1,
-                $data['status'] ?? 'available',
-                $data['cost'] ?? null,
-                $data['notes'] ?? null
+                $data['resource_name'],
+                $data['resource_type'] ?? null,
+                $data['resource_url'] ?? null
             ]);
 
             $resourceId = $this->db->lastInsertId();
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction(
                 'create',
                 $resourceId,
-                "Added resource '{$data['name']}' to activity: {$activity['title']}"
+                "Added resource '{$data['resource_name']}' to activity: {$activity['title']}"
             );
 
             return [
@@ -204,7 +195,9 @@ class ResourcesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to add resource');
             throw $e;
         }
@@ -230,7 +223,12 @@ class ResourcesManager extends BaseAPI
                 throw new Exception('Resource not found');
             }
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            } else {
+                $transactionStarted = false;
+            }
 
             $updates = [];
             $params = [];
@@ -250,7 +248,9 @@ class ResourcesManager extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction('update', $id, "Updated resource: {$resource['name']}");
 
@@ -260,7 +260,9 @@ class ResourcesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if (isset($transactionStarted) && $transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to update resource $id");
             throw $e;
         }
@@ -284,12 +286,19 @@ class ResourcesManager extends BaseAPI
                 throw new Exception('Resource not found');
             }
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            } else {
+                $transactionStarted = false;
+            }
 
             $stmt = $this->db->prepare("DELETE FROM activity_resources WHERE id = ?");
             $stmt->execute([$id]);
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction('delete', $id, "Deleted resource: {$resource['name']}");
 
@@ -299,7 +308,9 @@ class ResourcesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if (isset($transactionStarted) && $transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to delete resource $id");
             throw $e;
         }
@@ -464,7 +475,7 @@ class ResourcesManager extends BaseAPI
 
             $sql = "
                 SELECT 
-                    ar.type,
+                    ar.resource_type,
                     COUNT(DISTINCT ar.id) as resource_count,
                     SUM(ar.quantity) as total_quantity,
                     SUM(ar.cost) as total_cost,
@@ -473,7 +484,7 @@ class ResourcesManager extends BaseAPI
                 FROM activity_resources ar
                 JOIN activities a ON ar.activity_id = a.id
                 WHERE $whereClause
-                GROUP BY ar.type
+                GROUP BY ar.resource_type
                 ORDER BY total_cost DESC
             ";
 
@@ -516,12 +527,12 @@ class ResourcesManager extends BaseAPI
                 throw new Exception('Resource not found');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("UPDATE activity_resources SET status = ? WHERE id = ?");
             $stmt->execute([$status, $id]);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $id, "Updated resource status to '$status': {$resource['name']}");
 
@@ -532,7 +543,7 @@ class ResourcesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to update resource status $id");
             throw $e;
         }

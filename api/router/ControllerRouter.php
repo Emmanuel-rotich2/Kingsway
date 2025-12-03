@@ -1,11 +1,24 @@
 <?php
 
-namespace App\API\Router;
+namespace App\API\router;
 
 use Exception;
 
 class ControllerRouter
 {
+    public function __construct()
+    {
+        // Write a test entry to router_debug.log on every instantiation
+        if (php_sapi_name() !== 'cli') {
+            $logDir = dirname(__DIR__, 2) . '/logs';
+            if (!is_dir($logDir)) {
+                mkdir($logDir, 0755, true);
+            }
+            $logFile = $logDir . '/router_debug.log';
+            $entry = json_encode(['router_debug_test' => 'init', 'ts' => date('c')]) . "\n";
+            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+        }
+    }
     public function route()
     {
         try {
@@ -21,20 +34,108 @@ class ControllerRouter
             // Get controller name (first segment)
             $controllerName = array_shift($segments);
 
-            // Remaining segments are: [id, resource, ...]
-            $id = !empty($segments) && is_numeric($segments[0]) ? array_shift($segments) : null;
+            // Remaining segments are: [resource, id] or [resource]
+            // Try to extract: first segment is always the resource/action
             $resource = !empty($segments) ? array_shift($segments) : null;
+            // Second segment is the ID if it's numeric
+            $id = !empty($segments) && is_numeric($segments[0]) ? array_shift($segments) : null;
 
             // Load controller class
             $controller = $this->loadController($controllerName);
 
-            // Build method name from HTTP method + resource
-            $methodName = $this->buildMethodName($method, $resource);
+            // Special case: if resource is 'index', call index() directly
+            if ($resource === 'index' && method_exists($controller, 'index')) {
+                $this->writeRouterDebugLog([
+                    'timestamp' => date('c'),
+                    'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+                    'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+                    'controller' => $controllerName,
+                    'resource' => $resource,
+                    'resolved_method' => 'index (special case)'
+                ]);
+                return $controller->index();
+            }
 
-            // Check if method exists on controller
-            if (!method_exists($controller, $methodName)) {
+            // Build primary method name from HTTP method + resource
+            $methodName = $this->buildMethodName($method, $resource);
+            $candidates = [];
+            if ($resource) {
+                $candidates[] = $methodName; // e.g., getReportsCompareYearlyCollections
+            }
+            // Controller-specific method: e.g., getUsers, getUser
+            $ctrlCamel = ucfirst($controllerName);
+            $httpLower = strtolower($method);
+            $isPlural = (substr($ctrlCamel, -1) === 's');
+            $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
+            // Try plural and singular forms
+            $candidates[] = $httpLower . $ctrlCamel; // getUsers
+            if ($isPlural) {
+                $candidates[] = $httpLower . $singular; // getUser
+            }
+            // Generic HTTP method (get, post, etc.)
+            $candidates[] = $httpLower;
+            // Common index method
+            $candidates[] = 'index';
+            // Remove duplicates, preserve order
+            $candidates = array_values(array_unique($candidates));
+
+
+            // DEBUG: Log what we're about to try, and all available methods on the controller
+            $this->writeRouterDebugLog([
+                'timestamp' => date('c'),
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+                'controller' => $controllerName,
+                'resource' => $resource,
+                'method_candidates' => $candidates,
+                'controller_methods' => get_class_methods($controller)
+            ]);
+
+            // Find the first method that exists
+            $found = null;
+            foreach ($candidates as $cand) {
+                if (method_exists($controller, $cand)) {
+                    $found = $cand;
+                    break;
+                }
+            }
+
+            // DEBUG: Log what we found
+            $this->writeRouterDebugLog([
+                'timestamp' => date('c'),
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+                'controller' => $controllerName,
+                'resource' => $resource,
+                'method_candidates' => $candidates,
+                'resolved_method' => $found
+            ]);
+
+            if ($found) {
+                $methodName = $found;
+            } else {
+                // Log diagnostic info before aborting
+                $this->writeRouterDebugLog([
+                    'timestamp' => date('c'),
+                    'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+                    'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+                    'controller' => $controllerName,
+                    'initial_method' => $methodName,
+                    'candidates' => $candidates,
+                    'found' => null
+                ]);
+
                 return $this->abort(404, "Method '{$methodName}' not found on controller '{$controllerName}'");
             }
+
+            // Log successful resolution
+            $this->writeRouterDebugLog([
+                'timestamp' => date('c'),
+                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
+                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+                'controller' => $controllerName,
+                'resolved_method' => $methodName
+            ]);
 
             // Get request data
             $data = $this->getRequestBody($method);
@@ -71,16 +172,43 @@ class ControllerRouter
      */
     private function loadController($controllerName)
     {
-        $controllerName = strtolower($controllerName);
-        $className = 'App\\API\\Controllers\\' . ucfirst($controllerName);
-
+        static $controllerMap = null;
+        if ($controllerMap === null) {
+            $controllerMap = [];
+            $controllersDir = dirname(__DIR__) . '/controllers';
+            foreach (glob($controllersDir . '/*Controller.php') as $file) {
+                $base = basename($file, '.php'); // e.g., UsersController
+                if (preg_match('/^(.*)Controller$/i', $base, $m)) {
+                    $key = strtolower($m[1]);
+                    $controllerMap[$key] = 'App\\API\\Controllers\\' . $base;
+                }
+            }
+            // Log the controller map for diagnostics
+            $logDir = dirname(__DIR__, 2) . '/logs';
+            if (!is_dir($logDir)) {
+                mkdir($logDir, 0755, true);
+            }
+            $logFile = $logDir . '/router_debug.log';
+            $entry = json_encode(['controllerMap' => $controllerMap, 'ts' => date('c')]) . "\n";
+            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+        }
+        $key = strtolower($controllerName);
+        // Try plural, then singular if not found
+        if (!isset($controllerMap[$key]) && substr($key, -1) === 's') {
+            $singular = substr($key, 0, -1);
+            if (isset($controllerMap[$singular])) {
+                $key = $singular;
+            }
+        }
+        if (!isset($controllerMap[$key])) {
+            throw new Exception("Controller for '{$controllerName}' not found");
+        }
+        $className = $controllerMap[$key];
         if (!class_exists($className)) {
             throw new Exception("Controller class '{$className}' not found");
         }
-
         return new $className();
     }
-
     /**
      * Build method name from HTTP method and resource
      * Examples:
@@ -99,8 +227,13 @@ class ControllerRouter
             return $base; // Just 'get', 'post', etc.
         }
 
-        // Camel case the resource: 'terms' -> 'Terms', 'user_profile' -> 'UserProfile'
-        $parts = explode('_', $resource);
+        // Normalize resource: accept kebab-case, snake_case, or mixed
+        // Replace hyphens with underscores, remove extra non-alphanumeric
+        $normalized = preg_replace('/[^a-zA-Z0-9_\-]/', '', $resource);
+        $normalized = str_replace('-', '_', $normalized);
+
+        // Camel case the resource: 'terms' -> 'Terms', 'user_profile' -> 'UserProfile', 'exam-schedules' -> 'ExamSchedules'
+        $parts = explode('_', $normalized);
         $camelResource = implode('', array_map('ucfirst', $parts));
 
         return $base . $camelResource; // 'getTerms', 'postStudents', etc.
@@ -112,16 +245,30 @@ class ControllerRouter
     private function normalizeUri($uri)
     {
         $path = parse_url($uri, PHP_URL_PATH);
+        $path = ltrim($path, '/');
+        $segments = explode('/', $path);
 
-        // Remove /api prefix
-        $path = preg_replace('#^/api/#', '', $path);
+        // List of known local project folder names (add more as needed)
+        $projectFolders = ['kingsway'];
 
-        // Remove trailing slash
+        // If running on a custom domain (e.g., www.kingsway.ac.ke), expect /api/ as the root
+        // If running locally, expect /Kingsway/api/ or /kingsway/api/
+        if (
+            count($segments) > 2 &&
+            in_array(strtolower($segments[0]), $projectFolders) &&
+            strtolower($segments[1]) === 'api'
+        ) {
+            // Remove project and 'api'
+            $segments = array_slice($segments, 2);
+        } elseif (count($segments) > 1 && strtolower($segments[0]) === 'api') {
+            // Remove only 'api'
+            $segments = array_slice($segments, 1);
+        }
+        // For production, /api/academic will work; for local, /Kingsway/api/academic will work
+        $path = implode('/', $segments);
         $path = rtrim($path, '/');
-
         return $path;
     }
-
     /**
      * Get request body (JSON or form data)
      */
@@ -153,4 +300,32 @@ class ControllerRouter
             'code' => $code
         ];
     }
+
+    /**
+     * Write router debug entry to logs/router_debug.log
+     * @param array $data
+     */
+    private function writeRouterDebugLog(array $data)
+    {
+        try {
+            // Use absolute path to logs directory
+            $logDir = dirname(__DIR__, 2) . '/logs';
+            if (!is_dir($logDir)) {
+                mkdir($logDir, 0755, true);
+            }
+            $logFile = $logDir . '/router_debug.log';
+            $errFile = $logDir . '/errors.log';
+            $entry = json_encode($data) . "\n";
+            // Always try to write to both logs
+            file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
+            file_put_contents($errFile, '[ROUTER_DEBUG] ' . $entry, FILE_APPEND | LOCK_EX);
+        } catch (Exception $e) {
+            // Log to errors.log if anything fails
+            $logDir = dirname(__DIR__, 2) . '/logs';
+            $errFile = $logDir . '/errors.log';
+            $errEntry = json_encode(['router_debug_log_exception' => $e->getMessage(), 'ts' => date('c')]) . "\n";
+            @file_put_contents($errFile, $errEntry, FILE_APPEND | LOCK_EX);
+        }
+    }
+
 }

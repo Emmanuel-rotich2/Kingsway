@@ -1,7 +1,7 @@
 <?php
-namespace App\API\Modules\Attendance;
+namespace App\API\Modules\attendance;
 
-use App\Config\Database;
+use App\Database\Database;
 use PDO;
 
 class StudentAttendanceManager
@@ -34,13 +34,12 @@ class StudentAttendanceManager
      */
     public function getStudentAttendanceHistory($studentId)
     {
-        $sql = "SELECT sa.*, c.class_name, t.term_name, ay.year_name
+        $sql = "SELECT sa.*,
+                       CONCAT(s.first_name, ' ', s.last_name) as student_name
                 FROM student_attendance sa
-                JOIN classes c ON sa.class_id = c.id
-                JOIN academic_terms t ON sa.term_id = t.id
-                JOIN academic_years ay ON sa.academic_year = ay.id
+                JOIN students s ON sa.student_id = s.id
                 WHERE sa.student_id = ?
-                ORDER BY ay.year_name, t.term_name, c.class_name, sa.date";
+                ORDER BY sa.date DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$studentId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -53,18 +52,15 @@ class StudentAttendanceManager
      */
     public function getStudentAttendanceSummary($studentId)
     {
-        $sql = "SELECT ay.year_name, t.term_name, c.class_name,
+        $sql = "SELECT sa.term_id,
                        COUNT(*) as total_days,
-                       SUM(sa.status = 'present') as present_days,
-                       SUM(sa.status = 'absent') as absent_days,
-                       SUM(sa.status = 'late') as late_days
+                       SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days,
+                       SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+                       SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late_days
                 FROM student_attendance sa
-                JOIN classes c ON sa.class_id = c.id
-                JOIN academic_terms t ON sa.term_id = t.id
-                JOIN academic_years ay ON sa.academic_year = ay.id
                 WHERE sa.student_id = ?
-                GROUP BY ay.year_name, t.term_name, c.class_name
-                ORDER BY ay.year_name, t.term_name, c.class_name";
+                GROUP BY sa.term_id
+                ORDER BY sa.term_id DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$studentId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -79,13 +75,14 @@ class StudentAttendanceManager
      */
     public function getClassAttendance($classId, $termId, $yearId)
     {
-        $sql = "SELECT sa.*, s.student_name
+        $sql = "SELECT sa.*,
+                       CONCAT(s.first_name, ' ', s.last_name) as student_name
                 FROM student_attendance sa
                 JOIN students s ON sa.student_id = s.id
-                WHERE sa.class_id = ? AND sa.term_id = ? AND sa.academic_year = ?
-                ORDER BY sa.date, s.student_name";
+                WHERE sa.class_id = ? AND sa.term_id = ?
+                ORDER BY sa.date, s.first_name, s.last_name";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$classId, $termId, $yearId]);
+        $stmt->execute([$classId, $termId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -121,18 +118,19 @@ class StudentAttendanceManager
      */
     public function getChronicAbsentees($classId, $termId, $yearId, $threshold = 0.2)
     {
-        $sql = "SELECT sa.student_id, s.student_name,
+        $sql = "SELECT sa.student_id,
+                       CONCAT(s.first_name, ' ', s.last_name) as student_name,
                        COUNT(*) as total_days,
-                       SUM(sa.status = 'absent') as absent_days,
-                       (SUM(sa.status = 'absent') / COUNT(*)) as absent_ratio
+                       SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
+                       (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM student_attendance sa
                 JOIN students s ON sa.student_id = s.id
-                WHERE sa.class_id = ? AND sa.term_id = ? AND sa.academic_year = ?
-                GROUP BY sa.student_id, s.student_name
+                WHERE sa.class_id = ? AND sa.term_id = ?
+                GROUP BY sa.student_id
                 HAVING absent_ratio > ?
                 ORDER BY absent_ratio DESC";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$classId, $termId, $yearId, $threshold]);
+        $stmt->execute([$classId, $termId, $threshold]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

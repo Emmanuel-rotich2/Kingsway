@@ -1,11 +1,11 @@
 <?php
-namespace App\API\Modules\Schedules;
+namespace App\API\Modules\schedules;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Schedules\SchedulesManager;
-use App\API\Modules\Schedules\SchedulesWorkflow;
-use App\API\Modules\Schedules\TermHolidayManager;
-use App\API\Modules\Schedules\TermHolidayWorkflow;
+use App\API\Modules\schedules\SchedulesManager;
+use App\API\Modules\schedules\SchedulesWorkflow;
+use App\API\Modules\schedules\TermHolidayManager;
+use App\API\Modules\schedules\TermHolidayWorkflow;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use PDO;

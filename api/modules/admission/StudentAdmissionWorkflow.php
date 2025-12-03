@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Admission;
+namespace App\API\Modules\admission;
 
 require_once __DIR__ . '/../../../config/config.php';
 require_once __DIR__ . '/../../includes/WorkflowHandler.php';
@@ -36,8 +36,6 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
      */
     public function submitApplication($data) {
         try {
-            $this->db->beginTransaction();
-
             // Validate required fields
             $required = ['applicant_name', 'date_of_birth', 'gender', 'grade_applying_for', 'academic_year', 'parent_id'];
             foreach ($required as $field) {
@@ -49,7 +47,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // Generate application number (format: ADM/2025/001)
             $app_no = $this->generateApplicationNumber($data['academic_year']);
 
-            // Insert application
+            // Insert application (outside transaction, committed immediately)
             $sql = "INSERT INTO admission_applications (
                 application_no, applicant_name, date_of_birth, gender,
                 grade_applying_for, academic_year, parent_id,
@@ -77,7 +75,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             $application_id = $this->db->lastInsertId();
 
-            // Start workflow
+            // Start workflow (which will handle its own transaction)
             $workflow_data = [
                 'application_no' => $app_no,
                 'applicant_name' => $data['applicant_name'],
@@ -85,8 +83,6 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             ];
 
             $instance_id = $this->startWorkflow('admission_application', $application_id, $workflow_data);
-
-            $this->db->commit();
 
             return formatResponse(true, [
                 'application_id' => $application_id,
@@ -97,7 +93,9 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             ], 'Application submitted successfully');
 
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('admission_submit_failed', $e->getMessage());
             return formatResponse(false, null, 'Application submission failed: ' . $e->getMessage());
         }

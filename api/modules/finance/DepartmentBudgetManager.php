@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Finance;
+namespace App\API\Modules\finance;
 
 use PDO;
 use Exception;

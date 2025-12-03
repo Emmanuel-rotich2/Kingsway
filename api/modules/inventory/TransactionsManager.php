@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Inventory;
+namespace App\API\Modules\inventory;
 
 use App\API\Includes\BaseAPI;
 use PDO;
@@ -107,7 +107,7 @@ class TransactionsManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             try {
                 // Record adjustment transaction
@@ -139,13 +139,13 @@ class TransactionsManager extends BaseAPI
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([$data['quantity_change'], $data['item_id']]);
 
-                $this->commit();
+                $this->db->commit();
                 $this->logAction('create', $transactionId, "Stock adjustment: {$data['reason']}");
 
                 return formatResponse(true, ['id' => $transactionId], 'Stock adjustment recorded');
 
             } catch (Exception $e) {
-                $this->rollback();
+                $this->db->rollBack();
                 throw $e;
             }
 

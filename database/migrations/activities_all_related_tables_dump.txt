@@ -1,0 +1,103 @@
+id	code	name	description	category	handler_class	config_json	is_active	created_at	updated_at
+1	term_holiday_scheduling	Term & Holiday Scheduling	Term and holiday scheduling workflow	administrative	App\\API\\Modules\\schedules\\TermHolidayWorkflow	{"database_ready": true, "missing_objects": []}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+2	stock_procurement	Stock Procurement	Procurement and purchasing workflow	administrative	App\\API\\Modules\\Inventory\\StockProcurementWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+3	stock_audit	Stock Audit	Inventory audit workflow	administrative	App\\API\\Modules\\Inventory\\StockAuditWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+4	stock_transfer	Stock Transfer	Stock transfer between stores	administrative	App\\API\\Modules\\Inventory\\StockTransferWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+5	asset_disposal	Asset Disposal	Asset disposal and disposal approval	administrative	App\\API\\Modules\\Inventory\\AssetDisposalWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+6	FEE_APPROVAL	Fee Approval	Workflow to approve fee structure changes or fee waivers	financial	App\\API\\Modules\\Finance\\FeeApprovalWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+7	BUDGET_APPROVAL	Budget Approval	Department / central budget approval	financial	App\\API\\Modules\\Finance\\BudgetApprovalWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+8	EXPENSE_APPROVAL	Expense Approval	Expense submission and approval	financial	App\\API\\Modules\\Finance\\ExpenseApprovalWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+9	PAYROLL	Payroll Workflow	Payroll orchestration (alias for payroll processing)	financial	App\\API\\Modules\\Finance\\PayrollWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+10	PAYROLL_APPROVAL	Payroll Approval	Payroll approval workflow	financial	App\\API\\Services\\Workflows\\PayrollApprovalWorkflow	{"database_ready": true}	1	2025-11-28 21:14:09	2025-11-28 21:14:09
+11	staff_leave	Staff Leave	Staff leave request and approval	staff_affairs	App\\API\\Modules\\Staff\\LeaveWorkflow	{}	1	2025-11-28 21:14:10	2025-11-28 21:14:10
+12	staff_assignment	Staff Assignment	Staff assignment and reallocation	staff_affairs	App\\API\\Modules\\Staff\\AssignmentWorkflow	{}	1	2025-11-28 21:14:10	2025-11-28 21:14:10
+13	re_admission	Re-Admission Process	Re-admit a previously exited student	student_affairs	App\\API\\Modules\\Students\\ReAdmissionWorkflow	{"database_ready": true}	1	2025-11-28 21:14:10	2025-11-28 21:14:10
+27	class_timetabling	Class Timetabling	Plan, review, approve, and publish class timetables for each term/year.	academic	App\\API\\Modules\\Schedules\\ClassTimetablingWorkflow	{"database_ready": true, "missing_objects": []}	1	2025-11-28 21:54:25	2025-11-28 21:54:25
+28	room_booking	Room/Resource Booking	Request, approve, and allocate rooms/resources for classes, exams, or events.	administrative	App\\API\\Modules\\Schedules\\RoomBookingWorkflow	{"database_ready": true, "missing_objects": []}	1	2025-11-28 21:54:25	2025-11-28 21:54:25
+100	competition_workflow	Competition Workflow	Inter-school competition workflow	student_affairs	App\\API\\Modules\\activities\\workflows\\CompetitionWorkflow	{"database_ready": true}	1	2025-11-29 13:59:16	2025-11-29 13:59:16
+101	performance_evaluation_workflow	Performance Evaluation Workflow	Activity performance evaluation workflow	student_affairs	App\\API\\Modules\\activities\\workflows\\PerformanceEvaluationWorkflow	{"database_ready": true}	1	2025-11-29 13:59:16	2025-11-29 13:59:16
+id	workflow_id	code	name	description	sequence	required_role	allowed_transitions	action_config	timeout_hours	is_active
+1	1	initiate	Initiate Scheduling	Create term/holiday draft	1	admin	["validate", "cancelled"]	{"tables": ["academic_terms", "holidays"]}	NULL	1
+2	1	validate	Validate Schedule	Validate for conflicts and overlaps	2	schedules_manager	["publish", "initiate"]	{"procedures": ["sp_validate_term_holiday_conflicts"]}	NULL	1
+3	1	publish	Publish Schedule	Publish term and holiday schedule	3	admin	["completed"]	{"procedures": ["sp_transition_to_new_term"]}	NULL	1
+4	2	purchase_request	Purchase Request	Submit purchase request	1	staff	["budget_verification", "cancelled"]	{}	NULL	1
+5	2	budget_verification	Budget Verification	Verify budget for procurement	2	accountant	["quotation_request", "cancelled"]	{}	NULL	1
+6	2	quotation_request	Quotation Request	Request supplier quotations	3	procurement_officer	["procurement_approval", "cancelled"]	{}	NULL	1
+7	2	procurement_approval	Procurement Approval	Approve procurement	4	director	["purchase_order_creation", "rejected"]	{}	NULL	1
+8	3	audit_planning	Audit Planning	Plan audit	1	inventory_manager	["audit_scheduling", "cancelled"]	{}	NULL	1
+9	3	audit_scheduling	Audit Scheduling	Schedule audit	2	inventory_manager	["physical_count", "cancelled"]	{}	NULL	1
+10	3	physical_count	Physical Count	Perform physical count	3	inventory_team	["reconciliation", "cancelled"]	{}	NULL	1
+11	4	transfer_request	Transfer Request	Request stock transfer	1	storekeeper	["transfer_approval", "cancelled"]	{}	NULL	1
+12	4	transfer_approval	Transfer Approval	Approve transfer	2	inventory_manager	["transfer_execution", "cancelled"]	{}	NULL	1
+13	4	transfer_execution	Execution	Execute transfer and update records	3	storekeeper	["completed"]	{}	NULL	1
+14	5	disposal_request	Disposal Request	Request asset disposal	1	staff	["disposal_review", "cancelled"]	{}	NULL	1
+15	5	disposal_review	Disposal Review	Review disposal request	2	asset_manager	["disposal_approval", "rejected"]	{}	NULL	1
+16	5	disposal_approval	Disposal Approval	Approve disposal	3	director	["completed"]	{}	NULL	1
+17	6	draft	Draft	Create fee change draft	1	accountant	["review", "cancelled"]	{}	NULL	1
+18	6	review	Review	Review fee changes	2	finance_manager	["approval", "draft"]	{}	NULL	1
+19	6	approval	Approval	Approve fee change	3	director	["completed"]	{}	NULL	1
+20	7	proposal	Proposal	Submit budget proposal	1	dept_head	["dept_review", "cancelled"]	{}	NULL	1
+21	7	dept_review	Department Review	Department-level review	2	dept_reviewer	["finance_review", "proposal"]	{}	NULL	1
+22	7	finance_review	Finance Review	Finance checks	3	finance_manager	["director_approval", "dept_review"]	{}	NULL	1
+23	8	submission	Submission	Submit expense claim	1	staff	["validation", "cancelled"]	{}	NULL	1
+24	8	validation	Validation	Validate claim	2	accountant	["approval", "rejected"]	{}	NULL	1
+25	8	approval	Approval	Approve payment	3	director	["payment_processing", "rejected"]	{}	NULL	1
+26	10	draft	Draft Payroll	Create payroll draft	1	hr_manager	["verification", "cancelled"]	{}	NULL	1
+27	10	verification	Verification	Verify payroll calculations	2	accountant	["approval", "draft"]	{}	NULL	1
+28	10	approval	Payroll Approval	Approve payroll for processing	3	director	["processing"]	{}	NULL	1
+29	11	request	Leave Request	Employee requests leave	1	staff	["manager_approval", "cancelled"]	{}	NULL	1
+30	11	manager_approval	Manager Approval	Manager reviews leave	2	manager	["hr_approval", "request"]	{}	NULL	1
+31	11	hr_approval	HR Approval	HR finalizes leave	3	hr_manager	["completed"]	{}	NULL	1
+32	12	propose	Propose Assignment	Propose staff assignment	1	admin	["review", "cancelled"]	{}	NULL	1
+33	12	review	Review	Review and approve assignment	2	hr_manager	["assign", "propose"]	{}	NULL	1
+34	12	assign	Assign	Perform assignment	3	admin	["completed"]	{}	NULL	1
+35	13	application	Application	Submit re-admission application	1	parent	["review", "cancelled"]	{}	NULL	1
+36	13	review	Review	Review re-admission application	2	registrar	["approval", "rejected"]	{}	NULL	1
+37	13	approval	Approval	Approve re-admission and restore student record	3	head_teacher	["completed"]	{}	NULL	1
+75	27	timetable_planning	Timetable Planning	Plan class timetable for the term/year	1	scheduling_manager	["timetable_review", "cancelled"]	{"tables": ["class_schedules"]}	NULL	1
+76	27	timetable_review	Timetable Review	Review proposed timetable for conflicts and compliance	2	head_teacher	["timetable_approval", "timetable_planning"]	{"procedures": ["sp_detect_schedule_conflicts", "sp_validate_schedule_compliance"]}	NULL	1
+77	27	timetable_approval	Timetable Approval	Approve or reject timetable	3	head_teacher	["timetable_publication", "timetable_review"]	{"approval_required": true}	NULL	1
+78	27	timetable_publication	Timetable Publication	Publish timetable to students and staff	4	system	["completed"]	{"procedures": ["sp_generate_master_schedule"]}	NULL	1
+79	28	booking_request	Booking Request	Request room/resource for a class, exam, or event	1	staff	["booking_review", "cancelled"]	{"tables": ["room_bookings"]}	NULL	1
+80	28	booking_review	Booking Review	Review booking request for conflicts and availability	2	scheduling_manager	["booking_approval", "booking_request"]	{"procedures": ["sp_detect_schedule_conflicts"]}	NULL	1
+81	28	booking_approval	Booking Approval	Approve or reject booking	3	head_teacher	["booking_allocation", "booking_review"]	{"approval_required": true}	NULL	1
+82	28	booking_allocation	Booking Allocation	Allocate room/resource and notify requester	4	system	["completed"]	{"procedures": ["sp_generate_master_schedule"]}	NULL	1
+1000	100	register	Register	Register for competition	1	admin	["prepare"]	{}	NULL	1
+1001	100	prepare	Prepare	Prepare team	2	admin	["participate"]	{}	NULL	1
+1002	100	participate	Participate	Participate in competition	3	admin	["report"]	{}	NULL	1
+1003	100	report	Report	Report results	4	admin	["recognize"]	{}	NULL	1
+1004	100	recognize	Recognize	Recognize achievements	5	admin	[]	{}	NULL	1
+1010	101	assess	Assess	Initiate evaluation	1	admin	["verify"]	{}	NULL	1
+1011	101	verify	Verify	Verify assessment	2	admin	["approve"]	{}	NULL	1
+1012	101	approve	Approve	Approve evaluation	3	admin	["publish"]	{}	NULL	1
+1013	101	publish	Publish	Publish results	4	admin	[]	{}	NULL	1
+id	username	email	first_name	last_name	password	role_id	status	last_login	password_changed_at	created_at	updated_at
+1	testuser	testuser@example.com	Test	User	testpass	1	active	NULL	NULL	2025-11-29 14:23:13	2025-11-29 14:23:13
+id	name	description	is_active	status	created_at	department_id
+1	Updated Category	NULL	1	active	2025-11-28 20:29:29	NULL
+2	Test Category	NULL	1	active	2025-11-28 20:30:36	NULL
+3	Sports	All sports activities	1	active	2025-11-29 11:17:44	NULL
+id	title	description	category_id	start_date	end_date	status	max_participants	started_by	created_at	target_audience
+1	Football Club	Weekly football training	1	2025-11-29	2026-03-01	planned	NULL	NULL	2025-11-29 13:59:15	students
+2	Staff Team Building	Annual staff team building retreat	2	2025-12-10	2025-12-12	planned	NULL	NULL	2025-11-29 15:02:34	staff
+id	admission_no	first_name	middle_name	last_name	date_of_birth	gender	stream_id	student_type_id	user_id	admission_date	nemis_number	upi	upi_status	status	photo_url	qr_code_path	is_sponsored	sponsor_name	sponsor_type	sponsor_waiver_percentage	created_at	updated_at	blood_group
+101	ADM101	John	NULL	Doe	2012-01-01	male	1	1	NULL	2020-01-01	NULL	NULL	not_assigned	active	NULL	NULL	0	NULL	NULL	0.00	2025-11-29 15:09:56	2025-11-29 15:09:56	NULL
+102	ADM102	Jane	NULL	Smith	2012-02-01	female	1	1	NULL	2020-01-01	NULL	NULL	not_assigned	active	NULL	NULL	0	NULL	NULL	0.00	2025-11-29 15:09:56	2025-11-29 15:09:56	NULL
+103	ADM103	Ali	NULL	Omondi	2012-03-01	male	1	1	NULL	2020-01-01	NULL	NULL	not_assigned	active	NULL	NULL	0	NULL	NULL	0.00	2025-11-29 15:09:56	2025-11-29 15:09:56	NULL
+id	staff_type_id	staff_category_id	staff_no	first_name	last_name	department_id	supervisor_id	user_id	position	employment_date	contract_type	nssf_no	kra_pin	nhif_no	bank_account	salary	gender	marital_status	tsc_no	address	profile_pic_url	documents_folder	status	created_at	updated_at
+1	1	1	STF001	Teacher	One	1	NULL	1	Class Teacher	2020-01-01	permanent	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+id	name	code	description	head_id	status	created_at	updated_at
+1	Academics	ACAD	Academic Department	NULL	active	2025-11-29 14:23:13	2025-11-29 14:23:13
+2	Transport	TRAN	Responsible for school buses, transport logistics, driver management, and routes	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+3	Food and Nutrition	FOOD	Handles meal preparation, dietary planning, kitchen management, and nutrition services	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+4	Administration	ADMIN	Responsible for school management, operations, HR, finance, and overall coordination	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+5	Games and Sports	GASP	Manages physical education, sports training, competitions, and athletics programs	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+6	Student & Staff Welfare	WELF	Handles counselling, health, wellbeing, discipline, and staff support programs	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+7	Talent Development	TALT	Covers music, drama, arts, performing arts, and specialized talent programs	NULL	active	2025-11-29 15:02:34	2025-11-29 15:02:34
+id	activity_id	student_id	joined_at	status	role	notes
+1	1	101	2025-11-29 15:09:56	withdrawn	NULL	 | Withdrawn: Transferred school
+2	1	102	2025-11-29 15:09:56	active	NULL	NULL
+3	1	103	2025-11-29 15:09:56	active	NULL	NULL
+id	activity_id	staff_id	joined_at	status
+1	2	1	2025-11-29 15:09:56	active
+2	2	1	2025-11-29 15:09:56	active

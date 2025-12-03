@@ -1,9 +1,9 @@
 <?php
-namespace App\API\Modules\Students;
+namespace App\API\Modules\students;
 
 use PDO;
 use Exception;
-use App\API\Modules\Academic\AcademicYearManager;
+use App\API\Modules\academic\AcademicYearManager;
 
 /**
  * Promotion Manager

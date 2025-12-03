@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Communications;
+namespace App\API\Modules\communications;
 
 use PDO;
 
@@ -14,14 +14,16 @@ class ContactDirectoryManager
     // CRUD for contact_directory
     public function createContact($data)
     {
-        $sql = "INSERT INTO contact_directory (name, phone, email, type, status, created_by, created_at) VALUES (:name, :phone, :email, :type, 'draft', :created_by, NOW())";
+        $sql = "INSERT INTO contact_directory (name, phone, email, contact_type, department, role, notes, created_at) VALUES (:name, :phone, :email, :contact_type, :department, :role, :notes, NOW())";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':name' => $data['name'],
-            ':phone' => $data['phone'],
-            ':email' => $data['email'],
-            ':type' => $data['type'],
-            ':created_by' => $data['created_by']
+            ':phone' => $data['phone'] ?? null,
+            ':email' => $data['email'] ?? null,
+            ':contact_type' => $data['type'] ?? $data['contact_type'] ?? 'external',
+            ':department' => $data['department'] ?? null,
+            ':role' => $data['role'] ?? null,
+            ':notes' => $data['notes'] ?? null
         ]);
         return $this->db->lastInsertId();
     }
@@ -35,16 +37,24 @@ class ContactDirectoryManager
 
     public function updateContact($id, $data)
     {
-        $sql = "UPDATE contact_directory SET name = :name, phone = :phone, email = :email, type = :type, updated_at = NOW() WHERE id = :id";
+        $fields = [];
+        $params = [':id' => $id];
+        foreach (['name', 'phone', 'email', 'contact_type', 'department', 'role', 'notes'] as $col) {
+            if (isset($data[$col]) || (isset($data['type']) && $col === 'contact_type')) {
+                $fields[] = "$col = :$col";
+                if ($col === 'contact_type') {
+                    $params[":$col"] = $data['type'] ?? $data['contact_type'] ?? null;
+                } else {
+                    $params[":$col"] = $data[$col] ?? null;
+                }
+            }
+        }
+        if (!$fields) {
+            return false;
+        }
+        $sql = "UPDATE contact_directory SET " . implode(", ", $fields) . " WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':name' => $data['name'],
-            ':phone' => $data['phone'],
-            ':email' => $data['email'],
-            ':type' => $data['type'],
-            ':id' => $id
-        ]);
-        return $stmt->rowCount() > 0;
+        return $stmt->execute($params);
     }
 
     public function deleteContact($id)
@@ -58,13 +68,13 @@ class ContactDirectoryManager
     {
         $sql = "SELECT * FROM contact_directory WHERE 1=1";
         $params = [];
-        if (isset($filters['type'])) {
-            $sql .= " AND type = :type";
-            $params[':type'] = $filters['type'];
+        if (isset($filters['type']) || isset($filters['contact_type'])) {
+            $sql .= " AND contact_type = :contact_type";
+            $params[':contact_type'] = $filters['type'] ?? $filters['contact_type'];
         }
-        if (isset($filters['status'])) {
-            $sql .= " AND status = :status";
-            $params[':status'] = $filters['status'];
+        if (isset($filters['department'])) {
+            $sql .= " AND department = :department";
+            $params[':department'] = $filters['department'];
         }
         $sql .= " ORDER BY name ASC";
         $stmt = $this->db->prepare($sql);

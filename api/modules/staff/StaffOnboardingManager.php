@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -38,7 +38,7 @@ class StaffOnboardingManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify staff exists
             $stmt = $this->db->prepare("
@@ -53,7 +53,7 @@ class StaffOnboardingManager extends BaseAPI
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Staff member not found');
             }
 
@@ -64,7 +64,7 @@ class StaffOnboardingManager extends BaseAPI
             ");
             $stmt->execute([$data['staff_id']]);
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active onboarding already exists for this staff member');
             }
 
@@ -89,7 +89,7 @@ class StaffOnboardingManager extends BaseAPI
             $stmt = $this->db->prepare("CALL sp_auto_generate_onboarding_tasks(?)");
             $stmt->execute([$onboardingId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $onboardingId,
@@ -106,7 +106,7 @@ class StaffOnboardingManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -121,7 +121,7 @@ class StaffOnboardingManager extends BaseAPI
     public function updateOnboarding($onboardingId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Verify onboarding exists
             $stmt = $this->db->prepare("
@@ -134,7 +134,7 @@ class StaffOnboardingManager extends BaseAPI
             $onboarding = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$onboarding) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Onboarding record not found');
             }
 
@@ -154,7 +154,7 @@ class StaffOnboardingManager extends BaseAPI
             if (isset($data['status'])) {
                 $validStatuses = ['in_progress', 'completed', 'on_hold', 'cancelled'];
                 if (!in_array($data['status'], $validStatuses)) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     return formatResponse(false, null, 'Invalid status');
                 }
                 $updates[] = "status = ?";
@@ -171,7 +171,7 @@ class StaffOnboardingManager extends BaseAPI
             }
 
             if (empty($updates)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'No fields to update');
             }
 
@@ -181,7 +181,7 @@ class StaffOnboardingManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'update',
                 $onboardingId,
@@ -195,7 +195,7 @@ class StaffOnboardingManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -278,7 +278,7 @@ class StaffOnboardingManager extends BaseAPI
                 return formatResponse(false, null, 'Invalid status. Must be: ' . implode(', ', $validStatuses));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $updates = ["status = ?"];
             $params = [$data['status']];
@@ -300,7 +300,7 @@ class StaffOnboardingManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $taskId, "Updated onboarding task status to: {$data['status']}");
 
             return formatResponse(true, [
@@ -310,7 +310,7 @@ class StaffOnboardingManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -369,7 +369,7 @@ class StaffOnboardingManager extends BaseAPI
     public function completeOnboarding($onboardingId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check all tasks are completed or skipped
             $stmt = $this->db->prepare("
@@ -380,7 +380,7 @@ class StaffOnboardingManager extends BaseAPI
             $incompleteTasks = $stmt->fetchColumn();
 
             if ($incompleteTasks > 0 && empty($data['force_complete'])) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(
                     false,
                     null,
@@ -398,7 +398,7 @@ class StaffOnboardingManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$onboardingId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $onboardingId, "Completed onboarding");
 
             return formatResponse(true, [
@@ -408,7 +408,7 @@ class StaffOnboardingManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

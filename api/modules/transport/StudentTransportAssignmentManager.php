@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Transport;
+namespace App\API\Modules\transport;
 
 use PDO;
 use Exception;

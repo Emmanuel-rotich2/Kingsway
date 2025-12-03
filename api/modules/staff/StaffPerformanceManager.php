@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -43,7 +43,7 @@ class StaffPerformanceManager extends BaseAPI
                 return formatResponse(false, null, 'Invalid review period. Must be: ' . implode(', ', $validPeriods));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get staff details
             $stmt = $this->db->prepare("
@@ -60,7 +60,7 @@ class StaffPerformanceManager extends BaseAPI
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
@@ -72,7 +72,7 @@ class StaffPerformanceManager extends BaseAPI
             ");
             $stmt->execute([$data['staff_id'], $data['academic_year_id'], $data['review_period']]);
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active review already exists for this period');
             }
 
@@ -100,7 +100,7 @@ class StaffPerformanceManager extends BaseAPI
                 $this->populateKPIsFromTemplates($reviewId, $staff['staff_category_id']);
             }
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $reviewId,
@@ -118,7 +118,7 @@ class StaffPerformanceManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -170,7 +170,7 @@ class StaffPerformanceManager extends BaseAPI
     public function updateKPI($kpiId, $data)
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $updates = [];
             $params = [];
@@ -188,7 +188,7 @@ class StaffPerformanceManager extends BaseAPI
             if (isset($data['rating'])) {
                 $validRatings = ['exceeds', 'meets', 'partially_meets', 'does_not_meet'];
                 if (!in_array($data['rating'], $validRatings)) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     return formatResponse(false, null, 'Invalid rating. Must be: ' . implode(', ', $validRatings));
                 }
                 $updates[] = "rating = ?";
@@ -206,7 +206,7 @@ class StaffPerformanceManager extends BaseAPI
             }
 
             if (empty($updates)) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'No fields to update');
             }
 
@@ -216,7 +216,7 @@ class StaffPerformanceManager extends BaseAPI
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $kpiId, "Updated KPI score");
 
             return formatResponse(true, [
@@ -225,7 +225,7 @@ class StaffPerformanceManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -475,7 +475,7 @@ class StaffPerformanceManager extends BaseAPI
     public function completeReview($reviewId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Check all KPIs are completed
             $stmt = $this->db->prepare("
@@ -486,7 +486,7 @@ class StaffPerformanceManager extends BaseAPI
             $incompleteKPIs = $stmt->fetchColumn();
 
             if ($incompleteKPIs > 0 && empty($data['force_complete'])) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(
                     false,
                     null,
@@ -507,7 +507,7 @@ class StaffPerformanceManager extends BaseAPI
                 $reviewId
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $reviewId, "Completed performance review");
 
             return formatResponse(true, [
@@ -517,7 +517,7 @@ class StaffPerformanceManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

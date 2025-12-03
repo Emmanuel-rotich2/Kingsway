@@ -1,7 +1,6 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
-use App\Config\Database;
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;
@@ -21,9 +20,108 @@ use function App\API\Includes\formatResponse;
  */
 class StaffPayrollManager extends BaseAPI
 {
-    public function __construct()
+    /**
+     * Record payment for a payroll record (payslip)
+     * Used by PayrollWorkflow during payment processing
+     * @param int $payrollId
+     * @param array $paymentData (e.g., payment_method, payment_reference, paid_at)
+     * @return array
+     */
+    public function recordPayment($payrollId, $paymentData)
     {
-        parent::__construct();
+        try {
+            // Validate required fields
+            if (empty($payrollId) || empty($paymentData['payment_method'])) {
+                return formatResponse(false, null, 'Missing required payment fields');
+            }
+
+            // Update payslip/payment status
+            $stmt = $this->db->prepare("UPDATE payslips SET payment_status = 'paid', payment_method = ?, payment_reference = ?, paid_at = ? WHERE id = ?");
+            $paidAt = $paymentData['paid_at'] ?? date('Y-m-d H:i:s');
+            $paymentRef = $paymentData['payment_reference'] ?? null;
+            $result = $stmt->execute([
+                $paymentData['payment_method'],
+                $paymentRef,
+                $paidAt,
+                $payrollId
+            ]);
+
+            if (!$result) {
+                return formatResponse(false, null, 'Failed to update payment record');
+            }
+
+            $this->logAction('payment', $payrollId, "Payroll payment recorded: method={$paymentData['payment_method']}, ref={$paymentRef}");
+
+            return formatResponse(true, [
+                'payroll_id' => $payrollId,
+                'payment_method' => $paymentData['payment_method'],
+                'payment_reference' => $paymentRef,
+                'paid_at' => $paidAt
+            ], 'Payment recorded successfully');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+    /**
+     * Calculate payroll for a staff member for a given period
+     * Used by PayrollWorkflow (admin payroll processing)
+     * @param array $data [staff_id, payroll_month, payroll_year]
+     * @return array Response with gross_salary, net_salary, breakdown, etc.
+     */
+    public function calculatePayroll($data)
+    {
+        try {
+            $required = ['staff_id', 'payroll_month', 'payroll_year'];
+            $missing = $this->validateRequired($data, $required);
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            $staffId = $data['staff_id'];
+            $month = $data['payroll_month'];
+            $year = $data['payroll_year'];
+
+            // Fetch base salary
+            $stmt = $this->db->prepare("SELECT base_salary FROM staff WHERE id = ?");
+            $stmt->execute([$staffId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$row) {
+                return formatResponse(false, null, 'Staff not found');
+            }
+            $baseSalary = (float) $row['base_salary'];
+
+            // Fetch allowances
+            $stmt = $this->db->prepare("SELECT amount FROM staff_allowances WHERE staff_id = ? AND (YEAR(effective_date) < ? OR (YEAR(effective_date) = ? AND MONTH(effective_date) <= ?))");
+            $stmt->execute([$staffId, $year, $year, $month]);
+            $allowances = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $totalAllowances = array_sum(array_column($allowances, 'amount'));
+
+            // Fetch deductions
+            $stmt = $this->db->prepare("SELECT amount FROM staff_deductions WHERE staff_id = ? AND (YEAR(effective_date) < ? OR (YEAR(effective_date) = ? AND MONTH(effective_date) <= ?))");
+            $stmt->execute([$staffId, $year, $year, $month]);
+            $deductions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $totalDeductions = array_sum(array_column($deductions, 'amount'));
+
+            $grossSalary = $baseSalary + $totalAllowances;
+            $netSalary = $grossSalary - $totalDeductions;
+
+            // Optionally, insert or update payslip record here if needed by workflow
+
+            return formatResponse(true, [
+                'staff_id' => $staffId,
+                'payroll_month' => $month,
+                'payroll_year' => $year,
+                'gross_salary' => $grossSalary,
+                'net_salary' => $netSalary,
+                'base_salary' => $baseSalary,
+                'total_allowances' => $totalAllowances,
+                'total_deductions' => $totalDeductions,
+                'allowances_breakdown' => $allowances,
+                'deductions_breakdown' => $deductions
+            ], 'Payroll calculated successfully');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     /**
@@ -213,7 +311,7 @@ class StaffPayrollManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("CALL sp_request_staff_advance(?, ?, ?, @request_id)");
             $stmt->execute([$staffId, $data['amount'], $data['reason']]);
@@ -221,7 +319,7 @@ class StaffPayrollManager extends BaseAPI
             $result = $this->db->query("SELECT @request_id AS request_id")->fetch(PDO::FETCH_ASSOC);
             $requestId = $result['request_id'];
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $requestId, "Staff ID $staffId requested advance of KES {$data['amount']}");
 
             return formatResponse(true, [
@@ -233,7 +331,7 @@ class StaffPayrollManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -251,7 +349,7 @@ class StaffPayrollManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("CALL sp_apply_staff_loan(?, ?, ?, ?, @loan_id)");
             $stmt->execute([$staffId, $data['loan_type'], $data['principal_amount'], $data['agreed_monthly_deduction']]);
@@ -259,7 +357,7 @@ class StaffPayrollManager extends BaseAPI
             $result = $this->db->query("SELECT @loan_id AS loan_id")->fetch(PDO::FETCH_ASSOC);
             $loanId = $result['loan_id'];
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('create', $loanId, "Staff ID $staffId applied for {$data['loan_type']} loan of KES {$data['principal_amount']}");
 
             $months = ceil($data['principal_amount'] / $data['agreed_monthly_deduction']);
@@ -276,7 +374,7 @@ class StaffPayrollManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities\Workflows;
+namespace App\API\Modules\activities\workflows;
 
 require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
@@ -35,6 +35,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function initiateRegistration($data, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] initiateRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         try {
             // Validate required fields
             $required = ['student_id', 'activity_id'];
@@ -86,7 +87,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Student already has an active or pending registration for this activity');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Create workflow instance
             $workflowData = [
@@ -99,21 +100,22 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 'role' => $data['role'] ?? 'participant'
             ];
 
+
             $stmt = $this->db->prepare("
                 INSERT INTO workflow_instances (
-                    workflow_type,
-                    entity_type,
-                    entity_id,
+                    workflow_id,
+                    reference_type,
+                    reference_id,
                     current_stage,
                     status,
-                    initiated_by,
-                    metadata,
-                    created_at
+                    started_by,
+                    data_json,
+                    started_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
             ");
 
             $stmt->execute([
-                $this->workflowType,
+                $this->workflow_id,
                 'activity_participant',
                 $data['activity_id'],
                 'apply',
@@ -151,7 +153,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record workflow history
             $this->recordHistory($workflowId, 'apply', 'Application submitted', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction(
                 'create',
@@ -173,14 +175,16 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to initiate registration workflow');
             throw $e;
         }
     }
 
     /**
-     * Review registration application
+     * Review application
      * 
      * @param int $workflowId Workflow instance ID
      * @param array $data Review data
@@ -189,6 +193,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function reviewApplication($workflowId, $data, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] reviewApplication called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -196,13 +201,13 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Workflow is not in apply stage');
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow stage
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'review',
-                    metadata = JSON_SET(metadata, '$.reviewer_notes', ?)
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.reviewer_notes', ?)
                 WHERE id = ?
             ");
             $stmt->execute([$data['notes'] ?? null, $workflowId]);
@@ -210,7 +215,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'review', 'Application under review', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $workflowId, 'Application moved to review stage');
 
@@ -221,7 +226,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to review application $workflowId");
             throw $e;
         }
@@ -237,6 +242,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function approveRegistration($workflowId, $data, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] approveRegistration called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -244,16 +250,16 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Workflow must be in apply or review stage to approve');
             }
 
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'approve',
                     status = 'approved',
-                    metadata = JSON_SET(metadata, '$.approval_notes', ?, '$.approved_by', ?, '$.approved_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.approval_notes', ?, '$.approved_by', ?, '$.approved_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$data['notes'] ?? null, $userId, $workflowId]);
@@ -269,7 +275,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'approve', 'Registration approved', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $workflowId, 'Registration approved');
 
@@ -282,7 +288,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to approve registration $workflowId");
             throw $e;
         }
@@ -298,6 +304,8 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function rejectRegistration($workflowId, $reason, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] rejectRegistration called. userId=" . var_export($userId, true) . ", reason=" . var_export($reason, true) . ", workflowId=" . var_export($workflowId, true));
+        $transactionStarted = false;
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -305,16 +313,19 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Workflow must be in apply or review stage to reject');
             }
 
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            }
 
             // Update workflow
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'reject',
                     status = 'rejected',
-                    metadata = JSON_SET(metadata, '$.rejection_reason', ?, '$.rejected_by', ?, '$.rejected_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.rejection_reason', ?, '$.rejected_by', ?, '$.rejected_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$reason, $userId, $workflowId]);
@@ -331,7 +342,9 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'reject', "Registration rejected: $reason", $userId);
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction('update', $workflowId, 'Registration rejected');
 
@@ -344,7 +357,9 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to reject registration $workflowId");
             throw $e;
         }
@@ -359,6 +374,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function confirmParticipation($workflowId, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] confirmParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
 
@@ -366,15 +382,15 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
                 throw new Exception('Registration must be approved before confirmation');
             }
 
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'confirm',
-                    metadata = JSON_SET(metadata, '$.confirmed_by', ?, '$.confirmed_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.confirmed_by', ?, '$.confirmed_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $workflowId]);
@@ -382,13 +398,13 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'confirm', 'Participation confirmed', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             // Auto-activate
             return $this->activateParticipation($workflowId, $userId);
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to confirm participation $workflowId");
             throw $e;
         }
@@ -403,18 +419,19 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function activateParticipation($workflowId, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] activateParticipation called. userId=" . var_export($userId, true) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'active',
                     status = 'active',
-                    metadata = JSON_SET(metadata, '$.activated_by', ?, '$.activated_at', NOW())
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.activated_by', ?, '$.activated_at', NOW())
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $workflowId]);
@@ -430,7 +447,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'active', 'Participation activated', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $workflowId, 'Participation activated');
 
@@ -441,7 +458,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to activate participation $workflowId");
             throw $e;
         }
@@ -457,18 +474,19 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
      */
     public function completeParticipation($workflowId, $data, $userId)
     {
+        error_log("[ActivityRegistrationWorkflow] completeParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
-            $metadata = json_decode($workflow['metadata'], true);
+            $metadata = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Update workflow
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'complete',
                     status = 'completed',
-                    metadata = JSON_SET(metadata, '$.completion_notes', ?, '$.completed_by', ?, '$.completed_at', NOW()),
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.completion_notes', ?, '$.completed_by', ?, '$.completed_at', NOW()),
                     completed_at = NOW()
                 WHERE id = ?
             ");
@@ -485,7 +503,7 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             // Record history
             $this->recordHistory($workflowId, 'complete', 'Participation completed', $userId);
 
-            $this->commit();
+            $this->db->commit();
 
             $this->logAction('update', $workflowId, 'Participation completed');
 
@@ -496,12 +514,11 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             $this->logError($e, "Failed to complete participation $workflowId");
             throw $e;
         }
     }
-
     /**
      * Record workflow history
      */

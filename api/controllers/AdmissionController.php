@@ -13,17 +13,21 @@ class AdmissionController extends BaseController
         $this->api = new StudentAdmissionWorkflow();
     }
 
+    public function index()
+    {
+        return $this->success(['message' => 'Admission API is running']);
+    }
     // Explicit REST endpoints for all StudentAdmissionWorkflow public methods
 
     // 1. Application Submission
-    public function submitApplication($id = null, $data = [], $segments = [])
+    public function postSubmitApplication($id = null, $data = [], $segments = [])
     {
         $result = $this->api->submitApplication($data);
         return $this->handleResponse($result);
     }
 
     // 2. Document Upload
-    public function uploadDocument($id = null, $data = [], $segments = [])
+    public function postUploadDocument($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $document_type = $data['document_type'] ?? null;
@@ -33,7 +37,7 @@ class AdmissionController extends BaseController
     }
 
     // 3. Document Verification
-    public function verifyDocument($id = null, $data = [], $segments = [])
+    public function postVerifyDocument($id = null, $data = [], $segments = [])
     {
         $document_id = $data['document_id'] ?? $id;
         $status = $data['status'] ?? null;
@@ -43,7 +47,7 @@ class AdmissionController extends BaseController
     }
 
     // 4. Interview Scheduling
-    public function scheduleInterview($id = null, $data = [], $segments = [])
+    public function postScheduleInterview($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $interview_date = $data['interview_date'] ?? null;
@@ -54,7 +58,7 @@ class AdmissionController extends BaseController
     }
 
     // 5. Interview Assessment
-    public function recordInterviewResults($id = null, $data = [], $segments = [])
+    public function postRecordInterviewResults($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $assessment_data = $data['assessment_data'] ?? $data;
@@ -63,7 +67,7 @@ class AdmissionController extends BaseController
     }
 
     // 6. Placement Offer
-    public function generatePlacementOffer($id = null, $data = [], $segments = [])
+    public function postGeneratePlacementOffer($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $assigned_class_id = $data['assigned_class_id'] ?? null;
@@ -72,7 +76,7 @@ class AdmissionController extends BaseController
     }
 
     // 7. Fee Payment
-    public function recordFeePayment($id = null, $data = [], $segments = [])
+    public function postRecordFeePayment($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $payment_data = $data['payment_data'] ?? $data;
@@ -81,7 +85,7 @@ class AdmissionController extends BaseController
     }
 
     // 8. Enrollment
-    public function completeEnrollment($id = null, $data = [], $segments = [])
+    public function postCompleteEnrollment($id = null, $data = [], $segments = [])
     {
         $application_id = $data['application_id'] ?? $id;
         $result = $this->api->completeEnrollment($application_id);

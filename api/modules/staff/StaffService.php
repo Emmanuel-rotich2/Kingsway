@@ -1,11 +1,12 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\API\Includes\BaseAPI;
 use Exception;
 use function App\API\Includes\formatResponse;
 
 /**
+ * Staff Service Integration Class
  * Staff Service Integration Class
  * 
  * Central integration point for all staff-related operations

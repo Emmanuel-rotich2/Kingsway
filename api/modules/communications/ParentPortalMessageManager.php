@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Communications;
+namespace App\API\Modules\communications;
 
 use PDO;
 
@@ -14,13 +14,17 @@ class ParentPortalMessageManager
     // CRUD for parent_portal_messages
     public function createMessage($data)
     {
-        $sql = "INSERT INTO parent_portal_messages (parent_id, subject, message, status, created_by, created_at) VALUES (:parent_id, :subject, :message, 'draft', :created_by, NOW())";
+        $sql = "INSERT INTO parent_portal_messages (parent_id, sender_type, sender_id, recipient_type, recipient_id, subject, body, status) VALUES (:parent_id, :sender_type, :sender_id, :recipient_type, :recipient_id, :subject, :body, :status)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            ':parent_id' => $data['parent_id'],
-            ':subject' => $data['subject'],
-            ':message' => $data['message'],
-            ':created_by' => $data['created_by']
+            ':parent_id' => $data['parent_id'] ?? 1,
+            ':sender_type' => $data['sender_type'] ?? 'school',
+            ':sender_id' => $data['sender_id'] ?? $data['created_by'] ?? 1,
+            ':recipient_type' => $data['recipient_type'] ?? 'parent',
+            ':recipient_id' => $data['recipient_id'] ?? $data['parent_id'] ?? 1,
+            ':subject' => $data['subject'] ?? 'No subject',
+            ':body' => $data['body'] ?? $data['message'] ?? '',
+            ':status' => $data['status'] ?? 'sent'
         ]);
         return $this->db->lastInsertId();
     }
@@ -34,14 +38,25 @@ class ParentPortalMessageManager
 
     public function updateMessage($id, $data)
     {
-        $sql = "UPDATE parent_portal_messages SET subject = :subject, message = :message, updated_at = NOW() WHERE id = :id";
+        $fields = [];
+        $params = [':id' => $id];
+        foreach (['subject', 'body', 'status'] as $col) {
+            if (isset($data[$col])) {
+                $fields[] = "$col = :$col";
+                $params[":$col"] = $data[$col];
+            }
+        }
+        // Handle message -> body mapping
+        if (isset($data['message']) && !isset($data['body'])) {
+            $fields[] = "body = :body";
+            $params[':body'] = $data['message'];
+        }
+        if (!$fields) {
+            return false;
+        }
+        $sql = "UPDATE parent_portal_messages SET " . implode(", ", $fields) . " WHERE id = :id";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            ':subject' => $data['subject'],
-            ':message' => $data['message'],
-            ':id' => $id
-        ]);
-        return $stmt->rowCount() > 0;
+        return $stmt->execute($params);
     }
 
     public function deleteMessage($id)

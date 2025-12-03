@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Academic;
+namespace App\API\Modules\academic;
 
 use PDO;
 use Exception;

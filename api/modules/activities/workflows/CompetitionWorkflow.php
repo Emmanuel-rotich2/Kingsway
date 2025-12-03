@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities\Workflows;
+namespace App\API\Modules\activities\workflows;
 
 require_once __DIR__ . '/../../../includes/WorkflowHandler.php';
 use App\API\Includes\WorkflowHandler;
@@ -22,6 +22,7 @@ class CompetitionWorkflow extends WorkflowHandler
 
     public function registerForCompetition($data, $userId)
     {
+        error_log("[CompetitionWorkflow] registerForCompetition called. userId=" . var_export($userId, true) . ", data=" . json_encode($data));
         try {
             $required = ['activity_id', 'competition_name', 'venue', 'competition_date'];
             foreach ($required as $field) {
@@ -29,8 +30,7 @@ class CompetitionWorkflow extends WorkflowHandler
                     throw new Exception("Field '$field' is required");
             }
 
-            $this->beginTransaction();
-
+            // Compose workflow data
             $workflowData = [
                 'competition_name' => $data['competition_name'],
                 'venue' => $data['venue'],
@@ -39,39 +39,30 @@ class CompetitionWorkflow extends WorkflowHandler
                 'participants' => $data['participants'] ?? []
             ];
 
-            $stmt = $this->db->prepare("
-                INSERT INTO workflow_instances (
-                    workflow_type, entity_type, entity_id, current_stage,
-                    status, initiated_by, metadata, created_at
-                ) VALUES (?, 'activity', ?, 'register', 'pending', ?, ?, NOW())
-            ");
-            $stmt->execute([$this->workflowType, $data['activity_id'], $userId, json_encode($workflowData)]);
-
-            $workflowId = $this->db->lastInsertId();
-            $this->recordHistory($workflowId, 'register', 'Registered for competition', $userId);
-            $this->commit();
+            // Use WorkflowHandler's startWorkflow method
+            $workflowId = $this->startWorkflow('activity', $data['activity_id'], $workflowData, $userId);
 
             return [
                 'success' => true,
-                'data' => ['workflow_id' => $workflowId, 'current_stage' => 'register'],
+                'data' => ['workflow_id' => $workflowId, 'current_stage' => $this->getFirstStage()['code']],
                 'message' => 'Competition registration successful'
             ];
         } catch (Exception $e) {
-            $this->rollBack();
             throw $e;
         }
     }
 
     public function prepareTeam($workflowId, $data, $userId)
     {
+        error_log("[CompetitionWorkflow] prepareTeam called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
             $workflow = $this->getWorkflowInstance($workflowId);
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'prepare',
-                    metadata = JSON_SET(metadata, '$.team_members', ?, '$.coach', ?, '$.preparation_notes', ?)
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.team_members', ?, '$.coach', ?, '$.preparation_notes', ?)
                 WHERE id = ?
             ");
             $stmt->execute([
@@ -82,48 +73,50 @@ class CompetitionWorkflow extends WorkflowHandler
             ]);
 
             $this->recordHistory($workflowId, 'prepare', 'Team preparation completed', $userId);
-            $this->commit();
+            $this->db->commit();
 
             return ['success' => true, 'message' => 'Team prepared for competition'];
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
 
     public function recordParticipation($workflowId, $data, $userId)
     {
+        error_log("[CompetitionWorkflow] recordParticipation called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'participate',
-                    metadata = JSON_SET(metadata, '$.participation_date', NOW(), '$.attendance', ?)
+                    data_json = JSON_SET(COALESCE(data_json, '{}'), '$.participation_date', NOW(), '$.attendance', ?)
                 WHERE id = ?
             ");
             $stmt->execute([json_encode($data['attendance'] ?? []), $workflowId]);
 
             $this->recordHistory($workflowId, 'participate', 'Competition participation recorded', $userId);
-            $this->commit();
+            $this->db->commit();
 
             return ['success' => true, 'message' => 'Participation recorded'];
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
 
     public function reportResults($workflowId, $data, $userId)
     {
+        error_log("[CompetitionWorkflow] reportResults called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'report',
-                    metadata = JSON_SET(
-                        metadata, 
+                    data_json = JSON_SET(
+                        COALESCE(data_json, '{}'), 
                         '$.position', ?,
                         '$.score', ?,
                         '$.awards', ?,
@@ -142,26 +135,27 @@ class CompetitionWorkflow extends WorkflowHandler
             ]);
 
             $this->recordHistory($workflowId, 'report', 'Competition results reported', $userId);
-            $this->commit();
+            $this->db->commit();
 
             return ['success' => true, 'message' => 'Results reported successfully'];
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }
 
     public function recognizeAchievements($workflowId, $data, $userId)
     {
+        error_log("[CompetitionWorkflow] recognizeAchievements called. userId=" . var_export($userId, true) . ", data=" . json_encode($data) . ", workflowId=" . var_export($workflowId, true));
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 UPDATE workflow_instances 
                 SET current_stage = 'recognize',
                     status = 'completed',
-                    metadata = JSON_SET(
-                        metadata,
+                    data_json = JSON_SET(
+                        COALESCE(data_json, '{}'),
                         '$.recognition_type', ?,
                         '$.certificates', ?,
                         '$.awards_ceremony_date', ?
@@ -177,7 +171,7 @@ class CompetitionWorkflow extends WorkflowHandler
             ]);
 
             $this->recordHistory($workflowId, 'recognize', 'Achievements recognized', $userId);
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -185,7 +179,7 @@ class CompetitionWorkflow extends WorkflowHandler
                 'data' => ['status' => 'completed']
             ];
         } catch (Exception $e) {
-            $this->rollBack();
+            $this->db->rollBack();
             throw $e;
         }
     }

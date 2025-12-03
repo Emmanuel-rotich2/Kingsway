@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\API\Includes\WorkflowHandler;
 use PDO;
@@ -33,7 +33,7 @@ class AssignmentWorkflow extends WorkflowHandler
     public function initiateAssignmentRequest($assignmentId, $userId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get assignment details
             $stmt = $this->db->prepare("
@@ -57,7 +57,7 @@ class AssignmentWorkflow extends WorkflowHandler
             $assignment = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$assignment) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Assignment not found');
             }
 
@@ -71,7 +71,7 @@ class AssignmentWorkflow extends WorkflowHandler
             $stmt->execute([$assignmentId]);
 
             if ($stmt->fetch()) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active workflow already exists for this assignment');
             }
 
@@ -104,7 +104,7 @@ class AssignmentWorkflow extends WorkflowHandler
             ");
             $stmt->execute([$instanceId, $assignmentId]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $instanceId,
@@ -124,7 +124,7 @@ class AssignmentWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return [];
@@ -155,7 +155,7 @@ class AssignmentWorkflow extends WorkflowHandler
 
             $workflowData = json_decode($workflow['data_json'], true);
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Use stored procedure to validate assignment
             $stmt = $this->db->prepare("CALL sp_validate_staff_assignment(?, ?, ?, ?, @is_valid, @error_message)");
@@ -186,7 +186,7 @@ class AssignmentWorkflow extends WorkflowHandler
                 ");
                 $stmt->execute([$result['error_message'], $workflowData['assignment_id']]);
 
-                $this->commit();
+                $this->db->commit();
 
                 return formatResponse(false, [
                     'workflow_id' => $instanceId,
@@ -208,7 +208,7 @@ class AssignmentWorkflow extends WorkflowHandler
                 $workflowData
             );
 
-            $this->commit();
+            $this->db->commit();
 
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
@@ -218,7 +218,7 @@ class AssignmentWorkflow extends WorkflowHandler
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return [];
@@ -252,7 +252,7 @@ class AssignmentWorkflow extends WorkflowHandler
                 return formatResponse(false, null, 'Only Head Teacher can approve assignments');
             }
             $workflowData = json_decode($workflow['data_json'], true);
-            $this->beginTransaction();
+            $this->db->beginTransaction();
             if ($action === 'reject') {
                 // Reject assignment
                 $this->advanceStage(
@@ -268,7 +268,7 @@ class AssignmentWorkflow extends WorkflowHandler
                     WHERE id = ?
                 ");
                 $stmt->execute([$data['remarks'] ?? 'Rejected by Head Teacher', $workflowData['assignment_id']]);
-                $this->commit();
+                $this->db->commit();
                 return formatResponse(true, [
                     'workflow_id' => $instanceId,
                     'status' => 'rejected',
@@ -292,7 +292,7 @@ class AssignmentWorkflow extends WorkflowHandler
                 WHERE id = ?
             ");
             $stmt->execute([$workflowData['assignment_id']]);
-            $this->commit();
+            $this->db->commit();
             return formatResponse(true, [
                 'workflow_id' => $instanceId,
                 'status' => 'approved',
@@ -300,7 +300,7 @@ class AssignmentWorkflow extends WorkflowHandler
             ], 'Assignment approved and activated');
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             $this->handleException($e);
             return [];

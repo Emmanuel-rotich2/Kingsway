@@ -1,18 +1,18 @@
 <?php
-namespace App\API\Modules\Reports;
+namespace App\API\Modules\reports;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Reports\StudentReportManager;
-use App\API\Modules\Reports\StaffReportManager;
-use App\API\Modules\Reports\FinanceReportManager;
-use App\API\Modules\Reports\AdmissionsReportManager;
-use App\API\Modules\Reports\InventoryReportManager;
-use App\API\Modules\Reports\MealReportManager;
-use App\API\Modules\Reports\LogsReportManager;
-use App\API\Modules\Reports\SystemReportManager;
-use App\API\Modules\Reports\WorkflowReportManager;
-use App\API\Modules\Reports\DisciplineReportManager;
-use App\API\Modules\Reports\CommunicationReportManager;
+use App\API\Modules\reports\StudentReportManager;
+use App\API\Modules\reports\StaffReportManager;
+use App\API\Modules\reports\FinanceReportManager;
+use App\API\Modules\reports\AdmissionsReportManager;
+use App\API\Modules\reports\InventoryReportManager;
+use App\API\Modules\reports\MealReportManager;
+use App\API\Modules\reports\LogsReportManager;
+use App\API\Modules\reports\SystemReportManager;
+use App\API\Modules\reports\WorkflowReportManager;
+use App\API\Modules\reports\DisciplineReportManager;
+use App\API\Modules\reports\CommunicationReportManager;
 
 class ReportsAPI extends BaseAPI
 {

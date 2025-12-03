@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Schedules;
+namespace App\API\Modules\schedules;
 
 use App\API\Includes\WorkflowHandler;
 use Exception;

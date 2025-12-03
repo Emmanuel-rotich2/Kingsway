@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Activities;
+namespace App\API\Modules\activities;
 
 require_once __DIR__ . '/../../includes/BaseAPI.php';
 use App\API\Includes\BaseAPI;
@@ -138,6 +138,7 @@ class SchedulesManager extends BaseAPI
      */
     public function createSchedule($data, $userId)
     {
+        $transactionStarted = false;
         try {
             // Validate required fields
             $required = ['activity_id', 'day_of_week', 'start_time', 'end_time'];
@@ -183,7 +184,10 @@ class SchedulesManager extends BaseAPI
                 }
             }
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            }
 
             $sql = "
                 INSERT INTO activity_schedule (
@@ -209,7 +213,9 @@ class SchedulesManager extends BaseAPI
 
             $scheduleId = $this->db->lastInsertId();
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction(
                 'create',
@@ -224,7 +230,9 @@ class SchedulesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to create schedule');
             throw $e;
         }
@@ -274,7 +282,12 @@ class SchedulesManager extends BaseAPI
                 }
             }
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            } else {
+                $transactionStarted = false;
+            }
 
             $updates = [];
             $params = [];
@@ -294,7 +307,9 @@ class SchedulesManager extends BaseAPI
                 $stmt->execute($params);
             }
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction('update', $id, "Updated schedule");
 
@@ -304,7 +319,9 @@ class SchedulesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if (isset($transactionStarted) && $transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to update schedule $id");
             throw $e;
         }
@@ -326,12 +343,19 @@ class SchedulesManager extends BaseAPI
                 throw new Exception('Schedule not found');
             }
 
-            $this->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $transactionStarted = true;
+            } else {
+                $transactionStarted = false;
+            }
 
             $stmt = $this->db->prepare("DELETE FROM activity_schedule WHERE id = ?");
             $stmt->execute([$id]);
 
-            $this->commit();
+            if ($transactionStarted) {
+                $this->db->commit();
+            }
 
             $this->logAction('delete', $id, "Deleted schedule");
 
@@ -341,7 +365,9 @@ class SchedulesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if (isset($transactionStarted) && $transactionStarted && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, "Failed to delete schedule $id");
             throw $e;
         }
@@ -580,7 +606,7 @@ class SchedulesManager extends BaseAPI
             $successful = [];
             $failed = [];
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             foreach ($schedules as $scheduleData) {
                 try {
@@ -595,7 +621,7 @@ class SchedulesManager extends BaseAPI
                 }
             }
 
-            $this->commit();
+            $this->db->commit();
 
             return [
                 'success' => true,
@@ -613,7 +639,9 @@ class SchedulesManager extends BaseAPI
             ];
 
         } catch (Exception $e) {
-            $this->rollBack();
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError($e, 'Failed to bulk create schedules');
             throw $e;
         }

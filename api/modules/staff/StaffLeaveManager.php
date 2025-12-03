@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Staff;
+namespace App\API\Modules\staff;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
@@ -38,7 +38,7 @@ class StaffLeaveManager extends BaseAPI
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get staff details
             $stmt = $this->db->prepare("
@@ -55,7 +55,7 @@ class StaffLeaveManager extends BaseAPI
             $staff = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
@@ -65,7 +65,7 @@ class StaffLeaveManager extends BaseAPI
             $leaveType = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$leaveType) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid or inactive leave type');
             }
 
@@ -74,7 +74,7 @@ class StaffLeaveManager extends BaseAPI
             $endDate = new \DateTime($data['end_date']);
 
             if ($startDate > $endDate) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'End date must be after start date');
             }
 
@@ -92,7 +92,7 @@ class StaffLeaveManager extends BaseAPI
                 $result = $this->db->query("SELECT @entitled AS entitled, @used AS used, @available AS available")->fetch(PDO::FETCH_ASSOC);
 
                 if ($result['available'] < $leaveDays) {
-                    $this->rollback();
+                    $this->db->rollBack();
                     return formatResponse(
                         false,
                         null,
@@ -120,7 +120,7 @@ class StaffLeaveManager extends BaseAPI
 
             $leaveId = $this->db->lastInsertId();
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'create',
                 $leaveId,
@@ -139,7 +139,7 @@ class StaffLeaveManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -184,7 +184,7 @@ class StaffLeaveManager extends BaseAPI
                 return formatResponse(false, null, 'Invalid status. Must be: ' . implode(', ', $validStatuses));
             }
 
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             // Get leave details
             $stmt = $this->db->prepare("
@@ -198,12 +198,12 @@ class StaffLeaveManager extends BaseAPI
             $leave = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$leave) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Leave request not found');
             }
 
             if ($leave['status'] !== 'pending') {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, "Cannot update leave with status: {$leave['status']}");
             }
 
@@ -223,7 +223,7 @@ class StaffLeaveManager extends BaseAPI
                 $leaveId
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction(
                 'update',
                 $leaveId,
@@ -239,7 +239,7 @@ class StaffLeaveManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }
@@ -404,7 +404,7 @@ class StaffLeaveManager extends BaseAPI
     public function cancelLeaveRequest($leaveId, $data = [])
     {
         try {
-            $this->beginTransaction();
+            $this->db->beginTransaction();
 
             $stmt = $this->db->prepare("
                 SELECT * FROM staff_leaves WHERE id = ? AND status IN ('pending', 'approved')
@@ -413,7 +413,7 @@ class StaffLeaveManager extends BaseAPI
             $leave = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$leave) {
-                $this->rollback();
+                $this->db->rollBack();
                 return formatResponse(false, null, 'Leave request not found or cannot be cancelled');
             }
 
@@ -429,7 +429,7 @@ class StaffLeaveManager extends BaseAPI
                 $leaveId
             ]);
 
-            $this->commit();
+            $this->db->commit();
             $this->logAction('update', $leaveId, "Cancelled leave request");
 
             return formatResponse(true, [
@@ -439,7 +439,7 @@ class StaffLeaveManager extends BaseAPI
 
         } catch (Exception $e) {
             if ($this->db->inTransaction()) {
-                $this->rollback();
+                $this->db->rollBack();
             }
             return $this->handleException($e);
         }

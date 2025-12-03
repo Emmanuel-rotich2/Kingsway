@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Finance\FinanceAPI;
+use App\API\Modules\finance\FinanceAPI;
 use Exception;
 
 /**
@@ -21,6 +21,11 @@ class FinanceController extends BaseController
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
+    }
+
+    public function index()
+    {
+        return $this->success(['message' => 'Finance API is running']);
     }
 
     // ========================================
@@ -398,7 +403,7 @@ class FinanceController extends BaseController
     // SECTION 4: Fee Structure Operations
     // ========================================
     /**
-        private FinanceAPI $api;
+        
      * POST /api/finance/fees/create-annual-structure
      */
     public function postFeesCreateAnnualStructure($id = null, $data = [], $segments = [])

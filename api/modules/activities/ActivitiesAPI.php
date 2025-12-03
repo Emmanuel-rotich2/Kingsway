@@ -1,17 +1,17 @@
 <?php
-namespace App\API\Modules\Activities;
+namespace App\API\Modules\activities;
 
-use App\API\Modules\Activities\ActivitiesManager;
-use App\API\Modules\Activities\CategoriesManager;
-use App\API\Modules\Activities\ParticipantsManager;
-use App\API\Modules\Activities\ResourcesManager;
-use App\API\Modules\Activities\SchedulesManager;
+use App\API\Modules\activities\ActivitiesManager;
+use App\API\Modules\activities\CategoriesManager;
+use App\API\Modules\activities\ParticipantsManager;
+use App\API\Modules\activities\ResourcesManager;
+use App\API\Modules\activities\SchedulesManager;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\Activities\Workflows\ActivityRegistrationWorkflow;
-use App\API\Modules\Activities\Workflows\ActivityPlanningWorkflow;
-use App\API\Modules\Activities\Workflows\CompetitionWorkflow;
-use App\API\Modules\Activities\Workflows\PerformanceEvaluationWorkflow;
+use App\API\Modules\activities\workflows\ActivityRegistrationWorkflow;
+use App\API\Modules\activities\workflows\ActivityPlanningWorkflow;
+use App\API\Modules\activities\workflows\CompetitionWorkflow;
+use App\API\Modules\activities\workflows\PerformanceEvaluationWorkflow;
 use PDO;
 use Exception;
 

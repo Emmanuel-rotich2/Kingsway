@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Controllers;
 
-use App\API\Modules\Transport\TransportAPI;
+use App\API\Modules\transport\TransportAPI;
 use Exception;
 
 /**
@@ -20,6 +20,11 @@ class TransportController extends BaseController
     public function __construct() {
         parent::__construct();
         $this->api = new TransportAPI();
+    }
+
+    public function index()
+    {
+        return $this->success(['message' => 'Transport API is running']);
     }
 
     /**
@@ -43,7 +48,7 @@ class TransportController extends BaseController
     // ========================================
 
     // ROUTE ENDPOINTS
-    public function getRoute($id = null, $data = [], $segments = [])
+    public function getTransportRoute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getRoute($id);
         return $this->handleResponse($result);
@@ -53,24 +58,24 @@ class TransportController extends BaseController
         $result = $this->api->getAllRoutes();
         return $this->handleResponse($result);
     }
-    public function postRoute($id = null, $data = [], $segments = [])
+    public function postTransportRoute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createRoute($data);
         return $this->handleResponse($result);
     }
-    public function putRoute($id = null, $data = [], $segments = [])
+    public function putTransportRoute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->updateRoute($id, $data);
         return $this->handleResponse($result);
     }
-    public function deleteRoute($id = null, $data = [], $segments = [])
+    public function deleteTransportRoute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->deleteRoute($id);
         return $this->handleResponse($result);
     }
 
     // STOP ENDPOINTS
-    public function getStop($id = null, $data = [], $segments = [])
+    public function getTransportStop($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getStop($id);
         return $this->handleResponse($result);
@@ -80,31 +85,31 @@ class TransportController extends BaseController
         $result = $this->api->getAllStops();
         return $this->handleResponse($result);
     }
-    public function postStop($id = null, $data = [], $segments = [])
+    public function postTransportStop($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createStop($data);
         return $this->handleResponse($result);
     }
-    public function putStop($id = null, $data = [], $segments = [])
+    public function putTransportStop($id = null, $data = [], $segments = [])
     {
         $result = $this->api->updateStop($id, $data);
         return $this->handleResponse($result);
     }
-    public function deleteStop($id = null, $data = [], $segments = [])
+    public function deleteTransportStop($id = null, $data = [], $segments = [])
     {
         $result = $this->api->deleteStop($id);
         return $this->handleResponse($result);
     }
 
     // VEHICLE ENDPOINTS
-    public function getVehicle($id = null, $data = [], $segments = [])
+    public function getTransportVehicle($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getVehicle($id);
         return $this->handleResponse($result);
     }
 
     // DRIVER ENDPOINTS
-    public function getDriver($id = null, $data = [], $segments = [])
+    public function getTransportDriver($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getDriver($id);
         return $this->handleResponse($result);
@@ -114,17 +119,17 @@ class TransportController extends BaseController
         $result = $this->api->getAllDrivers();
         return $this->handleResponse($result);
     }
-    public function postDriver($id = null, $data = [], $segments = [])
+    public function postTransportDriver($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createDriver($data);
         return $this->handleResponse($result);
     }
-    public function putDriver($id = null, $data = [], $segments = [])
+    public function putTransportDriver($id = null, $data = [], $segments = [])
     {
         $result = $this->api->updateDriver($id, $data);
         return $this->handleResponse($result);
     }
-    public function deleteDriver($id = null, $data = [], $segments = [])
+    public function deleteTransportDriver($id = null, $data = [], $segments = [])
     {
         $result = $this->api->deleteDriver($id);
         return $this->handleResponse($result);

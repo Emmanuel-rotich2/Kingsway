@@ -1,5 +1,5 @@
 <?php
-namespace App\API\Modules\Reports;
+namespace App\API\Modules\reports;
 use App\API\Includes\BaseAPI;
 
 class WorkflowReportManager extends BaseAPI
