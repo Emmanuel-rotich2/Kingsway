@@ -1,7 +1,6 @@
 <?php
 // layouts/app_layout.php
 
-<<<<<<< HEAD
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -125,15 +124,6 @@ $route = $_GET['route'] ?? $default_dashboard;
 // Redirect if 'route=dashboard' or no route specified
 if (!isset($_GET['route']) || $_GET['route'] === 'dashboard') {
     header("Location: ?route={$default_dashboard}");
-=======
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-
-// Handle logout before any output
-if (isset($_GET['route']) && $_GET['route'] === 'logout') {
-    session_destroy();
-    header('Location: ../index.php');
->>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
     exit;
 }
 
