@@ -35,13 +35,28 @@ Compatible with load balancing and horizontal scaling
                     <i class="fas fa-user"></i> <span id="header-username">User</span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+<<<<<<< HEAD
+                    <li><a class="dropdown-item" href="?route=profile">Profile</a></li>
+                    <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()" ><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+=======
                     <li><a class="dropdown-item" href="javascript:void(0);" onclick="goToProfile()">Profile</a></li>
                     <li><a class="dropdown-item text-danger" href="javascript:void(0);" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
+>>>>>>> 27be5c983e14ffe6fc4f3bdbcc5d2b38912c12fb
                 </ul>
             </div>
         </div>
     </div>
 </div>
+<<<<<<< HEAD
+<script src="../../js/index.js" type="text/js"></script>
+<script>
+function confirmLogout() {
+    if (confirm("Are you sure you want to logout?")) {
+        window.location.href = 'logout.php';
+    }
+}
+</script>
+=======
 
 <script>
 // ============================================================================
@@ -127,3 +142,4 @@ window.addEventListener('storage', (e) => {
 // Also listen for custom auth change event
 document.addEventListener('authchanged', initializeHeader);
 </script>
+>>>>>>> 27be5c983e14ffe6fc4f3bdbcc5d2b38912c12fb

@@ -26,32 +26,13 @@ $roles = [$main_role];
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Kingsway Preparatory Academy | <?php echo ucfirst($main_role); ?> Dashboard</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <link rel="icon" type="image/png" href="images/favicon/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="images/favicon/favicon.svg" />
-    <link rel="shortcut icon" href="images/favicon/favicon.ico" />
-    <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png" />
-    <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
-    <link rel="manifest" href="images/favicon/site.webmanifest" />
-    <!-- CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="/Kingsway/king.css">
-    
-    <!-- JavaScript Dependencies -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
-    <script>
-        window.USER_ROLES = <?php echo json_encode($roles); ?>;
-        window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
-        window.USERNAME = <?php echo json_encode($_SESSION['username'] ?? null); ?>;
-        window.AUTH_TOKEN = <?php echo json_encode($_SESSION['token'] ?? null); ?>;
-    </script>
+  <meta charset="UTF-8">
+  <title>Kingsway Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="king.css">
 </head>
 
 <body>
