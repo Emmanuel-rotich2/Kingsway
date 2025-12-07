@@ -90,7 +90,7 @@ ini_set('display_errors', 1);
   <nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm">
     <div class="container">
       <a class="navbar-brand d-flex align-items-center" href="#">
-        <img src="./images/download (16).jpg" alt="Kingsway Logo" class="school-logo me-2">
+        <img src="./images/logo.jpg" alt="Kingsway Logo" class="school-logo me-2">
         Kingsway Prep School
       </a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
@@ -309,6 +309,47 @@ ini_set('display_errors', 1);
   <script src="js/api.js"></script>
   <script src="js/sidebar.js"></script>
   <script src="js/main.js"></script>
+  
+  <script>
+    // Login form handler
+    document.addEventListener('DOMContentLoaded', function() {
+      const loginForm = document.getElementById('loginForm');
+      const loginError = document.getElementById('loginError');
+      
+      if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          
+          // Get form data
+          const username = this.querySelector('input[name="username"]').value;
+          const password = this.querySelector('input[name="password"]').value;
+          
+          // Hide previous errors
+          loginError.classList.add('d-none');
+          
+          try {
+            console.log('Attempting login for:', username);
+            
+            // Call the login API
+            const response = await API.auth.login(username, password);
+            
+            console.log('Login response:', response);
+            
+            if (response && response.token) {
+              console.log('Login successful, redirecting...');
+              // The API.auth.login already handles the redirect
+            } else {
+              throw new Error(response?.message || 'Login failed');
+            }
+          } catch (error) {
+            console.error('Login error:', error);
+            loginError.textContent = error.message || 'Login failed. Please try again.';
+            loginError.classList.remove('d-none');
+          }
+        });
+      }
+    });
+  </script>
 </body>
 
 </html>
