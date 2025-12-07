@@ -38,7 +38,7 @@ images/qr_codes/
 cache/
 
 # Database dumps
-*.sql
+database/migrations/*.sql
 
 # Misc
 *.zip
