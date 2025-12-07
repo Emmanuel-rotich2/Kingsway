@@ -23,6 +23,15 @@ $roles = $_SESSION['roles'] ?? [$main_role];
 <html lang="en">
 
 <head>
+<<<<<<< HEAD
+  <meta charset="UTF-8">
+  <title>Kingsway Admin Panel</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <link rel="stylesheet" href="king.css">
+=======
     <meta charset="UTF-8">
     <title>Kingsway Preparatory Academy | <?php echo ucfirst($main_role); ?> Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -49,6 +58,7 @@ $roles = $_SESSION['roles'] ?? [$main_role];
         window.USERNAME = <?php echo json_encode($_SESSION['username'] ?? null); ?>;
         window.AUTH_TOKEN = <?php echo json_encode($_SESSION['token'] ?? null); ?>;
     </script>
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
 </head>
 
 <body>

@@ -1,9 +1,15 @@
 <!--components/global/sidebar.php-->
 <div class="sidebar" id="sidebar">
     <div class="shadow-sm" style="overflow-y: auto; flex: 1 1 0;">
+<<<<<<< HEAD
+        <!-- Logo and Title --><link rel="stylesheet" href="king.css">
+        <div class="d-flex logo align-items-start" style="width:250px; min-width:60px;background-color:gold;">
+            <img src="images/download (16).jpg" alt="Kingsway Logo" style="height:60px; width:60px; object-fit:cover; flex-shrink:0;">
+=======
         <!-- Logo and Title -->
         <div class="d-flex logo align-items-start" style="width:250px; min-width:60px;">
             <img src="/Kingsway/images/download (16).jpg" alt="Kingsway Logo" class="school-logo">
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
             <div class="ms-2 logo-name">
                 <h5 class="mb-0">KINGSWAY PREPARATORY SCHOOL</h5>
             </div>

@@ -1,4 +1,4 @@
-<!--Description: Main landing page for Kingsway Preparatory School-->
+<!-- Description: Main landing page for Kingsway Preparatory School -->
 <?php
 session_start();
 error_reporting(E_ALL);
@@ -19,15 +19,18 @@ ini_set('display_errors', 1);
   <link rel="manifest" href="images/favicon/site.webmanifest" />
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <link rel="stylesheet" href="king.css">
   <style>
     body {
       background-color: #fffdf5;
     }
 
     .navbar-custom {
+<<<<<<< HEAD
+      background-color: #198754; /* Bootstrap green */
+=======
       background-color: #198754;
       /* Bootstrap green */
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
     }
 
     .hero-bg {
@@ -121,7 +124,11 @@ ini_set('display_errors', 1);
       <div class="text-center mb-4">
         <h2 class="fw-bold">KINGSWAY PREPARATORY SCHOOL</h2>
         <p class="mb-0">P.O BOX 203-20203, LONDIANI | PHONE: 0720113030 / 0720113031</p>
+<<<<<<< HEAD
+        <em>Motto: “In God We Soar”</em>
+=======
         <em>Motto: "In God We Soar"</em>
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
       </div>
       <div class="row align-items-center">
         <div class="col-md-7">
@@ -203,8 +210,12 @@ ini_set('display_errors', 1);
     </div>
   </div>
 
+<<<<<<< HEAD
+  <!-- Contact -->
+=======
 
   <!-- Contact Section -->
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
   <div class="container my-5" id="contact">
     <div class="row justify-content-center">
       <div class="col-md-8">
@@ -225,7 +236,7 @@ ini_set('display_errors', 1);
             <textarea name="message" class="form-control" rows="4" placeholder="Your Message" required></textarea>
           </div>
           <div id="contact-success" class="text-success mb-2"></div>
-          <button class="btn btn-primary" type="submit">Send Message</button>
+          <button class="btn btn-success" type="submit">Send Message</button>
         </form>
       </div>
     </div>
@@ -259,12 +270,68 @@ ini_set('display_errors', 1);
           <div id="loginError" class="alert alert-danger d-none"></div>
         </div>
         <div class="modal-footer">
+<<<<<<< HEAD
+          <button class="btn btn-success" type="submit">Login</button>
+=======
           <button type="submit" class="btn btn-primary">Login</button>
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
         </div>
       </form>
     </div>
   </div>
 
+<<<<<<< HEAD
+  <!-- Footer -->
+  <footer class="text-white pt-4 pb-3">
+    <div class="container text-center">
+      <p class="mb-2">&copy; 2025 Kingsway Preparatory School. All Rights Reserved.</p>
+      <div class="d-flex justify-content-center gap-3 mb-2">
+        <a href="#" class="text-white fs-5"><i class="bi bi-facebook"></i></a>
+        <a href="#" class="text-white fs-5"><i class="bi bi-twitter"></i></a>
+        <a href="#" class="text-white fs-5"><i class="bi bi-instagram"></i></a>
+        <a href="#" class="text-white fs-5"><i class="bi bi-youtube"></i></a>
+      </div>
+      <small>Follow us on social media for news, events & updates.</small>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+      fetch('api/login.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          window.location = 'home.php';
+        } else {
+          document.getElementById('login-error').textContent = data.message || 'Invalid credentials';
+        }
+      });
+    });
+
+    document.getElementById('contact-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const formData = new FormData(this);
+      fetch('api/contact.php', {
+        method: 'POST',
+        body: formData
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          document.getElementById('contact-success').textContent = "Message sent successfully!";
+          this.reset();
+        } else {
+          document.getElementById('contact-success').textContent = "Failed to send message. Try again.";
+        }
+      });
+    });
+  </script>
+=======
   <!-- Notification -->
   <div id="notification" class="alert d-none"></div>
 
@@ -305,6 +372,7 @@ ini_set('display_errors', 1);
   </footer>
 
   <!-- Scripts -->
+>>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script src="js/api.js"></script>
   <script src="js/main.js"></script>
