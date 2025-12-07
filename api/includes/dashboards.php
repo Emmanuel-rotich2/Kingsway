@@ -13,7 +13,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Academics',
-                'route' => 'manage_academics',
+                'url' => 'manage_academics',
                 'icon' => 'bi-mortarboard',
                 'permissions' => array(
                     0 => 'academics_all_permissions',
@@ -21,7 +21,7 @@ return [
             ],
             [
                 'label' => 'Attendance',
-                'route' => 'mark_attendance',
+                'url' => 'mark_attendance',
                 'icon' => 'bi-pencil-square',
                 'permissions' => array(
                     0 => 'attendance_all_permissions',
@@ -29,7 +29,7 @@ return [
             ],
             [
                 'label' => 'Boarding',
-                'route' => 'manage_boarding',
+                'url' => 'manage_boarding',
                 'icon' => 'bi-house',
                 'permissions' => array(
                     0 => 'boarding_all_permissions',
@@ -37,7 +37,7 @@ return [
             ],
             [
                 'label' => 'Communications',
-                'route' => 'manage_communications',
+                'url' => 'manage_communications',
                 'icon' => 'bi-chat-dots',
                 'permissions' => array(
                     0 => 'communications_all_permissions',
@@ -45,7 +45,7 @@ return [
             ],
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_all_permissions',
@@ -53,7 +53,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_all_permissions',
@@ -61,7 +61,7 @@ return [
             ],
             [
                 'label' => 'System Settings',
-                'route' => 'system_settings',
+                'url' => 'system_settings',
                 'icon' => 'bi-gear',
                 'permissions' => array(
                     0 => 'system_all_permissions',
@@ -69,7 +69,7 @@ return [
             ],
             [
                 'label' => 'Transport',
-                'route' => 'manage_transport',
+                'url' => 'manage_transport',
                 'icon' => 'bi-bus-front',
                 'permissions' => array(
                     0 => 'transport_all_permissions',
@@ -77,7 +77,7 @@ return [
             ],
             [
                 'label' => 'Users & Access',
-                'route' => 'manage_users',
+                'url' => 'manage_users',
                 'icon' => 'bi-person-gear',
                 'permissions' => array(
                     0 => 'users_all_permissions',
@@ -85,7 +85,7 @@ return [
             ],
             [
                 'label' => 'Workflows',
-                'route' => 'manage_workflows',
+                'url' => 'manage_workflows',
                 'icon' => 'bi-diagram-3',
                 'permissions' => array(
                     0 => 'workflow_all_permissions',
@@ -103,7 +103,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -115,7 +115,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_approve',
@@ -137,7 +137,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_approve',
@@ -149,7 +149,7 @@ return [
             ],
             [
                 'label' => 'Classes',
-                'route' => 'manage_classes',
+                'url' => 'manage_classes',
                 'icon' => 'bi-journal',
                 'permissions' => array(
                     0 => 'academic_classes_approve',
@@ -161,7 +161,7 @@ return [
             ],
             [
                 'label' => 'Lesson Plans',
-                'route' => 'manage_lesson_plans',
+                'url' => 'manage_lesson_plans',
                 'icon' => 'bi-file-text',
                 'permissions' => array(
                     0 => 'academic_lesson_plans_approve',
@@ -173,7 +173,7 @@ return [
             ],
             [
                 'label' => 'Results',
-                'route' => 'view_results',
+                'url' => 'view_results',
                 'icon' => 'bi-bar-chart',
                 'permissions' => array(
                     0 => 'academic_results_approve',
@@ -185,7 +185,7 @@ return [
             ],
             [
                 'label' => 'Subjects',
-                'route' => 'manage_subjects',
+                'url' => 'manage_subjects',
                 'icon' => 'bi-book',
                 'permissions' => array(
                     0 => 'academic_subjects_approve',
@@ -197,7 +197,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_approve',
@@ -209,7 +209,7 @@ return [
             ],
             [
                 'label' => 'Activities',
-                'route' => 'manage_activities',
+                'url' => 'manage_activities',
                 'icon' => 'bi-trophy',
                 'permissions' => array(
                     0 => 'activities_approve',
@@ -221,7 +221,7 @@ return [
             ],
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -233,7 +233,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_approve',
@@ -255,7 +255,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_approve',
@@ -267,7 +267,7 @@ return [
             ],
             [
                 'label' => 'Classes',
-                'route' => 'manage_classes',
+                'url' => 'manage_classes',
                 'icon' => 'bi-journal',
                 'permissions' => array(
                     0 => 'academic_classes_approve',
@@ -279,7 +279,7 @@ return [
             ],
             [
                 'label' => 'Lesson Plans',
-                'route' => 'manage_lesson_plans',
+                'url' => 'manage_lesson_plans',
                 'icon' => 'bi-file-text',
                 'permissions' => array(
                     0 => 'academic_lesson_plans_approve',
@@ -291,7 +291,7 @@ return [
             ],
             [
                 'label' => 'Results',
-                'route' => 'view_results',
+                'url' => 'view_results',
                 'icon' => 'bi-bar-chart',
                 'permissions' => array(
                     0 => 'academic_results_approve',
@@ -303,7 +303,7 @@ return [
             ],
             [
                 'label' => 'Subjects',
-                'route' => 'manage_subjects',
+                'url' => 'manage_subjects',
                 'icon' => 'bi-book',
                 'permissions' => array(
                     0 => 'academic_subjects_approve',
@@ -315,7 +315,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_approve',
@@ -327,7 +327,7 @@ return [
             ],
             [
                 'label' => 'Activities',
-                'route' => 'manage_activities',
+                'url' => 'manage_activities',
                 'icon' => 'bi-trophy',
                 'permissions' => array(
                     0 => 'activities_approve',
@@ -339,7 +339,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_approve',
@@ -361,7 +361,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_approve',
@@ -373,7 +373,7 @@ return [
             ],
             [
                 'label' => 'Results',
-                'route' => 'view_results',
+                'url' => 'view_results',
                 'icon' => 'bi-bar-chart',
                 'permissions' => array(
                     0 => 'academic_results_approve',
@@ -385,7 +385,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -403,7 +403,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_approve',
@@ -415,7 +415,7 @@ return [
             ],
             [
                 'label' => 'Lesson Plans',
-                'route' => 'manage_lesson_plans',
+                'url' => 'manage_lesson_plans',
                 'icon' => 'bi-file-text',
                 'permissions' => array(
                     0 => 'academic_lesson_plans_approve',
@@ -427,7 +427,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -445,7 +445,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_approve',
@@ -457,7 +457,7 @@ return [
             ],
             [
                 'label' => 'Lesson Plans',
-                'route' => 'manage_lesson_plans',
+                'url' => 'manage_lesson_plans',
                 'icon' => 'bi-file-text',
                 'permissions' => array(
                     0 => 'academic_lesson_plans_approve',
@@ -469,7 +469,7 @@ return [
             ],
             [
                 'label' => 'Results',
-                'route' => 'view_results',
+                'url' => 'view_results',
                 'icon' => 'bi-bar-chart',
                 'permissions' => array(
                     0 => 'academic_results_approve',
@@ -481,7 +481,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -499,7 +499,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Assessments',
-                'route' => 'manage_assessments',
+                'url' => 'manage_assessments',
                 'icon' => 'bi-clipboard-check',
                 'permissions' => array(
                     0 => 'academic_assessments_view',
@@ -507,7 +507,7 @@ return [
             ],
             [
                 'label' => 'Lesson Plans',
-                'route' => 'manage_lesson_plans',
+                'url' => 'manage_lesson_plans',
                 'icon' => 'bi-file-text',
                 'permissions' => array(
                     0 => 'academic_lesson_plans_view',
@@ -515,7 +515,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -523,7 +523,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_view',
@@ -561,7 +561,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_view',
@@ -579,7 +579,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Classes',
-                'route' => 'manage_classes',
+                'url' => 'manage_classes',
                 'icon' => 'bi-journal',
                 'permissions' => array(
                     0 => 'academic_classes_view',
@@ -587,7 +587,7 @@ return [
             ],
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -595,7 +595,7 @@ return [
             ],
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -607,7 +607,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_edit',
@@ -676,7 +676,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -698,7 +698,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Activities',
-                'route' => 'manage_activities',
+                'url' => 'manage_activities',
                 'icon' => 'bi-trophy',
                 'permissions' => array(
                     0 => 'activities_approve',
@@ -710,7 +710,7 @@ return [
             ],
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -732,7 +732,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Activities',
-                'route' => 'manage_activities',
+                'url' => 'manage_activities',
                 'icon' => 'bi-trophy',
                 'permissions' => array(
                     0 => 'activities_approve',
@@ -744,7 +744,7 @@ return [
             ],
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -766,7 +766,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Staff',
-                'route' => 'manage_staff',
+                'url' => 'manage_staff',
                 'icon' => 'bi-person-workspace',
                 'permissions' => array(
                     0 => 'staff_approve',
@@ -788,7 +788,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -816,7 +816,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -834,7 +834,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Timetable',
-                'route' => 'manage_timetable',
+                'url' => 'manage_timetable',
                 'icon' => 'bi-calendar3',
                 'permissions' => array(
                     0 => 'academic_timetable_view',
@@ -862,7 +862,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Activities',
-                'route' => 'manage_activities',
+                'url' => 'manage_activities',
                 'icon' => 'bi-trophy',
                 'permissions' => array(
                     0 => 'activities_approve',
@@ -884,7 +884,7 @@ return [
         'menu_items' => [
             [
                 'label' => 'Results',
-                'route' => 'view_results',
+                'url' => 'view_results',
                 'icon' => 'bi-bar-chart',
                 'permissions' => array(
                     0 => 'academic_results_view',
@@ -892,7 +892,7 @@ return [
             ],
             [
                 'label' => 'Students',
-                'route' => 'manage_students',
+                'url' => 'manage_students',
                 'icon' => 'bi-people',
                 'permissions' => array(
                     0 => 'students_view',

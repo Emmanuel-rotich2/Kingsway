@@ -30,7 +30,7 @@
             const hasSubitems = item.subitems && Array.isArray(item.subitems) && item.subitems.length > 0;
             const itemId = btoa(item.label || '').replace(/=/g, ''); // Use base64 hash for unique ID
             const icon = item.icon || 'bi-circle';
-            const route = item.route || '#';
+            const route = item.url || '#';
 
             if (hasSubitems) {
                 // Menu item with subitems (collapsible)
@@ -53,7 +53,7 @@
                 item.subitems.forEach(subitem => {
                     if (!subitem) return;
                     const subIcon = subitem.icon || 'bi-dot';
-                    const subRoute = subitem.route || '#';
+                    const subRoute = subitem.url || '#';
                     
                     html += `
                         <a href="#" data-route="${escapeHtml(subRoute)}" class="list-group-item list-group-item-action ps-5 sidebar-link">

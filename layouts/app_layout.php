@@ -1,9 +1,9 @@
 <?php
 // layouts/app_layout.php
 // 
-// This layout integrates with the frontend AuthContext system to provide
-// permission-based UI rendering. Sidebar items, routes, pages, and components
-// are filtered based on user roles and permissions from the login response.
+// Stateless layout for REST API architecture
+// Authentication is handled via JWT tokens (no PHP sessions)
+// Compatible with load balancing and horizontal scaling
 
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
@@ -11,47 +11,29 @@ ini_set('display_errors', 1);
 // Load DashboardRouter for role-to-dashboard mapping
 require_once __DIR__ . '/../config/DashboardRouter.php';
 
-// Handle logout before any output
-if (isset($_GET['route']) && $_GET['route'] === 'logout') {
-    session_destroy();
-    header('Location: ../index.php');
-    exit;
-}
-
-// Get user info from session
-$main_role = $_SESSION['main_role'] ?? ($_SESSION['roles'][0] ?? 'guest');
-$roles = $_SESSION['roles'] ?? [$main_role];
-$username = $_SESSION['username'] ?? '';
-$user_id = $_SESSION['user_id'] ?? null;
-
-// Initialize sidebar items - will be populated by JavaScript from AuthContext
-$sidebar_items = [];
-
-// Get current route or redirect to user's default dashboard
-$route = $_GET['route'] ?? '';
-
-// If no route specified, redirect to user's role-specific dashboard
-if (empty($route)) {
-    DashboardRouter::redirectToDefaultDashboard(true);
-}
+// Get route from URL (authentication verified by JWT in JavaScript)
+$route = $_GET['route'] ?? 'loading';
 
 // Verify the requested route/dashboard exists
 $requestedPath = null;
-if (DashboardRouter::dashboardExists($route)) {
-    $requestedPath = DashboardRouter::getDashboardPath($route);
-} else {
-    // Try as regular page
-    $pagePath = __DIR__ . "/../pages/{$route}.php";
-    if (file_exists($pagePath)) {
-        $requestedPath = $pagePath;
+if ($route !== 'loading') {
+    if (DashboardRouter::dashboardExists($route)) {
+        $requestedPath = DashboardRouter::getDashboardPath($route);
+    } else {
+        // Try as regular page
+        $pagePath = __DIR__ . "/../pages/{$route}.php";
+        if (file_exists($pagePath)) {
+            $requestedPath = $pagePath;
+        }
     }
 }
 
-// If requested route doesn't exist, redirect to default dashboard
-if (!$requestedPath) {
-    error_log("Route not found: {$route}, redirecting to default dashboard");
-    DashboardRouter::redirectToDefaultDashboard(true);
-}
+// Default values (will be populated by JavaScript from JWT token)
+$main_role = 'user';
+$roles = [];
+$username = '';
+$user_id = null;
+$sidebar_items = [];
 ?>
 
 <!-- Main Layout Container -->
@@ -71,8 +53,21 @@ if (!$requestedPath) {
         <main class="main-content flex-grow-1" id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
-                // Load the requested dashboard or page
-                include $requestedPath;
+                if ($route === 'loading') {
+                    // Show loading state while JavaScript verifies auth and redirects
+                    echo '<div class="text-center py-5">';
+                    echo '<div class="spinner-border text-primary" role="status">';
+                    echo '<span class="visually-hidden">Loading...</span>';
+                    echo '</div>';
+                    echo '<p class="mt-3">Loading dashboard...</p>';
+                    echo '</div>';
+                } elseif ($requestedPath) {
+                    // Load the requested dashboard or page
+                    include $requestedPath;
+                } else {
+                    // Route not found
+                    echo '<div class="alert alert-warning">Page not found: ' . htmlspecialchars($route) . '</div>';
+                }
                 ?>
             </div>
         </main>
@@ -325,35 +320,20 @@ function updateSidebarForPermissions() {
         return;
     }
 
-    // Build permission-based sidebar
-    const permissionSidebar = buildPermissionBasedSidebar();
-    window.SIDEBAR_ITEMS = permissionSidebar;
-
-    // Render sidebar with permission-filtered items
-    const sidebarContainer = document.getElementById('sidebar-container');
-    if (sidebarContainer) {
-        fetch('/Kingsway/api/sidebar_render.php', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
-            },
-            body: JSON.stringify({
-                sidebar_items: permissionSidebar
-            })
-        })
-        .then(res => res.text())
-        .then(html => {
-            sidebarContainer.innerHTML = html;
-            initializeSidebarBehavior();
-        })
-        .catch(error => {
-            console.error('Failed to render sidebar:', error);
-            initializeSidebarBehavior();
-        });
+    // Get sidebar items from AuthContext (stored from login response)
+    const sidebarItems = AuthContext.getSidebarItems();
+    
+    console.log('Updating sidebar with items:', sidebarItems);
+    
+    // Use sidebar.js to render the sidebar
+    if (typeof window.refreshSidebar === 'function') {
+        window.refreshSidebar(sidebarItems);
     } else {
-        initializeSidebarBehavior();
+        console.warn('window.refreshSidebar not available, sidebar.js may not be loaded');
     }
+    
+    // Initialize sidebar behavior (toggle, navigation, etc.)
+    initializeSidebarBehavior();
 }
 
 /**
@@ -439,28 +419,13 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log(`User: ${AuthContext.getUser().username}`);
     console.log(`Roles: ${AuthContext.getRoles().join(', ')}`);
     console.log(`Permissions: ${AuthContext.getPermissionCount()} total`);
+    console.log(`Sidebar items: ${AuthContext.getSidebarItems().length} items`);
 
-    // Update sidebar based on permissions
-    updateSidebarForPermissions();
-
-    // Ensure user has access to current route
-    ensureRouteAccess();
-
-    // Optional: Fetch sidebar items from API (backend can provide role-specific menu)
-    if (window.API && window.API.users && typeof window.API.users.getSidebar === 'function') {
-        window.API.users.getSidebar(AuthContext.getUser().id)
-            .then(response => {
-                if (response && response.data && response.data.sidebar) {
-                    // Use API-provided sidebar if available
-                    window.SIDEBAR_ITEMS = response.data.sidebar;
-                    updateSidebarForPermissions();
-                }
-            })
-            .catch(error => {
-                console.warn('Could not fetch sidebar from API, using permission-based fallback:', error);
-                // Continue with permission-based sidebar
-            });
-    }
+    // Wait for sidebar.js to be ready, then update sidebar
+    setTimeout(() => {
+        updateSidebarForPermissions();
+        ensureRouteAccess();
+    }, 100);
 });
 
 // Fallback: Initialize sidebar if DOMContentLoaded fires before AuthContext loads

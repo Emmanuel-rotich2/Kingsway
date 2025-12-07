@@ -133,43 +133,65 @@ const AuthContext = (() => {
     function setUser(userData, fullResponse) {
         currentUser = userData;
 
+        console.log('setUser called with:', { userData, fullResponse });
+
         // Extract and deduplicate permissions
-        if (fullResponse?.permissions && Array.isArray(fullResponse.permissions)) {
+        // Permissions can be in fullResponse.permissions OR userData.permissions
+        const permissionsArray = fullResponse?.permissions || userData?.permissions || [];
+        
+        console.log('Permissions array:', permissionsArray);
+        
+        if (Array.isArray(permissionsArray) && permissionsArray.length > 0) {
             // Create Set of unique permission codes (automatically deduplicates)
             const uniquePermissions = new Set(
-                fullResponse.permissions.map(p => p.permission_code)
+                permissionsArray.map(p => p.permission_code || p)
             );
             permissions = uniquePermissions;
+
+            console.log('Unique permissions extracted:', permissions.size);
 
             // Store in localStorage
             localStorage.setItem(
                 'user_permissions',
                 JSON.stringify(Array.from(permissions))
             );
+        } else {
+            console.warn('No permissions found in response');
         }
 
         // Extract roles
-        if (fullResponse?.roles && Array.isArray(fullResponse.roles)) {
-            roles = fullResponse.roles.map(r => r.name || r);
+        const rolesArray = fullResponse?.roles || userData?.roles || [];
+        if (Array.isArray(rolesArray) && rolesArray.length > 0) {
+            roles = rolesArray.map(r => r.name || r);
             localStorage.setItem('user_roles', JSON.stringify(roles));
+            console.log('Roles extracted:', roles);
+        } else {
+            console.warn('No roles found in response');
         }
 
         // Store sidebar items
         if (fullResponse?.sidebar_items && Array.isArray(fullResponse.sidebar_items)) {
             localStorage.setItem('sidebar_items', JSON.stringify(fullResponse.sidebar_items));
+            console.log('Sidebar items stored:', fullResponse.sidebar_items.length);
             // Trigger sidebar refresh
             if (typeof window.refreshSidebar === 'function') {
                 window.refreshSidebar(fullResponse.sidebar_items);
             }
+        } else {
+            console.warn('No sidebar items found in response');
         }
 
         // Store dashboard info
         if (fullResponse?.dashboard) {
             localStorage.setItem('dashboard_info', JSON.stringify(fullResponse.dashboard));
+            console.log('Dashboard info stored:', fullResponse.dashboard);
+        } else {
+            console.warn('No dashboard info found in response');
         }
 
         // Store user data
         localStorage.setItem('user_data', JSON.stringify(userData));
+        console.log('User data stored');
     }
 
     /**
@@ -355,6 +377,7 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const ENDPOINT_PERMISSIONS = {
     // Auth endpoints (no permission check for login/logout)
     '/users/login': null,
+    '/auth/login': null,
     '/auth/logout': null,
     '/auth/refresh-token': null,
 
@@ -497,6 +520,8 @@ async function apiCall(endpoint, method = 'GET', data = null, params = {}, optio
         const url = new URL(API_BASE_URL + endpoint, window.location.origin);
         Object.keys(params).forEach(key => url.searchParams.append(key, params[key]));
 
+        console.log('API Call:', method, url.toString());
+
         // Request options
         const fetchOptions = {
             method: method,
@@ -518,6 +543,8 @@ async function apiCall(endpoint, method = 'GET', data = null, params = {}, optio
                 fetchOptions.body = JSON.stringify(data);
             }
         }
+
+        console.log('Fetch options:', fetchOptions);
 
         const response = await fetch(url, fetchOptions);
 
@@ -591,7 +618,10 @@ window.API = {
         index: async () =>
             apiCall('/auth/index', 'GET'),
         login: async (username, password) => {
-            const response = await apiCall('/users/login', 'POST', { username, password });
+            const response = await apiCall('/auth/login', 'POST', { username, password });
+            
+            console.log('Full login response:', response);
+            
             if (response && response.token) {
                 // Store token
                 localStorage.setItem('token', response.token);
@@ -599,7 +629,19 @@ window.API = {
                 // Store user context with permissions
                 // The backend returns the user object in response.user
                 const userData = response.user || {};
+                
+                console.log('User data:', userData);
+                console.log('Sidebar items:', response.sidebar_items);
+                console.log('Dashboard info:', response.dashboard);
+                
                 AuthContext.setUser(userData, response);
+                
+                console.log('After setUser - AuthContext state:');
+                console.log('- User:', AuthContext.getUser());
+                console.log('- Permissions:', AuthContext.getPermissionCount());
+                console.log('- Roles:', AuthContext.getRoles());
+                console.log('- Sidebar items:', AuthContext.getSidebarItems());
+                console.log('- Dashboard info:', AuthContext.getDashboardInfo());
                 
                 // Hide login modal
                 const modal = document.getElementById('loginModal');
@@ -616,14 +658,20 @@ window.API = {
                 
                 // Navigate to user's default dashboard
                 const dashboardInfo = AuthContext.getDashboardInfo();
+                console.log('Dashboard info for navigation:', dashboardInfo);
+                
+                let redirectUrl;
                 if (dashboardInfo && dashboardInfo.url) {
-                    window.location.href = '/Kingsway/home.php' + dashboardInfo.url;
+                    redirectUrl = '/Kingsway/home.php' + dashboardInfo.url;
                 } else if (dashboardInfo && dashboardInfo.key) {
-                    window.location.href = '/Kingsway/home.php?route=' + dashboardInfo.key;
+                    redirectUrl = '/Kingsway/home.php?route=' + dashboardInfo.key;
                 } else {
                     // Fallback to home page which will redirect to appropriate dashboard
-                    window.location.href = '/Kingsway/home.php';
+                    redirectUrl = '/Kingsway/home.php';
                 }
+                
+                console.log('Redirecting to:', redirectUrl);
+                window.location.href = redirectUrl;
             }
             return response;
         },

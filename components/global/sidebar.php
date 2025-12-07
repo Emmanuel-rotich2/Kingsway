@@ -3,7 +3,7 @@
     <div class="shadow-sm" style="overflow-y: auto; flex: 1 1 0;">
         <!-- Logo and Title -->
         <div class="d-flex logo align-items-start" style="width:250px; min-width:60px;">
-            <img src="/Kingsway/images/download (16).jpg" alt="Kingsway Logo" class="school-logo">
+            <img src="/Kingsway/images/logo.jpg" alt="Kingsway Logo" class="school-logo">
             <div class="ms-2 logo-name">
                 <h5 class="mb-0">KINGSWAY PREPARATORY SCHOOL</h5>
             </div>
