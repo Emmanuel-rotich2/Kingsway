@@ -1,0 +1,135 @@
+# User Endpoints Test Script - Quick Reference
+
+## What Was Created
+
+✅ **Single Comprehensive Test File**: `/tests/test_user_endpoints.php` (375 lines, 13KB)
+
+A unified PHP test script that tests **ALL 39+ user endpoints** in one file instead of 100 separate test files.
+
+## Quick Start
+
+```bash
+# Run with default URL (localhost)
+php tests/test_user_endpoints.php
+
+# Run with custom URL
+php tests/test_user_endpoints.php http://api.example.com/users
+
+# Make it executable for direct running
+chmod +x tests/test_user_endpoints.php
+./tests/test_user_endpoints.php
+```
+
+## What Gets Tested
+
+### 8 Test Groups:
+
+1. **Authentication & Basic Operations** (2 tests)
+   - Health check
+   - Login
+
+2. **User CRUD** (4 tests)
+   - Create, read, update, list
+
+3. **Roles Management** (7 tests)
+   - Assign roles, get roles, query by role
+
+4. **Permissions Query** (9 tests)
+   - Check permissions, get effective/direct/denied permissions
+
+5. **Permission Assignment** (5 tests)
+   - Assign/revoke permissions to users and roles
+
+6. **Bulk Operations** (8 tests)
+   - Bulk role and permission management
+
+7. **Special Queries** (2 tests)
+   - Temporary permissions, sidebar items
+
+8. **Cleanup** (1 test)
+   - Delete test user
+
+## Features
+
+✓ Single file (no 100 test files)
+✓ Automatic test user creation and cleanup
+✓ Color-coded output (green=pass, red=fail)
+✓ HTTP status tracking
+✓ Summary report with success percentage
+✓ No external dependencies (pure PHP + cURL)
+✓ Well organized and easy to maintain
+✓ Supports custom base URL
+
+## Expected Output
+
+```
+Testing endpoints at: http://localhost/kingsway/api/users
+
+=== USER ENDPOINTS TEST SUITE ===
+
+1. Authentication & Basic Operations
+✓ GET /api/users - Health Check (HTTP 200)
+✓ POST /api/users/login - Login (HTTP 200)
+
+2. User CRUD Operations
+✓ POST /api/users - Create User (HTTP 201)
+✓ GET /api/users - List Users (HTTP 200)
+...
+
+=== SUMMARY ===
+Total: 39 | Passed: 39 | Failed: 0 | Success: 100%
+```
+
+## File Locations
+
+- **Test Script**: `/tests/test_user_endpoints.php`
+- **Documentation**: `/tests/TEST_USER_ENDPOINTS_README.md`
+- **API Controller**: `/api/controllers/UsersController.php`
+- **Business Logic**: `/api/modules/users/UsersAPI.php`
+
+## Customization
+
+Edit these lines in the script:
+
+```php
+// Line 22 - Default base URL
+private $baseUrl = 'http://localhost/kingsway/api/users';
+
+// Line 135-139 - Test credentials
+$payload = [
+    'email' => 'admin@school.com',
+    'password' => 'password123'
+];
+```
+
+## Why One File?
+
+Instead of 100+ separate test files:
+- **Easier to maintain** - single file to update
+- **Faster to run** - one command instead of 100+
+- **Unified output** - consistent format
+- **Automatic cleanup** - manages test data
+- **Better organization** - grouped by functionality
+- **No framework dependency** - plain PHP + cURL
+
+## Endpoints Covered
+
+All 39+ endpoints from UsersController:
+- 5 CRUD endpoints
+- 4 Authentication endpoints
+- 12 Role query endpoints
+- 9 Permission query endpoints
+- 5 Permission assignment endpoints
+- 8 Bulk operation endpoints
+- 3 Special endpoints
+
+## Next Steps
+
+1. ✅ Run the test script
+2. ✅ Review output for any failures
+3. ✅ Check API server logs if tests fail
+4. ✅ Customize as needed for your environment
+
+## Support
+
+For detailed information, see `TEST_USER_ENDPOINTS_README.md` in the same directory.

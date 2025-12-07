@@ -71,6 +71,15 @@ class UsersController extends BaseController
     }
 
     /**
+     * POST /api/users/bulk-create - Create multiple users
+     */
+    public function postBulkCreate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->bulkCreate($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * PUT /api/users/{id} - Update user
      */
     public function putUser($id = null, $data = [], $segments = [])
@@ -231,6 +240,168 @@ class UsersController extends BaseController
     }
 
     // ========================================
+    // SECTION 3B: New Permission Query Methods
+    // ========================================
+
+    /**
+     * GET /api/users/{id}/permissions/effective - Get effective permissions (role + direct)
+     */
+    public function getPermissionsEffective($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserPermissionsEffective($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/permissions/direct - Get direct user permissions only
+     */
+    public function getPermissionsDirect($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserPermissionsDirect($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/permissions/denied - Get denied permissions
+     */
+    public function getPermissionsDenied($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserPermissionsDenied($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/permissions/by-entity - Get permissions organized by entity
+     */
+    public function getPermissionsByEntity($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserPermissionsByEntity($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/permissions/summary - Get permission summary stats
+     */
+    public function getPermissionsSummary($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserPermissionSummary($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/users/{id}/permissions/check - Check if user has specific permission
+     */
+    public function postPermissionsCheck($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        if (!isset($data['permission_code'])) {
+            return $this->badRequest('permission_code is required');
+        }
+
+        $result = $this->api->checkUserPermission($id, $data['permission_code']);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/users/{id}/permissions/check-multiple - Check multiple permissions
+     */
+    public function postPermissionsCheckMultiple($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        if (!isset($data['permission_codes']) || !is_array($data['permission_codes'])) {
+            return $this->badRequest('permission_codes array is required');
+        }
+
+        $result = $this->api->checkUserPermissions($id, $data['permission_codes']);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/{id}/roles/detailed - Get roles with permission counts
+     */
+    public function getRolesDetailed($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $result = $this->api->getUserRolesDetailed($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/with-permission/{permission_code} - Get all users with specific permission
+     */
+    public function getUsersWithPermission($id = null, $data = [], $segments = [])
+    {
+        if (empty($segments)) {
+            return $this->badRequest('Permission code is required');
+        }
+
+        $permissionCode = array_shift($segments);
+        $result = $this->api->getUsersWithPermission($permissionCode);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/with-role/{role_name} - Get all users with specific role
+     */
+    public function getUsersWithRole($id = null, $data = [], $segments = [])
+    {
+        if (empty($segments)) {
+            return $this->badRequest('Role name is required');
+        }
+
+        $roleName = array_shift($segments);
+        $result = $this->api->getUsersWithRole($roleName);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/with-multiple-roles - Get users with more than one role
+     */
+    public function getUsersWithMultipleRoles($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getUsersWithMultipleRoles();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/users/with-temporary-permissions - Get users with temporary permissions expiring soon
+     */
+    public function getUsersWithTemporaryPermissions($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getUsersWithTemporaryPermissions();
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
     // SECTION 4: Sidebar & UI
     // ========================================
 
@@ -273,25 +444,31 @@ class UsersController extends BaseController
      */
     private function routeNestedGet($resource, $id, $data, $segments)
     {
-        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
-        $methodName = 'get' . ucfirst($this->toCamelCase($resource));
-        if ($action) {
-            $methodName .= ucfirst($action);
+        // Build method name: get + [Users|...] + ResourceName
+        // Note: We do NOT append the action/segments to method name
+        // The segments are passed to the method to handle itself
+
+        $resourceCamel = $this->toCamelCase($resource);
+
+        // For 'with-*' resources, use 'Users' prefix
+        if (strpos($resource, 'with-') === 0) {
+            $methodName = 'getUsers' . ucfirst($resourceCamel);
+        } else {
+            $methodName = 'get' . ucfirst($resourceCamel);
         }
 
         if (method_exists($this, $methodName)) {
             if ($id !== null) {
                 $data['id'] = $id;
             }
-            return $this->$methodName($id, $data, []);
+            // Pass segments to the method - it will handle extracting values from them
+            return $this->$methodName($id, $data, $segments);
         }
 
         return $this->notFound("Method '{$methodName}' not found");
-    }
-
-    /**
-     * Route nested PUT requests to appropriate methods
-     */
+    }    /**
+         * Route nested PUT requests to appropriate methods
+         */
     private function routeNestedPut($resource, $id, $data, $segments)
     {
         $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
@@ -366,7 +543,11 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
     public function deletePermissionsBulkRevokeFromUser($id = null, $data = [], $segments = []) {
-        $result = $this->api->bulkRevokePermissionsFromUser($data['user_id'], $data['permissions'] ?? []);
+        $userId = $data['user_id'] ?? null;
+        if (!$userId) {
+            return $this->badRequest('user_id required');
+        }
+        $result = $this->api->bulkRevokePermissionsFromUser($userId, $data['permissions'] ?? []);
         return $this->handleResponse($result);
     }
 
@@ -376,7 +557,11 @@ class UsersController extends BaseController
         return $this->handleResponse($result);
     }
     public function deleteRolesBulkRevokeFromUser($id = null, $data = [], $segments = []) {
-        $result = $this->api->bulkRevokeRolesFromUser($data['user_id'], $data['role_ids'] ?? []);
+        $userId = $data['user_id'] ?? null;
+        if (!$userId) {
+            return $this->badRequest('user_id required');
+        }
+        $result = $this->api->bulkRevokeRolesFromUser($userId, $data['role_ids'] ?? []);
         return $this->handleResponse($result);
     }
     public function postUsersBulkAssignToRole($id = null, $data = [], $segments = []) {

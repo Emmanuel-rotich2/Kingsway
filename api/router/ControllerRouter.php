@@ -34,16 +34,36 @@ class ControllerRouter
             // Get controller name (first segment)
             $controllerName = array_shift($segments);
 
-            // Remaining segments are: [resource, id] or [resource]
-            // Try to extract: first segment is always the resource/action
+            // Remaining segments are: [resource, id/value, ...nested]
+            // Strategy: 
+            // 1. If 2+ segments and second segment is numeric → standard GET /api/controller/resource/123
+            // 2. If 2+ segments and second segment is NOT numeric → nested routing /api/controller/resource/name
+            // 3. If 1 segment → just resource
+
             $resource = !empty($segments) ? array_shift($segments) : null;
-            // Second segment is the ID if it's numeric
-            $id = !empty($segments) && is_numeric($segments[0]) ? array_shift($segments) : null;
+
+            // Determine if resource is actually an ID (numeric value)
+            // or if we have nested routing with additional segments
+            $id = null;
+
+            if ($resource !== null && is_numeric($resource) && empty($segments)) {
+                // Pattern: /api/users/123 - resource is actually the ID
+                $id = $resource;
+                $resource = null;
+            } else if (!empty($segments) && is_numeric($segments[0])) {
+                // Standard pattern: /api/users/profile-get/123
+                $id = array_shift($segments);
+                // $segments now has remaining nested params (if any)
+            } else if (!empty($segments)) {
+                // Nested routing pattern: /api/users/with-role/Headteacher
+                // Put resource back in segments for nested processing
+                array_unshift($segments, $resource);
+                $resource = null;
+                $id = null;
+            }
 
             // Load controller class
-            $controller = $this->loadController($controllerName);
-
-            // Special case: if resource is 'index', call index() directly
+            $controller = $this->loadController($controllerName);            // Special case: if resource is 'index', call index() directly
             if ($resource === 'index' && method_exists($controller, 'index')) {
                 $this->writeRouterDebugLog([
                     'timestamp' => date('c'),

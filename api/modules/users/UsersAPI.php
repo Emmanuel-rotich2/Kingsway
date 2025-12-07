@@ -3,6 +3,7 @@ namespace App\API\Modules\users;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\communications\CommunicationsAPI;
+use Firebase\JWT\JWT;
 use PDO;
 use Exception;
 
@@ -119,6 +120,10 @@ class UsersAPI extends BaseAPI
     {
         return $this->userRoleManager->getUserRoles($userId);
     }
+    public function getUserRolesDetailed($userId)
+    {
+        return $this->userRoleManager->getRolesDetailed($userId);
+    }
     public function bulkAssignRolesToUser($userId, $roleIds)
     {
         return $this->userRoleManager->bulkAssignRoles($userId, $roleIds);
@@ -135,35 +140,75 @@ class UsersAPI extends BaseAPI
     {
         return $this->userRoleManager->bulkRevokeUsersFromRole($roleId, $userIds);
     }
+    public function getUsersWithRole($roleName)
+    {
+        return $this->userRoleManager->getUsersWithRole($roleName);
+    }
+    public function getUsersWithMultipleRoles()
+    {
+        return $this->userRoleManager->getUsersWithMultipleRoles();
+    }
 
     // --- UserPermission assignment and bulk ---
     public function assignPermissionToUserDirect($userId, $permission)
     {
         return $this->userPermissionManager->assignPermission($userId, $permission);
     }
-    public function revokePermissionFromUserDirect($userId, $permission)
+    public function revokePermissionFromUserDirect($userId, $permissionId)
     {
-        return $this->userPermissionManager->revokePermission($userId, $permission);
+        return $this->userPermissionManager->revokePermission($userId, $permissionId);
     }
-    public function getUserPermissions($userId)
+    public function getUserPermissionsEffective($userId)
     {
-        return $this->userPermissionManager->getUserPermissions($userId);
+        return $this->userPermissionManager->getEffectivePermissions($userId);
+    }
+    public function getUserPermissionsDirect($userId)
+    {
+        return $this->userPermissionManager->getDirectPermissions($userId);
+    }
+    public function getUserPermissionsDenied($userId)
+    {
+        return $this->userPermissionManager->getDeniedPermissions($userId);
+    }
+    public function getUserPermissionsByEntity($userId)
+    {
+        return $this->userPermissionManager->getPermissionsByEntity($userId);
+    }
+    public function getUserPermissionSummary($userId)
+    {
+        return $this->userPermissionManager->getPermissionSummary($userId);
+    }
+    public function checkUserPermission($userId, $permissionCode)
+    {
+        return $this->userPermissionManager->hasPermission($userId, $permissionCode);
+    }
+    public function checkUserPermissions($userId, $permissionCodes)
+    {
+        return $this->userPermissionManager->hasPermissions($userId, $permissionCodes);
     }
     public function bulkAssignPermissionsToUserDirect($userId, $permissions)
     {
         return $this->userPermissionManager->bulkAssignPermissions($userId, $permissions);
     }
-    public function bulkRevokePermissionsFromUserDirect($userId, $permissions)
+    public function bulkRevokePermissionsFromUserDirect($userId, $permissionIds)
     {
-        return $this->userPermissionManager->bulkRevokePermissions($userId, $permissions);
+        return $this->userPermissionManager->bulkRevokePermissions($userId, $permissionIds);
     }
-    public function bulkAssignUsersToPermission($permission, $userIds)
+    public function bulkAssignUsersToPermission($permissionId, $userIds, $permType = 'grant')
     {
-        return $this->userPermissionManager->bulkAssignUsersToPermission($permission, $userIds);
+        return $this->userPermissionManager->bulkAssignUsersToPermission($permissionId, $userIds, $permType);
     }
-    public function bulkRevokeUsersFromPermission($permission, $userIds)
+    public function bulkRevokeUsersFromPermission($permissionId, $userIds)
     {
-        return $this->userPermissionManager->bulkRevokeUsersFromPermission($permission, $userIds);
+        return $this->userPermissionManager->bulkRevokeUsersFromPermission($permissionId, $userIds);
+    }
+    public function getUsersWithPermission($permissionCode)
+    {
+        return $this->userPermissionManager->getUsersWithPermission($permissionCode);
+    }
+    public function getUsersWithTemporaryPermissions()
+    {
+        return $this->userPermissionManager->getUsersWithTemporaryPermissions();
     }
 
     // === Controller-required CRUD and utility methods ===
@@ -196,7 +241,7 @@ class UsersAPI extends BaseAPI
     public function create($data)
     {
         // Create a new user
-        $sql = 'INSERT INTO users (username, email, password, first_name, last_name, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())';
+        $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
         $stmt = $this->db->prepare($sql);
         $ok = $stmt->execute([
             $data['username'],
@@ -204,6 +249,7 @@ class UsersAPI extends BaseAPI
             password_hash($data['password'], PASSWORD_DEFAULT),
             $data['first_name'],
             $data['last_name'],
+            $data['role_id'] ?? 1,
             $data['status'] ?? 'active'
         ]);
         if ($ok) {
@@ -211,6 +257,93 @@ class UsersAPI extends BaseAPI
             return ['success' => true, 'data' => $this->get($id)['data']];
         } else {
             return ['success' => false, 'error' => 'User creation failed'];
+        }
+    }
+
+    public function bulkCreate($data)
+    {
+        // Create multiple users in a single transaction
+        // Expected input: {"users": [{"username": "...", "email": "...", ...}, ...]}
+        if (!isset($data['users']) || !is_array($data['users']) || empty($data['users'])) {
+            return ['success' => false, 'error' => 'users array is required and must not be empty'];
+        }
+
+        $this->db->beginTransaction();
+        $created = [];
+        $failed = [];
+
+        try {
+            $stmt = $this->db->prepare('INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+
+            foreach ($data['users'] as $index => $userData) {
+                // Validate required fields
+                if (empty($userData['username']) || empty($userData['email']) || empty($userData['password'])) {
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'Missing required fields: username, email, password'
+                    ];
+                    continue;
+                }
+
+                $ok = $stmt->execute([
+                    $userData['username'],
+                    $userData['email'],
+                    password_hash($userData['password'], PASSWORD_DEFAULT),
+                    $userData['first_name'] ?? '',
+                    $userData['last_name'] ?? '',
+                    $userData['role_id'] ?? 1,
+                    $userData['status'] ?? 'active'
+                ]);
+
+                if ($ok) {
+                    $userId = $this->db->lastInsertId();
+
+                    // If role_ids provided, assign roles and copy permissions
+                    if (isset($userData['role_ids']) && is_array($userData['role_ids']) && !empty($userData['role_ids'])) {
+                        $roleResult = $this->userRoleManager->bulkAssignRoles($userId, $userData['role_ids']);
+                        if (!$roleResult['success']) {
+                            $failed[] = [
+                                'index' => $index,
+                                'user_id' => $userId,
+                                'data' => $userData,
+                                'error' => 'User created but role assignment failed: ' . ($roleResult['error'] ?? 'Unknown error')
+                            ];
+                            continue;
+                        }
+                    }
+
+                    $created[] = [
+                        'index' => $index,
+                        'user_id' => $userId,
+                        'username' => $userData['username'],
+                        'email' => $userData['email']
+                    ];
+                } else {
+                    $failed[] = [
+                        'index' => $index,
+                        'data' => $userData,
+                        'error' => 'User creation failed'
+                    ];
+                }
+            }
+
+            $this->db->commit();
+            return [
+                'success' => true,
+                'data' => [
+                    'created' => $created,
+                    'failed' => $failed,
+                    'summary' => [
+                        'total' => count($data['users']),
+                        'created_count' => count($created),
+                        'failed_count' => count($failed)
+                    ]
+                ]
+            ];
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return ['success' => false, 'error' => 'Bulk creation failed: ' . $e->getMessage()];
         }
     }
     public function update($id, $data)
@@ -256,7 +389,7 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'User not found'];
         }
         $roles = $this->userRoleManager->getUserRoles($userId);
-        $permissions = $this->userPermissionManager->getUserPermissions($userId);
+        $permissions = $this->userPermissionManager->getEffectivePermissions($userId);
         return [
             'success' => true,
             'data' => [
@@ -284,8 +417,14 @@ class UsersAPI extends BaseAPI
         if (!isset($data['permissions']) || !is_array($data['permissions'])) {
             return ['success' => false, 'error' => 'permissions array required'];
         }
+        // Get current permissions IDs
+        $currentPerms = $this->userPermissionManager->getDirectPermissions($id);
+        $currentPermIds = array_column($currentPerms['data'] ?? [], 'id');
+
         // Remove all current direct permissions
-        $this->userPermissionManager->bulkRevokePermissions($id, array_column($this->userPermissionManager->getUserPermissions($id)['data'], 'id'));
+        if (!empty($currentPermIds)) {
+            $this->userPermissionManager->bulkRevokePermissions($id, $currentPermIds);
+        }
         // Assign new permissions
         $result = $this->userPermissionManager->bulkAssignPermissions($id, $data['permissions']);
         return ['success' => $result['success'], 'data' => ['id' => $id, 'permissions_updated' => true]];
@@ -387,21 +526,34 @@ class UsersAPI extends BaseAPI
 
         // Get roles and permissions
         $roles = $this->userRoleManager->getUserRoles($user['id']);
-        $permissions = $this->userPermissionManager->getUserPermissions($user['id']);
+        $permissions = $this->userPermissionManager->getEffectivePermissions($user['id']);
 
-        // Optionally: generate JWT or session token (handled by AuthAPI)
-        // Return user info for token generation
+        // Generate JWT token
+        $token = $this->generateJWT([
+            'user_id' => $user['id'],
+            'username' => $user['username'],
+            'email' => $user['email'],
+            'roles' => $roles['data'] ?? [],
+            'permissions' => $permissions['data'] ?? []
+        ]);
+
+        // Return user info with token
         return [
             'success' => true,
+            'message' => 'Login successful',
             'data' => [
-                'id' => $user['id'],
-                'username' => $user['username'],
-                'email' => $user['email'],
-                'first_name' => $user['first_name'],
-                'last_name' => $user['last_name'],
-                'roles' => $roles['data'] ?? [],
-                'permissions' => $permissions['data'] ?? [],
-                'status' => $user['status'] ?? null
+                'token' => $token,
+                'user' => [
+                    'id' => $user['id'],
+                    'username' => $user['username'],
+                    'email' => $user['email'],
+                    'first_name' => $user['first_name'],
+                    'last_name' => $user['last_name'],
+                    'role_id' => $user['role_id'],
+                    'status' => $user['status'] ?? null,
+                    'roles' => $roles['data'] ?? [],
+                    'permissions' => $permissions['data'] ?? []
+                ]
             ]
         ];
     }
@@ -462,6 +614,26 @@ class UsersAPI extends BaseAPI
             $stmt->execute([$token]);
         }
         return ['success' => $ok, 'data' => ['reset' => $ok]];
+    }
+
+    /**
+     * Generate JWT token for authenticated user
+     */
+    private function generateJWT($userData)
+    {
+        $issuedAt = time();
+        $expire = $issuedAt + (3600); // 1 hour expiry
+
+        $payload = array_merge(
+            $userData,
+            [
+                'iat' => $issuedAt,
+                'exp' => $expire,
+                'iss' => 'kingsway.ac.ke'
+            ]
+        );
+
+        return JWT::encode($payload, JWT_SECRET, 'HS256');
     }
     
 }

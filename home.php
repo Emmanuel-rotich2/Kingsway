@@ -1,6 +1,6 @@
 <?php
 session_start();
-require_once __DIR__ . '/api/includes/auth_middleware.php';
+require_once __DIR__ . '/config/DashboardRouter.php';
 
 // Verify authentication
 if (!isset($_SESSION['user_id'])) {
@@ -13,6 +13,11 @@ if (isset($_GET['route']) && $_GET['route'] === 'logout') {
     session_destroy();
     header('Location: ./index.php');
     exit;
+}
+
+// If no route specified, redirect to user's default dashboard
+if (!isset($_GET['route']) || empty($_GET['route'])) {
+    DashboardRouter::redirectToDefaultDashboard(true);
 }
 
 // Get user role from session
@@ -48,6 +53,7 @@ $roles = $_SESSION['roles'] ?? [$main_role];
 
     <!-- Application Scripts -->
     <script src="/Kingsway/js/api.js"></script>
+    <script src="/Kingsway/js/sidebar.js"></script>
     <script src="/Kingsway/js/main.js"></script>
     <script src="/Kingsway/js/index.js"></script>
 </body>

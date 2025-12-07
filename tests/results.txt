@@ -1,0 +1,36 @@
+═══════════════════════════════════════════════════════════
+USER ENDPOINTS - COMPREHENSIVE TEST SUITE
+═══════════════════════════════════════════════════════════
+Base URL: http://localhost/kingsway/api/users
+Timestamp: 2025-12-06 18:31:36
+Output File: tests/results.txt
+
+─── GROUP 1: Authentication & Login ───
+
+
+Test 1: User Login
+Description: Authenticate user with credentials
+Method: POST
+URL: http://localhost/kingsway/api/users/login
+
+Payload:
+{
+  "email": "admin@school.com",
+  "password": "password123"
+}
+
+Response:
+HTTP Status: 404
+
+Response Body:
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+<html><head>
+<title>404 Not Found</title>
+</head><body>
+<h1>Not Found</h1>
+<p>The requested URL was not found on this server.</p>
+<p>Additionally, a 404 Not Found
+error was encountered while trying to use an ErrorDocument to handle the request.</p>
+</body></html>
+
+Status: FAIL
