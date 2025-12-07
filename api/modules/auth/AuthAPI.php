@@ -146,21 +146,24 @@ class AuthAPI extends BaseAPI
         // Delegate to UsersAPI for authentication and user info
         $result = $this->usersApi->login($data);
         if ($result['success']) {
+            // Extract user data - it's nested in $result['data']['user']
+            $userData = $result['data']['user'] ?? $result['data'];
+
             $token = $this->generateToken([
-                'user_id' => $result['data']['id'],
-                'username' => $result['data']['username'],
-                'email' => $result['data']['email'],
-                'roles' => $result['data']['roles'] ?? [],
-                'display_name' => $result['data']['first_name'] . ' ' . $result['data']['last_name'],
-                'permissions' => $result['data']['permissions'] ?? []
+                'user_id' => $userData['id'],
+                'username' => $userData['username'],
+                'email' => $userData['email'],
+                'roles' => $userData['roles'] ?? [],
+                'display_name' => $userData['first_name'] . ' ' . $userData['last_name'],
+                'permissions' => $userData['permissions'] ?? []
             ]);
 
             // Generate sidebar menu items based on user's roles and permissions
             $dashboardManager = new \DashboardManager();
-            $dashboardManager->setUser($result['data']);
+            $dashboardManager->setUser($userData);
 
             // Get user's primary role for dashboard selection
-            $userRoles = $result['data']['roles'] ?? [];
+            $userRoles = $userData['roles'] ?? [];
             $primaryRole = null;
             if (!empty($userRoles)) {
                 $primaryRole = is_array($userRoles[0])
@@ -168,22 +171,29 @@ class AuthAPI extends BaseAPI
                     : $userRoles[0];
             }
 
-            // Use DashboardRouter to get the correct dashboard for this role
-            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
-            $dashboardUrl = '?route=' . $dashboardKey;
+            // Initialize dashboard manager
+            $dashboardManager = new \DashboardManager();
+            $dashboardManager->setUser($userData);
 
             // Get filtered menu items for user's dashboard
             $sidebarItems = [];
             $defaultDashboard = null;
+            $dashboardKey = null;
 
-            // Try to get dashboard info from DashboardManager
-            $dashboardManager = new \DashboardManager();
-            $dashboardManager->setUser($result['data']);
-
+            // Get dashboard key using DashboardRouter (returns dashboard file key like 'system_administrator_dashboard')
             if ($primaryRole) {
+                $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+
+                // Now convert to dashboard config key (e.g., 'system_administrator_dashboard' → 'system_administrator')
+                // The dashboards.php config uses role-based keys without the '_dashboard' suffix
                 $normalizedRole = strtolower(str_replace(['/', ' ', '-'], '_', $primaryRole));
+
+                // Try to get menu items using normalized role as key
                 $sidebarItems = $dashboardManager->getMenuItems($normalizedRole);
                 $defaultDashboard = $dashboardManager->getDashboard($normalizedRole);
+
+                // Log for debugging
+                error_log("Login: Role=$primaryRole, DashboardKey=$dashboardKey, NormalizedRole=$normalizedRole, MenuItems=" . count($sidebarItems));
             }
 
             // If no sidebar items found, try to get first accessible dashboard
@@ -200,11 +210,11 @@ class AuthAPI extends BaseAPI
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
-                    'user' => $result['data'],
+                    'user' => $userData,
                     'sidebar_items' => $sidebarItems,
                     'dashboard' => [
-                        'key' => $dashboardKey,
-                        'url' => $dashboardUrl,
+                        'key' => $dashboardKey ?? 'home',
+                        'url' => '?route=' . ($dashboardKey ?? 'home'),
                         'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
                     ]
                 ]

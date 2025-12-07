@@ -8,8 +8,12 @@
 =======
         <!-- Logo and Title -->
         <div class="d-flex logo align-items-start" style="width:250px; min-width:60px;">
+<<<<<<< HEAD
             <img src="/Kingsway/images/download (16).jpg" alt="Kingsway Logo" class="school-logo">
 >>>>>>> 015101eaa5fcec34bce60a268265d985d4998948
+=======
+            <img src="/Kingsway/images/logo.jpg" alt="Kingsway Logo" class="school-logo">
+>>>>>>> 27be5c983e14ffe6fc4f3bdbcc5d2b38912c12fb
             <div class="ms-2 logo-name">
                 <h5 class="mb-0">KINGSWAY PREPARATORY SCHOOL</h5>
             </div>

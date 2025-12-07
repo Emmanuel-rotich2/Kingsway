@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Frontend Login Test</title>
+</head>
+<body>
+    <h1>Frontend Login Test</h1>
+    <button onclick="testLogin()">Test Login</button>
+    <pre id="output"></pre>
+
+    <script>
+        async function testLogin() {
+            const output = document.getElementById('output');
+            output.textContent = 'Testing login...\n';
+
+            try {
+                const response = await fetch('/Kingsway/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        username: 'test_system_administrator',
+                        password: 'testpass'
+                    })
+                });
+
+                const data = await response.json();
+                output.textContent += 'HTTP Status: ' + response.status + '\n\n';
+                output.textContent += 'Response:\n' + JSON.stringify(data, null, 2) + '\n\n';
+
+                // Check for sidebar_items and dashboard
+                if (data.data && data.data.data) {
+                    const loginData = data.data.data;
+                    output.textContent += '=== SIDEBAR ITEMS ===\n';
+                    output.textContent += 'Count: ' + (loginData.sidebar_items ? loginData.sidebar_items.length : 0) + '\n';
+                    if (loginData.sidebar_items && loginData.sidebar_items.length > 0) {
+                        loginData.sidebar_items.forEach(item => {
+                            output.textContent += '  - ' + item.label + ' (' + item.url + ')\n';
+                        });
+                    } else {
+                        output.textContent += '  NO SIDEBAR ITEMS!\n';
+                    }
+
+                    output.textContent += '\n=== DASHBOARD ===\n';
+                    if (loginData.dashboard) {
+                        output.textContent += 'Key: ' + loginData.dashboard.key + '\n';
+                        output.textContent += 'URL: ' + loginData.dashboard.url + '\n';
+                        output.textContent += 'Label: ' + loginData.dashboard.label + '\n';
+                    } else {
+                        output.textContent += 'NO DASHBOARD!\n';
+                    }
+                }
+            } catch (error) {
+                output.textContent += 'ERROR: ' + error.message + '\n';
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

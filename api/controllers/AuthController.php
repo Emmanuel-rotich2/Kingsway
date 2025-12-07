@@ -57,20 +57,23 @@ class AuthController extends BaseController
     // Helper for consistent API response
     private function handleResponse($result)
     {
-        $response = null;
         if (is_array($result)) {
+            // If result already has proper API response structure with status and data, return as-is
+            if (isset($result['status']) && isset($result['data'])) {
+                return $result;
+            }
+            // Handle legacy format with 'success' key
             if (isset($result['success'])) {
                 if ($result['success']) {
-                    $response = $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
                 } else {
-                    $response = $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
+                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
                 }
-            } else {
-                $response = $this->success($result);
             }
-        } else {
-            $response = $this->success($result);
+            // Default: wrap in success response
+            return $this->success($result);
         }
-        return $response;
+        // Non-array results
+        return $this->success($result);
     }
 }

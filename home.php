@@ -1,28 +1,26 @@
 <?php
-session_start();
+// home.php - Main application entry point
+// Uses JWT authentication (stateless) - compatible with load balancing
+
 require_once __DIR__ . '/config/DashboardRouter.php';
 
-// Verify authentication
-if (!isset($_SESSION['user_id'])) {
-    header('Location: index.php');
-    exit;
+// Note: Authentication is handled via JWT token in localStorage
+// PHP session is NOT used to maintain stateless REST API architecture
+// This allows the application to work with round-robin load balancing
+
+// Get user role from query parameter or use default
+// The actual authentication check happens via JWT token in JavaScript
+$route = $_GET['route'] ?? '';
+
+// If no route specified, JavaScript will redirect to appropriate dashboard
+// based on user's role from JWT token
+if (empty($route)) {
+    // Let JavaScript handle the redirect based on stored user data
+    $route = 'loading'; // Temporary route while JS loads
 }
 
-// Handle logout
-if (isset($_GET['route']) && $_GET['route'] === 'logout') {
-    session_destroy();
-    header('Location: ./index.php');
-    exit;
-}
-
-// If no route specified, redirect to user's default dashboard
-if (!isset($_GET['route']) || empty($_GET['route'])) {
-    DashboardRouter::redirectToDefaultDashboard(true);
-}
-
-// Get user role from session
-$main_role = $_SESSION['main_role'] ?? ($_SESSION['roles'][0] ?? 'admin');
-$roles = $_SESSION['roles'] ?? [$main_role];
+$main_role = 'user'; // Default, will be populated by JavaScript from token
+$roles = [$main_role];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -52,10 +50,44 @@ $roles = $_SESSION['roles'] ?? [$main_role];
     <?php include __DIR__ . '/layouts/app_layout.php'; ?>
 
     <!-- Application Scripts -->
-    <script src="/Kingsway/js/api.js"></script>
-    <script src="/Kingsway/js/sidebar.js"></script>
-    <script src="/Kingsway/js/main.js"></script>
-    <script src="/Kingsway/js/index.js"></script>
+    <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/index.js?v=<?php echo time(); ?>"></script>
+    
+    <script>
+        // JWT-based authentication check (stateless)
+        document.addEventListener('DOMContentLoaded', function () {
+            // Check if user is authenticated via JWT token
+            if (!AuthContext.isAuthenticated()) {
+                console.warn('No valid JWT token found, redirecting to login');
+                window.location.href = '/Kingsway/index.php';
+                return;
+            }
+
+            // Get current route
+            const urlParams = new URLSearchParams(window.location.search);
+            const route = urlParams.get('route');
+
+            // If no route or loading route, redirect to user's dashboard
+            if (!route || route === 'loading') {
+                const dashboardInfo = AuthContext.getDashboardInfo();
+                if (dashboardInfo && dashboardInfo.key) {
+                    window.location.href = '/Kingsway/home.php?route=' + dashboardInfo.key;
+                } else {
+                    // Fallback: use role to determine dashboard
+                    const user = AuthContext.getUser();
+                    const role = user.roles && user.roles[0] ?
+                        (user.roles[0].name || user.roles[0]) : 'user';
+                    console.log('No dashboard info, using role:', role);
+                    // Let the page load and show a default view
+                }
+            }
+
+            console.log('Authenticated as:', AuthContext.getUser().username);
+            console.log('Current route:', route);
+        });
+    </script>
 </body>
 
 </html>

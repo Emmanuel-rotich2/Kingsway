@@ -153,7 +153,18 @@ class DashboardManager
             return [];
         }
 
-        return $this->filterMenuByPermissions($dashboard['menu_items']);
+        $filteredItems = $this->filterMenuByPermissions($dashboard['menu_items']);
+
+        // Prepend Dashboard link as first item
+        $dashboardItem = [
+            'label' => 'Dashboard',
+            'url' => $dashboardKey . '_dashboard',
+            'icon' => 'bi-speedometer2'
+        ];
+
+        array_unshift($filteredItems, $dashboardItem);
+
+        return $filteredItems;
     }
 
     /**

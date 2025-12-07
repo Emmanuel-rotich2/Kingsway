@@ -95,7 +95,6 @@ if ($conn) {
     </form>
   </div>
 </div>
-
 <script>
 function openUploadModal(classId, subjectId) {
     document.getElementById('class_id').value = classId;
