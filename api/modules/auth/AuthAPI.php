@@ -9,6 +9,10 @@ use App\API\Modules\users\UserRoleManager;
 use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
 use Firebase\JWT\JWT;
+
+require_once __DIR__ . '/../../includes/DashboardManager.php';
+require_once __DIR__ . '/../../../config/DashboardRouter.php';
+
 class AuthAPI extends BaseAPI
 {
     private $usersApi;
@@ -150,13 +154,59 @@ class AuthAPI extends BaseAPI
                 'display_name' => $result['data']['first_name'] . ' ' . $result['data']['last_name'],
                 'permissions' => $result['data']['permissions'] ?? []
             ]);
-            // Optionally: create session, log, etc.
+
+            // Generate sidebar menu items based on user's roles and permissions
+            $dashboardManager = new \DashboardManager();
+            $dashboardManager->setUser($result['data']);
+
+            // Get user's primary role for dashboard selection
+            $userRoles = $result['data']['roles'] ?? [];
+            $primaryRole = null;
+            if (!empty($userRoles)) {
+                $primaryRole = is_array($userRoles[0])
+                    ? ($userRoles[0]['name'] ?? null)
+                    : $userRoles[0];
+            }
+
+            // Use DashboardRouter to get the correct dashboard for this role
+            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+            $dashboardUrl = '?route=' . $dashboardKey;
+
+            // Get filtered menu items for user's dashboard
+            $sidebarItems = [];
+            $defaultDashboard = null;
+
+            // Try to get dashboard info from DashboardManager
+            $dashboardManager = new \DashboardManager();
+            $dashboardManager->setUser($result['data']);
+
+            if ($primaryRole) {
+                $normalizedRole = strtolower(str_replace(['/', ' ', '-'], '_', $primaryRole));
+                $sidebarItems = $dashboardManager->getMenuItems($normalizedRole);
+                $defaultDashboard = $dashboardManager->getDashboard($normalizedRole);
+            }
+
+            // If no sidebar items found, try to get first accessible dashboard
+            if (empty($sidebarItems)) {
+                $defaultDashboard = $dashboardManager->getDefaultDashboard();
+                if ($defaultDashboard) {
+                    $sidebarItems = $defaultDashboard['menu_items'] ?? [];
+                }
+            }
+
+            // Return comprehensive login response
             return [
                 'status' => 'success',
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
-                    'user' => $result['data']
+                    'user' => $result['data'],
+                    'sidebar_items' => $sidebarItems,
+                    'dashboard' => [
+                        'key' => $dashboardKey,
+                        'url' => $dashboardUrl,
+                        'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
+                    ]
                 ]
             ];
         }
@@ -203,7 +253,7 @@ class AuthAPI extends BaseAPI
             'username' => $username,
             'resetLink' => $resetLink
         ]);
-        return $this->communicationsApi->sendResetEmail(
+        return $this->communicationsApi->sendEmail(
             [$email],
             $subject,
             $body

@@ -1,0 +1,9 @@
+PHP Fatal error:  Uncaught Error: Class "Database\Database" not found in /home/prof_angera/Projects/php_pages/Kingsway/tools/extract_role_permissions.php:14
+Stack trace:
+#0 {main}
+  thrown in /home/prof_angera/Projects/php_pages/Kingsway/tools/extract_role_permissions.php on line 14
+
+Fatal error: Uncaught Error: Class "Database\Database" not found in /home/prof_angera/Projects/php_pages/Kingsway/tools/extract_role_permissions.php:14
+Stack trace:
+#0 {main}
+  thrown in /home/prof_angera/Projects/php_pages/Kingsway/tools/extract_role_permissions.php on line 14

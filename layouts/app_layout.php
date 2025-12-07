@@ -1,8 +1,15 @@
 <?php
 // layouts/app_layout.php
+// 
+// This layout integrates with the frontend AuthContext system to provide
+// permission-based UI rendering. Sidebar items, routes, pages, and components
+// are filtered based on user roles and permissions from the login response.
 
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
+
+// Load DashboardRouter for role-to-dashboard mapping
+require_once __DIR__ . '/../config/DashboardRouter.php';
 
 // Handle logout before any output
 if (isset($_GET['route']) && $_GET['route'] === 'logout') {
@@ -17,45 +24,40 @@ $roles = $_SESSION['roles'] ?? [$main_role];
 $username = $_SESSION['username'] ?? '';
 $user_id = $_SESSION['user_id'] ?? null;
 
-// Initialize empty sidebar items - will be populated by JavaScript
+// Initialize sidebar items - will be populated by JavaScript from AuthContext
 $sidebar_items = [];
-$default_dashboard = null;
 
-// Load menu items config as fallback
-$menu_items = include __DIR__ . '/../config/menu_items.php';
+// Get current route or redirect to user's default dashboard
+$route = $_GET['route'] ?? '';
 
-// Set initial sidebar items from config (will be replaced by API call)
-foreach ($roles as $role) {
-    if (isset($menu_items[$role])) {
-        $sidebar_items = array_merge($sidebar_items, $menu_items[$role]);
+// If no route specified, redirect to user's role-specific dashboard
+if (empty($route)) {
+    DashboardRouter::redirectToDefaultDashboard(true);
+}
+
+// Verify the requested route/dashboard exists
+$requestedPath = null;
+if (DashboardRouter::dashboardExists($route)) {
+    $requestedPath = DashboardRouter::getDashboardPath($route);
+} else {
+    // Try as regular page
+    $pagePath = __DIR__ . "/../pages/{$route}.php";
+    if (file_exists($pagePath)) {
+        $requestedPath = $pagePath;
     }
 }
-if (isset($menu_items['universal'])) {
-    $sidebar_items = array_merge($sidebar_items, $menu_items['universal']);
-}
 
-// Default dashboard mapping (only used if API fails)
-$default_dashboards = [
-    'admin' => 'admin_dashboard',
-    'teacher' => 'teacher_dashboard',
-    'accountant' => 'accounts_dashboard',
-    'registrar' => 'admissions_dashboard',
-    'headteacher' => 'head_teacher_dashboard',
-    'head_teacher' => 'head_teacher_dashboard',
-    'non_teaching' => 'non_teaching_dashboard',
-    'student' => 'student_dashboard',
-];
-
-// Get current route or default dashboard
-$route = $_GET['route'] ?? '';
-if (!$route) {
-    $route = $default_dashboard ?? $default_dashboards[$main_role] ?? 'admin_dashboard';
+// If requested route doesn't exist, redirect to default dashboard
+if (!$requestedPath) {
+    error_log("Route not found: {$route}, redirecting to default dashboard");
+    DashboardRouter::redirectToDefaultDashboard(true);
 }
 ?>
 
 <!-- Main Layout Container -->
+<!-- Uses AuthContext from js/api.js for permission-based rendering -->
 <div class="app-layout d-flex">
-    <!-- Sidebar -->
+    <!-- Sidebar (populated by JavaScript based on user permissions) -->
     <div id="sidebar-container">
         <?php include __DIR__ . '/../components/global/sidebar.php'; ?>
     </div>
@@ -69,29 +71,8 @@ if (!$route) {
         <main class="main-content flex-grow-1" id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
-                // Try to load dashboard first, then regular page
-                $found = false;
-                
-                // First try dashboard path
-                $dashboard_path = __DIR__ . "/../components/dashboards/{$route}.php";
-                if (file_exists($dashboard_path)) {
-                    include $dashboard_path;
-                    $found = true;
-                }
-                
-                // If not found, try regular page path
-                if (!$found) {
-                    $page_path = __DIR__ . "/../pages/{$route}.php";
-                    if (file_exists($page_path)) {
-                        include $page_path;
-                        $found = true;
-                    }
-                }
-                
-                // If still not found, show error
-                if (!$found) {
-                    echo "<div class='alert alert-warning'>Page not found: {$route}</div>";
-                }
+                // Load the requested dashboard or page
+                include $requestedPath;
                 ?>
             </div>
         </main>
@@ -102,7 +83,12 @@ if (!$route) {
 </div>
 
 <script>
-// Make sidebar items available to JavaScript
+// ============================================================================
+// PERMISSION-BASED UI INITIALIZATION
+// Uses AuthContext to control sidebar items, pages, and user experience
+// ============================================================================
+
+// Make user info available to JavaScript
 window.SIDEBAR_ITEMS = <?php echo json_encode($sidebar_items); ?>;
 window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
 window.USER_ROLES = <?php echo json_encode($roles); ?>;
@@ -110,97 +96,378 @@ window.USERNAME = <?php echo json_encode($username); ?>;
 window.USER_ID = <?php echo json_encode($user_id); ?>;
 window.CURRENT_ROUTE = <?php echo json_encode($route); ?>;
 
-// Initialize sidebar functionality
-document.addEventListener('DOMContentLoaded', function() {
-    // Fetch sidebar items using API
-    window.API.users.getSidebar(window.USER_ID) // USER_ID is already set from PHP session
-        .then(response => {
-            if (response && response.data) {
-                // Update global variables
-                window.SIDEBAR_ITEMS = response.data.sidebar || window.SIDEBAR_ITEMS;
-                window.MAIN_ROLE = response.data.mainRole || window.MAIN_ROLE;
-                window.USER_ROLES = response.data.extraRoles || window.USER_ROLES;
-                
-                // Update sidebar DOM
-                const sidebarContainer = document.getElementById('sidebar-container');
-                if (sidebarContainer) {
-                    fetch('/Kingsway/api/sidebar_render.php', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            sidebar_items: window.SIDEBAR_ITEMS
-                        })
-                    })
-                    .then(res => res.text())
-                    .then(html => {
-                        sidebarContainer.innerHTML = html;
-                        initializeSidebarBehavior();
-                    })
-                    .catch(error => {
-                        console.error('Failed to render sidebar:', error);
-                        initializeSidebarBehavior(); // Still initialize behavior with fallback items
-                    });
-                }
-            } else {
-                throw new Error('Invalid response format');
+/**
+ * Get default dashboard route for the current user's role
+ */
+function getDefaultDashboardRoute() {
+    const role = window.MAIN_ROLE;
+    
+    // Role to dashboard mapping (must match DashboardRouter.php)
+    const roleToDashboard = {
+        // System & Administration
+        'system_administrator': 'system_administrator_dashboard',
+        'system administrator': 'system_administrator_dashboard',
+        'admin': 'system_administrator_dashboard',
+        
+        // Leadership
+        'director/owner': 'director_owner_dashboard',
+        'director_owner': 'director_owner_dashboard',
+        'director': 'director_owner_dashboard',
+        'headteacher': 'headteacher_dashboard',
+        'head_teacher': 'headteacher_dashboard',
+        'deputy_headteacher': 'deputy_headteacher_dashboard',
+        'deputy headteacher': 'deputy_headteacher_dashboard',
+        
+        // Administrative Staff
+        'school_administrative_officer': 'school_administrative_officer_dashboard',
+        'school administrative officer': 'school_administrative_officer_dashboard',
+        'registrar': 'registrar_dashboard',
+        'secretary': 'secretary_dashboard',
+        
+        // Teaching Staff
+        'class_teacher': 'class_teacher_dashboard',
+        'class teacher': 'class_teacher_dashboard',
+        'subject_teacher': 'subject_teacher_dashboard',
+        'subject teacher': 'subject_teacher_dashboard',
+        'teacher': 'teacher_dashboard',
+        'intern/student_teacher': 'intern_student_teacher_dashboard',
+        'intern_student_teacher': 'intern_student_teacher_dashboard',
+        
+        // Finance
+        'school_accountant': 'school_accountant_dashboard',
+        'school accountant': 'school_accountant_dashboard',
+        'accountant': 'school_accountant_dashboard',
+        'accounts_assistant': 'accounts_assistant_dashboard',
+        'accounts assistant': 'accounts_assistant_dashboard',
+        'accounts': 'accounts_dashboard',
+        
+        // Operations
+        'store_manager': 'store_manager_dashboard',
+        'store manager': 'store_manager_dashboard',
+        'store_attendant': 'store_attendant_dashboard',
+        'store attendant': 'store_attendant_dashboard',
+        'catering_manager/cook_lead': 'catering_manager_cook_lead_dashboard',
+        'catering_manager_cook_lead': 'catering_manager_cook_lead_dashboard',
+        'cook/food_handler': 'cook_food_handler_dashboard',
+        'cook_food_handler': 'cook_food_handler_dashboard',
+        'matron/housemother': 'matron_housemother_dashboard',
+        'matron_housemother': 'matron_housemother_dashboard',
+        
+        // Heads of Department
+        'hod_food_&_nutrition': 'hod_food_nutrition_dashboard',
+        'hod_food_nutrition': 'hod_food_nutrition_dashboard',
+        'hod_games_&_sports': 'hod_games_sports_dashboard',
+        'hod_games_sports': 'hod_games_sports_dashboard',
+        'hod_talent_development': 'hod_talent_development_dashboard',
+        'hod transport': 'hod_transport_dashboard',
+        'hod_transport': 'hod_transport_dashboard',
+        
+        // Support Services
+        'driver': 'driver_dashboard',
+        'school_counselor/chaplain': 'school_counselor_chaplain_dashboard',
+        'school_counselor_chaplain': 'school_counselor_chaplain_dashboard',
+        'security_officer': 'security_officer_dashboard',
+        'security officer': 'security_officer_dashboard',
+        'cleaner/janitor': 'cleaner_janitor_dashboard',
+        'cleaner_janitor': 'cleaner_janitor_dashboard',
+        'librarian': 'librarian_dashboard',
+        'activities_coordinator': 'activities_coordinator_dashboard',
+        'activities coordinator': 'activities_coordinator_dashboard',
+        
+        // External
+        'parent/guardian': 'parent_guardian_dashboard',
+        'parent_guardian': 'parent_guardian_dashboard',
+        'parent': 'parent_guardian_dashboard',
+        'visiting_staff': 'visiting_staff_dashboard',
+        'visiting staff': 'visiting_staff_dashboard',
+    };
+    
+    // Normalize role name
+    const normalizedRole = role ? role.toLowerCase().trim() : '';
+    
+    // Check mapping
+    if (roleToDashboard[normalizedRole]) {
+        return roleToDashboard[normalizedRole];
+    }
+    
+    // Fallback
+    return 'visiting_staff_dashboard';
+}
+
+/**
+ * Navigate to user's default dashboard
+ */
+function navigateToDefaultDashboard() {
+    const dashboard = getDefaultDashboardRoute();
+    window.location.href = `?route=${dashboard}`;
+}
+
+/**
+ * Permission-to-Sidebar mapping
+ * Maps permission codes to sidebar menu items/routes
+ * Only items where user has permission will be shown
+ */
+const PERMISSION_TO_SIDEBAR = {
+    // Students module
+    'students_view': { label: 'Students', route: 'manage_students', icon: 'bi-people' },
+    'students_create': { label: 'Enroll Student', route: 'manage_students_admissions', icon: 'bi-person-plus' },
+    'students_import': { label: 'Import Students', route: 'import_existing_students', icon: 'bi-upload' },
+    
+    // Academic module
+    'academic_view': { label: 'Academic', route: 'manage_subjects', icon: 'bi-book' },
+    'academic_create': { label: 'Manage Subjects', route: 'manage_subjects', icon: 'bi-book-half' },
+    
+    // Staff module
+    'staff_view': { label: 'Staff', route: 'manage_teachers', icon: 'bi-person-workspace' },
+    'staff_create': { label: 'Add Staff', route: 'manage_teachers', icon: 'bi-person-plus-fill' },
+    
+    // Attendance module
+    'attendance_view': { label: 'Attendance', route: 'submit_attendance', icon: 'bi-calendar-check' },
+    'attendance_create': { label: 'Mark Attendance', route: 'mark_attendance', icon: 'bi-pencil-square' },
+    
+    // Finance module
+    'finance_view': { label: 'Finance', route: 'manage_payrolls', icon: 'bi-wallet2' },
+    'finance_create': { label: 'Manage Payroll', route: 'manage_payrolls', icon: 'bi-cash-coin' },
+    'finance_approve': { label: 'Approve Payments', route: 'manage_payrolls', icon: 'bi-check-circle' },
+    
+    // Reports module
+    'reports_view': { label: 'Reports', route: 'class_report', icon: 'bi-file-earmark-pdf' },
+    
+    // System module
+    'system_view': { label: 'System', route: 'school_settings', icon: 'bi-gear' },
+};
+
+/**
+ * Build sidebar items from user permissions
+ * Filters PERMISSION_TO_SIDEBAR based on actual permissions
+ */
+function buildPermissionBasedSidebar() {
+    if (!AuthContext.isAuthenticated()) {
+        console.warn('User not authenticated, using fallback sidebar');
+        return window.SIDEBAR_ITEMS;
+    }
+
+    const visibleItems = [];
+    const userPerms = AuthContext.getPermissions();
+
+    // Add items user has permission for
+    userPerms.forEach(permission => {
+        if (PERMISSION_TO_SIDEBAR[permission]) {
+            const item = PERMISSION_TO_SIDEBAR[permission];
+            // Avoid duplicates
+            if (!visibleItems.find(i => i.route === item.route)) {
+                visibleItems.push(item);
             }
+        }
+    });
+
+    return visibleItems.length > 0 ? visibleItems : window.SIDEBAR_ITEMS;
+}
+
+/**
+ * Check if user has permission to view a route
+ */
+function canAccessRoute(route) {
+    if (!AuthContext.isAuthenticated()) {
+        return true; // Fallback to default behavior
+    }
+
+    // Get all permissions
+    const userPerms = AuthContext.getPermissions();
+
+    // Check if any permission maps to this route
+    for (const [perm, item] of Object.entries(PERMISSION_TO_SIDEBAR)) {
+        if (item.route === route && userPerms.includes(perm)) {
+            return true;
+        }
+    }
+
+    // If route not in mapping, allow access (backend will check)
+    return true;
+}
+
+/**
+ * Redirect to allowed dashboard if current route is forbidden
+ */
+function ensureRouteAccess() {
+    if (!AuthContext.isAuthenticated()) {
+        console.warn('User not authenticated, redirecting to login');
+        window.location.href = '/Kingsway/index.php';
+        return;
+    }
+
+    const currentRoute = window.CURRENT_ROUTE;
+    if (currentRoute && !canAccessRoute(currentRoute)) {
+        console.warn(`User lacks permission for route: ${currentRoute}`);
+        showNotification('Access Denied: You do not have permission to view this page', 'error');
+        
+        // Redirect to first accessible route
+        const userPerms = AuthContext.getPermissions();
+        for (const [perm, item] of Object.entries(PERMISSION_TO_SIDEBAR)) {
+            if (userPerms.includes(perm)) {
+                window.location.href = `?route=${item.route}`;
+                return;
+            }
+        }
+        
+        // No accessible routes, show empty dashboard
+        window.location.href = '/Kingsway/home.php';
+    }
+}
+
+/**
+ * Update sidebar display based on permissions
+ */
+function updateSidebarForPermissions() {
+    if (!AuthContext.isAuthenticated()) {
+        console.warn('AuthContext not available, using fallback sidebar');
+        initializeSidebarBehavior();
+        return;
+    }
+
+    // Build permission-based sidebar
+    const permissionSidebar = buildPermissionBasedSidebar();
+    window.SIDEBAR_ITEMS = permissionSidebar;
+
+    // Render sidebar with permission-filtered items
+    const sidebarContainer = document.getElementById('sidebar-container');
+    if (sidebarContainer) {
+        fetch('/Kingsway/api/sidebar_render.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+            },
+            body: JSON.stringify({
+                sidebar_items: permissionSidebar
+            })
+        })
+        .then(res => res.text())
+        .then(html => {
+            sidebarContainer.innerHTML = html;
+            initializeSidebarBehavior();
         })
         .catch(error => {
-            console.error('Failed to fetch sidebar:', error);
-            // Sidebar will use fallback items from PHP
+            console.error('Failed to render sidebar:', error);
             initializeSidebarBehavior();
         });
+    } else {
+        initializeSidebarBehavior();
+    }
+}
 
-    function initializeSidebarBehavior() {
-        // Handle sidebar toggle
-        const sidebarToggles = document.querySelectorAll('.sidebar-toggle');
-        sidebarToggles.forEach(toggle => {
-            toggle.addEventListener('click', function() {
-                const targetId = this.getAttribute('data-bs-target');
-                const target = document.querySelector(targetId);
-                if (target) {
-                    const bsCollapse = new bootstrap.Collapse(target, {
-                        toggle: true
-                    });
-                }
-            });
+/**
+ * Initialize sidebar behavior (toggle, navigation, etc.)
+ */
+function initializeSidebarBehavior() {
+    // Handle sidebar toggle
+    const sidebarToggles = document.querySelectorAll('.sidebar-toggle');
+    sidebarToggles.forEach(toggle => {
+        toggle.addEventListener('click', function() {
+            const targetId = this.getAttribute('data-bs-target');
+            const target = document.querySelector(targetId);
+            if (target) {
+                const bsCollapse = new bootstrap.Collapse(target, {
+                    toggle: true
+                });
+            }
         });
+    });
 
-        // Handle navigation
-        document.querySelectorAll('.sidebar-link').forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                const route = this.getAttribute('data-route');
-                if (route) {
-                    // Store current scroll position
-                    sessionStorage.setItem('scrollPos', window.scrollY);
-                    window.location.href = `?route=${route}`;
+    // Handle navigation (with permission check)
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            const route = this.getAttribute('data-route');
+            if (route) {
+                // Check permission before navigation
+                if (!canAccessRoute(route)) {
+                    showNotification('You do not have permission to access this page', 'error');
+                    return;
                 }
-            });
+                
+                // Store current scroll position
+                sessionStorage.setItem('scrollPos', window.scrollY);
+                window.location.href = `?route=${route}`;
+            }
         });
+    });
 
-        // Restore scroll position if coming back
-        const scrollPos = sessionStorage.getItem('scrollPos');
-        if (scrollPos) {
-            window.scrollTo(0, parseInt(scrollPos));
-            sessionStorage.removeItem('scrollPos');
-        }
+    // Restore scroll position if coming back
+    const scrollPos = sessionStorage.getItem('scrollPos');
+    if (scrollPos) {
+        window.scrollTo(0, parseInt(scrollPos));
+        sessionStorage.removeItem('scrollPos');
+    }
 
-        // Highlight current route in sidebar
-        const currentRoute = window.CURRENT_ROUTE;
-        if (currentRoute) {
-            const activeLink = document.querySelector(`.sidebar-link[data-route="${currentRoute}"]`);
-            if (activeLink) {
-                activeLink.classList.add('active');
-                // If in submenu, expand parent
-                const parentCollapse = activeLink.closest('.collapse');
-                if (parentCollapse) {
-                    new bootstrap.Collapse(parentCollapse, { show: true });
-                }
+    // Highlight current route in sidebar
+    const currentRoute = window.CURRENT_ROUTE;
+    if (currentRoute) {
+        const activeLink = document.querySelector(`.sidebar-link[data-route="${currentRoute}"]`);
+        if (activeLink) {
+            activeLink.classList.add('active');
+            // If in submenu, expand parent
+            const parentCollapse = activeLink.closest('.collapse');
+            if (parentCollapse) {
+                new bootstrap.Collapse(parentCollapse, { show: true });
             }
         }
+    }
+}
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait for AuthContext to be ready (loaded from api.js)
+    if (typeof AuthContext === 'undefined') {
+        console.error('AuthContext not loaded. Make sure js/api.js is included before app_layout.php');
+        initializeSidebarBehavior();
+        return;
+    }
+
+    // Verify user is authenticated
+    if (!AuthContext.isAuthenticated()) {
+        console.warn('User not authenticated, redirecting to login');
+        window.location.href = '/Kingsway/index.php';
+        return;
+    }
+
+    // Log user info for debugging
+    console.log(`%c👤 Layout Initialized`, 'color: #4CAF50; font-weight: bold;');
+    console.log(`User: ${AuthContext.getUser().username}`);
+    console.log(`Roles: ${AuthContext.getRoles().join(', ')}`);
+    console.log(`Permissions: ${AuthContext.getPermissionCount()} total`);
+
+    // Update sidebar based on permissions
+    updateSidebarForPermissions();
+
+    // Ensure user has access to current route
+    ensureRouteAccess();
+
+    // Optional: Fetch sidebar items from API (backend can provide role-specific menu)
+    if (window.API && window.API.users && typeof window.API.users.getSidebar === 'function') {
+        window.API.users.getSidebar(AuthContext.getUser().id)
+            .then(response => {
+                if (response && response.data && response.data.sidebar) {
+                    // Use API-provided sidebar if available
+                    window.SIDEBAR_ITEMS = response.data.sidebar;
+                    updateSidebarForPermissions();
+                }
+            })
+            .catch(error => {
+                console.warn('Could not fetch sidebar from API, using permission-based fallback:', error);
+                // Continue with permission-based sidebar
+            });
+    }
+});
+
+// Fallback: Initialize sidebar if DOMContentLoaded fires before AuthContext loads
+window.addEventListener('load', function() {
+    if (typeof AuthContext !== 'undefined' && AuthContext.isAuthenticated()) {
+        console.log('Layout initialized via load event');
+        updateSidebarForPermissions();
     }
 });
 </script>

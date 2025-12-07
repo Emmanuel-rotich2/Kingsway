@@ -30,6 +30,8 @@ class AuthMiddleware
             'auth/reset-password',
             'auth/complete-reset',
             'auth/verify-reset-token',
+            'users/login',
+            'users/register',
         ];
 
         // Check if current request is to a public endpoint

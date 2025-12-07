@@ -1,0 +1,164 @@
+==== Testing /api/users endpoints ====
+
+[1] Testing GET /api/users/index
+==== GET http://localhost/Kingsway/api/users/index ====
+"{\"status\":\"success\",\"message\":\"Success\",\"data\":{\"message\":\"Users API is running\"},\"code\":200,\"timestamp\":\"2025-12-06T19:15:42+03:00\",\"request_id\":\"req_693456ae101e7\"}"
+HTTP_STATUS:200
+
+[2] Testing POST /api/users/login
+==== POST http://localhost/Kingsway/api/users/login ====
+{"status":"error","message":"Invalid username or password","data":null,"code":400,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456ae31b62"}
+HTTP_STATUS:400
+
+[3] Testing GET /api/users
+==== GET http://localhost/Kingsway/api/users ====
+{"status":"success","message":"Success","data":[{"id":1,"username":"updateduser2025","email":"updated2025@example.com","first_name":"Updated","last_name":"User","password":"testpass","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-11-29 14:23:13","updated_at":"2025-12-06 10:55:39"},{"id":2,"username":"updateduser","email":"updated@example.com","first_name":"John","last_name":"Doe","password":"$2y$10$KgGZ5afF\/vaowXZrLB2Yiu8Z4p9y0Q2V4.vz4yXyc7FiPBMDU.0La","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:42:44","updated_at":"2025-12-06 10:42:58"},{"id":4,"username":"testuser2025","email":"testuser2025@example.com","first_name":"Test","last_name":"User","password":"$2y$10$ae7h.Jb.fA9qi5bTmlDaHepN8hwATYxfhOUdVm\/LcVMd6x3pFfrlS","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:55:39","updated_at":"2025-12-06 10:55:39"},{"id":5,"username":"testuser1765036044","email":"testuser1765036044@school.com","first_name":"Test","last_name":"User","password":"$2y$10$OpZlcZZ7keyGMVznSOJk9.pNP6NESwj6Q1FdsxuF6QiWhRYjMzTpO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:47:25","updated_at":"2025-12-06 18:47:25"},{"id":6,"username":"testuser1765036087","email":"testuser1765036087@school.com","first_name":"Test","last_name":"User","password":"$2y$10$9TVWUEbdLLWQ4AsnBngoSeu3S147xmP94je1siRZPhdWZG\/floAeO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:48:07","updated_at":"2025-12-06 18:48:07"},{"id":7,"username":"testuser1765036664","email":"testuser1765036664@school.com","first_name":"Test","last_name":"User","password":"$2y$10$55qujnAlJU4LqWYfDRAuEujrsXJnTzaEnDDBt\/F.LjiSv1eCOqdy2","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:57:44","updated_at":"2025-12-06 18:57:44"},{"id":8,"username":"testuser1765036843","email":"testuser1765036843@school.com","first_name":"Test","last_name":"User","password":"$2y$10$W\/5fDqLmR2W1lRvF\/7oY.OzkNW0FoqzIotqGj.GhyucmhV8oRxcsu","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:00:43","updated_at":"2025-12-06 19:00:43"}],"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456ae47999"}
+HTTP_STATUS:200
+
+[4] Testing POST /api/users - Create User
+==== POST http://localhost/Kingsway/api/users ====
+{"status":"success","message":"Success","data":{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Test","last_name":"User","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"},"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456ae5c016"}
+HTTP_STATUS:200
+Captured User ID: 9
+
+[5] Testing GET /api/users/9
+==== GET http://localhost/Kingsway/api/users/9 ====
+{"status":"success","message":"Success","data":{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Test","last_name":"User","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"},"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456ae8b200"}
+HTTP_STATUS:200
+
+[6] Testing PUT /api/users/9 - Update User
+==== PUT http://localhost/Kingsway/api/users/9 ====
+{"status":"success","message":"Success","data":{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Updated","last_name":"TestUser","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"},"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456ae9ebe0"}
+HTTP_STATUS:200
+
+[7] Testing GET /api/users/profile-get/9
+==== GET http://localhost/Kingsway/api/users/profile-get/9 ====
+{"status":"success","message":"Success","data":{"id":"9","profile":{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Updated","last_name":"TestUser","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"},"roles":[],"permissions":[]},"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456aeb8669"}
+HTTP_STATUS:200
+
+[8] Testing PUT /api/users/password-change/9
+==== PUT http://localhost/Kingsway/api/users/password-change/9 ====
+{"status":"error","message":"Old and new password required","data":null,"code":400,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456aecf547"}
+HTTP_STATUS:400
+
+[9] Testing GET /api/users/roles-get
+==== GET http://localhost/Kingsway/api/users/roles-get ====
+{"status":"success","message":"Success","data":{"success":true,"data":[{"id":1,"name":"Admin","description":"Administrator","created_at":"2025-11-29 14:23:13","updated_at":"2025-11-29 14:23:13"},{"id":2,"name":"System Administrator","description":"System-level administrative access only","created_at":"2025-12-06 15:54:06","updated_at":"2025-12-06 15:54:06"},{"id":3,"name":"Director\/Owner","description":"School director\/owner - reports, approvals, payroll, strategic decisions","created_at":"2025-12-06 15:54:06","updated_at":"2025-12-06 15:54:06"},{"id":4,"name":"School Administrative Officer","description":"School operational super-user - all operational permissions","created_at":"2025-12-06 15:54:06","updated_at":"2025-12-06 15:54:06"},{"id":5,"name":"Headteacher","description":"Academic leadership - class management, assessments","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":6,"name":"Deputy Headteacher","description":"Academic support - assessments, supervision","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":7,"name":"Class Teacher","description":"Class management - attendance, assessments, results","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":8,"name":"Subject Teacher","description":"Subject-level - exams, assessments, results","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":9,"name":"Intern\/Student Teacher","description":"Learning internship - view-only","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":10,"name":"School Accountant","description":"Finance management - fees, payroll, budgets, reconciliation","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":11,"name":"Accounts Assistant","description":"Finance support - fee\/payment view, invoicing","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":12,"name":"Registrar","description":"Student management - admissions, enrollment, transfers, documents","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":13,"name":"Secretary","description":"Administrative hub - records, communications, announcements","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":14,"name":"Store Manager","description":"Store management - inventory, requisitions","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":15,"name":"Store Attendant","description":"Store support - inventory assistance","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":16,"name":"Catering Manager\/Cook Lead","description":"Catering leadership - meal planning, food management","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":17,"name":"Cook\/Food Handler","description":"Food preparation - meal preparation","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":18,"name":"Matron\/Housemother","description":"Boarding care - student welfare, health","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":19,"name":"HOD - Food & Nutrition","description":"Department head - Food & Nutrition","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":20,"name":"HOD - Games & Sports","description":"Department head - Games & Sports","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":21,"name":"HOD - Talent Development","description":"Department head - Talent Development","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":22,"name":"HOD - Transport","description":"Department head - Transport","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":23,"name":"Driver","description":"Transport - route management, student transport","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":24,"name":"School Counselor\/Chaplain","description":"Welfare HOD - student counseling, pastoral care","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":25,"name":"Security Officer","description":"Campus security - access control, incident logging","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":26,"name":"Cleaner\/Janitor","description":"Maintenance - facility cleaning, maintenance requests","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":27,"name":"Librarian","description":"Library management - resources, access control","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":28,"name":"Activities Coordinator","description":"Activities management - events, participation","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":29,"name":"Parent\/Guardian","description":"Parent portal - read-only student data access","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"},{"id":30,"name":"Visiting Staff","description":"Guest staff - limited messaging only","created_at":"2025-12-06 15:54:07","updated_at":"2025-12-06 15:54:07"}]},"code":200,"timestamp":"2025-12-06T19:15:42+03:00","request_id":"req_693456aee8905"}
+HTTP_STATUS:200
+
+[10] Testing POST /api/users/role-assign/9
+==== POST http://localhost/Kingsway/api/users/role-assign/9 ====
+{"status":"success","message":"Success","data":{"id":"9","role_assigned":true},"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af07cde"}
+HTTP_STATUS:200
+
+[11] Testing GET /api/users/role-main/9
+==== GET http://localhost/Kingsway/api/users/role-main/9 ====
+{"status":"success","message":"Success","data":{"id":"9","main_role":{"id":1,"name":"Admin","description":"Administrator","created_at":"2025-11-29 14:23:13","updated_at":"2025-11-29 14:23:13"}},"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af1b7cb"}
+HTTP_STATUS:200
+
+[12] Testing GET /api/users/role-extra/9
+==== GET http://localhost/Kingsway/api/users/role-extra/9 ====
+{"status":"success","message":"Success","data":{"id":"9","extra_roles":[]},"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af29fed"}
+HTTP_STATUS:200
+
+[13] Testing GET /api/users/with-role/Headteacher
+==== GET http://localhost/Kingsway/api/users/with-role/Headteacher ====
+{"status":"success","message":"Success","data":[],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af36e6f"}
+HTTP_STATUS:200
+
+[14] Testing GET /api/users/with-multiple-roles
+==== GET http://localhost/Kingsway/api/users/with-multiple-roles ====
+{"status":"success","message":"Success","data":[{"id":1,"username":"updateduser2025","email":"updated2025@example.com","first_name":"Updated","last_name":"User","password":"testpass","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-11-29 14:23:13","updated_at":"2025-12-06 10:55:39"},{"id":2,"username":"updateduser","email":"updated@example.com","first_name":"John","last_name":"Doe","password":"$2y$10$KgGZ5afF\/vaowXZrLB2Yiu8Z4p9y0Q2V4.vz4yXyc7FiPBMDU.0La","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:42:44","updated_at":"2025-12-06 10:42:58"},{"id":4,"username":"testuser2025","email":"testuser2025@example.com","first_name":"Test","last_name":"User","password":"$2y$10$ae7h.Jb.fA9qi5bTmlDaHepN8hwATYxfhOUdVm\/LcVMd6x3pFfrlS","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:55:39","updated_at":"2025-12-06 10:55:39"},{"id":5,"username":"testuser1765036044","email":"testuser1765036044@school.com","first_name":"Test","last_name":"User","password":"$2y$10$OpZlcZZ7keyGMVznSOJk9.pNP6NESwj6Q1FdsxuF6QiWhRYjMzTpO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:47:25","updated_at":"2025-12-06 18:47:25"},{"id":6,"username":"testuser1765036087","email":"testuser1765036087@school.com","first_name":"Test","last_name":"User","password":"$2y$10$9TVWUEbdLLWQ4AsnBngoSeu3S147xmP94je1siRZPhdWZG\/floAeO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:48:07","updated_at":"2025-12-06 18:48:07"},{"id":7,"username":"testuser1765036664","email":"testuser1765036664@school.com","first_name":"Test","last_name":"User","password":"$2y$10$55qujnAlJU4LqWYfDRAuEujrsXJnTzaEnDDBt\/F.LjiSv1eCOqdy2","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:57:44","updated_at":"2025-12-06 18:57:44"},{"id":8,"username":"testuser1765036843","email":"testuser1765036843@school.com","first_name":"Test","last_name":"User","password":"$2y$10$W\/5fDqLmR2W1lRvF\/7oY.OzkNW0FoqzIotqGj.GhyucmhV8oRxcsu","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:00:43","updated_at":"2025-12-06 19:00:43"},{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Updated","last_name":"TestUser","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"}],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af46ec7"}
+HTTP_STATUS:200
+
+[15] Testing GET /api/users/permissions-get
+==== GET http://localhost/Kingsway/api/users/permissions-get ====
+{"status":"success","message":"Success","data":{"success":true,"data":[]},"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af55004"}
+HTTP_STATUS:200
+
+[16] Testing GET /api/users/permissions-effective/9
+==== GET http://localhost/Kingsway/api/users/permissions-effective/9 ====
+{"status":"success","message":"Success","data":[],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af61902"}
+HTTP_STATUS:200
+
+[17] Testing GET /api/users/permissions-direct/9
+==== GET http://localhost/Kingsway/api/users/permissions-direct/9 ====
+{"status":"success","message":"Success","data":[],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af74602"}
+HTTP_STATUS:200
+
+[18] Testing GET /api/users/permissions-denied/9
+==== GET http://localhost/Kingsway/api/users/permissions-denied/9 ====
+{"status":"success","message":"Success","data":[],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af90a26"}
+HTTP_STATUS:200
+
+[19] Testing GET /api/users/permissions-by-entity/9
+==== GET http://localhost/Kingsway/api/users/permissions-by-entity/9 ====
+{"status":"success","message":"Success","data":[],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456af9ec12"}
+HTTP_STATUS:200
+
+[20] Testing GET /api/users/permissions-summary/9
+==== GET http://localhost/Kingsway/api/users/permissions-summary/9 ====
+{"status":"success","message":"Success","data":[{"metric":"denied_count","count":0},{"metric":"expiring_soon","count":0}],"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456afac676"}
+HTTP_STATUS:200
+
+[21] Testing POST /api/users/permissions-check/9
+==== POST http://localhost/Kingsway/api/users/permissions-check/9 ====
+{"status":"success","message":"Success","data":null,"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456afbc9df"}
+HTTP_STATUS:200
+
+[22] Testing POST /api/users/permissions-check-multiple/9
+==== POST http://localhost/Kingsway/api/users/permissions-check-multiple/9 ====
+{"status":"success","message":"Success","data":{"manage_students_view":false,"manage_staff_view":false},"code":200,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456afc9738"}
+HTTP_STATUS:200
+
+[23] Testing GET /api/users/with-permission/manage_students_view
+==== GET http://localhost/Kingsway/api/users/with-permission/manage_students_view ====
+{"status":"error","message":"SQLSTATE[45000]: <<Unknown error>>: 1644 Permission not found","data":null,"code":400,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456afd8af4"}
+HTTP_STATUS:400
+
+[24] Testing POST /api/users/permission-assign/9
+==== POST http://localhost/Kingsway/api/users/permission-assign/9 ====
+{"status":"error","message":"permission_id required","data":null,"code":400,"timestamp":"2025-12-06T19:15:43+03:00","request_id":"req_693456afe73da"}
+HTTP_STATUS:400
+
+[25] Testing PUT /api/users/permissions-update/9
+==== PUT http://localhost/Kingsway/api/users/permissions-update/9 ====
+{"status":"success","message":"Success","data":{"id":"9","permissions_updated":true},"code":200,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b0006ed"}
+HTTP_STATUS:200
+
+[26] Testing POST /api/users/roles-bulk-assign-to-user
+==== POST http://localhost/Kingsway/api/users/roles-bulk-assign-to-user ====
+{"status":"success","message":"Success","data":{"user_id":9,"assigned_roles":2,"total_attempted":2},"code":200,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b0162db"}
+HTTP_STATUS:200
+
+[27] Testing DELETE /api/users/roles-bulk-revoke-from-user
+==== DELETE http://localhost/Kingsway/api/users/roles-bulk-revoke-from-user ====
+{"status":"error","message":"user_id required","data":null,"code":400,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b028b14"}
+HTTP_STATUS:400
+
+[28] Testing POST /api/users/permissions-bulk-assign-to-user
+==== POST http://localhost/Kingsway/api/users/permissions-bulk-assign-to-user ====
+{"status":"success","message":"Success","data":{"user_id":9,"permissions_assigned":2},"code":200,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b03656f"}
+HTTP_STATUS:200
+
+[29] Testing DELETE /api/users/permissions-bulk-revoke-from-user
+==== DELETE http://localhost/Kingsway/api/users/permissions-bulk-revoke-from-user ====
+{"status":"error","message":"user_id required","data":null,"code":400,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b0450c9"}
+HTTP_STATUS:400
+
+[30] Testing GET /api/users/with-temporary-permissions
+==== GET http://localhost/Kingsway/api/users/with-temporary-permissions ====
+{"status":"success","message":"Success","data":[{"id":1,"username":"updateduser2025","email":"updated2025@example.com","first_name":"Updated","last_name":"User","password":"testpass","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-11-29 14:23:13","updated_at":"2025-12-06 10:55:39"},{"id":2,"username":"updateduser","email":"updated@example.com","first_name":"John","last_name":"Doe","password":"$2y$10$KgGZ5afF\/vaowXZrLB2Yiu8Z4p9y0Q2V4.vz4yXyc7FiPBMDU.0La","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:42:44","updated_at":"2025-12-06 10:42:58"},{"id":4,"username":"testuser2025","email":"testuser2025@example.com","first_name":"Test","last_name":"User","password":"$2y$10$ae7h.Jb.fA9qi5bTmlDaHepN8hwATYxfhOUdVm\/LcVMd6x3pFfrlS","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 10:55:39","updated_at":"2025-12-06 10:55:39"},{"id":5,"username":"testuser1765036044","email":"testuser1765036044@school.com","first_name":"Test","last_name":"User","password":"$2y$10$OpZlcZZ7keyGMVznSOJk9.pNP6NESwj6Q1FdsxuF6QiWhRYjMzTpO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:47:25","updated_at":"2025-12-06 18:47:25"},{"id":6,"username":"testuser1765036087","email":"testuser1765036087@school.com","first_name":"Test","last_name":"User","password":"$2y$10$9TVWUEbdLLWQ4AsnBngoSeu3S147xmP94je1siRZPhdWZG\/floAeO","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:48:07","updated_at":"2025-12-06 18:48:07"},{"id":7,"username":"testuser1765036664","email":"testuser1765036664@school.com","first_name":"Test","last_name":"User","password":"$2y$10$55qujnAlJU4LqWYfDRAuEujrsXJnTzaEnDDBt\/F.LjiSv1eCOqdy2","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 18:57:44","updated_at":"2025-12-06 18:57:44"},{"id":8,"username":"testuser1765036843","email":"testuser1765036843@school.com","first_name":"Test","last_name":"User","password":"$2y$10$W\/5fDqLmR2W1lRvF\/7oY.OzkNW0FoqzIotqGj.GhyucmhV8oRxcsu","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:00:43","updated_at":"2025-12-06 19:00:43"},{"id":9,"username":"testuser1765037742","email":"testuser1765037742@school.com","first_name":"Updated","last_name":"TestUser","password":"$2y$10$\/B\/sCuVL0hSdEtlwnb838elUoPhGb3WXvaFSBlhk856\/b8XnFnBuy","role_id":1,"status":"active","last_login":null,"password_changed_at":null,"created_at":"2025-12-06 19:15:42","updated_at":"2025-12-06 19:15:42"}],"code":200,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b0517ab"}
+HTTP_STATUS:200
+
+[31] Testing GET /api/users/sidebar-items?user_id=9
+==== GET http://localhost/Kingsway/api/users/sidebar-items?user_id=9 ====
+{"status":"success","message":"Success","data":[{"label":"Dashboard","icon":"bi bi-speedometer2","url":"admin_dashboard"},{"label":"User Management","icon":"bi bi-people","subitems":[{"label":"Manage System Users","icon":"bi bi-person","url":"manage_users"},{"label":"Manage Students","icon":"bi bi-person","url":"manage_students"},{"label":"Roles & Permissions","icon":"bi bi-shield-lock","url":"manage_roles"},{"label":"Audit Logs","icon":"bi bi-journal-text","url":"audit_logs"}]},{"label":"System Settings","icon":"bi bi-gear","subitems":[{"label":"Academic Terms","icon":"bi bi-calendar3","url":"academic_terms"},{"label":"School Levels","icon":"bi bi-diagram-3","url":"school_levels"},{"label":"Departments","icon":"bi bi-building","url":"departments"},{"label":"Fee Structures","icon":"bi bi-cash-stack","url":"fee_structures"},{"label":"Communication Templates","icon":"bi bi-envelope","url":"communication_templates"}]},{"label":"Inventory","icon":"bi bi-box-seam","subitems":[{"label":"Items","icon":"bi bi-box","url":"inventory_items"},{"label":"Categories","icon":"bi bi-tags","url":"inventory_categories"},{"label":"Stock Management","icon":"bi bi-boxes","url":"stock_management"}]},{"label":"Reports","icon":"bi bi-file-earmark-text","subitems":[{"label":"System Reports","icon":"bi bi-file-text","url":"system_reports"},{"label":"Audit Reports","icon":"bi bi-file-ruled","url":"audit_reports"}]}],"code":200,"timestamp":"2025-12-06T19:15:44+03:00","request_id":"req_693456b060bbd"}
+HTTP_STATUS:200
+
+[32] Testing DELETE /api/users/9
+==== DELETE http://localhost/Kingsway/api/users/9 ====
+{"status":"error","message":"SQLSTATE[45000]: <<Unknown error>>: 1644 Cannot delete admin users","code":500}
+HTTP_STATUS:500
+
+==== All /api/users endpoint tests completed ====

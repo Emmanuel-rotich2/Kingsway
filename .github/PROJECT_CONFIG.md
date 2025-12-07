@@ -197,6 +197,29 @@ ORDER BY wi.started_at DESC;
 
 ---
 
-**Last Updated**: 12 November 2025  
+## RBAC System Documentation
+
+The RBAC (Role-Based Access Control) system has been completely normalized. For comprehensive documentation on:
+
+- Normalized database schema
+- Available procedures and functions
+- PHP usage examples
+- RBAC queries
+- Migration files
+
+See: **[RBAC System Documentation](./PROJECT_CONFIG_RBAC.md)**
+
+### Quick Status
+
+- ✅ **Status**: Fully Normalized (December 2025)
+- **Total Permissions**: 4,456
+- **Active Roles**: 29 (+ 1 legacy Admin)
+- **Role-Permission Mappings**: 16,213
+- **Helper Procedures**: 7 procedures + 1 function
+- **Audit Logging**: ✅ Complete
+
+---
+
+**Last Updated**: 6 December 2025  
 **Maintained By**: Development Team  
 **For Support**: Contact system administrator
