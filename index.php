@@ -88,11 +88,7 @@ ini_set('display_errors', 1);
   <nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm">
     <div class="container">
       <a class="navbar-brand d-flex align-items-center" href="#">
-<<<<<<< HEAD
         <img src="images/kings logo.png" alt="Kingsway Logo" class="school-logo me-2">
-=======
-        <img src="./images/logo.jpg" alt="Kingsway Logo" class="school-logo me-2">
->>>>>>> 6ee06f9e7438cf4d29968f4b679bd37e1f7f33d1
         Kingsway Prep School
       </a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">

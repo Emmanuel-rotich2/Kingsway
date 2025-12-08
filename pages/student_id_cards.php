@@ -5,347 +5,323 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student ID Cards - Kingsway Academy</title>
+
+    <!-- Bootstrap -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+
     <style>
+        body {
+            background: #f5f7fa;
+        }
+
         .student-card {
-            border: 1px solid #ddd;
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 15px;
-            margin-bottom: 15px;
-            transition: all 0.3s;
+            background: #fff;
+            border: 1px solid #e6e6e6;
+            transition: .3s ease;
         }
 
         .student-card:hover {
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            transform: translateY(-2px);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
         }
 
         .student-photo {
-            width: 100px;
-            height: 120px;
-            object-fit: cover;
+            width: 95px;
+            height: 110px;
             border-radius: 8px;
-            border: 2px solid #007bff;
+            object-fit: cover;
+            border: 2px solid #0d6efd;
         }
 
         .upload-zone {
-            border: 2px dashed #ccc;
-            border-radius: 8px;
-            padding: 30px;
+            border: 2px dashed #b5b5b5;
+            border-radius: 10px;
+            padding: 25px;
             text-align: center;
+            transition: .3s;
             cursor: pointer;
-            transition: all 0.3s;
         }
 
         .upload-zone:hover {
-            border-color: #007bff;
-            background: #f8f9ff;
-        }
-
-        .status-badge {
-            font-size: 0.75rem;
+            border-color: #0d6efd;
+            background: #eef5ff;
         }
     </style>
 </head>
 
 <body>
-    <div class="container-fluid mt-4">
-        <!-- Header -->
-        <div class="row mb-4">
-            <div class="col-12">
+
+    <div class="container-fluid py-4">
+
+        <!-- Page Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
                 <h2><i class="bi bi-credit-card-2-front"></i> Student ID Card Management</h2>
-                <p class="text-muted">Upload photos, generate QR codes, and create student ID cards</p>
+                <p class="text-muted">Upload photos, generate QR codes, and print ID cards.</p>
             </div>
         </div>
 
         <!-- Filters -->
-        <div class="row mb-4">
+        <div class="row g-3 mb-4">
             <div class="col-md-3">
+                <label class="form-label fw-semibold">Class</label>
                 <select class="form-select" id="classFilter" onchange="loadStudents()">
                     <option value="">All Classes</option>
                 </select>
             </div>
             <div class="col-md-3">
+                <label class="form-label fw-semibold">Stream</label>
                 <select class="form-select" id="streamFilter" onchange="loadStudents()">
                     <option value="">All Streams</option>
                 </select>
             </div>
             <div class="col-md-4">
+                <label class="form-label fw-semibold">Search Student</label>
                 <input type="text" class="form-control" id="searchInput"
-                    placeholder="Search by name or admission number..." onkeyup="loadStudents()">
+                    placeholder="Search name or admission number..." onkeyup="loadStudents()">
             </div>
-            <div class="col-md-2">
+            <div class="col-md-2 d-flex align-items-end">
                 <button class="btn btn-primary w-100" onclick="generateBulkIDCards()">
                     <i class="bi bi-printer"></i> Bulk Generate
                 </button>
             </div>
         </div>
 
-        <!-- Students List -->
+        <!-- Student List -->
         <div id="studentsList" class="row">
             <div class="col-12 text-center py-5">
-                <div class="spinner-border text-primary" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
+                <div class="spinner-border text-primary"></div>
+                <p class="text-muted mt-2">Loading students...</p>
             </div>
         </div>
     </div>
 
-    <!-- Photo Upload Modal -->
+    <!-- Upload Photo Modal -->
     <div class="modal fade" id="uploadPhotoModal" tabindex="-1">
         <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Upload Student Photo</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-camera"></i> Upload Student Photo</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
+
                 <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Student: <strong id="studentNameLabel"></strong></label>
-                    </div>
+                    <p class="fw-semibold mb-1">Student:</p>
+                    <p id="studentNameLabel" class="mb-3 text-primary"></p>
+
                     <div class="upload-zone" onclick="document.getElementById('photoInput').click()">
-                        <i class="bi bi-cloud-upload" style="font-size: 3rem; color: #6c757d;"></i>
-                        <p class="mt-2 mb-0">Click to select photo</p>
-                        <small class="text-muted">Max 5MB, JPG/PNG only</small>
+                        <i class="bi bi-cloud-upload fs-1 text-secondary"></i>
+                        <p class="mt-2">Click to select photo</p>
+                        <small class="text-muted">JPEG/PNG — Max 5MB</small>
                     </div>
-                    <input type="file" id="photoInput" accept="image/jpeg,image/jpg,image/png" style="display: none;"
-                        onchange="previewPhoto(this)">
-                    <div id="photoPreview" class="mt-3 text-center" style="display: none;">
-                        <img id="previewImage" style="max-width: 100%; max-height: 300px; border-radius: 8px;">
+
+                    <input type="file" id="photoInput" accept="image/*" class="d-none" onchange="previewPhoto(this)">
+
+                    <div id="photoPreview" class="mt-3 text-center d-none">
+                        <img id="previewImage" class="rounded shadow" style="max-width: 100%; max-height: 300px;">
                     </div>
+
                     <input type="hidden" id="uploadStudentId">
                 </div>
+
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="uploadPhoto()">
-                        <i class="bi bi-upload"></i> Upload
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" onclick="uploadPhoto()">
+                        <i class="bi bi-upload"></i> Upload Photo
                     </button>
                 </div>
+
             </div>
         </div>
     </div>
 
+    <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/js/api.js"></script>
+
     <script>
         let uploadModal;
         let students = [];
 
-        document.addEventListener('DOMContentLoaded', function () {
-            uploadModal = new bootstrap.Modal(document.getElementById('uploadPhotoModal'));
+        document.addEventListener("DOMContentLoaded", () => {
+            uploadModal = new bootstrap.Modal("#uploadPhotoModal");
             loadClasses();
             loadStudents();
         });
 
+        /** Load class list */
         async function loadClasses() {
             try {
-                const response = await apiCall('/api/academic.php?action=list-classes', 'GET');
-                const classSelect = document.getElementById('classFilter');
-
-                if (response.data && response.data.classes) {
-                    response.data.classes.forEach(cls => {
-                        const option = document.createElement('option');
-                        option.value = cls.id;
-                        option.textContent = cls.name;
-                        classSelect.appendChild(option);
-                    });
-                }
-            } catch (error) {
-                console.error('Failed to load classes:', error);
-            }
+                const res = await apiCall('/api/academic.php?action=list-classes', 'GET');
+                const select = document.getElementById("classFilter");
+                res.data.classes.forEach(cls => {
+                    select.innerHTML += `<option value="${cls.id}">${cls.name}</option>`;
+                });
+            } catch (error) { console.error(error); }
         }
 
+        /** Load students */
         async function loadStudents() {
-            try {
-                const search = document.getElementById('searchInput').value;
-                const classId = document.getElementById('classFilter').value;
+            const list = document.getElementById("studentsList");
+            list.innerHTML = `<div class="text-center py-5"><div class="spinner-border"></div></div>`;
 
-                let url = '/api/students.php?action=list';
-                if (search) url += `&search=${encodeURIComponent(search)}`;
+            try {
+                const search = document.getElementById("searchInput").value;
+                const classId = document.getElementById("classFilter").value;
+
+                let url = `/api/students.php?action=list`;
+                if (search) url += `&search=${search}`;
                 if (classId) url += `&class_id=${classId}`;
 
-                const response = await apiCall(url, 'GET');
+                const res = await apiCall(url, 'GET');
+                students = res.data.students;
+                renderStudents();
 
-                if (response.status === 'success') {
-                    students = response.data.students;
-                    renderStudents();
-                }
-            } catch (error) {
-                console.error('Failed to load students:', error);
-                document.getElementById('studentsList').innerHTML = `
-                    <div class="col-12">
-                        <div class="alert alert-danger">Failed to load students: ${error.message}</div>
-                    </div>
-                `;
+            } catch (e) {
+                list.innerHTML = `<div class="alert alert-danger">Failed to load students.</div>`;
             }
         }
 
+        /** Render student cards */
         function renderStudents() {
-            const container = document.getElementById('studentsList');
+            const container = document.getElementById("studentsList");
 
             if (students.length === 0) {
-                container.innerHTML = `
-                    <div class="col-12">
-                        <div class="alert alert-info">No students found</div>
-                    </div>
-                `;
+                container.innerHTML = `<div class="alert alert-info">No students found.</div>`;
                 return;
             }
 
-            container.innerHTML = students.map(student => `
-                <div class="col-md-6 col-lg-4">
+            container.innerHTML = students.map(s => `
+                <div class="col-md-6 col-lg-4 mb-4">
                     <div class="student-card">
+
                         <div class="d-flex gap-3">
-                            <div>
-                                <img src="${student.photo_url || '/images/default_avatar.png'}" 
-                                     alt="${student.first_name}" 
-                                     class="student-photo"
-                                     onerror="this.src='/images/default_avatar.png'">
-                            </div>
+
+                            <img src="${s.photo_url ?? '/images/default_avatar.png'}"
+                                 class="student-photo"
+                                 onerror="this.src='/images/default_avatar.png'">
+
                             <div class="flex-grow-1">
-                                <h6 class="mb-1">${student.first_name} ${student.last_name}</h6>
-                                <small class="text-muted d-block">${student.admission_no}</small>
-                                <small class="text-muted d-block">${student.class_name || 'N/A'} - ${student.stream_name || 'N/A'}</small>
-                                
+                                <h6 class="mb-1">${s.first_name} ${s.last_name}</h6>
+                                <small class="text-muted">${s.admission_no}</small><br>
+                                <small class="text-muted">${s.class_name ?? 'N/A'} - ${s.stream_name ?? 'N/A'}</small>
+
                                 <div class="mt-2">
-                                    ${student.photo_url ?
-                    '<span class="badge bg-success status-badge"><i class="bi bi-check-circle"></i> Photo</span>' :
-                    '<span class="badge bg-warning status-badge"><i class="bi bi-exclamation-circle"></i> No Photo</span>'
-                }
-                                    ${student.qr_code_path ?
-                    '<span class="badge bg-success status-badge ms-1"><i class="bi bi-qr-code"></i> QR</span>' :
-                    '<span class="badge bg-warning status-badge ms-1"><i class="bi bi-exclamation-circle"></i> No QR</span>'
-                }
+                                    ${s.photo_url
+                                        ? `<span class="badge bg-success"><i class="bi bi-check-circle"></i> Photo</span>`
+                                        : `<span class="badge bg-warning"><i class="bi bi-exclamation-circle"></i> No Photo</span>`
+                                    }
+                                    ${s.qr_code_path
+                                        ? `<span class="badge bg-success ms-1"><i class="bi bi-qr-code"></i> QR</span>`
+                                        : `<span class="badge bg-warning ms-1"><i class="bi bi-exclamation-circle"></i> No QR</span>`
+                                    }
                                 </div>
-                                
-                                <div class="btn-group mt-3" role="group">
-                                    <button class="btn btn-sm btn-outline-primary" onclick="openUploadModal(${student.id}, '${student.first_name} ${student.last_name}')" title="Upload Photo">
+
+                                <div class="btn-group mt-3">
+                                    <button class="btn btn-sm btn-outline-primary"
+                                        onclick="openUploadModal(${s.id}, '${s.first_name} ${s.last_name}')">
                                         <i class="bi bi-camera"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-info" onclick="generateQRCode(${student.id})" title="Generate QR">
+                                    <button class="btn btn-sm btn-outline-info" onclick="generateQRCode(${s.id})">
                                         <i class="bi bi-qr-code"></i>
                                     </button>
-                                    <button class="btn btn-sm btn-outline-success" onclick="generateIDCard(${student.id})" title="Generate ID Card">
+                                    <button class="btn btn-sm btn-outline-success" onclick="generateIDCard(${s.id})">
                                         <i class="bi bi-credit-card"></i>
                                     </button>
                                 </div>
+
                             </div>
                         </div>
+
                     </div>
                 </div>
             `).join('');
         }
 
-        function openUploadModal(studentId, studentName) {
-            document.getElementById('uploadStudentId').value = studentId;
-            document.getElementById('studentNameLabel').textContent = studentName;
-            document.getElementById('photoPreview').style.display = 'none';
-            document.getElementById('photoInput').value = '';
+        /** Open upload modal */
+        function openUploadModal(id, name) {
+            document.getElementById("uploadStudentId").value = id;
+            document.getElementById("studentNameLabel").textContent = name;
+            document.getElementById("photoPreview").classList.add("d-none");
             uploadModal.show();
         }
 
+        /** Preview photo before upload */
         function previewPhoto(input) {
-            if (input.files && input.files[0]) {
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    document.getElementById('previewImage').src = e.target.result;
-                    document.getElementById('photoPreview').style.display = 'block';
-                };
-                reader.readAsDataURL(input.files[0]);
-            }
+            if (!input.files.length) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                document.getElementById("previewImage").src = e.target.result;
+                document.getElementById("photoPreview").classList.remove("d-none");
+            };
+            reader.readAsDataURL(input.files[0]);
         }
 
+        /** Upload student photo */
         async function uploadPhoto() {
-            const studentId = document.getElementById('uploadStudentId').value;
-            const fileInput = document.getElementById('photoInput');
+            const fileInput = document.getElementById("photoInput");
+            const id = document.getElementById("uploadStudentId").value;
 
-            if (!fileInput.files || !fileInput.files[0]) {
-                alert('Please select a photo');
+            if (!fileInput.files.length) {
+                alert("Please select a photo");
                 return;
             }
 
             const formData = new FormData();
-            formData.append('photo', fileInput.files[0]);
+            formData.append("photo", fileInput.files[0]);
 
             try {
-                const response = await fetch(`/api/students.php?action=upload-photo&id=${studentId}`, {
-                    method: 'POST',
+                const res = await fetch(`/api/students.php?action=upload-photo&id=${id}`, {
+                    method: "POST",
                     body: formData
                 });
 
-                const result = await response.json();
+                const json = await res.json();
 
-                if (result.status === 'success') {
-                    alert('Photo uploaded successfully!');
+                if (json.status === "success") {
                     uploadModal.hide();
                     loadStudents();
                 } else {
-                    alert('Error: ' + result.message);
+                    alert(json.message);
                 }
-            } catch (error) {
-                alert('Failed to upload photo: ' + error.message);
+
+            } catch (e) {
+                alert("Error uploading photo");
             }
         }
 
-        async function generateQRCode(studentId) {
-            try {
-                const response = await apiCall(`/api/students.php?action=generate-enhanced-qr&id=${studentId}`, 'GET');
-
-                if (response.status === 'success') {
-                    alert('QR code generated successfully!');
-                    loadStudents();
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            } catch (error) {
-                alert('Failed to generate QR code: ' + error.message);
-            }
+        /** Generate QR code */
+        async function generateQRCode(id) {
+            const res = await apiCall(`/api/students.php?action=generate-enhanced-qr&id=${id}`, 'GET');
+            if (res.status === 'success') loadStudents();
         }
 
-        async function generateIDCard(studentId) {
-            try {
-                const response = await apiCall(`/api/students.php?action=generate-id-card&id=${studentId}`, 'GET');
-
-                if (response.status === 'success') {
-                    window.open(response.data.view_url, '_blank');
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            } catch (error) {
-                alert('Failed to generate ID card: ' + error.message);
-            }
+        /** Generate a single ID card */
+        async function generateIDCard(id) {
+            const res = await apiCall(`/api/students.php?action=generate-id-card&id=${id}`, 'GET');
+            if (res.status === 'success') window.open(res.data.view_url, '_blank');
         }
 
+        /** Bulk ID card generation */
         async function generateBulkIDCards() {
-            const classId = document.getElementById('classFilter').value;
-            const streamId = document.getElementById('streamFilter').value;
-
+            const classId = document.getElementById("classFilter").value;
             if (!classId) {
-                alert('Please select a class');
+                alert("Select a class first");
                 return;
             }
 
-            if (!confirm('Generate ID cards for all students in this class/stream?')) {
-                return;
-            }
+            if (!confirm("Generate ID cards for this entire class?")) return;
 
-            try {
-                let url = `/api/students.php?action=generate-class-id-cards&class_id=${classId}`;
-                if (streamId) url += `&stream_id=${streamId}`;
+            const res = await apiCall(`/api/students.php?action=generate-class-id-cards&class_id=${classId}`, 'GET');
 
-                const response = await apiCall(url, 'GET');
-
-                if (response.status === 'success') {
-                    alert(`Generated ${response.data.successful} ID cards successfully!`);
-                } else {
-                    alert('Error: ' + response.message);
-                }
-            } catch (error) {
-                alert('Failed to generate bulk ID cards: ' + error.message);
+            if (res.status === 'success') {
+                alert(`Generated ${res.data.successful} ID cards`);
             }
         }
     </script>
 </body>
-
 </html>
