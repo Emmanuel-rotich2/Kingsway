@@ -715,12 +715,68 @@ class AcademicController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // ==================== ACADEMIC YEARS ====================
+
+    /**
+     * GET /api/academic/years/list - Get all academic years
+     */
+    public function getYearsList($data = [])
+    {
+        $result = $this->api->getAcademicYears($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/years/current - Get current academic year
+     */
+    public function getYearsCurrent($data = [])
+    {
+        $result = $this->api->getCurrentAcademicYear($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/years/create - Create academic year
+     */
+    public function postYearsCreate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createAcademicYear($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/years/update/{id} - Update academic year
+     */
+    public function putYearsUpdate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateAcademicYear($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/years/delete/{id} - Delete academic year
+     */
+    public function deleteYearsDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteAcademicYear($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/years/set-current/{id} - Set year as current
+     */
+    public function putYearsSetCurrent($data = [])
+    {
+        $result = $this->api->setCurrentAcademicYear($data['id'] ?? null);
+        return $this->handleResponse($result);
+    }
+
     // ==================== ACADEMIC TERMS ====================
 
     /**
      * POST /api/academic/terms/create - Create academic term
      */
-    public function postTermsCreate($data = [])
+    public function postTermsCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createAcademicTerm($data);
         return $this->handleResponse($result);
@@ -735,12 +791,77 @@ class AcademicController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * PUT /api/academic/terms/update/{id} - Update academic term
+     */
+    public function putTermsUpdate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateAcademicTerm($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/terms/delete/{id} - Delete academic term
+     */
+    public function deleteTermsDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteAcademicTerm($id);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== LEARNING AREAS (SUBJECTS) ====================
+
+    /**
+     * GET /api/academic/learning-areas/list - List all learning areas
+     */
+    public function getLearningAreasList($data = [])
+    {
+        $result = $this->api->list($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/learning-areas/get/{id} - Get specific learning area
+     */
+    public function getLearningAreasGet($data = [])
+    {
+        $result = $this->api->get($data['id'] ?? null);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/learning-areas/create - Create learning area
+     */
+    public function postLearningAreasCreate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->create($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/learning-areas/update/{id} - Update learning area
+     */
+    public function putLearningAreasUpdate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->update($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/learning-areas/delete/{id} - Delete learning area
+     */
+    public function deleteLearningAreasDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->delete($id);
+        return $this->handleResponse($result);
+    }
+
     // ==================== CLASS MANAGEMENT ====================
 
     /**
      * POST /api/academic/classes/create - Create class
      */
-    public function postClassesCreate($data = [])
+    public function postClassesCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createClass($data);
         return $this->handleResponse($result);
@@ -767,18 +888,18 @@ class AcademicController extends BaseController
     /**
      * PUT /api/academic/classes/update/{id} - Update class
      */
-    public function putClassesUpdate($data = [])
+    public function putClassesUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateClass($data['id'] ?? null, $data);
+        $result = $this->api->updateClass($id, $data);
         return $this->handleResponse($result);
     }
 
     /**
      * DELETE /api/academic/classes/delete/{id} - Delete class
      */
-    public function deleteClassesDelete($data = [])
+    public function deleteClassesDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteClass($data['id'] ?? null);
+        $result = $this->api->deleteClass($id);
         return $this->handleResponse($result);
     }
 

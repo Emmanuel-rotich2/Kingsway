@@ -1,53 +1,93 @@
 <?php
-include __DIR__ . '/../components/tables/table.php';
-
-// Example: Fetch staff from DB (replace with real DB logic)
-$staffHeaders = ['No', 'Name', 'Staff Number', 'Department', 'Role', 'Status'];
-$staffRows = [
-    [1, 'Jane Wambui', 'STF001', 'Accounts', 'Bursar', 'Active'],
-    [2, 'Peter Njoroge', 'STF002', 'Maintenance', 'Caretaker', 'Active'],
-    [3, 'Lucy Atieno', 'STF003', 'Administration', 'Secretary', 'Inactive'],
-    [4, 'Samuel Kiprotich', 'STF004', 'Security', 'Guard', 'Active'],
-    [5, 'Agnes Mwikali', 'STF005', 'Kitchen', 'Cook', 'Active'],
-];
-// Actions for admin: Edit, Assign Role, Set Permissions, Activate, Deactivate, Delete, View Profile
-$actionOptions = ['Edit', 'Assign Role', 'Set Permissions', 'Activate', 'Deactivate', 'Delete', 'View Profile'];
+/**
+ * Manage Non-Teaching Staff Page
+ * HTML structure only - all logic in js/pages/staff.js (manageNonTeachingStaffController)
+ * Embedded in app_layout.php
+ */
 ?>
 
+<div class="card shadow">
+  <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+    <h2 class="mb-0">👨‍💼 Manage Non-Teaching Staff</h2>
+    <button class="btn btn-light btn-sm" onclick="manageNonTeachingStaffController.showCreateForm()">+ Add Staff</button>
+  </div>
+  <div class="card-body">
+    <!-- Search and Filter -->
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <input type="text" id="searchStaff" class="form-control" placeholder="Search staff..." 
+               onkeyup="manageNonTeachingStaffController.search(this.value)">
+      </div>
+      <div class="col-md-3">
+        <select id="departmentFilter" class="form-select" onchange="manageNonTeachingStaffController.filterByDepartment(this.value)">
+          <option value="">-- All Departments --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select id="statusFilter" class="form-select" onchange="manageNonTeachingStaffController.filterByStatus(this.value)">
+          <option value="">-- All Status --</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
+      </div>
+    </div>
 
-<div class="container mt-5">
-    <h2 class="mb-4 d-flex justify-content-between align-items-center">
-        Non-Teaching Staff Management
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addStaffModal">
-            <i class="bi bi-person-plus"></i> Add Staff
-        </button>
-    </h2>
-    <div id="staff-table-container"></div>
+    <!-- Staff Table -->
+    <div id="staffTableContainer">
+      <p class="text-muted">Loading staff records...</p>
+    </div>
+  </div>
 </div>
 
-<!-- Add Staff Modal -->
-<div class="modal fade" id="addStaffModal" tabindex="-1" aria-labelledby="addStaffModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-            <form id="add-staff-form">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="addStaffModalLabel">Register New Staff</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <ul class="nav nav-tabs mb-3" id="staffTab" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="basic-tab" data-bs-toggle="tab" data-bs-target="#basic" type="button" role="tab">Basic Details</button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="contact-tab" data-bs-toggle="tab" data-bs-target="#contact" type="button" role="tab">Contact Details</button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="department-tab" data-bs-toggle="tab" data-bs-target="#department" type="button" role="tab">Department & Role</button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="demographic-tab" data-bs-toggle="tab" data-bs-target="#demographic" type="button" role="tab">Demographic Data</button>
-                        </li>
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="staffModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="staffModalLabel">Add Staff</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="staffForm">
+        <div class="modal-body">
+          <input type="hidden" id="staffId">
+          <div class="mb-3">
+            <label class="form-label">First Name</label>
+            <input type="text" id="firstName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Last Name</label>
+            <input type="text" id="lastName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" id="email" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Department</label>
+            <select id="departmentSelect" class="form-select" required>
+              <option value="">-- Select Department --</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Role</label>
+            <input type="text" id="role" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Status</label>
+            <select id="statusSelect" class="form-select" required>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="accounts-tab" data-bs-toggle="tab" data-bs-target="#accounts" type="button" role="tab">Accounts & Statutory</button>
                         </li>

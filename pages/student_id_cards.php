@@ -1,43 +1,60 @@
-<!DOCTYPE html>
-<html lang="en">
+<?php
+/**
+ * Student ID Cards Page
+ * HTML structure only - all logic in js/pages/reports.js (studentIDCardsController)
+ * Embedded in app_layout.php
+ */
+?>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Student ID Cards - Kingsway Academy</title>
+<div class="card shadow">
+  <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+    <h2 class="mb-0">🎫 Student ID Cards</h2>
+    <button class="btn btn-light btn-sm" onclick="studentIDCardsController.generateAll()">🖨️ Generate All</button>
+  </div>
+  <div class="card-body">
+    <!-- Filter Section -->
+    <div class="row mb-4">
+      <div class="col-md-6">
+        <input type="text" id="searchStudents" class="form-control" placeholder="Search students..." 
+               onkeyup="studentIDCardsController.search(this.value)">
+      </div>
+      <div class="col-md-3">
+        <select id="classFilter" class="form-select" onchange="studentIDCardsController.filterByClass(this.value)">
+          <option value="">-- All Classes --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <button class="btn btn-outline-secondary w-100" onclick="studentIDCardsController.resetFilters()">Reset</button>
+      </div>
+    </div>
 
-    <!-- Bootstrap -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Students Grid -->
+    <div id="cardsContainer" class="row">
+      <p class="text-muted text-center w-100">Loading students...</p>
+    </div>
+  </div>
+</div>
 
-    <style>
-        body {
-            background: #f5f7fa;
-        }
-
-        .student-card {
-            border-radius: 12px;
-            padding: 15px;
-            background: #fff;
-            border: 1px solid #e6e6e6;
-            transition: .3s ease;
-        }
-
-        .student-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
-        }
-
-        .student-photo {
-            width: 95px;
-            height: 110px;
-            border-radius: 8px;
-            object-fit: cover;
-            border: 2px solid #0d6efd;
-        }
-
-        .upload-zone {
-            border: 2px dashed #b5b5b5;
+<!-- Template for ID Card -->
+<template id="cardTemplate">
+  <div class="col-md-4 mb-4">
+    <div class="card student-card border">
+      <div class="card-body text-center">
+        <img id="cardPhoto" src="images/placeholder.png" class="img-fluid mb-3 rounded" style="width: 120px; height: 150px; object-fit: cover;">
+        <h6 class="card-title" id="cardName">Student Name</h6>
+        <p class="small text-muted mb-2" id="cardAdmission">ADM000</p>
+        <p class="small text-muted mb-3" id="cardClass">Class</p>
+        <div id="cardQR" style="width: 100px; height: 100px; margin: 0 auto; background: #f0f0f0; display: flex; align-items: center; justify-content: center;">
+          <small class="text-muted">QR Code</small>
+        </div>
+        <div class="mt-3">
+          <button class="btn btn-sm btn-primary" onclick="studentIDCardsController.generateCard(this)">Generate</button>
+          <button class="btn btn-sm btn-secondary" onclick="studentIDCardsController.printCard(this)">Print</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
             border-radius: 10px;
             padding: 25px;
             text-align: center;

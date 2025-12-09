@@ -1,221 +1,345 @@
 <?php
-// filepath: /home/opt/lampp/htdocs/Kingsway/pages/manage_students.php
-include __DIR__ . '/../components/tables/table.php';
-
-// Example: Fetch students from DB (replace with real DB logic)
-$studentHeaders = ['No', 'Name', 'Admission Number', 'Class', 'Status'];
-$studentRows = [
-  [1, 'Faith Wanjiku', 'ADM001', 'Grade 4', 'Pending'],
-  [3, 'Mercy Mwikali', 'ADM003', 'Grade 8', 'Inactive'],
-  [5, 'Janet Njeri', 'ADM005', 'Grade 6', 'Pending'],
-];
-// Actions for admin: Approve, Activate, Deactivate, Edit, View Profile
-$actionOptions = ['Approve', 'Activate', 'Deactivate', 'Edit', 'View Profile'];
+/**
+ * Manage Students Page
+ * HTML structure only - all logic in js/pages/students.js (studentsManagementController)
+ * Embedded in app_layout.php
+ */
 ?>
 
-<div class="container mt-1">
-  <h2 class="mb-4 d-flex justify-content-between align-items-center">
-    Student Management
-    <div class="btn-group">
-      <button class="btn btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-        <i class="bi bi-list-check"></i> Bulk Actions
-      </button>
-      <ul class="dropdown-menu">
-        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#bulkUploadModal">Bulk Upload (CSV/XLSX)</a></li>
-        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#bulkUpdateModal">Bulk Update (CSV/XLSX)</a></li>
-        <li><a class="dropdown-item" href="#" id="bulkDeleteBtn">Bulk Delete (Selected)</a></li>
-        <li><hr class="dropdown-divider"></li>
-        <li class="dropdown-submenu dropend">
-          <a class="dropdown-item dropdown-toggle" href="#">Export</a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item export-btn" href="#" data-format="csv">Export as CSV</a></li>
-            <li><a class="dropdown-item export-btn" href="#" data-format="xlsx">Export as Excel</a></li>
-            <li><a class="dropdown-item export-btn" href="#" data-format="pdf">Export as PDF</a></li>
-            <li><a class="dropdown-item export-btn" href="#" data-format="docx">Export as Word</a></li>
-            <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#customExportModal">Custom Export...</a></li>
-          </ul>
-        </li>
-      </ul>
+<div class="card shadow-sm">
+    <div class="card-header bg-gradient bg-primary text-white">
+        <div class="d-flex justify-content-between align-items-center">
+            <h4 class="mb-0"><i class="bi bi-people-fill"></i> Student Management</h4>
+            <div class="btn-group">
+                <button class="btn btn-light btn-sm" onclick="studentsManagementController.showStudentModal()" data-permission="students_create">
+                    <i class="bi bi-plus-circle"></i> Add Student
+                </button>
+                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.showBulkImportModal()" data-permission="students_create">
+                    <i class="bi bi-upload"></i> Bulk Import
+                </button>
+                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.exportStudents()">
+                    <i class="bi bi-download"></i> Export
+                </button>
+            </div>
+        </div>
     </div>
-  </h2>
-  <div id="bulk-actions-feedback"></div>
-  <?php renderTable("Student List", $studentHeaders, $studentRows, true, $actionOptions, true); ?>
+
+    <div class="card-body">
+        <!-- Statistics Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Total Students</h6>
+                        <h3 class="text-primary mb-0" id="totalStudentsCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Active</h6>
+                        <h3 class="text-success mb-0" id="activeStudentsCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">New This Term</h6>
+                        <h3 class="text-warning mb-0" id="newStudentsCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-danger">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Inactive</h6>
+                        <h3 class="text-danger mb-0" id="inactiveStudentsCount">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters and Search -->
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="text" id="searchStudents" class="form-control" 
+                           placeholder="Search by name, admission number, or ID..." 
+                           onkeyup="studentsManagementController.searchStudents(this.value)">
+                </div>
+            </div>
+            <div class="col-md-2">
+                <select id="classFilter" class="form-select" onchange="studentsManagementController.filterByClass(this.value)">
+                    <option value="">All Classes</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="streamFilter" class="form-select" onchange="studentsManagementController.filterByStream(this.value)">
+                    <option value="">All Streams</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="genderFilter" class="form-select" onchange="studentsManagementController.filterByGender(this.value)">
+                    <option value="">All Genders</option>
+                    <option value="M">Male</option>
+                    <option value="F">Female</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="statusFilter" class="form-select" onchange="studentsManagementController.filterByStatus(this.value)">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="graduated">Graduated</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Students Table -->
+        <div class="table-responsive" id="studentsTableContainer">
+            <table class="table table-hover table-striped">
+                <thead class="table-light">
+                    <tr>
+                        <th>#</th>
+                        <th>Admission No.</th>
+                        <th>Name</th>
+                        <th>Class/Stream</th>
+                        <th>Gender</th>
+                        <th>Contact</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="studentsTableBody">
+                    <tr>
+                        <td colspan="8" class="text-center py-4">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="text-muted mt-2">Loading students...</p>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                <span class="text-muted">Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span id="totalRecords">0</span> students</span>
+            </div>
+            <nav>
+                <ul class="pagination mb-0" id="pagination"></ul>
+            </nav>
+        </div>
+    </div>
 </div>
 
-<!-- Bulk Upload Modal -->
-<div class="modal fade" id="bulkUploadModal" tabindex="-1" aria-labelledby="bulkUploadModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="bulkUploadForm">
-        <div class="modal-header">
-          <h5 class="modal-title" id="bulkUploadModalLabel">Bulk Upload Students</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<!-- Student Modal (Create/Edit) -->
+<div class="modal fade" id="studentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="studentModalLabel">Add Student</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="studentForm" onsubmit="studentsManagementController.saveStudent(event)">
+                <div class="modal-body">
+                    <input type="hidden" id="studentId">
+                    
+                    <!-- Personal Information -->
+                    <h6 class="mb-3 text-primary"><i class="bi bi-person"></i> Personal Information</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">First Name <span class="text-danger">*</span></label>
+                            <input type="text" id="firstName" class="form-control" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Middle Name</label>
+                            <input type="text" id="middleName" class="form-control">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Last Name <span class="text-danger">*</span></label>
+                            <input type="text" id="lastName" class="form-control" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
+                            <input type="date" id="dateOfBirth" class="form-control" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Gender <span class="text-danger">*</span></label>
+                            <select id="gender" class="form-select" required>
+                                <option value="">Select</option>
+                                <option value="M">Male</option>
+                                <option value="F">Female</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">National ID / Birth Cert</label>
+                            <input type="text" id="nationalId" class="form-control">
+                        </div>
+                    </div>
+
+                    <!-- Academic Information -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-mortarboard"></i> Academic Information</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Admission Number <span class="text-danger">*</span></label>
+                            <input type="text" id="admissionNumber" class="form-control" required>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Class <span class="text-danger">*</span></label>
+                            <select id="studentClass" class="form-select" required onchange="studentsManagementController.loadStreamsForClass(this.value)">
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Stream</label>
+                            <select id="studentStream" class="form-select">
+                                <option value="">Select Stream</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Admission Date</label>
+                            <input type="date" id="admissionDate" class="form-control">
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Status <span class="text-danger">*</span></label>
+                            <select id="studentStatus" class="form-select" required>
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                                <option value="suspended">Suspended</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <label class="form-label">Boarding Status</label>
+                            <select id="boardingStatus" class="form-select">
+                                <option value="day">Day Scholar</option>
+                                <option value="boarding">Boarding</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Contact Information -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-telephone"></i> Contact Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Email</label>
+                            <input type="email" id="studentEmail" class="form-control">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Phone</label>
+                            <input type="tel" id="studentPhone" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label class="form-label">Address</label>
+                            <textarea id="studentAddress" class="form-control" rows="2"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Guardian Information -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-people"></i> Guardian/Parent Information</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Guardian Name</label>
+                            <input type="text" id="guardianName" class="form-control">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Guardian Phone</label>
+                            <input type="tel" id="guardianPhone" class="form-control">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Guardian Email</label>
+                            <input type="email" id="guardianEmail" class="form-control">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Relationship</label>
+                            <select id="guardianRelationship" class="form-select">
+                                <option value="">Select</option>
+                                <option value="parent">Parent</option>
+                                <option value="guardian">Guardian</option>
+                                <option value="relative">Relative</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-save"></i> Save Student
+                    </button>
+                </div>
+            </form>
         </div>
-        <div class="modal-body">
-          <input type="file" class="form-control" name="file" accept=".csv,.xlsx" required>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Upload</button>
-        </div>
-      </form>
     </div>
-  </div>
-</div>
-<!-- Bulk Update Modal -->
-<div class="modal fade" id="bulkUpdateModal" tabindex="-1" aria-labelledby="bulkUpdateModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="bulkUpdateForm">
-        <div class="modal-header">
-          <h5 class="modal-title" id="bulkUpdateModalLabel">Bulk Update Students</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <input type="file" class="form-control" name="file" accept=".csv,.xlsx" required>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Update</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-<!-- Custom Export Modal (for user-tweaked export) -->
-<div class="modal fade" id="customExportModal" tabindex="-1" aria-labelledby="customExportModalLabel" aria-hidden="true">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <form id="customExportForm">
-        <div class="modal-header">
-          <h5 class="modal-title" id="customExportModalLabel">Custom Export</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-2">Select columns to export:</div>
-          <div id="exportColumnsCheckboxes"></div>
-          <div class="mb-2 mt-3">Add filters (optional):</div>
-          <input type="text" class="form-control" name="filters" placeholder="e.g. status=Active">
-          <div class="mb-2 mt-3">Format:</div>
-          <select class="form-select" name="format">
-            <option value="csv">CSV</option>
-            <option value="xlsx">Excel</option>
-            <option value="pdf">PDF</option>
-            <option value="docx">Word</option>
-          </select>
-        </div>
-        <div class="modal-footer">
-          <button type="submit" class="btn btn-primary">Export</button>
-        </div>
-      </form>
-    </div>
-  </div>
 </div>
 
-<script>
-  document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.action-option').forEach(item => {
-      item.addEventListener('click', function(e) {
-        e.preventDefault();
-        const action = this.getAttribute('data-action');
-        const rowData = JSON.parse(this.getAttribute('data-row'));
-      const studentId = rowData[2]; // Assuming Admission Number is unique
-        if (action === 'Approve') {
-        parseApiResponse(StudentsAPI.update(studentId, { status: 'approved' }), {
-          onSuccess: () => showNotification('Student approved', 'success'),
-          onError: err => showNotification('Error approving student: ' + err.message, 'error')
-        });
-        } else if (action === 'Activate') {
-        parseApiResponse(StudentsAPI.update(studentId, { status: 'active' }), {
-          onSuccess: () => showNotification('Student activated', 'success'),
-          onError: err => showNotification('Error activating student: ' + err.message, 'error')
-        });
-        } else if (action === 'Deactivate') {
-        parseApiResponse(StudentsAPI.update(studentId, { status: 'inactive' }), {
-          onSuccess: () => showNotification('Student deactivated', 'success'),
-          onError: err => showNotification('Error deactivating student: ' + err.message, 'error')
-        });
-        } else if (action === 'Edit') {
-        window.location.href = `?route=edit_student&id=${studentId}`;
-        } else if (action === 'View Profile') {
-        parseApiResponse(StudentsAPI.get(studentId), {
-          onSuccess: data => showNotification('Student: ' + (data?.name || 'Profile loaded'), 'info'),
-          onError: err => showNotification('Error loading profile: ' + err.message, 'error')
-        });
-        }
-      });
-    });
-  });
-// Bulk Upload
-const bulkUploadForm = document.getElementById('bulkUploadForm');
-bulkUploadForm && bulkUploadForm.addEventListener('submit', function(e) {
-  e.preventDefault();
-  const formData = new FormData(this);
-  StudentsAPI.bulkInsertFile(formData).then(res => {
-    showNotification('Bulk upload complete', 'success');
-    location.reload();
-  }).catch(err => showNotification('Bulk upload failed: ' + err.message, 'error'));
-});
-// Bulk Update
-const bulkUpdateForm = document.getElementById('bulkUpdateForm');
-bulkUpdateForm && bulkUpdateForm.addEventListener('submit', function(e) {
-  e.preventDefault();
-  const formData = new FormData(this);
-  StudentsAPI.bulkUpdateFile(formData).then(res => {
-    showNotification('Bulk update complete', 'success');
-    location.reload();
-  }).catch(err => showNotification('Bulk update failed: ' + err.message, 'error'));
-});
-// Bulk Delete
-const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
-bulkDeleteBtn && bulkDeleteBtn.addEventListener('click', function(e) {
-  e.preventDefault();
-  const ids = Array.from(document.querySelectorAll('.row-select:checked')).map(cb => cb.value);
-  if (!ids.length) return showNotification('Select at least one student to delete', 'warning');
-  if (!confirm('Are you sure you want to delete selected students?')) return;
-  StudentsAPI.bulkDelete({ ids }).then(res => {
-    showNotification('Bulk delete complete', 'success');
-    location.reload();
-  }).catch(err => showNotification('Bulk delete failed: ' + err.message, 'error'));
-});
-// Export
-Array.from(document.querySelectorAll('.export-btn')).forEach(btn => {
-  btn.addEventListener('click', function(e) {
-    e.preventDefault();
-    const format = this.getAttribute('data-format');
-    StudentsAPI.export({ format }).then(blob => {
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `students_export.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    }).catch(err => showNotification('Export failed: ' + err.message, 'error'));
-  });
-});
-// Custom Export Modal
-const customExportModal = document.getElementById('customExportModal');
-customExportModal && customExportModal.addEventListener('show.bs.modal', function() {
-  const columns = <?php echo json_encode($studentHeaders); ?>.slice(1); // skip No
-  const container = document.getElementById('exportColumnsCheckboxes');
-  container.innerHTML = columns.map(col => `<div class='form-check'><input class='form-check-input' type='checkbox' name='columns' value='${col}' checked><label class='form-check-label'>${col}</label></div>`).join('');
-});
-document.getElementById('customExportForm')?.addEventListener('submit', function(e) {
-  e.preventDefault();
-  const form = this;
-  const columns = Array.from(form.querySelectorAll('input[name="columns"]:checked')).map(cb => cb.value);
-  const filters = form.filters.value;
-  const format = form.format.value;
-  StudentsAPI.export({ format, columns, filters }).then(blob => {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `students_export.${format}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(url);
-    bootstrap.Modal.getOrCreateInstance(customExportModal).hide();
-  }).catch(err => showNotification('Custom export failed: ' + err.message, 'error'));
-});
-</script>
+<!-- Bulk Import Modal -->
+<div class="modal fade" id="bulkImportModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Bulk Import Students</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="bulkImportForm" onsubmit="studentsManagementController.bulkImport(event)">
+                <div class="modal-body">
+                    <div class="alert alert-info">
+                        <i class="bi bi-info-circle"></i> Upload a CSV or Excel file with student data.
+                        <a href="#" onclick="studentsManagementController.downloadTemplate()">Download template</a>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Select File</label>
+                        <input type="file" id="bulkImportFile" class="form-control" accept=".csv,.xlsx,.xls" required>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="updateExisting">
+                        <label class="form-check-label" for="updateExisting">
+                            Update existing students if admission number matches
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-upload"></i> Import Students
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- View Student Details Modal -->
+<div class="modal fade" id="viewStudentModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">Student Details</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="viewStudentContent">
+                <!-- Dynamic content loaded here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Link Controller Script -->
+<script src="/Kingsway/js/pages/students.js"></script>

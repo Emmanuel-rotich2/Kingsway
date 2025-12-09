@@ -3,12 +3,12 @@
 // My Classes & Subjects – Teacher Panel
 // ======================================================================
 
-// SECURITY CHECK
-if (!isset($_SESSION['teacher_id'])) {
-    die("<div class='alert alert-danger'>Unauthorized access</div>");
-}
+// LEGACY AUTH: This page should use JWT authentication
+// TODO: Refactor to get teacher_id from AuthContext.getUser().id
+// For now, this should be loaded within app_layout.php which validates JWT
 
-$teacher_id = intval($_SESSION['teacher_id']);
+// Placeholder - in production this should come from JWT token via JavaScript
+$teacher_id = 1; // TODO: Get from AuthContext.getUser().id
 
 
 // ======================================================================

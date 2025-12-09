@@ -57,14 +57,55 @@ class AuthMiddleware
      */
     private static function validateJWT()
     {
-        $headers = getallheaders();
-        if (!isset($headers['Authorization'])) {
-            self::deny(401, 'Missing Authorization header');
+        // Try multiple methods to get the Authorization header
+        // Apache/Nginx may strip it, so we need to check multiple sources
+        $authHeader = null;
+
+        // Method 1: getallheaders()
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+            if (isset($headers['Authorization'])) {
+                $authHeader = $headers['Authorization'];
+            }
         }
 
-        $authHeader = $headers['Authorization'];
-        $token = str_replace('Bearer ', '', $authHeader);
+        // Method 2: $_SERVER['HTTP_AUTHORIZATION']
+        if (!$authHeader && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
+        }
 
+        // Method 3: Apache-specific header
+        if (!$authHeader && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+        }
+
+        // Method 4: Check PHP input headers directly
+        if (!$authHeader) {
+            foreach ($_SERVER as $key => $value) {
+                if (strtolower($key) === 'http_authorization') {
+                    $authHeader = $value;
+                    break;
+                }
+            }
+        }
+
+
+        if (!$authHeader) {
+            // Debug: Log what headers we actually received
+            $receivedHeaders = function_exists('getallheaders') ? array_keys(getallheaders()) : [];
+            $serverKeys = array_filter(array_keys($_SERVER), function ($key) {
+                return strpos($key, 'HTTP_') === 0 || strpos($key, 'REDIRECT_') === 0;
+            });
+
+            error_log('AuthMiddleware: No Authorization header found');
+            error_log('Received HTTP headers: ' . json_encode($receivedHeaders));
+            error_log('SERVER keys: ' . json_encode(array_values($serverKeys)));
+
+            self::deny(401, 'Missing Authorization header. Please ensure you are logged in and the token is being sent.');
+        }
+
+        error_log('AuthMiddleware: Authorization header found: ' . substr($authHeader, 0, 20) . '...');
+        $token = str_replace('Bearer ', '', $authHeader);
         try {
             $decoded = JWT::decode(
                 $token,

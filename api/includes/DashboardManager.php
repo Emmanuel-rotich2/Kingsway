@@ -31,9 +31,16 @@ class DashboardManager
         if (isset($userData['permissions']) && is_array($userData['permissions'])) {
             $this->permissionCache = [];
             foreach ($userData['permissions'] as $perm) {
-                $code = isset($perm['permission_code']) ? $perm['permission_code'] : null;
-                if ($code) {
-                    $this->permissionCache[] = $code;
+                // Handle both permission objects and permission codes (strings)
+                if (is_string($perm)) {
+                    // Permission is already a code (compact format)
+                    $this->permissionCache[] = $perm;
+                } elseif (is_array($perm)) {
+                    // Permission is an object, extract code
+                    $code = $perm['permission_code'] ?? $perm['code'] ?? null;
+                    if ($code) {
+                        $this->permissionCache[] = $code;
+                    }
                 }
             }
         }

@@ -1,4 +1,8 @@
 <?php
+// LEGACY PAGE: This page should be refactored to use REST API
+// TODO: Replace with API.academic.results.create() from frontend
+// For now, teacher_id should come from AuthContext.getUser().id
+
 include 'db.php'; 
 
 $students = mysqli_query($conn, "SELECT * FROM students");
@@ -11,7 +15,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $marks = $_POST['marks'];
     $term = $_POST['term'];
     $year = $_POST['year'];
-    $teacher_id = $_SESSION['teacher_id']; 
+
+    // TODO: Get teacher_id from JWT token instead of session
+    // This should use: AuthContext.getUser().id from frontend
+    $teacher_id = 1; // Placeholder - should come from authenticated user 
 
     $insert = mysqli_query($conn, "INSERT INTO results (student_id, subject_id, class, marks, term, year, teacher_id) 
         VALUES ('$student_id', '$subject_id', '$class', '$marks', '$term', '$year', '$teacher_id')");

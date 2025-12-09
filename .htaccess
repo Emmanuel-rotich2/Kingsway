@@ -1,12 +1,53 @@
+###############################################
+# KINGSWAY PROJECT .htaccess
+###############################################
+
+# Disable directory listing
 Options All -Indexes
 
-RewriteEngine On
-RewriteBase /kingsway/
+# Allow symbolic links
+Options +FollowSymlinks
 
-# If the file or folder exists, serve it
+# Enable URL rewriting
+RewriteEngine On
+RewriteBase /Kingsway/
+
+###############################################
+# CRITICAL: Pass Authorization header to PHP
+# Apache strips it by default, this fixes it
+###############################################
+RewriteCond %{HTTP:Authorization} ^(.*)
+RewriteRule .* - [e=HTTP_AUTHORIZATION:%1]
+
+# Alternative method for some Apache configurations
+SetEnvIf Authorization "(.*)" HTTP_AUTHORIZATION=$1
+
+###############################################
+# 1. Allow real files/folders to load normally
+###############################################
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Otherwise send all requests to index.php
+###############################################
+# 2. API HANDLING
+# All requests to /Kingsway/api/... → api/index.php
+###############################################
+RewriteRule ^api/(.*)$ api/index.php [L,QSA]
+
+###############################################
+# 3. MAIN FRONT CONTROLLER
+# Everything else goes to main index.php
+# Used by your Router → Middleware → Controllers
+###############################################
 RewriteRule ^(.+)$ index.php?page=$1 [L,QSA]
+
+###############################################
+# Security Headers (Optional but recommended)
+###############################################
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "no-referrer-when-downgrade"
+    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
+</IfModule>

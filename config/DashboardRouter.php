@@ -48,7 +48,7 @@ class DashboardRouter
         'accountant' => 'school_accountant_dashboard',
         'accounts_assistant' => 'accounts_assistant_dashboard',
         'accounts assistant' => 'accounts_assistant_dashboard',
-        'accounts' => 'accounts_dashboard',
+        'accounts' => 'school_accountant_dashboard',
 
         // Operations - Stores
         'store_manager' => 'store_manager_dashboard',
@@ -205,20 +205,21 @@ class DashboardRouter
 
     /**
      * Get user's default dashboard route
-     * Checks session for user role and returns appropriate dashboard
+     * NOTE: This method should NOT be used in stateless JWT architecture
+     * Dashboard routing should happen on frontend based on AuthContext
      * 
+     * @deprecated Use getDashboardForRole() with role from JWT token instead
      * @return string Dashboard key
      */
     public static function getUserDefaultDashboard()
     {
-        // Get role from session
-        $role = $_SESSION['main_role'] ?? ($_SESSION['roles'][0] ?? null);
+        // DEPRECATED: This relies on PHP sessions which breaks stateless architecture
+        // Frontend should determine dashboard from AuthContext.getDashboardInfo()
+        // Kept for backward compatibility only
 
-        if (!$role) {
-            return self::getDefaultDashboard();
-        }
-
-        return self::getDashboardForRole($role);
+        // Fallback to default dashboard
+        // In JWT architecture, role comes from token, not session
+        return self::getDefaultDashboard();
     }
 
     /**
