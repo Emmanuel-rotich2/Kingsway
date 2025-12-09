@@ -36,30 +36,24 @@ class ControllerRouter
 
             // Remaining segments are: [resource, id/value, ...nested]
             // Strategy: 
-            // 1. If 2+ segments and second segment is numeric → standard GET /api/controller/resource/123
-            // 2. If 2+ segments and second segment is NOT numeric → nested routing /api/controller/resource/name
-            // 3. If 1 segment → just resource
+            // 1. If 2+ segments and LAST segment is numeric → standard GET /api/controller/resource/123
+            // 2. Otherwise, join all remaining segments as the resource name (e.g., years/list → years-list)
 
-            $resource = !empty($segments) ? array_shift($segments) : null;
-
-            // Determine if resource is actually an ID (numeric value)
-            // or if we have nested routing with additional segments
             $id = null;
+            $resource = null;
 
-            if ($resource !== null && is_numeric($resource) && empty($segments)) {
-                // Pattern: /api/users/123 - resource is actually the ID
-                $id = $resource;
-                $resource = null;
-            } else if (!empty($segments) && is_numeric($segments[0])) {
-                // Standard pattern: /api/users/profile-get/123
-                $id = array_shift($segments);
-                // $segments now has remaining nested params (if any)
-            } else if (!empty($segments)) {
-                // Nested routing pattern: /api/users/with-role/Headteacher
-                // Put resource back in segments for nested processing
-                array_unshift($segments, $resource);
-                $resource = null;
-                $id = null;
+            if (!empty($segments)) {
+                // Check if last segment is numeric (ID)
+                $lastSegment = end($segments);
+                if (is_numeric($lastSegment)) {
+                    $id = array_pop($segments); // Remove ID from segments
+                }
+
+                // Join remaining segments with hyphens to form resource name
+                // e.g., ['years', 'list'] → 'years-list'
+                if (!empty($segments)) {
+                    $resource = implode('-', $segments);
+                }
             }
 
             // Load controller class

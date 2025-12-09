@@ -39,7 +39,7 @@ Kingsway is a full-featured, API-first school management platform built with PHP
 1. **Clone and install dependencies**
 
 ```bash
-git clone https://github.com/Emmanuel-rotich2/Kingsway.git
+git clone https://github.com/Emmanuel-rotich2/Kingsway.git 
 cd kingsway
 composer install
 ```

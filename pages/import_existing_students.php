@@ -1,44 +1,131 @@
 <?php
-session_start();
-require_once __DIR__ . '/../config/config.php';
-require_once __DIR__ . '/../session_handler.php';
-
-// Check authentication
-if (!isset($_SESSION['user_id'])) {
-    header('Location: /index.php');
-    exit;
-}
-
-$pageTitle = 'Import Existing Students';
-$currentPage = 'students';
+/**
+ * Import Existing Students Page
+ * HTML structure only - all logic in js/pages/students.js (importStudentsController)
+ * Embedded in app_layout.php
+ */
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
+<div class="card shadow">
+  <div class="card-header bg-primary text-white">
+    <h2 class="mb-0">📥 Import Existing Students</h2>
+  </div>
+  <div class="card-body">
+    <div class="alert alert-info" role="alert">
+      <strong>📋 Supported Format:</strong> Upload CSV or Excel file with columns: FirstName, LastName, Email, AdmissionNumber, Class, Status
+    </div>
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $pageTitle ?> - Kingsway Academy</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <link href="/king.css" rel="stylesheet">
-    <style>
-        .import-section {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-        }
+    <!-- Import Methods -->
+    <ul class="nav nav-tabs mb-4" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="file-upload-tab" data-bs-toggle="tab" data-bs-target="#fileUpload" type="button" role="tab">File Upload</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="template-download-tab" data-bs-toggle="tab" data-bs-target="#templateDownload" type="button" role="tab">Download Template</button>
+      </li>
+    </ul>
 
-        .method-card {
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 25px;
-            margin-bottom: 20px;
-            transition: all 0.3s;
-            cursor: pointer;
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <!-- File Upload Tab -->
+      <div class="tab-pane fade show active" id="fileUpload" role="tabpanel">
+        <form id="importForm" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label">Select File (CSV or Excel)</label>
+            <input type="file" id="importFile" class="form-control" accept=".csv,.xlsx,.xls" required>
+            <small class="text-muted">Maximum file size: 5MB</small>
+          </div>
+          <div class="mb-3 form-check">
+            <input type="checkbox" id="skipHeader" class="form-check-input">
+            <label class="form-check-label" for="skipHeader">First row contains column headers</label>
+          </div>
+          <button type="submit" class="btn btn-primary">Import Students</button>
+        </form>
+
+        <!-- Progress Section -->
+        <div id="importProgress" class="mt-4" style="display:none;">
+          <div class="progress mb-3">
+            <div id="progressBar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+          </div>
+          <p id="progressText" class="text-muted">Processing...</p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="importResults" class="mt-4" style="display:none;">
+          <div class="alert" id="resultsAlert" role="alert"></div>
+          <div id="resultsSummary"></div>
+        </div>
+      </div>
+
+      <!-- Template Download Tab -->
+      <div class="tab-pane fade" id="templateDownload" role="tabpanel">
+        <div class="row">
+          <div class="col-md-6">
+            <div class="card border-primary">
+              <div class="card-body">
+                <h5 class="card-title">📊 CSV Template</h5>
+                <p class="card-text">Download a template in CSV format to fill with student data.</p>
+                <button type="button" class="btn btn-primary" onclick="importStudentsController.downloadTemplate('csv')">
+                  Download CSV
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card border-success">
+              <div class="card-body">
+                <h5 class="card-title">📑 Excel Template</h5>
+                <p class="card-text">Download a template in Excel format to fill with student data.</p>
+                <button type="button" class="btn btn-success" onclick="importStudentsController.downloadTemplate('xlsx')">
+                  Download Excel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sample Data Section -->
+        <div class="mt-4">
+          <h5>Sample Data Format</h5>
+          <table class="table table-sm table-bordered">
+            <thead class="table-light">
+              <tr>
+                <th>FirstName</th>
+                <th>LastName</th>
+                <th>Email</th>
+                <th>AdmissionNumber</th>
+                <th>Class</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Faith</td>
+                <td>Wanjiku</td>
+                <td>faith@example.com</td>
+                <td>ADM001</td>
+                <td>Grade 4</td>
+                <td>Active</td>
+              </tr>
+              <tr>
+                <td>Mercy</td>
+                <td>Mwikali</td>
+                <td>mercy@example.com</td>
+                <td>ADM002</td>
+                <td>Grade 5</td>
+                <td>Active</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      </div>
+    </div>
+  </div>
+</div>
         }
 
         .method-card:hover {

@@ -1,42 +1,92 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Payroll Management</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<div class="p-4">
+<?php
+/**
+ * Manage Payrolls Page
+ * HTML structure only - all logic in js/pages/finance.js (managePayrollsController)
+ * Embedded in app_layout.php
+ */
+?>
 
-<h2>Payroll Management</h2>
+<div class="card shadow">
+  <div class="card-header bg-success text-white">
+    <h2 class="mb-0">💼 Manage Payrolls</h2>
+  </div>
+  <div class="card-body">
+    <!-- Search and Filter -->
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <input type="text" id="searchPayrolls" class="form-control" placeholder="Search staff/payroll..." 
+               onkeyup="managePayrollsController.search(this.value)">
+      </div>
+      <div class="col-md-3">
+        <select id="payPeriodFilter" class="form-select" onchange="managePayrollsController.filterByPeriod(this.value)">
+          <option value="">-- All Periods --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select id="statusFilter" class="form-select" onchange="managePayrollsController.filterByStatus(this.value)">
+          <option value="">-- All Status --</option>
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+        </select>
+      </div>
+    </div>
 
-<h4>Add Employee</h4>
-<form id="employeeForm" class="mb-4">
-    <input type="text" name="first_name" placeholder="First Name" required>
-    <input type="text" name="last_name" placeholder="Last Name" required>
-    <input type="email" name="email" placeholder="Email" required>
-    <input type="number" name="salary" placeholder="Salary" required>
-    <button class="btn btn-success">Add</button>
-</form>
+    <!-- Payrolls Table -->
+    <div id="payrollsTableContainer">
+      <p class="text-muted">Loading payroll records...</p>
+    </div>
+  </div>
+</div>
 
-<h4>Process Payroll</h4>
-<form id="payrollForm" class="mb-4">
-    <select name="employee_id" id="employeeSelect" required></select>
-    <input type="number" name="basic_salary" placeholder="Basic Salary" required>
-    <input type="number" name="allowances" placeholder="Allowances">
-    <input type="number" name="deductions" placeholder="Deductions">
-    <input type="date" name="pay_period_start" required>
-    <input type="date" name="pay_period_end" required>
-    <button class="btn btn-primary">Process</button>
-</form>
-
-<h4>Payroll Report</h4>
-<table class="table table-bordered" id="payrollTable">
-    <thead>
-        <tr>
-            <th>Employee</th><th>Basic</th><th>Allowances</th><th>Deductions</th><th>Net</th><th>Date</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
-</table>
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="payrollModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Payroll Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="payrollForm">
+        <div class="modal-body">
+          <input type="hidden" id="payrollId">
+          <div class="mb-3">
+            <label class="form-label">Staff Member</label>
+            <select id="staffSelect" class="form-select" required>
+              <option value="">-- Select Staff --</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Basic Salary</label>
+            <input type="number" id="basicSalary" class="form-control" step="0.01" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Allowances</label>
+            <input type="number" id="allowances" class="form-control" step="0.01" value="0">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Deductions</label>
+            <input type="number" id="deductions" class="form-control" step="0.01" value="0">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Pay Period</label>
+            <input type="month" id="payPeriod" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Status</label>
+            <select id="statusSelect" class="form-select" required>
+              <option value="pending">Pending</option>
+              <option value="paid">Paid</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 
 <script>
 async function loadEmployees() {

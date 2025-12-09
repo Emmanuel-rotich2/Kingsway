@@ -475,7 +475,6 @@ class AcademicAPI extends BaseAPI
     public function list($params = [])
     {
         try {
-            [$page, $limit, $offset] = $this->getPaginationParams();
             [$search, $sort, $order] = $this->getSearchParams();
 
             $where = '';
@@ -486,38 +485,22 @@ class AcademicAPI extends BaseAPI
                 $bindings = [$searchTerm, $searchTerm];
             }
 
-            // Get total count
-            $stmt = $this->db->prepare("SELECT COUNT(*) FROM learning_areas $where");
+            // Get all results without pagination
+            $sql = "SELECT * FROM learning_areas $where ORDER BY $sort $order";
+            $stmt = $this->db->prepare($sql);
+
             if (!empty($bindings)) {
                 $stmt->execute($bindings);
             } else {
                 $stmt->execute();
-            }
-            $total = $stmt->fetchColumn();
-
-            // Get paginated results
-            $sql = "SELECT * FROM learning_areas $where ORDER BY $sort $order LIMIT ? OFFSET ?";
-            $stmt = $this->db->prepare($sql);
-
-            if (!empty($bindings)) {
-                $stmt->execute(array_merge($bindings, [$limit, $offset]));
-            } else {
-                $stmt->execute([$limit, $offset]);
             }
 
             $subjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $this->logAction('read', null, 'Listed learning areas');
 
-            return successResponse([
-                'subjects' => $subjects,
-                'pagination' => [
-                    'page' => $page,
-                    'limit' => $limit,
-                    'total' => $total,
-                    'total_pages' => ceil($total / $limit)
-                ]
-            ]);
+            // Return just the data array - successResponse will wrap it properly
+            return successResponse($subjects);
 
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -1167,12 +1150,16 @@ class AcademicAPI extends BaseAPI
     public function getAcademicTerms($params = [])
     {
         try {
+            // Get academic terms with related information
             $sql = "
                 SELECT 
                     at.*,
-                    COUNT(DISTINCT ac.id) as calendar_events
+                    ay.year_name,
+                    ay.year_code,
+                    COUNT(DISTINCT c.id) as active_classes
                 FROM academic_terms at
-                LEFT JOIN academic_calendar ac ON at.id = ac.term_id
+                LEFT JOIN academic_years ay ON at.year = ay.id
+                LEFT JOIN classes c ON c.academic_year = ay.year_code AND c.status = 'active'
                 GROUP BY at.id
                 ORDER BY at.start_date DESC
             ";
@@ -1185,6 +1172,14 @@ class AcademicAPI extends BaseAPI
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * Alias for getAcademicTerms - matches frontend API route /academic/terms-list
+     */
+    public function getTermsList($params = [])
+    {
+        return $this->getAcademicTerms($params);
     }
 
     public function createAcademicTerm($data)
@@ -1226,6 +1221,263 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Academic term created successfully',
                 'data' => ['id' => $termId]
             ],201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ==================== ACADEMIC YEARS MANAGEMENT ====================
+
+    public function getAcademicYears($params = [])
+    {
+        try {
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+
+            $years = $yearManager->getAllYears($params ?? []);
+
+            return successResponse($years);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Alias for getAcademicYears - matches frontend API route /academic/years/list
+     */
+    public function getYearsList($params = [])
+    {
+        return $this->getAcademicYears($params);
+    }
+
+    public function getCurrentAcademicYear($params = [])
+    {
+        try {
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+
+            $year = $yearManager->getCurrentAcademicYear();
+
+            if (!$year) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'No current academic year found'
+                ], 404);
+            }
+
+            return successResponse($year);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function createAcademicYear($data)
+    {
+        try {
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+
+            $year = $yearManager->createAcademicYear($data);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic year created successfully',
+                'data' => $year
+            ], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateAcademicYear($yearId, $data)
+    {
+        try {
+            if (!$yearId) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Academic year ID is required'
+                ], 400);
+            }
+
+            $sql = "UPDATE academic_years SET ";
+            $fields = [];
+            $values = [];
+
+            $allowedFields = [
+                'year_code',
+                'year_name',
+                'start_date',
+                'end_date',
+                'registration_start',
+                'registration_end',
+                'status'
+            ];
+
+            foreach ($allowedFields as $field) {
+                if (isset($data[$field])) {
+                    $fields[] = "$field = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'No fields to update'
+                ], 400);
+            }
+
+            $sql .= implode(', ', $fields);
+            $sql .= ", updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            $values[] = $yearId;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic year updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteAcademicYear($yearId)
+    {
+        try {
+            if (!$yearId) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Academic year ID is required'
+                ], 400);
+            }
+
+            // Check if year is current
+            $stmt = $this->db->prepare("SELECT is_current FROM academic_years WHERE id = ?");
+            $stmt->execute([$yearId]);
+            $year = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($year && $year['is_current']) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Cannot delete current academic year'
+                ], 400);
+            }
+
+            $stmt = $this->db->prepare("DELETE FROM academic_years WHERE id = ?");
+            $stmt->execute([$yearId]);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic year deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function setCurrentAcademicYear($yearId)
+    {
+        try {
+            if (!$yearId) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Academic year ID is required'
+                ], 400);
+            }
+
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+
+            $yearManager->setCurrentYear($yearId);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic year set as current successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ==================== ACADEMIC TERMS MANAGEMENT ====================
+
+    public function updateAcademicTerm($termId, $data)
+    {
+        try {
+            if (!$termId) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Academic term ID is required'
+                ], 400);
+            }
+
+            $sql = "UPDATE academic_terms SET ";
+            $fields = [];
+            $values = [];
+
+            $allowedFields = ['name', 'start_date', 'end_date', 'year', 'term_number', 'status'];
+
+            foreach ($allowedFields as $field) {
+                if (isset($data[$field])) {
+                    $fields[] = "$field = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'No fields to update'
+                ], 400);
+            }
+
+            $sql .= implode(', ', $fields);
+            $sql .= ", updated_at = CURRENT_TIMESTAMP WHERE id = ?";
+            $values[] = $termId;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic term updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteAcademicTerm($termId)
+    {
+        try {
+            if (!$termId) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Academic term ID is required'
+                ], 400);
+            }
+
+            // Check if term is current
+            $stmt = $this->db->prepare("SELECT status FROM academic_terms WHERE id = ?");
+            $stmt->execute([$termId]);
+            $term = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($term && $term['status'] === 'current') {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Cannot delete current academic term'
+                ], 400);
+            }
+
+            $stmt = $this->db->prepare("DELETE FROM academic_terms WHERE id = ?");
+            $stmt->execute([$termId]);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Academic term deleted successfully'
+            ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -2481,16 +2733,8 @@ class AcademicAPI extends BaseAPI
             $stmt->execute(array_slice($bindings, 0, count($bindings) - 2));
             $total = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-            return successResponse([
-                'status' => 'success',
-                'data' => $classes,
-                'pagination' => [
-                    'total' => (int) $total,
-                    'page' => (int) $page,
-                    'limit' => (int) $limit,
-                    'pages' => ceil($total / $limit)
-                ]
-            ]);
+            // Return just the data array - successResponse will wrap it properly
+            return successResponse($classes);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -2967,6 +3211,77 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Stream created successfully',
                 'data' => ['id' => $streamId]
             ], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * ROUTE ALIASES - Match frontend API.academic method names to backend methods
+     * These ensure URL patterns like /academic/classes-list map to the correct methods
+     */
+
+    /**
+     * Alias for listClasses - matches /academic/classes-list
+     */
+    public function getClassesList($params = [])
+    {
+        return $this->listClasses($params);
+    }
+
+    /**
+     * List all streams across all classes - matches /academic/streams-list
+     */
+    public function getStreamsList($params = [])
+    {
+        try {
+            $sql = "
+                SELECT 
+                    cs.*,
+                    c.name as class_name,
+                    c.academic_year,
+                    sl.name as level_name,
+                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                    COUNT(DISTINCT st.id) as student_count
+                FROM class_streams cs
+                LEFT JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN school_levels sl ON c.level_id = sl.id
+                LEFT JOIN staff s ON cs.teacher_id = s.id
+                LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
+                WHERE cs.status = 'active'
+                GROUP BY cs.id
+                ORDER BY c.academic_year DESC, c.name, cs.stream_name
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse($streams);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * List all learning areas (subjects) - matches /academic/learning-areas/list
+     */
+    public function getLearningAreasList($params = [])
+    {
+        try {
+            $sql = "
+                SELECT 
+                    *
+                FROM subjects
+                WHERE status = 'active'
+                ORDER BY name
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $subjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse($subjects);
         } catch (Exception $e) {
             return $this->handleException($e);
         }

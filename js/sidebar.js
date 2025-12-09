@@ -98,12 +98,8 @@
                     // Add active class to clicked link
                     this.classList.add('active');
                     
-                    // Trigger SPA navigation (if using a router)
-                    if (typeof window.navigateTo === 'function') {
-                        window.navigateTo(route);
-                    } else {
-                        console.log('Navigate to:', route);
-                    }
+                    // Direct navigation to route (no flash, no loading state)
+                    window.location.href = `/Kingsway/home.php?route=${route}`;
                 }
             });
         });

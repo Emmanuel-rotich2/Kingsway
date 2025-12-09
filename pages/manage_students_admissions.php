@@ -1,53 +1,103 @@
 <?php
-require_once 'config/db_connection.php';
-require_once 'components/forms/admission_form.php';
-require_once 'components/tables/students_table.php';
-require_once 'components/modals/qr_code_modal.php';
-require_once 'components/modals/student_details_modal.php';
+/**
+ * Manage Student Admissions Page
+ * HTML structure only - all logic in js/pages/admissions.js (manageAdmissionsController)
+ * Embedded in app_layout.php
+ */
 ?>
 
-<div class="container-fluid px-4">
-    <h1 class="mt-4">Student Admissions Management</h1>
-    
-    <!-- Tabs Navigation -->
-    <ul class="nav nav-tabs mt-4" id="admissionsTab" role="tablist">
-        <li class="nav-item">
-            <a class="nav-link active" id="new-admission-tab" data-bs-toggle="tab" href="#newAdmission" role="tab">
-                New Admission
-            </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" id="student-list-tab" data-bs-toggle="tab" href="#studentList" role="tab">
-                Student List
-            </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" id="transfers-tab" data-bs-toggle="tab" href="#transfers" role="tab">
-                Transfers & Clearance
-            </a>
-        </li>
-        <li class="nav-item">
-            <a class="nav-link" id="exam-results-tab" data-bs-toggle="tab" href="#examResults" role="tab">
-                Exam Results
-            </a>
-        </li>
-    </ul>
+<div class="card shadow">
+  <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+    <h2 class="mb-0">🎓 Student Admissions</h2>
+    <button class="btn btn-primary btn-sm" onclick="manageAdmissionsController.showCreateForm()">+ New Application</button>
+  </div>
+  <div class="card-body">
+    <!-- Search and Filter -->
+    <div class="row mb-3">
+      <div class="col-md-6">
+        <input type="text" id="searchApplications" class="form-control" placeholder="Search applicant..." 
+               onkeyup="manageAdmissionsController.search(this.value)">
+      </div>
+      <div class="col-md-3">
+        <select id="classFilter" class="form-select" onchange="manageAdmissionsController.filterByClass(this.value)">
+          <option value="">-- All Classes --</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <select id="statusFilter" class="form-select" onchange="manageAdmissionsController.filterByStatus(this.value)">
+          <option value="">-- All Status --</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+    </div>
 
-    <!-- Tab Content -->
-    <div class="tab-content mt-4" id="admissionsTabContent">
-        <!-- New Admission Tab -->
-        <div class="tab-pane fade show active" id="newAdmission" role="tabpanel">
-            <div class="card">
-                <div class="card-body">
-                    <?php renderAdmissionForm(); ?>
-                </div>
-            </div>
+    <!-- Applications Table -->
+    <div id="applicationsTableContainer">
+      <p class="text-muted">Loading applications...</p>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal fade" id="admissionModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Student Admission Application</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="admissionForm">
+        <div class="modal-body">
+          <input type="hidden" id="admissionId">
+          <div class="mb-3">
+            <label class="form-label">First Name</label>
+            <input type="text" id="firstName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Last Name</label>
+            <input type="text" id="lastName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Date of Birth</label>
+            <input type="date" id="dob" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input type="email" id="email" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Parent/Guardian Name</label>
+            <input type="text" id="guardianName" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Parent/Guardian Phone</label>
+            <input type="tel" id="guardianPhone" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Applying for Class</label>
+            <select id="classSelect" class="form-select" required>
+              <option value="">-- Select Class --</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Status</label>
+            <select id="statusSelect" class="form-select" required>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
         </div>
-
-        <!-- Student List Tab -->
-        <div class="tab-pane fade" id="studentList" role="tabpanel">
-            <div class="card">
-                <div class="card-body">
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
                     <?php renderStudentsTable(); ?>
                 </div>
             </div>

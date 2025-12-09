@@ -2,6 +2,8 @@
 namespace App\API\Modules\users;
 
 use App\API\Includes\BaseAPI;
+use App\API\Includes\ValidationHelper;
+use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use Firebase\JWT\JWT;
 use PDO;
@@ -16,6 +18,7 @@ class UsersAPI extends BaseAPI
     private $permissionManager;
     private $userRoleManager;
     private $userPermissionManager;
+    private $auditLogger;
 
     public function __construct()
     {
@@ -25,6 +28,7 @@ class UsersAPI extends BaseAPI
         $this->permissionManager = new PermissionManager($this->db);
         $this->userRoleManager = new UserRoleManager($this->db);
         $this->userPermissionManager = new UserPermissionManager($this->db);
+        $this->auditLogger = new AuditLogger($this->db);
     }
 
     // --- Role CRUD and bulk ---
@@ -240,23 +244,49 @@ class UsersAPI extends BaseAPI
     }
     public function create($data)
     {
-        // Create a new user
-        $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+        // Validate input data
+        $validation = ValidationHelper::validateUserData($data, $this->db, false);
+
+        if (!$validation['valid']) {
+            return [
+                'success' => false,
+                'error' => 'Validation failed',
+                'errors' => $validation['errors']
+            ];
+        }
+
+        $validatedData = $validation['data'];
+
+        // Create user with validated data
+        $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
         $stmt = $this->db->prepare($sql);
-        $ok = $stmt->execute([
-            $data['username'],
-            $data['email'],
-            password_hash($data['password'], PASSWORD_DEFAULT),
-            $data['first_name'],
-            $data['last_name'],
-            $data['role_id'] ?? 1,
-            $data['status'] ?? 'active'
-        ]);
-        if ($ok) {
-            $id = $this->db->lastInsertId();
-            return ['success' => true, 'data' => $this->get($id)['data']];
-        } else {
-            return ['success' => false, 'error' => 'User creation failed'];
+
+        try {
+            $ok = $stmt->execute([
+                $validatedData['username'],
+                $validatedData['email'],
+                password_hash($validatedData['password'], PASSWORD_DEFAULT),
+                $validatedData['first_name'],
+                $validatedData['last_name'],
+                $validatedData['role_id'] ?? 1,
+                $validatedData['status'] ?? 'active'
+            ]);
+
+            if ($ok) {
+                $id = $this->db->lastInsertId();
+
+                // Audit log
+                $currentUserId = $this->getCurrentUserId();
+                $this->auditLogger->logUserCreate($currentUserId, $id, $validatedData);
+
+                return ['success' => true, 'data' => $this->get($id)['data']];
+            } else {
+                return ['success' => false, 'error' => 'User creation failed'];
+            }
+        } catch (Exception $e) {
+            error_log("User creation error: " . $e->getMessage());
+            return ['success' => false, 'error' => 'Database error occurred'];
         }
     }
 
@@ -348,38 +378,99 @@ class UsersAPI extends BaseAPI
     }
     public function update($id, $data)
     {
-        // Update user fields
+        // Get current user data for audit log
+        $oldDataResult = $this->get($id);
+        if (!$oldDataResult['success']) {
+            return ['success' => false, 'error' => 'User not found'];
+        }
+        $oldData = $oldDataResult['data'];
+
+        // Validate input data
+        $validation = ValidationHelper::validateUserData($data, $this->db, true, $id);
+
+        if (!$validation['valid']) {
+            return [
+                'success' => false,
+                'error' => 'Validation failed',
+                'errors' => $validation['errors']
+            ];
+        }
+
+        $validatedData = $validation['data'];
+
+        // Build update query with validated data
         $fields = [];
         $params = [];
-        foreach (['username', 'email', 'first_name', 'last_name', 'status'] as $field) {
-            if (isset($data[$field])) {
+
+        foreach (['username', 'email', 'first_name', 'last_name', 'status', 'role_id'] as $field) {
+            if (isset($validatedData[$field])) {
                 $fields[] = "$field = ?";
-                $params[] = $data[$field];
+                $params[] = $validatedData[$field];
             }
         }
-        if (isset($data['password'])) {
+
+        if (isset($validatedData['password'])) {
             $fields[] = 'password = ?';
-            $params[] = password_hash($data['password'], PASSWORD_DEFAULT);
+            $params[] = password_hash($validatedData['password'], PASSWORD_DEFAULT);
         }
+        
         if (empty($fields)) {
             return ['success' => false, 'error' => 'No fields to update'];
         }
+        
         $params[] = $id;
         $sql = 'UPDATE users SET ' . implode(', ', $fields) . ', updated_at = NOW() WHERE id = ?';
-        $stmt = $this->db->prepare($sql);
-        $ok = $stmt->execute($params);
-        if ($ok) {
-            return ['success' => true, 'data' => $this->get($id)['data']];
-        } else {
-            return ['success' => false, 'error' => 'User update failed'];
+
+        try {
+            $stmt = $this->db->prepare($sql);
+            $ok = $stmt->execute($params);
+
+            if ($ok) {
+                // Audit log
+                $currentUserId = $this->getCurrentUserId();
+                $this->auditLogger->logUserUpdate($currentUserId, $id, $oldData, $validatedData);
+
+                return ['success' => true, 'data' => $this->get($id)['data']];
+            } else {
+                return ['success' => false, 'error' => 'User update failed'];
+            }
+        } catch (Exception $e) {
+            error_log("User update error: " . $e->getMessage());
+            return ['success' => false, 'error' => 'Database error occurred'];
         }
     }
     public function delete($id)
     {
-        // Delete user by ID
-        $stmt = $this->db->prepare('DELETE FROM users WHERE id = ?');
-        $ok = $stmt->execute([$id]);
-        return ['success' => $ok, 'data' => ['id' => $id, 'deleted' => $ok]];
+        // Get user data before deletion for audit log
+        $userDataResult = $this->get($id);
+        if (!$userDataResult['success']) {
+            return ['success' => false, 'error' => 'User not found'];
+        }
+        $userData = $userDataResult['data'];
+
+        // Prevent deletion of own account
+        $currentUserId = $this->getCurrentUserId();
+        if ($currentUserId == $id) {
+            return ['success' => false, 'error' => 'Cannot delete your own account'];
+        }
+
+        try {
+            // Delete user
+            $stmt = $this->db->prepare('DELETE FROM users WHERE id = ?');
+            $ok = $stmt->execute([$id]);
+
+            if ($ok) {
+                // Audit log
+                $this->auditLogger->logUserDelete($currentUserId, $id, $userData);
+
+                return ['success' => true, 'data' => ['id' => $id, 'deleted' => true]];
+            } else {
+                return ['success' => false, 'error' => 'User deletion failed'];
+            }
+        } catch (Exception $e) {
+            error_log("User deletion error: " . $e->getMessage());
+            return ['success' => false, 'error' => 'Database error occurred'];
+        }
     }
     public function getProfile($userId)
     {
@@ -525,19 +616,40 @@ class UsersAPI extends BaseAPI
         }
 
         // Get roles and permissions
+        // Get roles and permissions
         $roles = $this->userRoleManager->getUserRoles($user['id']);
         $permissions = $this->userPermissionManager->getEffectivePermissions($user['id']);
 
-        // Generate JWT token
+        // Extract permission CODES only (not full objects)
+        $permissionCodes = [];
+        if (!empty($permissions['data'])) {
+            foreach ($permissions['data'] as $perm) {
+                // Handle both objects and arrays
+                $code = is_array($perm) ? ($perm['code'] ?? $perm['permission_code'] ?? null) : $perm;
+                if ($code) {
+                    $permissionCodes[] = $code;
+                }
+            }
+        }
+
+        // IMPORTANT: DO NOT store permissions in JWT token!
+        // JWT tokens are sent with EVERY request in the Authorization header
+        // Permissions should be stored in localStorage and sent separately when needed
+        // This keeps the token small and prevents "Request Header Too Large" errors
+
+        // Generate JWT token - ONLY authentication data (no permissions!)
         $token = $this->generateJWT([
             'user_id' => $user['id'],
             'username' => $user['username'],
             'email' => $user['email'],
-            'roles' => $roles['data'] ?? [],
-            'permissions' => $permissions['data'] ?? []
+            'roles' => $roles['data'] ?? []
+            // NO permissions in token!
         ]);
 
         // Return user info with token
+        // Permissions are returned in the response body (not in token)
+        // Return user info with token
+        // Permissions are returned in the response body (not in token)
         return [
             'success' => true,
             'message' => 'Login successful',
@@ -552,7 +664,7 @@ class UsersAPI extends BaseAPI
                     'role_id' => $user['role_id'],
                     'status' => $user['status'] ?? null,
                     'roles' => $roles['data'] ?? [],
-                    'permissions' => $permissions['data'] ?? []
+                    'permissions' => $permissionCodes  // In response body, NOT in token
                 ]
             ]
         ];

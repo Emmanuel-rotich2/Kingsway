@@ -3,6 +3,10 @@ if (typeof API_BASE_URL === 'undefined') {
     var API_BASE_URL = '/Kingsway/api';
 }
 
+// Token refresh tracking to prevent duplicate refresh requests
+let isRefreshingToken = false;
+let refreshTokenPromise = null;
+
 // Notification types
 const NOTIFICATION_TYPES = {
     SUCCESS: 'success',
@@ -49,11 +53,12 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
 }
 
 // Handle API Response
-function handleApiResponse(response, showSuccess = true) {
+function handleApiResponse(response, showSuccess = false) {
     if (response.status === 'success') {
-        if (showSuccess && response.message) {
-            showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
-        }
+        // Disabled automatic success notifications - let components handle their own
+        // if (showSuccess && response.message) {
+        //     showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
+        // }
         // For sidebar endpoint, return the entire response
         if (response.data?.sidebar !== undefined) {
             return response;
@@ -70,8 +75,7 @@ function handleApiResponse(response, showSuccess = true) {
 // Handle API Error
 function handleApiError(error) {
     console.error('API Error:', error);
-    const message = error.response?.message || error.message || 'An unexpected error occurred';
-    showNotification(message, NOTIFICATION_TYPES.ERROR);
+    // Don't show notification here - let caller decide if they want to notify user
     throw error;
 }
 
@@ -216,6 +220,12 @@ const AuthContext = (() => {
      */
     function hasPermission(permissionCode) {
         if (!currentUser || !permissionCode) return false;
+        
+        // Check if user has all permissions flag (super admin)
+        if (currentUser.has_all_permissions === true) {
+            return true;  // User has all permissions
+        }
+        
         return permissions.has(permissionCode);
     }
 
@@ -226,6 +236,12 @@ const AuthContext = (() => {
      */
     function hasAnyPermission(permissionCodes = []) {
         if (!currentUser) return false;
+        
+        // Check if user has all permissions flag (super admin)
+        if (currentUser.has_all_permissions === true) {
+            return true;  // User has all permissions
+        }
+        
         return permissionCodes.some(code => permissions.has(code));
     }
 
@@ -236,6 +252,12 @@ const AuthContext = (() => {
      */
     function hasAllPermissions(permissionCodes = []) {
         if (!currentUser) return false;
+        
+        // Check if user has all permissions flag (super admin)
+        if (currentUser.has_all_permissions === true) {
+            return true;  // User has all permissions
+        }
+        
         return permissionCodes.every(code => permissions.has(code));
     }
 
@@ -507,9 +529,115 @@ function validatePermission(endpoint, method) {
     }
 }
 
+/**
+ * Refresh access token using stored refresh token
+ * Implements token rotation strategy with automatic retry
+ * @returns {Promise<boolean>} True if token was refreshed successfully
+ */
+async function refreshAccessToken() {
+    // Prevent simultaneous refresh requests
+    if (isRefreshingToken) {
+        return refreshTokenPromise;
+    }
+
+    isRefreshingToken = true;
+    refreshTokenPromise = (async () => {
+        try {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+                console.warn('No refresh token available, redirecting to login');
+                AuthContext.clearUser();
+                window.location.href = '/Kingsway/index.php';
+                return false;
+            }
+
+            console.log('Attempting to refresh access token...');
+
+            // Call refresh endpoint without checking permissions (to avoid recursion)
+            const url = new URL(API_BASE_URL + '/auth/refresh-token', window.location.origin);
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'omit',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                },
+                body: JSON.stringify({ refresh_token: refreshToken })
+            });
+
+            if (!response.ok) {
+                console.error('Token refresh failed:', response.status);
+                AuthContext.clearUser();
+                window.location.href = '/Kingsway/index.php';
+                return false;
+            }
+
+            const result = await response.json();
+            
+            if (result.status === 'success' && result.data.token) {
+                // Store new tokens
+                localStorage.setItem('token', result.data.token);
+                if (result.data.refresh_token) {
+                    localStorage.setItem('refresh_token', result.data.refresh_token);
+                }
+                console.log('Token refreshed successfully');
+                return true;
+            } else {
+                console.error('Token refresh returned error:', result.message);
+                AuthContext.clearUser();
+                window.location.href = '/Kingsway/index.php';
+                return false;
+            }
+        } catch (error) {
+            console.error('Error refreshing token:', error);
+            AuthContext.clearUser();
+            window.location.href = '/Kingsway/index.php';
+            return false;
+        } finally {
+            isRefreshingToken = false;
+        }
+    })();
+
+    return refreshTokenPromise;
+}
+
+/**
+ * Check if JWT token is expired based on 'exp' claim
+ * Returns true if token is about to expire (within 60 seconds)
+ */
+function isTokenExpired() {
+    const token = localStorage.getItem('token');
+    if (!token) return true;
+
+    try {
+        // Decode JWT (without verification, just get payload)
+        const parts = token.split('.');
+        if (parts.length !== 3) return true;
+
+        const payload = JSON.parse(atob(parts[1]));
+        const now = Math.floor(Date.now() / 1000);
+        const expiresIn = payload.exp - now;
+
+        // Return true if expired or about to expire (within 60 seconds)
+        return expiresIn < 60;
+    } catch (error) {
+        console.error('Error checking token expiry:', error);
+        return true;
+    }
+}
+
 // Generic API call function using fetch
 async function apiCall(endpoint, method = 'GET', data = null, params = {}, options = {}) {
     try {
+        // Check if token is about to expire and refresh if needed
+        if (AuthContext.isAuthenticated() && isTokenExpired()) {
+            console.log('Token expiring soon, refreshing...');
+            const refreshed = await refreshAccessToken();
+            if (!refreshed) {
+                throw new Error('Token refresh failed, please log in again');
+            }
+        }
+
         // Validate permission BEFORE making the request
         // If user lacks permission, this will throw an error
         if (options.checkPermission !== false) {
@@ -522,14 +650,25 @@ async function apiCall(endpoint, method = 'GET', data = null, params = {}, optio
 
         console.log('API Call:', method, url.toString());
 
+        // Check if token exists for debugging
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.warn('⚠️ No JWT token found in localStorage - API call will fail with 401');
+            console.warn('Please log in through /Kingsway/index.php to obtain a JWT token');
+        } else {
+            console.log('✓ Token found, length:', token.length);
+        }
+
         // Request options
         const fetchOptions = {
             method: method,
+            // Include credentials to ensure proper session handling
+            credentials: options.credentials || 'include',
             headers: {
                 ...(options.isFile ? {} : { 'Content-Type': 'application/json' }),
                 // Add Authorization header if token exists
-                ...(localStorage.getItem('token') && {
-                    'Authorization': 'Bearer ' + localStorage.getItem('token')
+                ...(token && {
+                    'Authorization': 'Bearer ' + token
                 }),
                 ...options.headers
             }
@@ -545,8 +684,25 @@ async function apiCall(endpoint, method = 'GET', data = null, params = {}, optio
         }
 
         console.log('Fetch options:', fetchOptions);
+        console.log('Request headers:', JSON.stringify(fetchOptions.headers, null, 2));
 
-        const response = await fetch(url, fetchOptions);
+        let response = await fetch(url, fetchOptions);
+
+        // Handle 401 Unauthorized - token may have expired, try to refresh
+        if (response.status === 401 && !options.isRefreshAttempt) {
+            console.log('Received 401 Unauthorized, attempting token refresh...');
+            const refreshed = await refreshAccessToken();
+            
+            if (refreshed) {
+                // Retry the original request with new token
+                console.log('Retrying original request with refreshed token...');
+                fetchOptions.headers.Authorization = 'Bearer ' + localStorage.getItem('token');
+                response = await fetch(url, fetchOptions);
+            } else {
+                // Refresh failed, user is logged out and redirected
+                throw new Error('Authentication failed, please log in again');
+            }
+        }
 
         // If not JSON, throw a clear error
         const contentType = response.headers.get('content-type') || '';
@@ -582,12 +738,9 @@ async function apiCall(endpoint, method = 'GET', data = null, params = {}, optio
 
         return handled;
     } catch (error) {
-        // For permission denied errors, show a specific message
+        // For permission denied errors, log to console instead of showing popup
         if (error.code === 'PERMISSION_DENIED') {
-            showNotification(
-                `Access Denied: You do not have permission to perform this action.`,
-                NOTIFICATION_TYPES.ERROR
-            );
+            console.warn('Permission Denied:', error.message);
         }
         return handleApiError(error);
     }
@@ -623,8 +776,11 @@ window.API = {
             console.log('Full login response:', response);
             
             if (response && response.token) {
-                // Store token
+                // Store both access and refresh tokens
                 localStorage.setItem('token', response.token);
+                if (response.refresh_token) {
+                    localStorage.setItem('refresh_token', response.refresh_token);
+                }
                 
                 // Store user context with permissions
                 // The backend returns the user object in response.user
@@ -676,16 +832,44 @@ window.API = {
             return response;
         },
         logout: async () => {
-            await apiCall('/auth/logout', 'POST');
-            AuthContext.clearUser();
-            window.location.href = '/Kingsway/index.php';
+            try {
+                // Revoke the refresh token on the server
+                const refreshToken = localStorage.getItem('refresh_token');
+                if (refreshToken) {
+                    await apiCall('/auth/logout', 'POST', { refresh_token: refreshToken }, {}, { 
+                        isRefreshAttempt: true  // Skip token refresh on logout
+                    });
+                }
+            } catch (error) {
+                console.warn('Error revoking refresh token on server:', error);
+                // Continue with logout even if revoke fails
+            } finally {
+                // Clear local storage
+                AuthContext.clearUser();
+                // Redirect to login
+                window.location.href = '/Kingsway/index.php';
+            }
         },
         forgotPassword: async (email) =>
             apiCall('/auth/forgot-password', 'POST', { email }),
         resetPassword: async (token, password) =>
             apiCall('/auth/reset-password', 'POST', { token, password }),
-        refreshToken: async () =>
-            apiCall('/auth/refresh-token', 'POST')
+        refreshToken: async () => {
+            const refreshToken = localStorage.getItem('refresh_token');
+            if (!refreshToken) {
+                throw new Error('No refresh token available');
+            }
+            const response = await apiCall('/auth/refresh-token', 'POST', { refresh_token: refreshToken }, {}, { 
+                isRefreshAttempt: true  // Skip token refresh check to avoid recursion
+            });
+            if (response && response.token) {
+                localStorage.setItem('token', response.token);
+                if (response.refresh_token) {
+                    localStorage.setItem('refresh_token', response.refresh_token);
+                }
+            }
+            return response;
+        }
     },
 
     // Users endpoints
@@ -1091,23 +1275,53 @@ window.API = {
         getCompetencyDashboard: async (params) =>
             apiCall('/academic/competency-dashboard', 'GET', null, params),
         
+        // Academic Years
+        listYears: async (params) =>
+            apiCall('/academic/years/list', 'GET', null, params),
+        getYear: async (id) =>
+            apiCall(`/academic/years/get/${id}`, 'GET'),
+        createYear: async (data) =>
+            apiCall('/academic/years/create', 'POST', data),
+        updateYear: async (id, data) =>
+            apiCall(`/academic/years/update/${id}`, 'PUT', data),
+        deleteYear: async (id) =>
+            apiCall(`/academic/years/delete/${id}`, 'DELETE'),
+        setCurrentYear: async (id) =>
+            apiCall(`/academic/years/set-current/${id}`, 'PUT'),
+        getCurrentAcademicYear: async () =>
+            apiCall('/academic/years-current', 'GET'),
+        getAcademicYear: async (id = null) =>
+            id ? apiCall(`/academic/years-get/${id}`, 'GET') : apiCall('/academic/years-get', 'GET'),
+        getAllAcademicYears: async () =>
+            apiCall('/academic/years-list', 'GET'),
+        createAcademicYear: async (data) =>
+            apiCall('/academic/years-create', 'POST', data),
+        setCurrentAcademicYear: async (id) =>
+            apiCall('/academic/years-set-current', 'POST', { id }),
+        
         // Terms
         createTerm: async (data) =>
-            apiCall('/academic/terms-create', 'POST', data),
+            apiCall('/academic/terms/create', 'POST', data),
         listTerms: async (params) =>
             apiCall('/academic/terms-list', 'GET', null, params),
+        getTerm: async (id) =>
+            apiCall(`/academic/terms/get/${id}`, 'GET'),
+        updateTerm: async (id, data) =>
+            apiCall(`/academic/terms/update/${id}`, 'PUT', data),
+        deleteTerm: async (id) =>
+            apiCall(`/academic/terms/delete/${id}`, 'DELETE'),
         
         // Classes
         createClass: async (data) =>
-            apiCall('/academic/classes-create', 'POST', data),
+            apiCall('/academic/classes/create', 'POST', data),
         listClasses: async (params) =>
             apiCall('/academic/classes-list', 'GET', null, params),
         getClass: async (id = null) =>
             id ? apiCall(`/academic/classes-get/${id}`, 'GET') : apiCall('/academic/classes-get', 'GET'),
         updateClass: async (id, data) =>
-            apiCall('/academic/classes-update', 'PUT', { id, ...data }),
+            apiCall(`/academic/classes/update/${id}`, 'PUT', data),
         deleteClass: async (id) =>
-            apiCall('/academic/classes-delete', 'DELETE', { id }),
+            apiCall(`/academic/classes/delete/${id}`, 'DELETE'),
         assignTeacher: async (data) =>
             apiCall('/academic/classes-assign-teacher', 'POST', data),
         autoCreateStreams: async (data) =>
@@ -1115,9 +1329,27 @@ window.API = {
         
         // Streams
         createStream: async (data) =>
-            apiCall('/academic/streams-create', 'POST', data),
+            apiCall('/academic/streams/create', 'POST', data),
         listStreams: async (params) =>
             apiCall('/academic/streams-list', 'GET', null, params),
+        getStream: async (id) =>
+            apiCall(`/academic/streams/get/${id}`, 'GET'),
+        updateStream: async (id, data) =>
+            apiCall(`/academic/streams/update/${id}`, 'PUT', data),
+        deleteStream: async (id) =>
+            apiCall(`/academic/streams/delete/${id}`, 'DELETE'),
+        
+        // Learning Areas (Subjects)
+        listLearningAreas: async (params) =>
+            apiCall('/academic/learning-areas/list', 'GET', null, params),
+        getLearningArea: async (id) =>
+            apiCall(`/academic/learning-areas/get/${id}`, 'GET'),
+        createLearningArea: async (data) =>
+            apiCall('/academic/learning-areas/create', 'POST', data),
+        updateLearningArea: async (id, data) =>
+            apiCall(`/academic/learning-areas/update/${id}`, 'PUT', data),
+        deleteLearningArea: async (id) =>
+            apiCall(`/academic/learning-areas/delete/${id}`, 'DELETE'),
         
         // Schedules
         createSchedule: async (data) =>

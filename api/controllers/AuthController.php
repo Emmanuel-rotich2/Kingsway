@@ -51,7 +51,15 @@ class AuthController extends BaseController
     // POST /api/auth/refresh-token
     public function postRefreshToken($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->refreshToken($data);
+        $result = $this->api->exchangeRefreshToken($data);
+        return $this->handleResponse($result);
+    }
+
+    // POST /api/auth/logout
+    // Revoke refresh token on logout
+    public function postLogoutRefresh($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->revokeRefreshToken($data);
         return $this->handleResponse($result);
     }
     // Helper for consistent API response

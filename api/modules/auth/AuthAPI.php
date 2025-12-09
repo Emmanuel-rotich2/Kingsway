@@ -149,13 +149,16 @@ class AuthAPI extends BaseAPI
             // Extract user data - it's nested in $result['data']['user']
             $userData = $result['data']['user'] ?? $result['data'];
 
+            // DO NOT put permissions in token - they're already in userData
+            // Token should only contain authentication info (who you are)
+            // Permissions are for authorization (what you can do) - stored in localStorage
             $token = $this->generateToken([
                 'user_id' => $userData['id'],
                 'username' => $userData['username'],
                 'email' => $userData['email'],
                 'roles' => $userData['roles'] ?? [],
-                'display_name' => $userData['first_name'] . ' ' . $userData['last_name'],
-                'permissions' => $userData['permissions'] ?? []
+                'display_name' => $userData['first_name'] . ' ' . $userData['last_name']
+                // NO permissions in token!
             ]);
 
             // Generate sidebar menu items based on user's roles and permissions
@@ -204,12 +207,17 @@ class AuthAPI extends BaseAPI
                 }
             }
 
+            // Generate refresh token for token rotation
+            $refreshToken = $this->generateRefreshToken($userData['id']);
+
             // Return comprehensive login response
             return [
                 'status' => 'success',
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
+                    'refresh_token' => $refreshToken,
+                    'token_expires_in' => JWT_EXPIRY,
                     'user' => $userData,
                     'sidebar_items' => $sidebarItems,
                     'dashboard' => [
@@ -246,6 +254,139 @@ class AuthAPI extends BaseAPI
         );
 
         return JWT::encode($payload, JWT_SECRET, 'HS256');
+    }
+
+    // Generate refresh token (stored in DB, expires in 7 days)
+    private function generateRefreshToken($userId)
+    {
+        $token = bin2hex(random_bytes(32)); // 64-char hex token
+        $expiresAt = date('Y-m-d H:i:s', time() + (7 * 24 * 60 * 60)); // 7 days
+
+        try {
+            $stmt = $this->db->prepare('
+                INSERT INTO refresh_tokens (user_id, token, expires_at) 
+                VALUES (?, ?, ?)
+            ');
+            $stmt->execute([$userId, $token, $expiresAt]);
+            return $token;
+        } catch (\Exception $e) {
+            error_log('Error generating refresh token: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    // Validate and exchange refresh token for new access token
+    public function exchangeRefreshToken($data)
+    {
+        $refreshToken = $data['refresh_token'] ?? null;
+
+        if (!$refreshToken) {
+            return [
+                'success' => false,
+                'message' => 'Refresh token is required'
+            ];
+        }
+
+        try {
+            // Find valid, non-revoked refresh token
+            $stmt = $this->db->prepare('
+                SELECT rt.user_id FROM refresh_tokens rt
+                WHERE rt.token = ? 
+                AND rt.expires_at > NOW()
+                AND rt.revoked_at IS NULL
+                LIMIT 1
+            ');
+            $stmt->execute([$refreshToken]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$result) {
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired refresh token'
+                ];
+            }
+
+            // Get user and generate new access token
+            $userId = $result['user_id'];
+            $userData = $this->usersApi->get($userId);
+
+            if (!$userData) {
+                return [
+                    'success' => false,
+                    'message' => 'User not found'
+                ];
+            }
+
+            // Extract permission codes only
+            $permissionCodes = [];
+            if (!empty($userData['permissions'])) {
+                foreach ($userData['permissions'] as $perm) {
+                    $code = is_array($perm) ? ($perm['code'] ?? $perm['permission_code'] ?? null) : $perm;
+                    if ($code) {
+                        $permissionCodes[] = $code;
+                    }
+                }
+            }
+
+            // Generate new access token
+            $newToken = $this->generateToken([
+                'user_id' => $userData['id'],
+                'username' => $userData['username'],
+                'email' => $userData['email'],
+                'roles' => $userData['roles'] ?? [],
+                'display_name' => $userData['first_name'] . ' ' . $userData['last_name'],
+                'permissions' => $permissionCodes
+            ]);
+
+            return [
+                'success' => true,
+                'message' => 'Token refreshed successfully',
+                'data' => [
+                    'token' => $newToken,
+                    'refresh_token' => $refreshToken,
+                    'token_expires_in' => JWT_EXPIRY
+                ]
+            ];
+        } catch (\Exception $e) {
+            error_log('Error exchanging refresh token: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Token refresh failed'
+            ];
+        }
+    }
+
+    // Revoke refresh token (logout)
+    public function revokeRefreshToken($data)
+    {
+        $refreshToken = $data['refresh_token'] ?? null;
+
+        if (!$refreshToken) {
+            return [
+                'success' => false,
+                'message' => 'Refresh token is required'
+            ];
+        }
+
+        try {
+            $stmt = $this->db->prepare('
+                UPDATE refresh_tokens 
+                SET revoked_at = NOW()
+                WHERE token = ? AND revoked_at IS NULL
+            ');
+            $stmt->execute([$refreshToken]);
+
+            return [
+                'success' => true,
+                'message' => 'Refresh token revoked successfully'
+            ];
+        } catch (\Exception $e) {
+            error_log('Error revoking refresh token: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Token revocation failed'
+            ];
+        }
     }
 
     // Send reset email

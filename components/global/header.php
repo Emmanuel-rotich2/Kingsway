@@ -31,115 +31,101 @@ Compatible with load balancing and horizontal scaling
             </button>
             <!-- User Dropdown -->
             <div class="dropdown">
-                <button class="btn btn-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-secondary dropdown-toggle" type="button" id="userDropdown"
+                    data-bs-toggle="dropdown" aria-expanded="false">
                     <i class="fas fa-user"></i> <span id="header-username">User</span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-<<<<<<< HEAD
-                    <li><a class="dropdown-item" href="?route=profile">Profile</a></li>
-                    <li><a class="dropdown-item text-danger" href="#" onclick="confirmLogout()" ><i class="fas fa-sign-out-alt"></i> Logout</a></li>
-=======
                     <li><a class="dropdown-item" href="javascript:void(0);" onclick="goToProfile()">Profile</a></li>
-                    <li><a class="dropdown-item text-danger" href="javascript:void(0);" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</a></li>
->>>>>>> 27be5c983e14ffe6fc4f3bdbcc5d2b38912c12fb
+                    <li><a class="dropdown-item text-danger" href="javascript:void(0);" onclick="handleLogout()"><i
+                                class="fas fa-sign-out-alt"></i> Logout</a></li>
                 </ul>
             </div>
         </div>
     </div>
 </div>
-<<<<<<< HEAD
-<script src="../../js/index.js" type="text/js"></script>
+
 <script>
-function confirmLogout() {
-    if (confirm("Are you sure you want to logout?")) {
-        window.location.href = 'logout.php';
+    // ============================================================================
+    // HEADER COMPONENT - STATELESS JWT-BASED AUTHENTICATION
+    // ============================================================================
+
+    /**
+     * Initialize header with user info from AuthContext
+     * Called when page loads and after login
+     */
+    function initializeHeader() {
+        // Get current user from AuthContext
+        const currentUser = AuthContext.getUser();
+        const userRoles = AuthContext.getRoles();
+
+        if (currentUser) {
+            // Get primary role (first role or main_role)
+            const primaryRole = (userRoles && userRoles.length > 0)
+                ? userRoles[0]
+                : (currentUser.main_role || 'User');
+
+            // Update header with user info
+            document.getElementById('header-user-role').textContent = primaryRole.replace(/_/g, ' ').split(' ')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                .join(' ');
+
+            document.getElementById('header-username').textContent = currentUser.username || currentUser.name || 'User';
+
+            console.log('[Header] Initialized with user:', currentUser.username, 'Role:', primaryRole);
+        } else {
+            console.log('[Header] No user authenticated');
+        }
     }
-}
-</script>
-=======
 
-<script>
-// ============================================================================
-// HEADER COMPONENT - STATELESS JWT-BASED AUTHENTICATION
-// ============================================================================
+    /**
+     * Handle logout - clear auth context and redirect to login
+     */
+    function handleLogout() {
+        if (confirm('Are you sure you want to logout?')) {
+            API.auth.logout().catch(err => {
+                console.error('Logout error:', err);
+                // Even if API call fails, clear local storage and redirect
+                AuthContext.clearUser();
+                window.location.href = '/Kingsway/index.php';
+            });
+        }
+    }
 
-/**
- * Initialize header with user info from AuthContext
- * Called when page loads and after login
- */
-function initializeHeader() {
-    // Get current user from AuthContext
-    const currentUser = AuthContext.getUser();
-    const userRoles = AuthContext.getRoles();
-    
-    if (currentUser) {
-        // Get primary role (first role or main_role)
-        const primaryRole = (userRoles && userRoles.length > 0) 
-            ? userRoles[0]
-            : (currentUser.main_role || 'User');
-        
-        // Update header with user info
-        document.getElementById('header-user-role').textContent = primaryRole.replace(/_/g, ' ').split(' ')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-            .join(' ');
-        
-        document.getElementById('header-username').textContent = currentUser.username || currentUser.name || 'User';
-        
-        console.log('[Header] Initialized with user:', currentUser.username, 'Role:', primaryRole);
+    /**
+     * Navigate to user profile
+     */
+    function goToProfile() {
+        window.location.href = '/Kingsway/layouts/app_layout.php?route=profile';
+    }
+
+    /**
+     * Toggle sidebar visibility
+     */
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const mainContent = document.querySelector('.main-flex-layout');
+
+        if (sidebar && mainContent) {
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('sidebar-collapsed');
+        }
+    }
+
+    // Initialize header when DOM is ready
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initializeHeader);
     } else {
-        console.log('[Header] No user authenticated');
-    }
-}
-
-/**
- * Handle logout - clear auth context and redirect to login
- */
-function handleLogout() {
-    if (confirm('Are you sure you want to logout?')) {
-        API.auth.logout().catch(err => {
-            console.error('Logout error:', err);
-            // Even if API call fails, clear local storage and redirect
-            AuthContext.clearUser();
-            window.location.href = '/Kingsway/index.php';
-        });
-    }
-}
-
-/**
- * Navigate to user profile
- */
-function goToProfile() {
-    window.location.href = '/Kingsway/layouts/app_layout.php?route=profile';
-}
-
-/**
- * Toggle sidebar visibility
- */
-function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.querySelector('.main-flex-layout');
-    
-    if (sidebar && mainContent) {
-        sidebar.classList.toggle('collapsed');
-        mainContent.classList.toggle('sidebar-collapsed');
-    }
-}
-
-// Initialize header when DOM is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initializeHeader);
-} else {
-    initializeHeader();
-}
-
-// Re-initialize header when user logs in (listen for storage changes)
-window.addEventListener('storage', (e) => {
-    if (e.key === 'user_data' || e.key === 'token') {
         initializeHeader();
     }
-});
 
-// Also listen for custom auth change event
-document.addEventListener('authchanged', initializeHeader);
+    // Re-initialize header when user logs in (listen for storage changes)
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'user_data' || e.key === 'token') {
+            initializeHeader();
+        }
+    });
+
+    // Also listen for custom auth change event
+    document.addEventListener('authchanged', initializeHeader);
 </script>
->>>>>>> 27be5c983e14ffe6fc4f3bdbcc5d2b38912c12fb
