@@ -130,16 +130,22 @@ class UserRoleManager
 
     /**
      * Get user's roles (basic info)
+     * Includes both primary role (from users.role_id) and additional roles (from user_roles)
      */
     public function getUserRoles($userId)
     {
         try {
-            $sql = 'SELECT r.* FROM roles r 
-                    INNER JOIN user_roles ur ON r.id = ur.role_id 
-                    WHERE ur.user_id = ?
+            // Get all roles: primary role from users table + additional roles from user_roles
+            $sql = 'SELECT DISTINCT r.* FROM roles r 
+                    WHERE r.id = (
+                        SELECT role_id FROM users WHERE id = ?
+                    )
+                    OR r.id IN (
+                        SELECT role_id FROM user_roles WHERE user_id = ?
+                    )
                     ORDER BY r.name';
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$userId]);
+            $stmt->execute([$userId, $userId]);
             $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return [

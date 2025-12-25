@@ -818,9 +818,8 @@ window.API = {
                 
                 let redirectUrl;
                 if (dashboardInfo && dashboardInfo.url) {
-                    redirectUrl = '/Kingsway/home.php' + dashboardInfo.url;
-                } else if (dashboardInfo && dashboardInfo.key) {
-                    redirectUrl = '/Kingsway/home.php?route=' + dashboardInfo.key;
+                    // Dashboard URL uses underscore format: manage_students
+                    redirectUrl = '/Kingsway/home.php?route=' + dashboardInfo.url;
                 } else {
                     // Fallback to home page which will redirect to appropriate dashboard
                     redirectUrl = '/Kingsway/home.php';

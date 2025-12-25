@@ -20,6 +20,7 @@ class BankPaymentWebhook
 {
     private $db;
     private $apiKey;
+    private $admissionColumn;
 
     public function __construct()
     {
@@ -32,6 +33,7 @@ class BankPaymentWebhook
             $envKey = getenv('BANK_API_KEY');
             $this->apiKey = $envKey !== false ? $envKey : '';
         }
+        $this->admissionColumn = null;
     }
 
     /**
@@ -69,8 +71,6 @@ class BankPaymentWebhook
     public function processKCBPayment($paymentData)
     {
         try {
-            $this->db->beginTransaction();
-
             // Log raw webhook data
             $this->logWebhook('KCB', $paymentData);
 
@@ -85,56 +85,51 @@ class BankPaymentWebhook
 
             // Validate required fields
             if (!$accountNumber || !$amount || !$transactionRef) {
-                $this->db->rollBack();
                 return formatResponse(false, null, 'Missing required payment fields');
             }
 
             // Validate admission number and get student
-            $stmt = $this->db->prepare("
-                SELECT id, first_name, last_name, admission_number, current_class_id
-                FROM students 
-                WHERE admission_number = ?
-            ");
-            $stmt->execute([$accountNumber]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
-                $this->db->rollBack();
                 $this->logWebhookError('KCB', 'Invalid admission number: ' . $accountNumber, $paymentData);
-                return formatResponse(false, null, 'Invalid admission number');
+                return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
             }
 
             // Check for duplicate transaction
             $stmt = $this->db->prepare("
-                SELECT id FROM bank_transactions 
-                WHERE transaction_ref = ?
+                SELECT id FROM payment_transactions 
+                WHERE reference_no = ?
             ");
             $stmt->execute([$transactionRef]);
 
             if ($stmt->fetch()) {
-                $this->db->rollBack();
                 return formatResponse(false, null, 'Duplicate transaction');
             }
 
             // Process payment using stored procedure
+            // NOTE: Procedure handles its own transaction, do not use explicit transaction management
+            // sp_process_student_payment(p_student_id, p_parent_id, p_amount_paid, p_payment_method, 
+            //                            p_reference_no, p_receipt_no, p_received_by, p_payment_date, p_notes)
             $stmt = $this->db->prepare("
-                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?)
+                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
-                $student['id'],
-                $amount,
-                'bank',
-                $transactionRef,
-                $transactionDate,
-                null, // received_by (automatic)
-                $narration . ' - ' . $student['admission_number']
+                $student['id'],                           // p_student_id
+                $student['parent_id'] ?? 0,               // p_parent_id
+                $amount,                                  // p_amount_paid
+                'bank_transfer',                          // p_payment_method
+                $transactionRef,                          // p_reference_no
+                null,                                     // p_receipt_no
+                null,                                     // p_received_by
+                $transactionDate,                         // p_payment_date
+                $narration . ' - ' . $student['admission_number']  // p_notes
             ]);
 
             // Get the payment ID
             $stmt = $this->db->prepare("
                 SELECT id FROM payment_transactions 
-                WHERE transaction_ref = ? 
+                WHERE reference_no = ? 
                 ORDER BY id DESC LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
@@ -144,14 +139,14 @@ class BankPaymentWebhook
                 // Record bank transaction details
                 $stmt = $this->db->prepare("
                     INSERT INTO bank_transactions (
-                        payment_id, transaction_ref, amount, transaction_date,
+                        student_id, transaction_ref, amount, transaction_date,
                         bank_name, account_number, narration, status,
-                        webhook_data, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'completed', ?, NOW())
+                        webhook_data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'processed', ?)
                 ");
 
                 $stmt->execute([
-                    $payment['id'],
+                    $student['id'],
                     $transactionRef,
                     $amount,
                     $transactionDate,
@@ -161,8 +156,6 @@ class BankPaymentWebhook
                     json_encode($paymentData)
                 ]);
             }
-
-            $this->db->commit();
 
             // Send confirmation notification
             $this->sendPaymentConfirmation($student, $amount, $transactionRef, 'bank');
@@ -176,9 +169,6 @@ class BankPaymentWebhook
             ]);
 
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             error_log("Bank Payment Processing Error: " . $e->getMessage());
             $this->logWebhookError('KCB', $e->getMessage(), $paymentData);
             return formatResponse(false, null, 'Failed to process bank payment: ' . $e->getMessage());
@@ -194,8 +184,6 @@ class BankPaymentWebhook
     public function processGenericBankPayment($paymentData, $bankName = 'Bank')
     {
         try {
-            $this->db->beginTransaction();
-
             // Log webhook
             $this->logWebhook($bankName, $paymentData);
 
@@ -206,41 +194,35 @@ class BankPaymentWebhook
             $transactionDate = $this->extractTransactionDate($paymentData);
 
             if (!$accountNumber || !$amount || !$transactionRef) {
-                $this->db->rollBack();
                 return formatResponse(false, null, 'Invalid payment data format');
             }
 
             // Get student by admission number
-            $stmt = $this->db->prepare("
-                SELECT id, first_name, last_name, admission_number 
-                FROM students 
-                WHERE admission_number = ?
-            ");
-            $stmt->execute([$accountNumber]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
-                $this->db->rollBack();
                 $this->logWebhookError($bankName, 'Invalid admission number: ' . $accountNumber, $paymentData);
-                return formatResponse(false, null, 'Invalid admission number');
+                return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
             }
 
-            // Process payment
+            // Process payment using stored procedure
+            // NOTE: Procedure handles its own transaction, do not use explicit transaction management
+            // sp_process_student_payment(p_student_id, p_parent_id, p_amount_paid, p_payment_method, 
+            //                            p_reference_no, p_receipt_no, p_received_by, p_payment_date, p_notes)
             $stmt = $this->db->prepare("
-                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?)
+                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
-                $student['id'],
-                $amount,
-                'bank',
-                $transactionRef,
-                $transactionDate,
-                null,
-                $bankName . ' Payment - ' . $student['admission_number']
+                $student['id'],                           // p_student_id
+                $student['parent_id'] ?? 0,               // p_parent_id
+                $amount,                                  // p_amount_paid
+                'bank_transfer',                          // p_payment_method
+                $transactionRef,                          // p_reference_no
+                null,                                     // p_receipt_no
+                null,                                     // p_received_by
+                $transactionDate,                         // p_payment_date
+                $bankName . ' Payment - ' . $student['admission_number']  // p_notes
             ]);
-
-            $this->db->commit();
 
             return formatResponse(true, [
                 'message' => 'Payment processed successfully',
@@ -249,11 +231,32 @@ class BankPaymentWebhook
             ]);
 
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
             error_log("Bank Payment Error: " . $e->getMessage());
             return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get student by admission number (handles both admission_number and admission_no columns)
+     * @param string $accountNumber Admission number
+     * @return array|null Student data or null if not found
+     */
+    private function getStudentByAdmission($accountNumber)
+    {
+        try {
+            $admissionCol = $this->resolveAdmissionColumn();
+            $sql = "SELECT s.id, s.first_name, s.last_name, s." . $admissionCol . " AS admission_number, 
+                           COALESCE(sp.parent_id, 0) AS parent_id
+                    FROM students s
+                    LEFT JOIN student_parents sp ON s.id = sp.student_id
+                    WHERE s." . $admissionCol . " = ? 
+                    LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$accountNumber]);
+            return $stmt->fetch(PDO::FETCH_ASSOC);
+        } catch (Exception $e) {
+            error_log("Error fetching student: " . $e->getMessage());
+            return null;
         }
     }
 
@@ -319,6 +322,15 @@ class BankPaymentWebhook
     private function logWebhook($source, $data)
     {
         try {
+            // Map source names to valid enum values
+            $sourceMap = [
+                'KCB' => 'kcb_bank',
+                'Bank' => 'generic_bank',
+                'kcb_bank' => 'kcb_bank',
+                'generic_bank' => 'generic_bank'
+            ];
+            $mappedSource = $sourceMap[$source] ?? 'generic_bank';
+
             $stmt = $this->db->prepare("
                 INSERT INTO payment_webhooks_log (
                     source, webhook_data, status, created_at
@@ -326,7 +338,7 @@ class BankPaymentWebhook
             ");
 
             $stmt->execute([
-                $source,
+                $mappedSource,
                 json_encode($data)
             ]);
 
@@ -349,21 +361,56 @@ class BankPaymentWebhook
     }
 
     /**
+     * Resolve admission column in students table (admission_number vs admission_no)
+     */
+    private function resolveAdmissionColumn()
+    {
+        if ($this->admissionColumn) {
+            return $this->admissionColumn;
+        }
+
+        try {
+            // Prefer admission_number; fallback to admission_no
+            $checkSql = "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'students' AND COLUMN_NAME IN ('admission_number','admission_no') ORDER BY FIELD(COLUMN_NAME,'admission_number','admission_no') LIMIT 1";
+            $stmt = $this->db->prepare($checkSql);
+            $stmt->execute([DB_NAME]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $this->admissionColumn = $row && isset($row['COLUMN_NAME']) ? $row['COLUMN_NAME'] : 'admission_number';
+        } catch (Exception $e) {
+            // Default to admission_number
+            $this->admissionColumn = 'admission_number';
+        }
+        return $this->admissionColumn;
+    }
+
+    /**
      * Log webhook error
      */
     private function logWebhookError($source, $error, $data)
     {
         try {
+            // Map source names to valid enum values
+            $sourceMap = [
+                'KCB' => 'kcb_bank',
+                'Bank' => 'generic_bank',
+                'kcb_bank' => 'kcb_bank',
+                'generic_bank' => 'generic_bank'
+            ];
+            $mappedSource = $sourceMap[$source] ?? 'generic_bank';
+
+            // Truncate error message to fit in database column
+            $truncatedError = substr($error, 0, 500);
+
             $stmt = $this->db->prepare("
                 INSERT INTO payment_webhooks_log (
                     source, webhook_data, status, error_message, created_at
-                ) VALUES (?, ?, 'error', ?, NOW())
+                ) VALUES (?, ?, 'failed', ?, NOW())
             ");
 
             $stmt->execute([
-                $source,
+                $mappedSource,
                 json_encode($data),
-                $error
+                $truncatedError
             ]);
 
         } catch (Exception $e) {
@@ -377,16 +424,23 @@ class BankPaymentWebhook
     private function sendPaymentConfirmation($student, $amount, $transactionRef, $method)
     {
         try {
-            // Get student contact info
+            // Get student contact info - note: students may not have direct phone/email
+            // Contact info is typically stored in parent or student_contacts tables
             $stmt = $this->db->prepare("
-                SELECT s.phone_number, s.email, 
-                       p.phone_number as parent_phone, p.email as parent_email
+                SELECT COALESCE(p.phone_1, '') as parent_phone, 
+                       COALESCE(p.email, '') as parent_email
                 FROM students s
-                LEFT JOIN parents p ON s.parent_id = p.id
+                LEFT JOIN student_parents sp ON s.id = sp.student_id
+                LEFT JOIN parents p ON sp.parent_id = p.id
                 WHERE s.id = ?
+                LIMIT 1
             ");
             $stmt->execute([$student['id']]);
             $contact = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$contact) {
+                $contact = ['parent_phone' => '', 'parent_email' => ''];
+            }
 
             $message = "Payment Received!\n";
             $message .= "Student: " . $student['first_name'] . ' ' . $student['last_name'] . "\n";

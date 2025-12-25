@@ -168,10 +168,16 @@ class AuthAPI extends BaseAPI
             // Get user's primary role for dashboard selection
             $userRoles = $userData['roles'] ?? [];
             $primaryRole = null;
+            $primaryRoleId = null;
+
             if (!empty($userRoles)) {
-                $primaryRole = is_array($userRoles[0])
-                    ? ($userRoles[0]['name'] ?? null)
-                    : $userRoles[0];
+                $primaryRoleData = $userRoles[0];
+                if (is_array($primaryRoleData)) {
+                    $primaryRoleId = $primaryRoleData['id'] ?? null;
+                    $primaryRole = $primaryRoleData['name'] ?? null;
+                } else {
+                    $primaryRole = $primaryRoleData;
+                }
             }
 
             // Initialize dashboard manager
@@ -187,23 +193,27 @@ class AuthAPI extends BaseAPI
             if ($primaryRole) {
                 $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
 
-                // Now convert to dashboard config key (e.g., 'system_administrator_dashboard' → 'system_administrator')
-                // The dashboards.php config uses role-based keys without the '_dashboard' suffix
-                $normalizedRole = strtolower(str_replace(['/', ' ', '-'], '_', $primaryRole));
-
-                // Try to get menu items using normalized role as key
-                $sidebarItems = $dashboardManager->getMenuItems($normalizedRole);
-                $defaultDashboard = $dashboardManager->getDashboard($normalizedRole);
+                // Try to get menu items using role ID as key (dashboards.php is keyed by role ID)
+                if ($primaryRoleId) {
+                    $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+                    $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+                } else {
+                    // Fallback to normalized role name if no role ID
+                    $normalizedRole = strtolower(str_replace(['/', ' ', '-'], '_', $primaryRole));
+                    $sidebarItems = $dashboardManager->getMenuItems($normalizedRole);
+                    $defaultDashboard = $dashboardManager->getDashboard($normalizedRole);
+                }
 
                 // Log for debugging
-                error_log("Login: Role=$primaryRole, DashboardKey=$dashboardKey, NormalizedRole=$normalizedRole, MenuItems=" . count($sidebarItems));
+                error_log("Login: Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
             }
 
             // If no sidebar items found, try to get first accessible dashboard
             if (empty($sidebarItems)) {
                 $defaultDashboard = $dashboardManager->getDefaultDashboard();
                 if ($defaultDashboard) {
-                    $sidebarItems = $defaultDashboard['menu_items'] ?? [];
+                    // Support both 'menu_items' and 'menus' keys
+                    $sidebarItems = $defaultDashboard['menu_items'] ?? $defaultDashboard['menus'] ?? [];
                 }
             }
 
@@ -222,7 +232,7 @@ class AuthAPI extends BaseAPI
                     'sidebar_items' => $sidebarItems,
                     'dashboard' => [
                         'key' => $dashboardKey ?? 'home',
-                        'url' => '?route=' . ($dashboardKey ?? 'home'),
+                        'url' => $dashboardKey ?? 'home',
                         'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
                     ]
                 ]

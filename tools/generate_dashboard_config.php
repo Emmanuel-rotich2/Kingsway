@@ -10,7 +10,7 @@ $user = 'root';
 $pass = 'admin123';
 
 try {
-    $pdo = new PDO("mysql:host=$host;dbname=$dbname", $user, $pass);
+    $pdo = new PDO("mysql:unix_socket=/opt/lampp/var/mysql/mysql.sock;dbname=$dbname", $user, $pass);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
     // Map entity names to menu labels and icons
@@ -38,6 +38,9 @@ try {
         'transport_all' => ['label' => 'Transport', 'icon' => 'bi-bus-front', 'route' => 'manage_transport'],
         'communications' => ['label' => 'Communications', 'icon' => 'bi-chat-dots', 'route' => 'manage_communications'],
         'communications_all' => ['label' => 'Communications', 'icon' => 'bi-chat-dots', 'route' => 'manage_communications'],
+                'communications_messages' => ['label' => 'Messages', 'icon' => 'bi-envelope', 'route' => 'messages'],
+                'communications_outbound' => ['label' => 'External Communications', 'icon' => 'bi-megaphone', 'route' => 'external_communications'],
+                'communications_announcements' => ['label' => 'Announcements', 'icon' => 'bi-bullhorn', 'route' => 'announcements'],
         'reports' => ['label' => 'Reports', 'icon' => 'bi-file-earmark-pdf', 'route' => 'reports'],
         'users' => ['label' => 'Users', 'icon' => 'bi-person-gear', 'route' => 'manage_users'],
         'users_all' => ['label' => 'Users & Access', 'icon' => 'bi-person-gear', 'route' => 'manage_users'],

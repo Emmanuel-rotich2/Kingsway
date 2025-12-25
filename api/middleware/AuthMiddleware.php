@@ -32,6 +32,15 @@ class AuthMiddleware
             'auth/verify-reset-token',
             'users/login',
             'users/register',
+            // Payment webhook endpoints (should be public for bank/M-Pesa callbacks)
+            'payments/index',
+            'payments/mpesa-b2c-callback',
+            'payments/mpesa-b2c-timeout',
+            'payments/mpesa-c2b-confirmation',
+            'payments/kcb-validation',
+            'payments/kcb-transfer-callback',
+            'payments/kcb-notification',
+            'payments/bank-webhook',
         ];
 
         // Check if current request is to a public endpoint

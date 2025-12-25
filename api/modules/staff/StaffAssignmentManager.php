@@ -273,7 +273,7 @@ class StaffAssignmentManager extends BaseAPI
                 $sql .= " AND status = 'active'";
             }
 
-            $sql .= " ORDER BY academic_year DESC, class_name, stream_name, last_name";
+            $sql .= " ORDER BY academic_year DESC, class_name, stream_name, staff_name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -451,18 +451,20 @@ class StaffAssignmentManager extends BaseAPI
      * @param int $academicYearId Academic year ID
      * @return array Response
      */
-    public function getStaffWorkload($staffId, $academicYearId)
+    public function getStaffWorkload($staffId, $academicYearId = null)
     {
         try {
+            // Note: vw_staff_workload uses academic_year (text) not academic_year_id
+            // Get workload for staff - view already filters to active academic year
             $stmt = $this->db->prepare("
                 SELECT * FROM vw_staff_workload 
-                WHERE staff_id = ? AND academic_year_id = ?
+                WHERE staff_id = ?
             ");
-            $stmt->execute([$staffId, $academicYearId]);
+            $stmt->execute([$staffId]);
             $workload = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$workload) {
-                return formatResponse(false, null, 'Staff workload not found for this academic year');
+                return formatResponse(false, null, 'Staff workload not found');
             }
 
             return formatResponse(true, $workload, 'Staff workload retrieved successfully');
@@ -504,7 +506,7 @@ class StaffAssignmentManager extends BaseAPI
                 $params[] = $filters['role'];
             }
 
-            $sql .= " ORDER BY class_name, stream_name, last_name";
+            $sql .= " ORDER BY class_name, stream_name, staff_name";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);

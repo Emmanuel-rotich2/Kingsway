@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use Exception;
 
 use App\API\Modules\system\SystemAPI;
+use App\API\Modules\maintenance\MaintenanceAPI;
 
 class MaintenanceController extends BaseController
 {
@@ -13,6 +14,7 @@ class MaintenanceController extends BaseController
 
     public function __construct() {
         parent::__construct();
+        $this->api = new MaintenanceAPI();
         $this->systemApi = new SystemAPI();
     }
 
@@ -21,32 +23,68 @@ class MaintenanceController extends BaseController
         return $this->success(['message' => 'Maintenance API is running']);
     }
 
-    // GET /api/maintenance
+    // GET /api/maintenance - List all maintenance records (equipment by default)
     public function getMaintenance($id = null, $data = [], $segments = [])
     {
-        // Not implemented in SystemAPI, return error
-        return $this->badRequest('Not supported');
+        // If ID provided, get specific record
+        if ($id) {
+            $result = $this->api->getEquipment($id);
+        } else {
+            // List all equipment maintenance with optional filters
+            $filters = $data;
+            $result = $this->api->listEquipment($filters);
+        }
+        return $this->handleResponse($result);
     }
 
-    // POST /api/maintenance
+    // POST /api/maintenance - Create new maintenance record (equipment by default)
     public function postMaintenance($id = null, $data = [], $segments = [])
     {
-        // Not implemented in SystemAPI, return error
-        return $this->badRequest('Not supported');
+        // Determine type: equipment or vehicle
+        $type = $data['type'] ?? 'equipment';
+
+        if ($type === 'vehicle') {
+            $result = $this->api->createVehicle($data);
+        } else {
+            $result = $this->api->createEquipment($data);
+        }
+        return $this->handleResponse($result);
     }
 
-    // PUT /api/maintenance/{id}
+    // PUT /api/maintenance/{id} - Update maintenance record
     public function putMaintenance($id = null, $data = [], $segments = [])
     {
-        // Not implemented in SystemAPI, return error
-        return $this->badRequest('Not supported');
+        if (!$id) {
+            return $this->badRequest('ID is required for update');
+        }
+
+        // Determine type: equipment or vehicle
+        $type = $data['type'] ?? 'equipment';
+
+        if ($type === 'vehicle') {
+            $result = $this->api->updateVehicle($id, $data);
+        } else {
+            $result = $this->api->updateEquipment($id, $data);
+        }
+        return $this->handleResponse($result);
     }
 
-    // DELETE /api/maintenance/{id}
+    // DELETE /api/maintenance/{id} - Delete maintenance record
     public function deleteMaintenance($id = null, $data = [], $segments = [])
     {
-        // Not implemented in SystemAPI, return error
-        return $this->badRequest('Not supported');
+        if (!$id) {
+            return $this->badRequest('ID is required for deletion');
+        }
+
+        // Determine type: equipment or vehicle
+        $type = $data['type'] ?? 'equipment';
+
+        if ($type === 'vehicle') {
+            $result = $this->api->deleteVehicle($id);
+        } else {
+            $result = $this->api->deleteEquipment($id);
+        }
+        return $this->handleResponse($result);
     }
 
     // GET /api/maintenance/logs

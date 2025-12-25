@@ -1,914 +1,774 @@
 <?php
-// dashboards.php - Auto-generated dashboard config from database
-// Generated: 2025-12-07 00:32:28
-// DO NOT EDIT MANUALLY - regenerate using tools/generate_dashboard_config.php
+/**
+ * COMPREHENSIVE DASHBOARD CONFIGURATIONS
+ * Auto-generated with proper route naming
+ * Generated on: 2025-12-12 17:04:55
+ * 
+ * Route format: manage_xxx (matches existing pages)
+ * Compatible with home.php?route=xxx pattern
+ */
 
 return [
-    // Role: System Administrator Dashboard
-    'system_administrator' => [
-        'label' => 'System Administrator Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_system_administrator_access',
-        ),
-        'menu_items' => [
+    // System Administrator (ID: 2)
+    2 => [
+        'role_name' => 'System Administrator',
+        'menus' => [
             [
-                'label' => 'Academics',
-                'url' => 'manage_academics',
-                'icon' => 'bi-mortarboard',
-                'permissions' => array(
-                    0 => 'academics_all_permissions',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'system_administrator_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Attendance',
-                'url' => 'mark_attendance',
-                'icon' => 'bi-pencil-square',
-                'permissions' => array(
-                    0 => 'attendance_all_permissions',
-                ),
+                'label' => 'Students',
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Students', 'url' => 'manage_students'],
+                    ['label' => 'Admissions', 'url' => 'manage_students_admissions'],
+                    ['label' => 'Attendance', 'url' => 'mark_attendance'],
+                    ['label' => 'ID Cards', 'url' => 'student_id_cards'],
+                    ['label' => 'Import Students', 'url' => 'import_existing_students'],
+                ]
             ],
             [
-                'label' => 'Boarding',
-                'url' => 'manage_boarding',
-                'icon' => 'bi-house',
-                'permissions' => array(
-                    0 => 'boarding_all_permissions',
-                ),
+                'label' => 'Academic',
+                'icon' => 'fas fa-graduation-cap',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Academics', 'url' => 'manage_academics'],
+                    ['label' => 'Classes', 'url' => 'manage_classes'],
+                    ['label' => 'Subjects', 'url' => 'manage_subjects'],
+                    ['label' => 'Timetable', 'url' => 'manage_timetable'],
+                    ['label' => 'Assessments', 'url' => 'manage_assessments'],
+                    ['label' => 'Lesson Plans', 'url' => 'manage_lesson_plans'],
+                    ['label' => 'Add Results', 'url' => 'add_results'],
+                    ['label' => 'View Results', 'url' => 'view_results'],
+                ]
+            ],
+            [
+                'label' => 'Staff',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Staff', 'url' => 'manage_staff'],
+                    ['label' => 'Teachers', 'url' => 'manage_teachers'],
+                    ['label' => 'Non-Teaching Staff', 'url' => 'manage_non_teaching_staff'],
+                    ['label' => 'Payroll', 'url' => 'manage_payrolls'],
+                ]
+            ],
+            [
+                'label' => 'Finance',
+                'icon' => 'fas fa-coins',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Finance', 'url' => 'manage_finance'],
+                    ['label' => 'Fee Structure', 'url' => 'manage_fees'],
+                    ['label' => 'Payments', 'url' => 'manage_payments'],
+                    ['label' => 'Payroll', 'url' => 'payroll'],
+                    ['label' => 'Expenses', 'url' => 'manage_expenses'],
+                    ['label' => 'Reports', 'url' => 'finance_reports'],
+                ]
             ],
             [
                 'label' => 'Communications',
-                'url' => 'manage_communications',
-                'icon' => 'bi-chat-dots',
-                'permissions' => array(
-                    0 => 'communications_all_permissions',
-                ),
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                    ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                    ['label' => 'SMS', 'url' => 'manage_sms'],
+                    ['label' => 'Email', 'url' => 'manage_email'],
+                ]
             ],
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_all_permissions',
-                ),
-            ],
-            [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_all_permissions',
-                ),
-            ],
-            [
-                'label' => 'System Settings',
-                'url' => 'system_settings',
-                'icon' => 'bi-gear',
-                'permissions' => array(
-                    0 => 'system_all_permissions',
-                ),
+                'label' => 'Inventory',
+                'icon' => 'fas fa-boxes',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Items', 'url' => 'manage_inventory'],
+                    ['label' => 'Requisitions', 'url' => 'manage_requisitions'],
+                    ['label' => 'Stock', 'url' => 'manage_stock'],
+                ]
             ],
             [
                 'label' => 'Transport',
-                'url' => 'manage_transport',
-                'icon' => 'bi-bus-front',
-                'permissions' => array(
-                    0 => 'transport_all_permissions',
-                ),
+                'icon' => 'fas fa-bus',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Transport', 'url' => 'manage_transport'],
+                ]
             ],
             [
-                'label' => 'Users & Access',
-                'url' => 'manage_users',
-                'icon' => 'bi-person-gear',
-                'permissions' => array(
-                    0 => 'users_all_permissions',
-                ),
+                'label' => 'Activities',
+                'icon' => 'fas fa-running',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Activities', 'url' => 'manage_activities'],
+                ]
+            ],
+            [
+                'label' => 'Boarding',
+                'icon' => 'fas fa-bed',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Boarding', 'url' => 'manage_boarding'],
+                ]
             ],
             [
                 'label' => 'Workflows',
-                'url' => 'manage_workflows',
-                'icon' => 'bi-diagram-3',
-                'permissions' => array(
-                    0 => 'workflow_all_permissions',
-                ),
+                'icon' => 'fas fa-tasks',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Workflows', 'url' => 'manage_workflows'],
+                ]
             ],
-        ],
+            [
+                'label' => 'Users & Access',
+                'icon' => 'fas fa-users-cog',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Users', 'url' => 'manage_users'],
+                    ['label' => 'Roles & Permissions', 'url' => 'manage_roles'],
+                ]
+            ],
+            [
+                'label' => 'Settings',
+                'icon' => 'fas fa-cogs',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'System Settings', 'url' => 'system_settings'],
+                    ['label' => 'School Settings', 'url' => 'school_settings'],
+                    ['label' => 'API Explorer', 'url' => 'api_explorer'],
+                ]
+            ],
+        ]
     ],
 
-    // Role: Director/Owner Dashboard
-    'director_owner' => [
-        'label' => 'Director/Owner Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_director_owner_access',
-        ),
-        'menu_items' => [
+    // Director (ID: 3)
+    3 => [
+        'role_name' => 'Director',
+        'menus' => [
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'director_owner_dashboard',
+                'subitems' => [
+                ]
+            ],
+            [
+                'label' => 'Finance',
+                'icon' => 'fas fa-coins',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Financial Reports', 'url' => 'finance_reports'],
+                    ['label' => 'Budget Overview', 'url' => 'budget_overview'],
+                    ['label' => 'Approvals', 'url' => 'finance_approvals'],
+                ]
+            ],
+            [
+                'label' => 'Reports',
+                'icon' => 'fas fa-chart-line',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Financial', 'url' => 'financial_reports'],
+                    ['label' => 'Enrollment', 'url' => 'enrollment_reports'],
+                    ['label' => 'Performance', 'url' => 'performance_reports'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
+    ],
+
+    // School Administrator (ID: 4)
+    4 => [
+        'role_name' => 'School Administrator',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'school_administrative_officer_dashboard',
+                'subitems' => [
+                ]
             ],
             [
                 'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_approve',
-                    1 => 'students_create',
-                    2 => 'students_delete',
-                    3 => 'students_edit',
-                    4 => 'students_view',
-                ),
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Students', 'url' => 'manage_students'],
+                    ['label' => 'Admissions', 'url' => 'manage_students_admissions'],
+                    ['label' => 'Attendance', 'url' => 'mark_attendance'],
+                ]
             ],
-        ],
+            [
+                'label' => 'Academic',
+                'icon' => 'fas fa-graduation-cap',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Classes', 'url' => 'manage_classes'],
+                    ['label' => 'Timetable', 'url' => 'manage_timetable'],
+                    ['label' => 'Results', 'url' => 'view_results'],
+                ]
+            ],
+            [
+                'label' => 'Staff',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Staff', 'url' => 'manage_staff'],
+                    ['label' => 'Attendance', 'url' => 'staff_attendance'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+            [
+                'label' => 'Users',
+                'icon' => 'fas fa-users-cog',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Users', 'url' => 'manage_users'],
+                ]
+            ],
+        ]
     ],
 
-    // Role: School Administrative Officer Dashboard
-    'school_administrative_officer' => [
-        'label' => 'School Administrative Officer Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_school_administrative_officer_access',
-        ),
-        'menu_items' => [
+    // Headteacher (ID: 5)
+    5 => [
+        'role_name' => 'Headteacher',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'headteacher_dashboard',
+                'subitems' => [
+                ]
+            ],
+            [
+                'label' => 'Academic',
+                'icon' => 'fas fa-graduation-cap',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Academics', 'url' => 'manage_academics'],
+                    ['label' => 'Classes', 'url' => 'manage_classes'],
+                    ['label' => 'Timetable', 'url' => 'manage_timetable'],
+                    ['label' => 'Results', 'url' => 'view_results'],
+                ]
+            ],
+            [
+                'label' => 'Students',
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Students', 'url' => 'manage_students'],
+                    ['label' => 'Admissions', 'url' => 'manage_students_admissions'],
+                    ['label' => 'Performance', 'url' => 'student_performance'],
+                ]
+            ],
+            [
+                'label' => 'Staff',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Staff', 'url' => 'manage_staff'],
+                    ['label' => 'Performance', 'url' => 'staff_performance'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
+    ],
+
+    // Deputy Head - Academic (ID: 6)
+    6 => [
+        'role_name' => 'Deputy Head - Academic',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'deputy_headteacher_dashboard',
+                'subitems' => [
+                ]
+            ],
+            [
+                'label' => 'Timetable',
+                'icon' => 'fas fa-calendar-alt',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Timetable', 'url' => 'manage_timetable'],
+                ]
+            ],
             [
                 'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_approve',
-                    1 => 'academic_assessments_create',
-                    2 => 'academic_assessments_delete',
-                    3 => 'academic_assessments_edit',
-                    4 => 'academic_assessments_view',
-                ),
+                'icon' => 'fas fa-file-alt',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Assessments', 'url' => 'manage_assessments'],
+                    ['label' => 'Add Results', 'url' => 'add_results'],
+                    ['label' => 'View Results', 'url' => 'view_results'],
+                ]
+            ],
+            [
+                'label' => 'Students',
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Students', 'url' => 'manage_students'],
+                ]
             ],
             [
                 'label' => 'Classes',
-                'url' => 'manage_classes',
-                'icon' => 'bi-journal',
-                'permissions' => array(
-                    0 => 'academic_classes_approve',
-                    1 => 'academic_classes_create',
-                    2 => 'academic_classes_delete',
-                    3 => 'academic_classes_edit',
-                    4 => 'academic_classes_view',
-                ),
+                'icon' => 'fas fa-door-open',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Classes', 'url' => 'manage_classes'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
+    ],
+
+    // Class Teacher (ID: 7)
+    7 => [
+        'role_name' => 'Class Teacher',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'class_teacher_dashboard',
+                'subitems' => [
+                ]
+            ],
+            [
+                'label' => 'My Classes',
+                'icon' => 'fas fa-door-open',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'My Classes', 'url' => 'myclasses'],
+                    ['label' => 'Class Attendance', 'url' => 'mark_attendance'],
+                ]
+            ],
+            [
+                'label' => 'Assessments',
+                'icon' => 'fas fa-file-alt',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Assessments', 'url' => 'manage_assessments'],
+                    ['label' => 'Enter Results', 'url' => 'submit_results'],
+                    ['label' => 'View Results', 'url' => 'view_results'],
+                ]
             ],
             [
                 'label' => 'Lesson Plans',
-                'url' => 'manage_lesson_plans',
-                'icon' => 'bi-file-text',
-                'permissions' => array(
-                    0 => 'academic_lesson_plans_approve',
-                    1 => 'academic_lesson_plans_create',
-                    2 => 'academic_lesson_plans_delete',
-                    3 => 'academic_lesson_plans_edit',
-                    4 => 'academic_lesson_plans_view',
-                ),
+                'icon' => 'fas fa-book-open',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Lesson Plans', 'url' => 'manage_lesson_plans'],
+                ]
             ],
             [
-                'label' => 'Results',
-                'url' => 'view_results',
-                'icon' => 'bi-bar-chart',
-                'permissions' => array(
-                    0 => 'academic_results_approve',
-                    1 => 'academic_results_create',
-                    2 => 'academic_results_delete',
-                    3 => 'academic_results_edit',
-                    4 => 'academic_results_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-            [
-                'label' => 'Subjects',
-                'url' => 'manage_subjects',
-                'icon' => 'bi-book',
-                'permissions' => array(
-                    0 => 'academic_subjects_approve',
-                    1 => 'academic_subjects_create',
-                    2 => 'academic_subjects_delete',
-                    3 => 'academic_subjects_edit',
-                    4 => 'academic_subjects_view',
-                ),
-            ],
-            [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_approve',
-                    1 => 'academic_timetable_create',
-                    2 => 'academic_timetable_delete',
-                    3 => 'academic_timetable_edit',
-                    4 => 'academic_timetable_view',
-                ),
-            ],
-            [
-                'label' => 'Activities',
-                'url' => 'manage_activities',
-                'icon' => 'bi-trophy',
-                'permissions' => array(
-                    0 => 'activities_approve',
-                    1 => 'activities_create',
-                    2 => 'activities_delete',
-                    3 => 'activities_edit',
-                    4 => 'activities_view',
-                ),
-            ],
-            [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
-            ],
-            [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_approve',
-                    1 => 'students_create',
-                    2 => 'students_delete',
-                    3 => 'students_edit',
-                    4 => 'students_view',
-                ),
-            ],
-        ],
+        ]
     ],
 
-    // Role: Headteacher Dashboard
-    'headteacher' => [
-        'label' => 'Headteacher Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_headteacher_access',
-        ),
-        'menu_items' => [
+    // Subject Teacher (ID: 8)
+    8 => [
+        'role_name' => 'Subject Teacher',
+        'menus' => [
             [
-                'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_approve',
-                    1 => 'academic_assessments_create',
-                    2 => 'academic_assessments_delete',
-                    3 => 'academic_assessments_edit',
-                    4 => 'academic_assessments_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'subject_teacher_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Classes',
-                'url' => 'manage_classes',
-                'icon' => 'bi-journal',
-                'permissions' => array(
-                    0 => 'academic_classes_approve',
-                    1 => 'academic_classes_create',
-                    2 => 'academic_classes_delete',
-                    3 => 'academic_classes_edit',
-                    4 => 'academic_classes_view',
-                ),
+                'label' => 'My Teaching',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'My Classes', 'url' => 'myclasses'],
+                ]
+            ],
+            [
+                'label' => 'Assessments',
+                'icon' => 'fas fa-file-alt',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Enter Results', 'url' => 'submit_results'],
+                    ['label' => 'View Results', 'url' => 'view_results'],
+                ]
             ],
             [
                 'label' => 'Lesson Plans',
-                'url' => 'manage_lesson_plans',
-                'icon' => 'bi-file-text',
-                'permissions' => array(
-                    0 => 'academic_lesson_plans_approve',
-                    1 => 'academic_lesson_plans_create',
-                    2 => 'academic_lesson_plans_delete',
-                    3 => 'academic_lesson_plans_edit',
-                    4 => 'academic_lesson_plans_view',
-                ),
+                'icon' => 'fas fa-book-open',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'My Plans', 'url' => 'manage_lesson_plans'],
+                ]
             ],
             [
-                'label' => 'Results',
-                'url' => 'view_results',
-                'icon' => 'bi-bar-chart',
-                'permissions' => array(
-                    0 => 'academic_results_approve',
-                    1 => 'academic_results_create',
-                    2 => 'academic_results_delete',
-                    3 => 'academic_results_edit',
-                    4 => 'academic_results_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-            [
-                'label' => 'Subjects',
-                'url' => 'manage_subjects',
-                'icon' => 'bi-book',
-                'permissions' => array(
-                    0 => 'academic_subjects_approve',
-                    1 => 'academic_subjects_create',
-                    2 => 'academic_subjects_delete',
-                    3 => 'academic_subjects_edit',
-                    4 => 'academic_subjects_view',
-                ),
-            ],
-            [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_approve',
-                    1 => 'academic_timetable_create',
-                    2 => 'academic_timetable_delete',
-                    3 => 'academic_timetable_edit',
-                    4 => 'academic_timetable_view',
-                ),
-            ],
-            [
-                'label' => 'Activities',
-                'url' => 'manage_activities',
-                'icon' => 'bi-trophy',
-                'permissions' => array(
-                    0 => 'activities_approve',
-                    1 => 'activities_create',
-                    2 => 'activities_delete',
-                    3 => 'activities_edit',
-                    4 => 'activities_view',
-                ),
-            ],
-            [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_approve',
-                    1 => 'students_create',
-                    2 => 'students_delete',
-                    3 => 'students_edit',
-                    4 => 'students_view',
-                ),
-            ],
-        ],
+        ]
     ],
 
-    // Role: Deputy Headteacher Dashboard
-    'deputy_headteacher' => [
-        'label' => 'Deputy Headteacher Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_deputy_headteacher_access',
-        ),
-        'menu_items' => [
+    // Intern/Student Teacher (ID: 9)
+    9 => [
+        'role_name' => 'Intern/Student Teacher',
+        'menus' => [
             [
-                'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_approve',
-                    1 => 'academic_assessments_create',
-                    2 => 'academic_assessments_delete',
-                    3 => 'academic_assessments_edit',
-                    4 => 'academic_assessments_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'intern_student_teacher_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Results',
-                'url' => 'view_results',
-                'icon' => 'bi-bar-chart',
-                'permissions' => array(
-                    0 => 'academic_results_approve',
-                    1 => 'academic_results_create',
-                    2 => 'academic_results_delete',
-                    3 => 'academic_results_edit',
-                    4 => 'academic_results_view',
-                ),
-            ],
-            [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
-            ],
-        ],
-    ],
-
-    // Role: Class Teacher Dashboard
-    'class_teacher' => [
-        'label' => 'Class Teacher Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_class_teacher_access',
-        ),
-        'menu_items' => [
-            [
-                'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_approve',
-                    1 => 'academic_assessments_create',
-                    2 => 'academic_assessments_delete',
-                    3 => 'academic_assessments_edit',
-                    4 => 'academic_assessments_view',
-                ),
+                'label' => 'My Classes',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'View Classes', 'url' => 'myclasses'],
+                ]
             ],
             [
                 'label' => 'Lesson Plans',
-                'url' => 'manage_lesson_plans',
-                'icon' => 'bi-file-text',
-                'permissions' => array(
-                    0 => 'academic_lesson_plans_approve',
-                    1 => 'academic_lesson_plans_create',
-                    2 => 'academic_lesson_plans_delete',
-                    3 => 'academic_lesson_plans_edit',
-                    4 => 'academic_lesson_plans_view',
-                ),
+                'icon' => 'fas fa-book-open',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'View Plans', 'url' => 'manage_lesson_plans'],
+                ]
             ],
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-        ],
+        ]
     ],
 
-    // Role: Subject Teacher Dashboard
-    'subject_teacher' => [
-        'label' => 'Subject Teacher Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_subject_teacher_access',
-        ),
-        'menu_items' => [
+    // Accountant (ID: 10)
+    10 => [
+        'role_name' => 'Accountant',
+        'menus' => [
             [
-                'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_approve',
-                    1 => 'academic_assessments_create',
-                    2 => 'academic_assessments_delete',
-                    3 => 'academic_assessments_edit',
-                    4 => 'academic_assessments_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'school_accountant_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Lesson Plans',
-                'url' => 'manage_lesson_plans',
-                'icon' => 'bi-file-text',
-                'permissions' => array(
-                    0 => 'academic_lesson_plans_approve',
-                    1 => 'academic_lesson_plans_create',
-                    2 => 'academic_lesson_plans_delete',
-                    3 => 'academic_lesson_plans_edit',
-                    4 => 'academic_lesson_plans_view',
-                ),
+                'label' => 'Fees',
+                'icon' => 'fas fa-receipt',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Fee Structure', 'url' => 'manage_fees'],
+                    ['label' => 'Student Fees', 'url' => 'student_fees'],
+                ]
             ],
             [
-                'label' => 'Results',
-                'url' => 'view_results',
-                'icon' => 'bi-bar-chart',
-                'permissions' => array(
-                    0 => 'academic_results_approve',
-                    1 => 'academic_results_create',
-                    2 => 'academic_results_delete',
-                    3 => 'academic_results_edit',
-                    4 => 'academic_results_view',
-                ),
+                'label' => 'Payments',
+                'icon' => 'fas fa-money-bill-wave',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Payments', 'url' => 'manage_payments'],
+                ]
             ],
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Payroll',
+                'icon' => 'fas fa-wallet',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Staff Payroll', 'url' => 'payroll'],
+                    ['label' => 'Manage Payroll', 'url' => 'manage_payrolls'],
+                ]
             ],
-        ],
+            [
+                'label' => 'Reports',
+                'icon' => 'fas fa-chart-line',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Financial Reports', 'url' => 'finance_reports'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
     ],
 
-    // Role: Intern/Student Teacher Dashboard
-    'intern_student_teacher' => [
-        'label' => 'Intern/Student Teacher Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_intern_student_teacher_access',
-        ),
-        'menu_items' => [
+    // Inventory Manager (ID: 14)
+    14 => [
+        'role_name' => 'Inventory Manager',
+        'menus' => [
             [
-                'label' => 'Assessments',
-                'url' => 'manage_assessments',
-                'icon' => 'bi-clipboard-check',
-                'permissions' => array(
-                    0 => 'academic_assessments_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'store_manager_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Lesson Plans',
-                'url' => 'manage_lesson_plans',
-                'icon' => 'bi-file-text',
-                'permissions' => array(
-                    0 => 'academic_lesson_plans_view',
-                ),
+                'label' => 'Inventory',
+                'icon' => 'fas fa-boxes',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Inventory', 'url' => 'manage_inventory'],
+                    ['label' => 'Stock Management', 'url' => 'manage_stock'],
+                    ['label' => 'Requisitions', 'url' => 'manage_requisitions'],
+                ]
             ],
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
+    ],
+
+    // Cateress (ID: 16)
+    16 => [
+        'role_name' => 'Cateress',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'catering_manager_cook_lead_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_view',
-                ),
-            ],
-        ],
-    ],
-
-    // Role: School Accountant Dashboard
-    'school_accountant' => [
-        'label' => 'School Accountant Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_school_accountant_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Accounts Assistant Dashboard
-    'accounts_assistant' => [
-        'label' => 'Accounts Assistant Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_accounts_assistant_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Registrar Dashboard
-    'registrar' => [
-        'label' => 'Registrar Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_registrar_access',
-        ),
-        'menu_items' => [
-            [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_view',
-                ),
-            ],
-        ],
-    ],
-
-    // Role: Secretary Dashboard
-    'secretary' => [
-        'label' => 'Secretary Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_secretary_access',
-        ),
-        'menu_items' => [
-            [
-                'label' => 'Classes',
-                'url' => 'manage_classes',
-                'icon' => 'bi-journal',
-                'permissions' => array(
-                    0 => 'academic_classes_view',
-                ),
+                'label' => 'Menu & Food',
+                'icon' => 'fas fa-utensils',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Menu Planning', 'url' => 'menu_planning'],
+                    ['label' => 'Food Store', 'url' => 'food_store'],
+                ]
             ],
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
+    ],
+
+    // Boarding Master (ID: 18)
+    18 => [
+        'role_name' => 'Boarding Master',
+        'menus' => [
+            [
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'matron_housemother_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Boarding',
+                'icon' => 'fas fa-bed',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Boarding', 'url' => 'manage_boarding'],
+                ]
             ],
             [
-                'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_edit',
-                    1 => 'students_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-        ],
+        ]
     ],
 
-    // Role: Store Manager Dashboard
-    'store_manager' => [
-        'label' => 'Store Manager Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_store_manager_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Store Attendant Dashboard
-    'store_attendant' => [
-        'label' => 'Store Attendant Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_store_attendant_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Catering Manager/Cook Lead Dashboard
-    'catering_manager_cook_lead' => [
-        'label' => 'Catering Manager/Cook Lead Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_catering_manager_cook_lead_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Cook/Food Handler Dashboard
-    'cook_food_handler' => [
-        'label' => 'Cook/Food Handler Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_cook_food_handler_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Matron/Housemother Dashboard
-    'matron_housemother' => [
-        'label' => 'Matron/Housemother Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_matron_housemother_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: HOD - Food & Nutrition Dashboard
-    'hod___food_&_nutrition' => [
-        'label' => 'HOD - Food & Nutrition Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_hod___food_&_nutrition_access',
-        ),
-        'menu_items' => [
+    // Talent Development (ID: 21)
+    21 => [
+        'role_name' => 'Talent Development',
+        'menus' => [
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'hod_talent_development_dashboard',
+                'subitems' => [
+                ]
             ],
-        ],
-    ],
-
-    // Role: HOD - Games & Sports Dashboard
-    'hod___games_&_sports' => [
-        'label' => 'HOD - Games & Sports Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_hod___games_&_sports_access',
-        ),
-        'menu_items' => [
             [
                 'label' => 'Activities',
-                'url' => 'manage_activities',
-                'icon' => 'bi-trophy',
-                'permissions' => array(
-                    0 => 'activities_approve',
-                    1 => 'activities_create',
-                    2 => 'activities_delete',
-                    3 => 'activities_edit',
-                    4 => 'activities_view',
-                ),
+                'icon' => 'fas fa-running',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Manage Activities', 'url' => 'manage_activities'],
+                ]
             ],
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-        ],
+        ]
     ],
 
-    // Role: HOD - Talent Development Dashboard
-    'hod___talent_development' => [
-        'label' => 'HOD - Talent Development Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_hod___talent_development_access',
-        ),
-        'menu_items' => [
+    // Driver (ID: 23)
+    23 => [
+        'role_name' => 'Driver',
+        'menus' => [
             [
-                'label' => 'Activities',
-                'url' => 'manage_activities',
-                'icon' => 'bi-trophy',
-                'permissions' => array(
-                    0 => 'activities_approve',
-                    1 => 'activities_create',
-                    2 => 'activities_delete',
-                    3 => 'activities_edit',
-                    4 => 'activities_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'driver_dashboard',
+                'subitems' => [
+                ]
             ],
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Transport',
+                'icon' => 'fas fa-bus',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'My Routes', 'url' => 'my_routes'],
+                    ['label' => 'My Vehicle', 'url' => 'my_vehicle'],
+                ]
             ],
-        ],
-    ],
-
-    // Role: HOD - Transport Dashboard
-    'hod___transport' => [
-        'label' => 'HOD - Transport Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_hod___transport_access',
-        ),
-        'menu_items' => [
             [
-                'label' => 'Staff',
-                'url' => 'manage_staff',
-                'icon' => 'bi-person-workspace',
-                'permissions' => array(
-                    0 => 'staff_approve',
-                    1 => 'staff_create',
-                    2 => 'staff_delete',
-                    3 => 'staff_edit',
-                    4 => 'staff_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-        ],
+        ]
     ],
 
-    // Role: Driver Dashboard
-    'driver' => [
-        'label' => 'Driver Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_driver_access',
-        ),
-        'menu_items' => [
+    // Chaplain (ID: 24)
+    24 => [
+        'role_name' => 'Chaplain',
+        'menus' => [
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'school_counselor_chaplain_dashboard',
+                'subitems' => [
+                ]
             ],
-        ],
-    ],
-
-    // Role: School Counselor/Chaplain Dashboard
-    'school_counselor_chaplain' => [
-        'label' => 'School Counselor/Chaplain Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_school_counselor_chaplain_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Security Officer Dashboard
-    'security_officer' => [
-        'label' => 'Security Officer Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_security_officer_access',
-        ),
-        'menu_items' => [
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Counseling',
+                'icon' => 'fas fa-hands-helping',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Student Counseling', 'url' => 'student_counseling'],
+                    ['label' => 'Chapel Services', 'url' => 'chapel_services'],
+                ]
             ],
-        ],
-    ],
-
-    // Role: Cleaner/Janitor Dashboard
-    'cleaner_janitor' => [
-        'label' => 'Cleaner/Janitor Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_cleaner_janitor_access',
-        ),
-        'menu_items' => [
             [
-                'label' => 'Timetable',
-                'url' => 'manage_timetable',
-                'icon' => 'bi-calendar3',
-                'permissions' => array(
-                    0 => 'academic_timetable_view',
-                ),
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
             ],
-        ],
+        ]
     ],
 
-    // Role: Librarian Dashboard
-    'librarian' => [
-        'label' => 'Librarian Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_librarian_access',
-        ),
-        'menu_items' => [
-        ],
-    ],
-
-    // Role: Activities Coordinator Dashboard
-    'activities_coordinator' => [
-        'label' => 'Activities Coordinator Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_activities_coordinator_access',
-        ),
-        'menu_items' => [
+    // Deputy Head - Discipline (ID: 63)
+    63 => [
+        'role_name' => 'Deputy Head - Discipline',
+        'menus' => [
             [
-                'label' => 'Activities',
-                'url' => 'manage_activities',
-                'icon' => 'bi-trophy',
-                'permissions' => array(
-                    0 => 'activities_approve',
-                    1 => 'activities_create',
-                    2 => 'activities_delete',
-                    3 => 'activities_edit',
-                    4 => 'activities_view',
-                ),
-            ],
-        ],
-    ],
-
-    // Role: Parent/Guardian Dashboard
-    'parent_guardian' => [
-        'label' => 'Parent/Guardian Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_parent_guardian_access',
-        ),
-        'menu_items' => [
-            [
-                'label' => 'Results',
-                'url' => 'view_results',
-                'icon' => 'bi-bar-chart',
-                'permissions' => array(
-                    0 => 'academic_results_view',
-                ),
+                'label' => 'Dashboard',
+                'icon' => 'fas fa-tachometer-alt',
+                'url' => 'deputy_headteacher_dashboard',
+                'subitems' => [
+                ]
             ],
             [
                 'label' => 'Students',
-                'url' => 'manage_students',
-                'icon' => 'bi-people',
-                'permissions' => array(
-                    0 => 'students_view',
-                ),
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Students', 'url' => 'manage_students'],
+                    ['label' => 'Admissions', 'url' => 'manage_students_admissions'],
+                    ['label' => 'Discipline', 'url' => 'student_discipline'],
+                ]
             ],
-        ],
-    ],
-
-    // Role: Visiting Staff Dashboard
-    'visiting_staff' => [
-        'label' => 'Visiting Staff Dashboard',
-        'permissions' => array(
-            0 => 'dashboard_visiting_staff_access',
-        ),
-        'menu_items' => [
-        ],
+            [
+                'label' => 'Attendance',
+                'icon' => 'fas fa-clipboard-check',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Mark Attendance', 'url' => 'mark_attendance'],
+                    ['label' => 'View Attendance', 'url' => 'view_attendance'],
+                ]
+            ],
+            [
+                'label' => 'Communications',
+                'icon' => 'fas fa-comments',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                ]
+            ],
+        ]
     ],
 
 ];

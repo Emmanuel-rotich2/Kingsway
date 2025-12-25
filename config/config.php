@@ -68,7 +68,7 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database Configuration
-define('DB_HOST', 'localhost');
+define('DB_HOST', '127.0.0.1');
 define('DB_USER', 'root');
 define('DB_PASS', 'admin123');
 define('DB_NAME', 'KingsWayAcademy');

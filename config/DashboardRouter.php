@@ -30,6 +30,8 @@ class DashboardRouter
         // Administrative Staff
         'school_administrative_officer' => 'school_administrative_officer_dashboard',
         'school administrative officer' => 'school_administrative_officer_dashboard',
+        'school_administrator' => 'school_administrative_officer_dashboard',
+        'school administrator' => 'school_administrative_officer_dashboard',
         'registrar' => 'registrar_dashboard',
         'secretary' => 'secretary_dashboard',
 

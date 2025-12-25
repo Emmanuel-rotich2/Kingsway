@@ -388,14 +388,15 @@ class FinanceController extends BaseController
      */
     public function postPaymentsSendNotification($id = null, $data = [], $segments = [])
     {
-        $studentId = $data['student_id'] ?? null;
-        $amount = $data['amount'] ?? null;
-        
-        if ($studentId === null || $amount === null) {
-            return $this->badRequest('Student ID and amount are required');
+        $paymentId = $data['payment_id'] ?? null;
+        $recipient = $data['recipient'] ?? null;
+        $method = $data['method'] ?? 'email';
+
+        if ($paymentId === null || $recipient === null) {
+            return $this->badRequest('Payment ID and recipient are required');
         }
-        
-        $result = $this->api->sendPaymentNotification($studentId, $amount);
+
+        $result = $this->api->sendPaymentNotification($paymentId, $recipient, $method);
         return $this->handleResponse($result);
     }
 
@@ -453,14 +454,14 @@ class FinanceController extends BaseController
      */
     public function getFeesTermBreakdown($id = null, $data = [], $segments = [])
     {
-        $academicYear = $data['academic_year'] ?? null;
-        $levelId = $data['level_id'] ?? null;
-        
-        if ($academicYear === null || $levelId === null) {
-            return $this->badRequest('Academic year and level ID are required');
+        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
+        $term = $_GET['term'] ?? $data['term'] ?? null;
+
+        if ($academicYear === null || $term === null) {
+            return $this->badRequest('Academic year ID and term are required');
         }
-        
-        $result = $this->api->getTermBreakdown($academicYear, $levelId);
+
+        $result = $this->api->getTermBreakdown($academicYear, $term);
         return $this->handleResponse($result);
     }
 
@@ -478,14 +479,13 @@ class FinanceController extends BaseController
      */
     public function getFeesAnnualSummary($id = null, $data = [], $segments = [])
     {
-        $academicYear = $data['academic_year'] ?? null;
-        $levelId = $data['level_id'] ?? null;
+        $academicYear = $_GET['academic_year_id'] ?? $data['academic_year_id'] ?? null;
         
         if ($academicYear === null) {
-            return $this->badRequest('Academic year is required');
+            return $this->badRequest('Academic year ID is required');
         }
-        
-        $result = $this->api->getAnnualFeeSummary($academicYear, $levelId);
+
+        $result = $this->api->getAnnualFeeSummary($academicYear);
         return $this->handleResponse($result);
     }
 
@@ -619,13 +619,41 @@ class FinanceController extends BaseController
     private function handleResponse($result)
     {
         if (is_array($result)) {
+            // Check if result is from formatResponse (has 'code' and 'status' keys)
+            if (isset($result['code']) && isset($result['status'])) {
+                $code = $result['code'];
+                $message = $result['message'] ?? 'Operation completed';
+                $data = $result['data'] ?? null;
+
+                // Route based on HTTP status code
+                if ($code >= 200 && $code < 300) {
+                    return $this->success($data, $message);
+                } elseif ($code === 404) {
+                    return $this->notFound($message);
+                } elseif ($code === 401) {
+                    return $this->unauthorized($message);
+                } elseif ($code === 403) {
+                    return $this->forbidden($message);
+                } elseif ($code >= 500) {
+                    return $this->serverError($message);
+                } else {
+                    return $this->badRequest($message);
+                }
+            }
+
+            // Legacy format with 'success' key
             if (isset($result['success'])) {
                 if ($result['success']) {
                     return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
                 } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
+                    $message = $result['error'] ?? $result['message'] ?? 'Operation failed';
+                    if (stripos($message, 'not found') !== false) {
+                        return $this->notFound($message);
+                    }
+                    return $this->badRequest($message);
                 }
             }
+            
             return $this->success($result);
         }
 
