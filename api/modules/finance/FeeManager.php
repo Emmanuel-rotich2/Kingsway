@@ -173,7 +173,7 @@ class FeeManager
             $stmt = $this->db->prepare("
                 SELECT fs.*, sl.name as level_name, sl.code as level_code,
                        u.username as created_by_name
-                FROM fee_structures fs
+                FROM fee_structures_detailed fs
                 LEFT JOIN school_levels sl ON fs.level_id = sl.id
                 LEFT JOIN users u ON fs.created_by = u.id
                 WHERE fs.id = ?
@@ -218,9 +218,9 @@ class FeeManager
 
             $sql = "SELECT fs.*, sl.name as level_name, sl.code as level_code,
                            COUNT(DISTINCT sfo.student_id) as student_count
-                    FROM fee_structures fs
+                    FROM fee_structures_detailed fs
                     LEFT JOIN school_levels sl ON fs.level_id = sl.id
-                    LEFT JOIN student_fee_obligations sfo ON fs.id = sfo.fee_structure_id
+                    LEFT JOIN student_fee_obligations sfo ON fs.id = sfo.fee_structure_detail_id
                     WHERE 1=1";
 
             $params = [];
@@ -256,7 +256,7 @@ class FeeManager
             $feeStructures = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Get total count
-            $countSql = "SELECT COUNT(DISTINCT fs.id) as total FROM fee_structures fs WHERE 1=1";
+            $countSql = "SELECT COUNT(DISTINCT fs.id) as total FROM fee_structures_detailed fs WHERE 1=1";
             $countParams = array_slice($params, 0, -2); // Remove limit and offset
 
             if (!empty($filters['academic_year'])) {
@@ -517,7 +517,7 @@ class FeeManager
         try {
             // Get student details
             $stmt = $this->db->prepare("
-                SELECT s.student_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                SELECT s.admission_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
                        c.name as class_name, sl.name as level_name
                 FROM students s
                 LEFT JOIN classes c ON s.class_id = c.id
@@ -535,7 +535,7 @@ class FeeManager
             $stmt = $this->db->prepare("
                 SELECT sfo.*, fs.name as fee_structure_name, fs.amount as total_fee
                 FROM student_fee_obligations sfo
-                INNER JOIN fee_structures fs ON sfo.fee_structure_id = fs.id
+                INNER JOIN fee_structures_detailed fs ON sfo.fee_structure_detail_id = fs.id
                 WHERE sfo.student_id = ? AND sfo.academic_year = ?
             ");
             $stmt->execute([$studentId, $academicYear]);
@@ -1243,7 +1243,8 @@ class FeeManager
     {
         try {
             $sql = "SELECT * FROM vw_fee_collection_by_year WHERE academic_year IN (?, ?) ORDER BY academic_year";
-            $stmt = $this->db->query($sql, [$year1, $year2]);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$year1, $year2]);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             if (count($results) < 2) {

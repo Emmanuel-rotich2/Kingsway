@@ -662,17 +662,16 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT 
                     s.*,
-                    sc.name as category_name,
+                    sc.category_name,
                     d.name as department_name,
-                    COUNT(DISTINCT c.id) as assigned_classes,
-                    COUNT(DISTINCT sub.id) as assigned_subjects
+                    COUNT(DISTINCT sca.class_id) as assigned_classes,
+                    COUNT(DISTINCT cs.subject_id) as assigned_subjects
                 FROM staff s
-                LEFT JOIN staff_categories sc ON s.category_id = sc.id
+                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
                 LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN class_teachers ct ON s.id = ct.teacher_id
-                LEFT JOIN classes c ON ct.class_id = c.id
-                LEFT JOIN subject_teachers st ON s.id = st.teacher_id
-                LEFT JOIN subjects sub ON st.subject_id = sub.id
+                LEFT JOIN staff_class_assignments sca ON s.id = sca.staff_id AND sca.status = 'active'
+                LEFT JOIN classes c ON sca.class_id = c.id
+                LEFT JOIN class_schedules cs ON s.id = cs.teacher_id AND cs.status = 'active'
                 WHERE s.id = ?
                 GROUP BY s.id
             ";
@@ -696,16 +695,18 @@ class StaffAPI extends BaseAPI {
         try {
             $sql = "
                 SELECT 
-                    t.*,
-                    s.name as subject_name,
+                    cs.*,
+                    cu.name as subject_name,
                     c.name as class_name,
                     r.name as room_name
-                FROM timetable t
-                JOIN subjects s ON t.subject_id = s.id
-                JOIN classes c ON t.class_id = c.id
-                JOIN rooms r ON t.room_id = r.id
-                WHERE t.teacher_id = ?
-                ORDER BY t.day, t.start_time
+                FROM class_schedules cs
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN rooms r ON cs.room_id = r.id
+                WHERE cs.teacher_id = ?
+                ORDER BY 
+                    FIELD(cs.day_of_week, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'),
+                    cs.start_time
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -728,7 +729,10 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            $sql = "INSERT INTO class_teachers (teacher_id, class_id) VALUES (?, ?)";
+            $sql = "INSERT INTO staff_class_assignments (staff_id, class_id, academic_year_id, role, start_date) 
+                    VALUES (?, ?, 
+                        (SELECT id FROM academic_years WHERE status = 'active' LIMIT 1), 
+                        'class_teacher', CURDATE())";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$id, $data['class_id']]);
 
@@ -744,16 +748,19 @@ class StaffAPI extends BaseAPI {
 
     public function assignSubject($id, $data) {
         try {
-            if (empty($data['subject_id'])) {
+            if (empty($data['subject_id']) || empty($data['class_id'])) {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'Subject ID is required'
+                    'message' => 'Subject ID and Class ID are required'
                 ], 400);
             }
 
-            $sql = "INSERT INTO subject_teachers (teacher_id, subject_id) VALUES (?, ?)";
+            // Note: Subjects are now assigned via class_schedules table
+            // This creates a basic schedule entry - adjust day/time as needed
+            $sql = "INSERT INTO class_schedules (teacher_id, subject_id, class_id, day_of_week, start_time, end_time) 
+                    VALUES (?, ?, ?, 'Monday', '08:00:00', '09:00:00')";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $data['subject_id']]);
+            $stmt->execute([$id, $data['subject_id'], $data['class_id']]);
 
             return $this->response([
                 'status' => 'success',
@@ -785,7 +792,8 @@ class StaffAPI extends BaseAPI {
                     sa.*,
                     s.first_name,
                     s.last_name,
-                    s.staff_id,
+                    s.staff_no,
+                    s.id as staff_id,
                     d.name as department_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
@@ -862,7 +870,8 @@ class StaffAPI extends BaseAPI {
                     sl.*,
                     s.first_name,
                     s.last_name,
-                    s.staff_id,
+                    s.staff_no,
+                    s.id as staff_id,
                     d.name as department_name
                 FROM staff_leaves sl
                 JOIN staff s ON sl.staff_id = s.id

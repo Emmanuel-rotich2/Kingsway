@@ -595,7 +595,7 @@ class PaymentsAPI extends BaseAPI
                     'status' => $status,
                     'error' => $error,
                 ];
-                $this->commAPI->sendResetEmail([$email], $subject, $body);
+                $this->commAPI->sendEmail([$email], $subject, $body);
             }
         } catch (\Exception $e) {
             error_log("Failed to send transfer notification: " . $e->getMessage());
@@ -763,41 +763,56 @@ class PaymentsAPI extends BaseAPI
                 ];
             }
             $bankService = new BankPaymentWebhook();
-            $bankName = $headers['X-Bank-Name'] ?? $webhookData['bank'] ?? 'KCB';
-            $accountRef = $webhookData['account_number'] ?? $webhookData['reference'] ?? '';
+            $bankName = $headers['X-Bank-Name'] ?? $webhookData['bank'] ?? $webhookData['bank_name'] ?? 'Generic Bank';
+
+            // Use BankPaymentWebhook's flexible extractors to handle various field names
+            $accountRef = $this->extractAccountNumber($webhookData);
             $narration = strtolower($webhookData['narration'] ?? '');
             $handled = false;
             $result = null;
-            if (preg_match('/^\d{5,}$/', $accountRef)) {
-                $result = (strtoupper($bankName) === 'KCB')
-                    ? $bankService->processKCBPayment($webhookData)
-                    : $bankService->processGenericBankPayment($webhookData, $bankName);
-                $handled = true;
-            } elseif (stripos($accountRef, 'TRP') === 0 || strpos($narration, 'transport') !== false) {
-                $result = [
-                    'status' => false,
-                    'message' => 'Transport payment processing not yet implemented.'
-                ];
-                $handled = true;
-            } elseif (stripos($accountRef, 'PAY') === 0 || strpos($narration, 'payroll') !== false) {
-                $result = [
-                    'status' => false,
-                    'message' => 'Payroll payment processing not yet implemented.'
-                ];
-                $handled = true;
-            } elseif (stripos($accountRef, 'DEPT') === 0 || strpos($narration, 'department') !== false) {
-                $result = [
-                    'status' => false,
-                    'message' => 'Department payment processing not yet implemented.'
-                ];
-                $handled = true;
-            } elseif (stripos($accountRef, 'CHQ') === 0 || strpos($narration, 'cheque') !== false) {
-                $result = [
-                    'status' => false,
-                    'message' => 'Cheque payment processing not yet implemented.'
-                ];
-                $handled = true;
+
+            // If we got an account reference, try to process it as a bank payment
+            if ($accountRef) {
+                // Check account reference type and route accordingly
+                if (preg_match('/^\d{5,}$/', $accountRef)) {
+                    // Numeric account (5+ digits)
+                    $result = (strtoupper($bankName) === 'KCB')
+                        ? $bankService->processKCBPayment($webhookData)
+                        : $bankService->processGenericBankPayment($webhookData, $bankName);
+                    $handled = true;
+                } elseif (preg_match('/^ADM\d+$/i', $accountRef)) {
+                    // Admission number (ADM001, ADM102, etc.) - student school fees
+                    $result = (strtoupper($bankName) === 'KCB')
+                        ? $bankService->processKCBPayment($webhookData)
+                        : $bankService->processGenericBankPayment($webhookData, $bankName);
+                    $handled = true;
+                } elseif (stripos($accountRef, 'TRP') === 0 || strpos($narration, 'transport') !== false) {
+                    $result = [
+                        'status' => false,
+                        'message' => 'Transport payment processing not yet implemented.'
+                    ];
+                    $handled = true;
+                } elseif (stripos($accountRef, 'PAY') === 0 || strpos($narration, 'payroll') !== false) {
+                    $result = [
+                        'status' => false,
+                        'message' => 'Payroll payment processing not yet implemented.'
+                    ];
+                    $handled = true;
+                } elseif (stripos($accountRef, 'DEPT') === 0 || strpos($narration, 'department') !== false) {
+                    $result = [
+                        'status' => false,
+                        'message' => 'Department payment processing not yet implemented.'
+                    ];
+                    $handled = true;
+                } elseif (stripos($accountRef, 'CHQ') === 0 || strpos($narration, 'cheque') !== false) {
+                    $result = [
+                        'status' => false,
+                        'message' => 'Cheque payment processing not yet implemented.'
+                    ];
+                    $handled = true;
+                }
             }
+
             if (!$handled) {
                 $result = [
                     'status' => false,
@@ -824,6 +839,20 @@ class PaymentsAPI extends BaseAPI
                 'message' => 'Internal server error'
             ];
         }
+    }
+
+    /**
+     * Extract account number from payment data (flexible field names)
+     */
+    private function extractAccountNumber($data)
+    {
+        $fields = ['account_number', 'account_ref', 'reference', 'customer_ref', 'bill_ref'];
+        foreach ($fields as $field) {
+            if (isset($data[$field]) && !empty($data[$field])) {
+                return $data[$field];
+            }
+        }
+        return null;
     }
 }
 

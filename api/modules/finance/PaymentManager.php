@@ -220,7 +220,7 @@ class PaymentManager
     {
         try {
             $stmt = $this->db->prepare("
-                SELECT pt.*, s.student_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                SELECT pt.*, s.admission_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
                        u.username as received_by_name
                 FROM payment_transactions pt
                 INNER JOIN students s ON pt.student_id = s.id

@@ -108,7 +108,7 @@ class SystemAPI extends BaseAPI
     public function getSchoolConfig($id = null)
     {
         if ($id) {
-            $stmt = $this->db->prepare('SELECT * FROM school_config WHERE id = ?');
+            $stmt = $this->db->prepare('SELECT * FROM school_configuration WHERE id = ?');
             $stmt->execute([$id]);
             $config = $stmt->fetch();
             if ($config) {
@@ -117,7 +117,7 @@ class SystemAPI extends BaseAPI
                 return ['success' => false, 'message' => 'Config not found'];
             }
         } else {
-            $stmt = $this->db->query('SELECT * FROM school_config');
+            $stmt = $this->db->query('SELECT * FROM school_configuration');
             $configs = $stmt->fetchAll();
             return ['success' => true, 'data' => $configs];
         }
@@ -142,7 +142,7 @@ class SystemAPI extends BaseAPI
                 $result = ['success' => false, 'message' => 'No fields to update'];
             } else {
                 $params[] = $data['id'];
-                $sql = 'UPDATE school_config SET ' . implode(', ', $fields) . ' WHERE id = ?';
+                $sql = 'UPDATE school_configuration SET ' . implode(', ', $fields) . ' WHERE id = ?';
                 $stmt = $this->db->prepare($sql);
                 $success = $stmt->execute($params);
                 if ($success) {
@@ -156,7 +156,7 @@ class SystemAPI extends BaseAPI
             $fields = array_keys($data);
             $placeholders = array_fill(0, count($fields), '?');
             $params = array_values($data);
-            $sql = 'INSERT INTO school_config (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')';
+            $sql = 'INSERT INTO school_configuration (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')';
             $stmt = $this->db->prepare($sql);
             $success = $stmt->execute($params);
             if ($success) {

@@ -5,6 +5,22 @@ use Exception;
 
 class SchedulesManager
 {
+    private $db;
+
+    public function __construct($db = null)
+    {
+        if ($db === null) {
+            $db = require_once __DIR__ . '/../../database/Database.php';
+            $db = $db->getInstance();
+        }
+
+        if (!$db) {
+            throw new Exception("Database connection required for SchedulesManager");
+        }
+
+        $this->db = $db;
+    }
+
     // Central manager for all scheduling operations
     // Will coordinate with other managers (class, exam, activity, event, room, staff, transport)
 
@@ -146,16 +162,6 @@ class SchedulesManager
         }
         // Add more analytics as needed
         return $analytics;
-    }
-    protected $db;
-
-    public function __construct($db = null)
-    {
-        // Accept PDO or fetch from global context if needed
-        $this->db = $db ?? (isset($GLOBALS['db']) ? $GLOBALS['db'] : null);
-        if (!$this->db) {
-            throw new Exception('Database connection required for SchedulesManager');
-        }
     }
 
     // Check if a resource (room, staff, class, vehicle, etc.) is available in a given time window

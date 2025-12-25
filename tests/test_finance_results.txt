@@ -1,134 +1,43 @@
-✗ GET /finance/index - Get finance index
-  Response: "{\"status\":\"success\",\"message\":\"Success\",\"data\":{\"message\":\"Finance API is running\"},\"code\":200,\"timestamp\":\"2025-12-06T10:21:40+03:00\",\"request_id\":\"req_6933d9842c914\"}"
-"{\"status\":\"success\",\"message\":\"Success\",\"data\":{\"message\":\"Finance API is running\"},\"code\":200,\"timestamp\":\"2025-12-06T10:21:40+03:00\",\"request_id\":\"req_6933d9842c914\"}"
-✓ GET /finance - Get finance (CRUD)
-{"status":"success","message":"Success","data":{"status":"error","message":"Failed to list fee structures: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'fs.level_id' in 'on clause'","type":"NotFound","code":404,"data":null},"code":200,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d98455369"}
-✗ POST /finance - Post finance
-  Response: {"status":"error","message":"Type is required","code":500}
-{"status":"error","message":"Type is required","code":500}
-✗ PUT /finance - Put finance
-  Response: {"status":"error","message":"Finance record ID is required for update","data":null,"code":400,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d98494e6a"}
-{"status":"error","message":"Finance record ID is required for update","data":null,"code":400,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d98494e6a"}
-✗ DELETE /finance - Delete finance
-  Response: {"status":"error","message":"Finance record ID is required for deletion","data":null,"code":400,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d984a656f"}
-{"status":"error","message":"Finance record ID is required for deletion","data":null,"code":400,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d984a656f"}
-✗ POST /finance/department-budgets-propose - Propose department budget
-  Response: <br />
-<b>Warning</b>:  Undefined array key "title" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>22</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "description" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>23</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "amount_requested" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>24</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "created_by" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>25</b><br />
-{"status":"error","message":"SQLSTATE[23000]: Integrity constraint violation: 1048 Column 'title' cannot be null","code":500}
-<br />
-<b>Warning</b>:  Undefined array key "title" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>22</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "description" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>23</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "amount_requested" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>24</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "created_by" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>25</b><br />
-{"status":"error","message":"SQLSTATE[23000]: Integrity constraint violation: 1048 Column 'title' cannot be null","code":500}
-✓ GET /finance/department-budgets-proposals - Get budget proposals
-{"status":"success","message":"Success","data":{"status":"success","message":"No content","type":"NoContent","code":204,"data":[]},"code":200,"timestamp":"2025-12-06T10:21:40+03:00","request_id":"req_6933d984e6b5b"}
-✗ POST /finance/department-budgets-approve - Approve budget
-  Response: {"status":"error","message":"proposal_id and status are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d98507303"}
-{"status":"error","message":"proposal_id and status are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d98507303"}
-✗ POST /finance/department-budgets-allocate - Allocate budget
-  Response: {"status":"error","message":"department_id and amount are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9851dd16"}
-{"status":"error","message":"department_id and amount are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9851dd16"}
-✗ POST /finance/department-budgets-request-funds - Request funds
-  Response: <br />
-<b>Warning</b>:  Undefined array key "amount" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>74</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "reason" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>75</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "requested_by" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>76</b><br />
-{"status":"error","message":"SQLSTATE[23000]: Integrity constraint violation: 1048 Column 'amount' cannot be null","code":500}
-<br />
-<b>Warning</b>:  Undefined array key "amount" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>74</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "reason" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>75</b><br />
-<br />
-<b>Warning</b>:  Undefined array key "requested_by" in <b>/home/prof_angera/Projects/php_pages/Kingsway/api/modules/finance/DepartmentBudgetManager.php</b> on line <b>76</b><br />
-{"status":"error","message":"SQLSTATE[23000]: Integrity constraint violation: 1048 Column 'amount' cannot be null","code":500}
-✗ GET /finance/payrolls-list - Get payrolls list
-  Response: {"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-{"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-✗ GET /finance/payrolls-get?payroll_id=1 - Get specific payroll
-  Response: {"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9855af0f"}
-{"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9855af0f"}
-✗ GET /finance/payrolls-staff-payments - Get staff payments
-  Response: {"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9856d2d5"}
-{"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d9856d2d5"}
-✗ POST /finance/payrolls-create-draft - Create draft payroll
-  Response: {"status":"error","message":"Month and year are required","code":500}
-{"status":"error","message":"Month and year are required","code":500}
-✗ POST /finance/payrolls-calculate - Calculate payroll
-  Response: {"status":"error","message":"Month and year are required","code":500}
-{"status":"error","message":"Month and year are required","code":500}
-✗ POST /finance/payrolls-recalculate - Recalculate payroll
-  Response: {"status":"error","message":"Month and year are required","code":500}
-{"status":"error","message":"Month and year are required","code":500}
-✓ POST /finance/payrolls-verify - Verify payroll
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID and User ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d985bcd80"}
-✓ POST /finance/payrolls-approve - Approve payroll
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID and User ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d985cd088"}
-✓ POST /finance/payrolls-reject - Reject payroll
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID and User ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:41+03:00","request_id":"req_6933d985ddb4d"}
-✓ POST /finance/payrolls-process - Process payroll
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID and User ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d98600179"}
-✓ POST /finance/payrolls-disburse - Disburse payroll
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID and User ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d98611076"}
-✗ POST /finance/payrolls-cancel - Cancel payroll
-  Response: {"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-{"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-✗ GET /finance/payrolls-status - Get payroll status
-  Response: {"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d98635456"}
-{"status":"error","message":"Payroll ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d98635456"}
-✓ GET /finance/payrolls-staff-payments-get?staff_id=1 - Get staff payments
-{"status":"success","message":"Success","data":{"status":"error","message":"Payroll ID required","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986463ae"}
-✗ GET /finance/payrolls-summary - Get payroll summary
-  Response: {"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-{"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-✗ GET /finance/payrolls-history - Get payroll history
-  Response: {"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.staff_payments' doesn't exist","code":500}
-{"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.staff_payments' doesn't exist","code":500}
-✗ POST /finance/payments-generate-receipt - Generate receipt
-  Response: {"status":"error","message":"Payment ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986797ee"}
-{"status":"error","message":"Payment ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986797ee"}
-✗ POST /finance/payments-generate-payslip - Generate payslip
-  Response: {"status":"error","message":"Staff payment ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d9868b499"}
-{"status":"error","message":"Staff payment ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d9868b499"}
-✗ POST /finance/payments-send-notification - Send payment notification
-  Response: {"status":"error","message":"Student ID and amount are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d9869a67b"}
-{"status":"error","message":"Student ID and amount are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d9869a67b"}
-✓ POST /finance/fees-create-annual-structure - Create annual fee structure
-{"status":"success","message":"Success","data":{"status":"error","message":"Missing required fields: level_id, student_type_id, term_breakdown","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986a9d27"}
-✓ POST /finance/fees-review-structure - Review fee structure
-{"status":"success","message":"Success","data":{"status":"error","message":"Missing required fields: academic_year, level_id","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986b978e"}
-✓ POST /finance/fees-approve-structure - Approve fee structure
-{"status":"success","message":"Success","data":{"status":"error","message":"Missing required fields: academic_year, level_id","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986ca3ae"}
-✓ POST /finance/fees-activate-structure - Activate fee structure
-{"status":"success","message":"Success","data":{"status":"error","message":"Missing required fields: academic_year, level_id","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986d8f0b"}
-✓ POST /finance/fees-rollover-structure - Rollover fee structure
-{"status":"success","message":"Success","data":{"status":"error","message":"Missing required fields: source_year, target_year","type":"Unprocessable","code":422,"data":null},"code":200,"timestamp":"2025-12-06T10:21:42+03:00","request_id":"req_6933d986e88b2"}
-✗ GET /finance/fees-term-breakdown - Get term breakdown
-  Response: {"status":"error","message":"Academic year and level ID are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d987072f3"}
-{"status":"error","message":"Academic year and level ID are required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d987072f3"}
-✓ GET /finance/fees-pending-reviews - Get pending reviews
-{"status":"success","message":"Success","data":{"status":"success","message":"No content","type":"NoContent","code":204,"data":{"pending_count":0,"reviews":[]}},"code":200,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d98717c05"}
-✗ GET /finance/fees-annual-summary - Get annual summary
-  Response: {"status":"error","message":"Academic year is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9872b156"}
-{"status":"error","message":"Academic year is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9872b156"}
-✗ GET /finance/students-payment-history - Get student payment history
-  Response: {"status":"error","message":"Student ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9873a7fc"}
-{"status":"error","message":"Student ID is required","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9873a7fc"}
-✗ POST /finance/reports-generate-payroll - Generate payroll report
-  Response: {"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-{"status":"error","message":"SQLSTATE[42S02]: Base table or view not found: 1146 Table 'KingsWayAcademy.payrolls' doesn't exist","code":500}
-✗ GET /finance/reports-compare-yearly-collections - Compare yearly collections
-  Response: {"status":"error","message":"Both years are required for comparison","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9875dfdf"}
-{"status":"error","message":"Both years are required for comparison","data":null,"code":400,"timestamp":"2025-12-06T10:21:43+03:00","request_id":"req_6933d9875dfdf"}
+PASS: Index - GET /index
+PASS: Get Finance Records - GET 
+FAIL: Create Finance Record (POST) - POST  - Expected 200, Got 500
+Response: {"status":"error","message":"Failed to record expense: SQLSTATE[42S22]: Column not found: 1054 Unknown column 'budget_line_item_id' in 'field list'","data":{"debug":null,"request_id":"req_693caf8b0af8d"},"code":500,"timestamp":"2025-12-13T03:12:59+03:00","request_id":"req_693caf8b0af8d"}
+FAIL: Update Finance Record (PUT) - PUT /1 - Expected 200, Got 404
+Response: {"status":"error","message":"Expense not found","data":null,"code":404,"timestamp":"2025-12-13T03:12:59+03:00","request_id":"req_693caf8b331bd"}
+PASS: Delete Finance Record (DELETE) - DELETE /99999
+PASS: Get Department Budget Proposals - GET /department-budgets-proposals
+PASS: Propose Department Budget - POST /department-budgets-propose
+PASS: Approve Department Budget - POST /department-budgets-approve
+PASS: Allocate Department Budget - POST /department-budgets-allocate
+PASS: Request Funds from Budget - POST /department-budgets-request-funds
+PASS: Get Payroll List - GET ?type=payrolls
+PASS: Get Payroll Details - GET /payrolls-get?id=15
+PASS: Get Payroll Staff Payments - GET ?type=staff-payments&payroll_id=15
+FAIL: Get Staff Payment Details - GET /payrolls-staff-payments-get?id=15 - Expected 200, Got 400
+Response: {"status":"error","message":"Payroll ID required","data":null,"code":400,"timestamp":"2025-12-13T03:13:01+03:00","request_id":"req_693caf8d4a735"}
+PASS: Get Payroll Status - GET /payrolls-status?payroll_id=15
+PASS: Get Payroll Summary - GET /payrolls-summary?start_date=2025-01-01&end_date=2025-12-31
+PASS: Get Payroll History - GET /payrolls-history?staff_id=1
+PASS: Create Draft Payroll - POST /payrolls-create-draft
+PASS: Calculate Payroll - POST /payrolls-calculate
+PASS: Recalculate Payroll - POST /payrolls-recalculate
+PASS: Verify Payroll - POST /payrolls-verify
+PASS: Approve Payroll - POST /payrolls-approve
+PASS: Reject Payroll - POST /payrolls-reject
+PASS: Process Payroll - POST /payrolls-process
+PASS: Disburse Payroll - POST /payrolls-disburse
+PASS: Cancel Payroll - POST /payrolls-cancel
+PASS: Generate Payment Receipt - POST /payments-generate-receipt
+PASS: Generate Payslip - POST /payments-generate-payslip
+PASS: Send Payment Notification - POST /payments-send-notification
+PASS: Get Fee Term Breakdown - GET /fees-term-breakdown?academic_year_id=1&term=1
+PASS: Get Pending Fee Reviews - GET /fees-pending-reviews
+PASS: Get Fee Annual Summary - GET /fees-annual-summary?academic_year_id=1
+PASS: Get Student Payment History - GET /students-payment-history?student_id=
+PASS: Create Annual Fee Structure - POST /fees-create-annual-structure
+PASS: Review Fee Structure - POST /fees-review-structure
+PASS: Approve Fee Structure - POST /fees-approve-structure
+PASS: Activate Fee Structure - POST /fees-activate-structure
+PASS: Rollover Fee Structure - POST /fees-rollover-structure
+PASS: Generate Payroll Report - POST /reports-generate-payroll
+PASS: Compare Yearly Collections - GET /reports-compare-yearly-collections?year1=2024&year2=2025

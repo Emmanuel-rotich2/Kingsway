@@ -257,43 +257,126 @@ class UsersAPI extends BaseAPI
 
         $validatedData = $validation['data'];
 
-        // Create user with validated data
-        $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
-        $stmt = $this->db->prepare($sql);
+        // Extract role_ids from input
+        $roleIds = [];
+        if (isset($data['role_ids']) && is_array($data['role_ids'])) {
+            $roleIds = array_filter($data['role_ids'], 'is_numeric');
+        } elseif (isset($data['role_id']) && is_numeric($data['role_id'])) {
+            $roleIds = [$data['role_id']];
+        }
+
+        // Default to role_id 1 if no roles provided
+        if (empty($roleIds)) {
+            $roleIds = [1];
+        }
+
+        // Start transaction for atomicity
+        $this->db->beginTransaction();
 
         try {
+            // STEP 1: Create user record with PRIMARY role only
+            // The primary role goes in users.role_id
+            $primaryRoleId = $roleIds[0] ?? 1;
+
+            $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $stmt = $this->db->prepare($sql);
+
             $ok = $stmt->execute([
                 $validatedData['username'],
                 $validatedData['email'],
                 password_hash($validatedData['password'], PASSWORD_DEFAULT),
                 $validatedData['first_name'],
                 $validatedData['last_name'],
-                $validatedData['role_id'] ?? 1,
+                $primaryRoleId,
                 $validatedData['status'] ?? 'active'
             ]);
 
-            if ($ok) {
-                $id = $this->db->lastInsertId();
-
-                // Audit log
-                $currentUserId = $this->getCurrentUserId();
-                $this->auditLogger->logUserCreate($currentUserId, $id, $validatedData);
-
-                return ['success' => true, 'data' => $this->get($id)['data']];
-            } else {
-                return ['success' => false, 'error' => 'User creation failed'];
+            if (!$ok) {
+                throw new Exception('User creation failed');
             }
+
+            $userId = $this->db->lastInsertId();
+
+            // STEP 2: Assign PRIMARY role and copy its permissions
+            // Only the primary role is assigned to user_roles (for consistency)
+            $rolesAssigned = 0;
+            $roleResult = $this->userRoleManager->assignRole($userId, $primaryRoleId);
+            if ($roleResult['success']) {
+                $rolesAssigned++;
+            } else {
+                throw new Exception('Failed to assign primary role ' . $primaryRoleId);
+            }
+
+            // STEP 2b: If there are ADDITIONAL roles beyond the primary, assign them too
+            if (count($roleIds) > 1) {
+                for ($i = 1; $i < count($roleIds); $i++) {
+                    $additionalRoleId = $roleIds[$i];
+                    if ($additionalRoleId === $primaryRoleId) {
+                        continue; // Skip duplicate primary role
+                    }
+                    $roleResult = $this->userRoleManager->assignRole($userId, $additionalRoleId);
+                    if ($roleResult['success']) {
+                        $rolesAssigned++;
+                    } else {
+                        throw new Exception('Failed to assign additional role ' . $additionalRoleId);
+                    }
+                }
+            }
+
+            // STEP 3: Override permissions if explicitly provided
+            if (isset($data['permissions']) && is_array($data['permissions'])) {
+                foreach ($data['permissions'] as $perm) {
+                    $permData = is_array($perm) ? $perm : ['permission_code' => $perm];
+                    $this->userPermissionManager->assignPermission($userId, $permData);
+                }
+            }
+
+            // STEP 4: Add to staff table (unless system_admin or superuser)
+            $isSystemAdmin = $this->isSystemAdmin($roleIds);
+            if (!$isSystemAdmin) {
+                // Use provided staff_info or create default from user data
+                $staffInfo = isset($data['staff_info']) ? $data['staff_info'] : [
+                    'first_name' => $validatedData['first_name'],
+                    'last_name' => $validatedData['last_name'],
+                    'position' => $data['position'] ?? 'Staff',
+                    'employment_date' => date('Y-m-d'),
+                    'contract_type' => $data['contract_type'] ?? 'permanent'
+                ];
+                // Pass roleIds to allow intelligent department/type/category mapping
+                $this->addToStaffTable($userId, $staffInfo, $roleIds);
+            }
+
+            // STEP 5: Audit log
+            $currentUserId = $this->getCurrentUserId();
+            $this->auditLogger->logUserCreate($currentUserId, $userId, $validatedData);
+
+            $this->db->commit();
+
+            // Return complete user data with roles and permissions
+            $userData = $this->get($userId)['data'];
+            $userData['roles'] = $this->userRoleManager->getUserRoles($userId)['data'] ?? [];
+            $userData['permissions'] = $this->userPermissionManager->getEffectivePermissions($userId)['data'] ?? [];
+
+            return [
+                'success' => true,
+                'data' => $userData,
+                'meta' => [
+                    'roles_assigned' => $rolesAssigned,
+                    'staff_added' => !$isSystemAdmin && isset($data['staff_info'])
+                ]
+            ];
+
         } catch (Exception $e) {
+            $this->db->rollBack();
             error_log("User creation error: " . $e->getMessage());
-            return ['success' => false, 'error' => 'Database error occurred'];
+            return ['success' => false, 'error' => $e->getMessage()];
         }
     }
 
     public function bulkCreate($data)
     {
-        // Create multiple users in a single transaction
-        // Expected input: {"users": [{"username": "...", "email": "...", ...}, ...]}
+        // Create multiple users with automatic role/permission assignment in a transaction
         if (!isset($data['users']) || !is_array($data['users']) || empty($data['users'])) {
             return ['success' => false, 'error' => 'users array is required and must not be empty'];
         }
@@ -316,44 +399,82 @@ class UsersAPI extends BaseAPI
                     continue;
                 }
 
-                $ok = $stmt->execute([
-                    $userData['username'],
-                    $userData['email'],
-                    password_hash($userData['password'], PASSWORD_DEFAULT),
-                    $userData['first_name'] ?? '',
-                    $userData['last_name'] ?? '',
-                    $userData['role_id'] ?? 1,
-                    $userData['status'] ?? 'active'
-                ]);
+                // Extract role_ids
+                $roleIds = [];
+                if (isset($userData['role_ids']) && is_array($userData['role_ids'])) {
+                    $roleIds = array_filter($userData['role_ids'], 'is_numeric');
+                } elseif (isset($userData['role_id']) && is_numeric($userData['role_id'])) {
+                    $roleIds = [$userData['role_id']];
+                }
+                if (empty($roleIds)) {
+                    $roleIds = [1];
+                }
 
-                if ($ok) {
+                try {
+                    // Create user
+                    $ok = $stmt->execute([
+                        $userData['username'],
+                        $userData['email'],
+                        password_hash($userData['password'], PASSWORD_DEFAULT),
+                        $userData['first_name'] ?? '',
+                        $userData['last_name'] ?? '',
+                        $roleIds[0] ?? 1,
+                        $userData['status'] ?? 'active'
+                    ]);
+
+                    if (!$ok) {
+                        throw new Exception('User creation failed');
+                    }
+
                     $userId = $this->db->lastInsertId();
+                    $rolesAssigned = 0;
 
-                    // If role_ids provided, assign roles and copy permissions
-                    if (isset($userData['role_ids']) && is_array($userData['role_ids']) && !empty($userData['role_ids'])) {
-                        $roleResult = $this->userRoleManager->bulkAssignRoles($userId, $userData['role_ids']);
-                        if (!$roleResult['success']) {
-                            $failed[] = [
-                                'index' => $index,
-                                'user_id' => $userId,
-                                'data' => $userData,
-                                'error' => 'User created but role assignment failed: ' . ($roleResult['error'] ?? 'Unknown error')
-                            ];
-                            continue;
+                    // Assign roles (auto-copies permissions)
+                    foreach ($roleIds as $roleId) {
+                        $roleResult = $this->userRoleManager->assignRole($userId, $roleId);
+                        if ($roleResult['success']) {
+                            $rolesAssigned++;
                         }
+                    }
+
+                    // Override permissions if provided
+                    if (isset($userData['permissions']) && is_array($userData['permissions'])) {
+                        foreach ($userData['permissions'] as $perm) {
+                            $permData = is_array($perm) ? $perm : ['permission_code' => $perm];
+                            $this->userPermissionManager->assignPermission($userId, $permData);
+                        }
+                    }
+
+                    // Add to staff (unless system admin)
+                    $isSystemAdmin = $this->isSystemAdmin($roleIds);
+                    $staffAdded = false;
+                    if (!$isSystemAdmin) {
+                        // Use provided staff_info or create default from user data
+                        $staffInfo = isset($userData['staff_info']) ? $userData['staff_info'] : [
+                            'first_name' => $userData['first_name'],
+                            'last_name' => $userData['last_name'],
+                            'position' => $userData['position'] ?? 'Staff',
+                            'employment_date' => date('Y-m-d'),
+                            'contract_type' => $userData['contract_type'] ?? 'permanent'
+                        ];
+                        // Pass roleIds to allow intelligent department/type/category mapping
+                        $staffAdded = $this->addToStaffTable($userId, $staffInfo, $roleIds);
                     }
 
                     $created[] = [
                         'index' => $index,
                         'user_id' => $userId,
                         'username' => $userData['username'],
-                        'email' => $userData['email']
+                        'email' => $userData['email'],
+                        'roles_assigned' => $rolesAssigned,
+                        'staff_added' => $staffAdded
                     ];
-                } else {
+
+                } catch (Exception $e) {
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
-                        'error' => 'User creation failed'
+                        'error' => $e->getMessage()
                     ];
                 }
             }
@@ -373,6 +494,7 @@ class UsersAPI extends BaseAPI
             ];
         } catch (Exception $e) {
             $this->db->rollBack();
+            error_log("Bulk user creation error: " . $e->getMessage());
             return ['success' => false, 'error' => 'Bulk creation failed: ' . $e->getMessage()];
         }
     }
@@ -566,7 +688,7 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'user_id required'];
         }
 
-        // Get user's main role
+        // Get user's main role with role_id
         $rolesResult = $this->userRoleManager->getUserRoles($userId);
         if (!$rolesResult['success'] || empty($rolesResult['data'])) {
             // Fallback: return a minimal menu
@@ -581,11 +703,21 @@ class UsersAPI extends BaseAPI
                 ]
             ];
         }
-        $mainRole = strtolower($rolesResult['data'][0]['name']);
 
-        // Load menu config
-        $menuConfig = include(__DIR__ . '/../../../config/menu_items.php');
-        $items = $menuConfig[$mainRole] ?? $menuConfig['admin'] ?? [];
+        $mainRole = $rolesResult['data'][0];
+        $roleId = $mainRole['role_id'] ?? $mainRole['id'] ?? null;
+
+        // Load comprehensive dashboard config
+        $dashboardsConfig = include(__DIR__ . '/../../includes/dashboards.php');
+
+        // Get menu items for this role
+        $items = $dashboardsConfig[$roleId]['menus'] ?? [];
+
+        // Fallback to System Administrator (role_id: 2) if not found
+        if (empty($items)) {
+            $items = $dashboardsConfig[2]['menus'] ?? [];
+        }
+
         return ['success' => true, 'data' => $items];
     }
     public function login($data)
@@ -602,12 +734,12 @@ class UsersAPI extends BaseAPI
         $stmt->execute([$username, $username]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
-            return ['success' => false, 'error' => 'Invalid username or password'];
+            return ['success' => false, 'error' => 'Invalid username or Email'];
         }
 
         // Verify password
         if (!password_verify($password, $user['password'])) {
-            return ['success' => false, 'error' => 'Invalid username or password'];
+            return ['success' => false, 'error' => 'Incorrectpassword'];
         }
 
         // Optionally: check user status
@@ -746,6 +878,180 @@ class UsersAPI extends BaseAPI
         );
 
         return JWT::encode($payload, JWT_SECRET, 'HS256');
+    }
+
+    /**
+     * Check if a set of role IDs includes system admin
+     */
+    private function isSystemAdmin($roleIds)
+    {
+        if (empty($roleIds)) {
+            return false;
+        }
+
+        // System Administrator = role_id 2 (the system creator, not a school employee)
+        // Do NOT add to staff table
+        return in_array(2, $roleIds);
+    }
+
+    /**
+     * Add user to staff table for non-admin users
+     * System Administrator (role_id=2) excluded from staff table
+     */
+    /**
+     * Intelligent role-to-department mapping based on role name
+     */
+    private function mapRoleToDepartment($roleId)
+    {
+        $roleMapping = [
+            // Administration roles
+            3 => 4,  // Director → Administration (4)
+            4 => 4,  // School Administrator → Administration (4)
+            5 => 4,  // Headteacher → Administration (4)
+            6 => 4,  // Deputy Head - Academic → Administration (4)
+            63 => 4,  // Deputy Head - Discipline → Administration (4)
+            10 => 4,  // Accountant → Administration (4)
+            19 => 4,  // Registrar → Administration (4)
+            20 => 4,  // Secretary → Administration (4)
+
+            // Academic roles
+            7 => 1,  // Class Teacher → Academics (1)
+            8 => 1,  // Subject Teacher → Academics (1)
+            9 => 1,  // Intern/Student Teacher → Academics (1)
+            17 => 1,  // Head of Department → Academics (1)
+
+            // Support roles
+            23 => 2,  // Driver → Transport (2)
+            16 => 3,  // Cateress → Food and Nutrition (3)
+            32 => 3,  // Kitchen Staff → Food and Nutrition (3)
+            18 => 4,  // Boarding Master → Administration (4)
+            33 => 4,  // Security Staff → Administration (4)
+            34 => 4,  // Janitor → Administration (4)
+            14 => 4,  // Inventory Manager → Administration (4)
+            24 => 6,  // Chaplain → Student & Staff Welfare (6)
+            21 => 7,  // Talent Development → Talent Development (7)
+        ];
+
+        return $roleMapping[$roleId] ?? 1; // Default to Academics if not mapped
+    }
+
+    /**
+     * Intelligent role-to-staff-type mapping
+     */
+    private function mapRoleToStaffType($roleId)
+    {
+        // Teaching staff
+        $teachingRoles = [7, 8, 9]; // Class Teacher, Subject Teacher, Intern
+        if (in_array($roleId, $teachingRoles)) {
+            return 1; // Teaching Staff
+        }
+
+        // Administrative staff
+        $adminRoles = [3, 4, 5, 6, 63, 10, 19, 20, 18, 33, 34, 14];
+        if (in_array($roleId, $adminRoles)) {
+            return 3; // Administration
+        }
+
+        // Non-teaching staff (drivers, cooks, cleaners, etc.)
+        return 2; // Non-Teaching Staff (default)
+    }
+
+    /**
+     * Get staff category ID based on role
+     */
+    private function getStaffCategoryIdForRole($roleId)
+    {
+        // Category mapping from staff_categories table
+        $categoryMapping = [
+            3 => 14,  // Director → Director (14)
+            5 => 15,  // Headteacher → Headteacher (15)
+            6 => 16,  // Deputy Head - Academic → Deputy Headteacher (16)
+            63 => 16,  // Deputy Head - Discipline → Deputy Headteacher (16)
+            17 => 17,  // Head of Department → Head of Department (17)
+            4 => 20,  // School Administrator → Secretary (20)
+            10 => 18,  // Accountant → Accountant (18)
+            19 => 19,  // Registrar → Registrar (19)
+            20 => 20,  // Secretary → Secretary (20)
+            24 => 21,  // Chaplain → Chaplain (21)
+
+            7 => 4,   // Class Teacher → Upper Primary Teacher (4) - default for teachers
+            8 => 6,   // Subject Teacher → Subject Specialist (6)
+            9 => 8,   // Intern/Student Teacher → Intern Teacher (8)
+
+            23 => 9,   // Driver → Driver (9)
+            16 => 13,  // Cateress → Cook (13)
+            32 => 13,  // Kitchen Staff → Cook (13)
+            33 => 12,  // Security Staff → Security Guard (12)
+            34 => 10,  // Janitor → Cleaner (10)
+            14 => 20,  // Inventory Manager → Secretary (20)
+            21 => 7,   // Talent Development → Activities Coordinator (7)
+        ];
+
+        return $categoryMapping[$roleId] ?? null; // Return null if no specific mapping
+    }
+
+    private function addToStaffTable($userId, $staffInfo, $roleIds = [])
+    {
+        try {
+            // Check if staff record already exists
+            $checkStmt = $this->db->prepare('SELECT id FROM staff WHERE user_id = ?');
+            $checkStmt->execute([$userId]);
+            if ($checkStmt->fetch()) {
+                return true;
+            }
+
+            // Get user data for basic fields
+            $userStmt = $this->db->prepare('SELECT first_name, last_name, email FROM users WHERE id = ?');
+            $userStmt->execute([$userId]);
+            $user = $userStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                return false;
+            }
+
+            // Get primary role ID (first role assigned)
+            $primaryRoleId = $roleIds[0] ?? null;
+
+            // Determine department intelligently or use provided value
+            $departmentId = $staffInfo['department_id'] ?? ($primaryRoleId ? $this->mapRoleToDepartment($primaryRoleId) : 1);
+
+            // Determine staff type intelligently or use provided value
+            $staffTypeId = $staffInfo['staff_type_id'] ?? ($primaryRoleId ? $this->mapRoleToStaffType($primaryRoleId) : 2);
+
+            // Determine staff category intelligently or use provided value
+            $staffCategoryId = $staffInfo['staff_category_id'] ?? ($primaryRoleId ? $this->getStaffCategoryIdForRole($primaryRoleId) : null);
+
+            // Generate next KWPS staff number (KWPS001, KWPS002, etc.)
+            $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
+            $maxStmt->execute();
+            $result = $maxStmt->fetch(PDO::FETCH_ASSOC);
+            $nextNum = (int) ($result['max_num'] ?? 0) + 1;
+            $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+
+            // Insert staff record with all determined fields
+            $sql = 'INSERT INTO staff (user_id, first_name, last_name, staff_no, department_id, staff_type_id, staff_category_id, position, employment_date, contract_type, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+
+            $stmt = $this->db->prepare($sql);
+
+            $ok = $stmt->execute([
+                $userId,
+                $staffInfo['first_name'] ?? $user['first_name'],
+                $staffInfo['last_name'] ?? $user['last_name'],
+                $staffNo,
+                $departmentId,
+                $staffTypeId,
+                $staffCategoryId,
+                $staffInfo['position'] ?? 'Staff',
+                $staffInfo['employment_date'] ?? date('Y-m-d'),
+                $staffInfo['contract_type'] ?? 'permanent'
+            ]);
+
+            return $ok;
+        } catch (Exception $e) {
+            error_log("Error adding staff record: " . $e->getMessage());
+            return false;
+        }
     }
     
 }

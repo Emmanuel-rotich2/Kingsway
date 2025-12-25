@@ -156,17 +156,48 @@ class DashboardManager
     public function getMenuItems($dashboardKey)
     {
         $dashboard = $this->getDashboard($dashboardKey);
-        if (!$dashboard || !isset($dashboard['menu_items'])) {
+        if (!$dashboard) {
             return [];
         }
 
-        $filteredItems = $this->filterMenuByPermissions($dashboard['menu_items']);
+        // Support both 'menu_items' and 'menus' keys for backwards compatibility
+        $menuItems = $dashboard['menu_items'] ?? $dashboard['menus'] ?? [];
 
-        // Prepend Dashboard link as first item
+        if (empty($menuItems)) {
+            return [];
+        }
+
+        $filteredItems = $this->filterMenuByPermissions($menuItems);
+
+        // The first menu item is usually the Dashboard - use its URL
+        // Don't prepend a fabricated Dashboard link if the actual dashboard item is already there
+        // Check if first item is a dashboard/home link
+        if (
+            !empty($filteredItems) && isset($filteredItems[0]['label']) &&
+            strtolower($filteredItems[0]['label']) === 'dashboard'
+        ) {
+            // First item is already a Dashboard link, use it as-is
+            return $filteredItems;
+        }
+
+        // If no Dashboard link found, create one using the dashboard key from config
+        // Look for the dashboard route in the original menus (before filtering)
+        $originalMenus = $dashboard['menu_items'] ?? $dashboard['menus'] ?? [];
+        $dashboardUrl = null;
+
+        if (!empty($originalMenus) && isset($originalMenus[0]['url'])) {
+            $dashboardUrl = $originalMenus[0]['url'];
+        }
+
+        // Fallback: if still no dashboard URL, use the key
+        if (!$dashboardUrl) {
+            $dashboardUrl = is_numeric($dashboardKey) ? 'dashboard' : $dashboardKey . '_dashboard';
+        }
+
         $dashboardItem = [
             'label' => 'Dashboard',
-            'url' => $dashboardKey . '_dashboard',
-            'icon' => 'bi-speedometer2'
+            'url' => $dashboardUrl,
+            'icon' => $originalMenus[0]['icon'] ?? 'bi-speedometer2'
         ];
 
         array_unshift($filteredItems, $dashboardItem);

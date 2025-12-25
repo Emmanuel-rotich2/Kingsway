@@ -98,12 +98,8 @@
     </div>
   </div>
 </div>
-                    <?php renderStudentsTable(); ?>
-                </div>
-            </div>
-        </div>
 
-        <!-- Transfers & Clearance Tab -->
+<!-- Transfers & Clearance Tab -->
         <div class="tab-pane fade" id="transfers" role="tabpanel">
             <div class="card">
                 <div class="card-body">
@@ -203,10 +199,12 @@
 </div>
 
 <!-- Include modals -->
-<?php 
+<?php
+include 'components/modals/qr_code_modal.php';
+include 'components/modals/student_details_modal.php';
+include 'components/modals/confirm_delete_modal.php';
 renderQRCodeModal();
 renderStudentDetailsModal();
-include 'components/modals/confirm_delete_modal.php'; 
 ?>
 
 <script>

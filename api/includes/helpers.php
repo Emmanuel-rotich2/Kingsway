@@ -57,8 +57,22 @@ function mapMessageToCode($message, $success)
     // If error, check for specific error codes
     $lowerMessage = strtolower($message);
 
-    // 404 Not Found
-    if (strpos($lowerMessage, 'not found') !== false) {
+    // 500 Server Error - Check for SQL/database errors first
+    if (
+        strpos($lowerMessage, 'sqlstate') !== false ||
+        strpos($lowerMessage, 'sql error') !== false ||
+        strpos($lowerMessage, 'database error') !== false ||
+        (strpos($lowerMessage, "table") !== false && strpos($lowerMessage, "doesn't exist") !== false) ||
+        strpos($lowerMessage, 'column not found') !== false
+    ) {
+        return 500;
+    }
+
+    // 404 Not Found - Check for specific resource not found messages
+    if (
+        preg_match('/\b(expense|budget|payroll|fee|payment|record|resource|item|entity)\s+not\s+found\b/i', $message) ||
+        strpos($lowerMessage, 'does not exist') !== false && !strpos($lowerMessage, 'table') !== false
+    ) {
         return 404;
     }
 

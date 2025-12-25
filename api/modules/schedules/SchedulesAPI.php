@@ -20,7 +20,7 @@ class SchedulesAPI extends BaseAPI {
 
     public function __construct() {
         parent::__construct('schedules');
-        $this->manager = new SchedulesManager();
+        $this->manager = new SchedulesManager($this->db);
         $this->workflow = new SchedulesWorkflow();
         $this->termHolidayManager = new TermHolidayManager($this->db);
         $this->termHolidayWorkflow = new TermHolidayWorkflow();

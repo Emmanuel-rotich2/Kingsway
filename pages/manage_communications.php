@@ -1,9 +1,13 @@
 <?php
+
 /**
  * Manage Communications Page
+ * 
  * HTML structure only - all logic in js/pages/communications.js (communicationsController)
+ * 
  * Embedded in app_layout.php
  */
+
 ?>
 
 <div class="card shadow-sm">

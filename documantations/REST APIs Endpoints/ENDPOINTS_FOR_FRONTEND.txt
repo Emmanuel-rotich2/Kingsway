@@ -472,7 +472,7 @@ POST    /api/schedules/start-scheduling-workflow            => postStartScheduli
 POST    /api/schedules/advance-scheduling-workflow          => postAdvanceSchedulingWorkflow
 GET     /api/schedules/scheduling-workflow-status           => getSchedulingWorkflowStatus
 GET     /api/schedules/list-scheduling-workflows            => getListSchedulingWorkflows
-GET     /api/schoolconfig/--construct                       
+              
 GET     /api/schoolconfig/index                             => index
 GET     /api/schoolconfig                                   => get
 POST    /api/schoolconfig                                   => post

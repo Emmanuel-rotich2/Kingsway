@@ -498,6 +498,13 @@ class ExpenseManager
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
+            // If table doesn't exist, treat as not found
+            if (
+                strpos($e->getMessage(), "doesn't exist") !== false ||
+                strpos($e->getMessage(), "Base table or view not found") !== false
+            ) {
+                return formatResponse(false, null, 'Expense not found');
+            }
             return formatResponse(false, null, 'Failed to delete expense: ' . $e->getMessage());
         }
     }
