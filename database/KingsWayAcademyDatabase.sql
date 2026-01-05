@@ -6155,7 +6155,7 @@ TRUNCATE TABLE `academic_terms`;
 -- Dumping data for table `academic_terms`
 --
 
-INSERT DELAYED IGNORE INTO `academic_terms` (`id`, `name`, `start_date`, `end_date`, `year`, `term_number`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `academic_terms` (`id`, `name`, `start_date`, `end_date`, `year`, `term_number`, `status`, `created_at`, `updated_at`) VALUES
 (7, 'Term 1', '2026-01-15', '2026-05-01', '2026', 1, 'current', '2025-12-09 18:35:20', '2025-12-22 06:10:16'),
 (8, 'Term 2', '2026-05-02', '2026-08-15', '2026', 2, 'upcoming', '2025-12-09 18:35:20', '2025-12-09 18:35:20'),
 (9, 'Term 3', '2026-08-16', '2026-11-30', '2026', 3, 'upcoming', '2025-12-09 18:35:20', '2025-12-09 18:35:20');
@@ -6222,7 +6222,7 @@ TRUNCATE TABLE `academic_years`;
 -- Dumping data for table `academic_years`
 --
 
-INSERT DELAYED IGNORE INTO `academic_years` (`id`, `year_code`, `year_name`, `start_date`, `end_date`, `registration_start`, `registration_end`, `status`, `is_current`, `total_students`, `total_classes`, `created_by`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `academic_years` (`id`, `year_code`, `year_name`, `start_date`, `end_date`, `registration_start`, `registration_end`, `status`, `is_current`, `total_students`, `total_classes`, `created_by`, `created_at`, `updated_at`) VALUES
 (5, '2026', '2026 Academic Year', '2026-01-15', '2026-11-30', '2026-01-05', '2026-02-28', 'registration', 1, 0, 12, 4, '2025-12-09 18:35:20', '2025-12-22 06:13:53');
 
 --
@@ -6265,7 +6265,7 @@ CREATE TABLE IF NOT EXISTS `academic_year_archives` (
   `closure_date` datetime DEFAULT NULL,
   `closure_notes` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `archived_at` timestamp NULL DEFAULT NULL,
+  `archived_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_academic_year` (`academic_year`),
   KEY `idx_status` (`status`),
@@ -6356,7 +6356,7 @@ TRUNCATE TABLE `activities`;
 -- Dumping data for table `activities`
 --
 
-INSERT DELAYED IGNORE INTO `activities` (`id`, `title`, `description`, `category_id`, `start_date`, `end_date`, `status`, `max_participants`, `started_by`, `created_at`, `target_audience`) VALUES
+INSERT IGNORE INTO `activities` (`id`, `title`, `description`, `category_id`, `start_date`, `end_date`, `status`, `max_participants`, `started_by`, `created_at`, `target_audience`) VALUES
 (1, 'Football Club', 'Weekly football training', 1, '2025-11-29', '2026-03-01', 'planned', NULL, NULL, '2025-11-29 10:59:15', 'students'),
 (2, 'Staff Team Building', 'Annual staff team building retreat', 2, '2025-12-10', '2025-12-12', 'planned', NULL, NULL, '2025-11-29 12:02:34', 'staff');
 
@@ -6397,7 +6397,7 @@ TRUNCATE TABLE `activity_categories`;
 -- Dumping data for table `activity_categories`
 --
 
-INSERT DELAYED IGNORE INTO `activity_categories` (`id`, `name`, `description`, `is_active`, `status`, `created_at`, `department_id`) VALUES
+INSERT IGNORE INTO `activity_categories` (`id`, `name`, `description`, `is_active`, `status`, `created_at`, `department_id`) VALUES
 (1, 'Updated Category', NULL, 1, 'active', '2025-11-28 17:29:29', NULL),
 (2, 'Test Category', NULL, 1, 'active', '2025-11-28 17:30:36', NULL),
 (3, 'Sports', 'All sports activities', 1, 'active', '2025-11-29 08:17:44', NULL);
@@ -6441,7 +6441,7 @@ TRUNCATE TABLE `activity_participants`;
 -- Dumping data for table `activity_participants`
 --
 
-INSERT DELAYED IGNORE INTO `activity_participants` (`id`, `activity_id`, `student_id`, `joined_at`, `status`, `role`, `notes`) VALUES
+INSERT IGNORE INTO `activity_participants` (`id`, `activity_id`, `student_id`, `joined_at`, `status`, `role`, `notes`) VALUES
 (1, 1, 101, '2025-11-29 12:09:56', 'withdrawn', NULL, ' | Withdrawn: Transferred school'),
 (2, 1, 102, '2025-11-29 12:09:56', 'withdrawn', NULL, ' | Withdrawn: Transferred school'),
 (3, 1, 103, '2025-11-29 12:09:56', 'active', NULL, NULL);
@@ -6487,7 +6487,7 @@ TRUNCATE TABLE `activity_resources`;
 -- Dumping data for table `activity_resources`
 --
 
-INSERT DELAYED IGNORE INTO `activity_resources` (`id`, `name`, `activity_id`, `resource_name`, `resource_type`, `resource_url`, `created_at`, `type`, `quantity`, `status`, `cost`) VALUES
+INSERT IGNORE INTO `activity_resources` (`id`, `name`, `activity_id`, `resource_name`, `resource_type`, `resource_url`, `created_at`, `type`, `quantity`, `status`, `cost`) VALUES
 (1, 'Updated Resource', 1, 'Football Ball', 'Ball', NULL, '2025-11-29 10:59:16', NULL, NULL, NULL, NULL),
 (2, NULL, 1, 'Football', 'Ball', NULL, '2025-12-02 12:09:30', NULL, NULL, NULL, NULL),
 (3, NULL, 1, 'Football', 'Ball', NULL, '2025-12-02 12:14:18', NULL, NULL, NULL, NULL),
@@ -6566,7 +6566,7 @@ TRUNCATE TABLE `activity_staff_participants`;
 -- Dumping data for table `activity_staff_participants`
 --
 
-INSERT DELAYED IGNORE INTO `activity_staff_participants` (`id`, `activity_id`, `staff_id`, `joined_at`, `status`) VALUES
+INSERT IGNORE INTO `activity_staff_participants` (`id`, `activity_id`, `staff_id`, `joined_at`, `status`) VALUES
 (1, 2, 1, '2025-11-29 12:09:56', 'active'),
 (2, 2, 1, '2025-11-29 12:09:56', 'active');
 
@@ -6617,7 +6617,7 @@ TRUNCATE TABLE `admission_applications`;
 -- Dumping data for table `admission_applications`
 --
 
-INSERT DELAYED IGNORE INTO `admission_applications` (`id`, `application_no`, `applicant_name`, `date_of_birth`, `gender`, `grade_applying_for`, `academic_year`, `previous_school`, `parent_id`, `has_special_needs`, `special_needs_details`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `admission_applications` (`id`, `application_no`, `applicant_name`, `date_of_birth`, `gender`, `grade_applying_for`, `academic_year`, `previous_school`, `parent_id`, `has_special_needs`, `special_needs_details`, `status`, `created_at`, `updated_at`) VALUES
 (4, 'ADM/2025/001', 'John Pombe Magufuli', '2010-05-15', 'male', 'Playground', '2026', 'Springfield Primary', 1, 0, '', 'submitted', '2025-12-02 12:52:25', '2025-12-22 06:19:31'),
 (5, 'ADM/2025/002', 'Angel Violet', '2010-01-15', 'female', 'Grade1', '2026', NULL, 1, 0, NULL, 'submitted', '2025-12-02 12:59:01', '2025-12-22 06:20:23'),
 (6, 'ADM/2025/003', 'John Doe', '2010-01-15', 'male', 'Grade1', '2026', NULL, 1, 0, NULL, 'submitted', '2025-12-02 14:36:13', '2025-12-22 06:17:25'),
@@ -6694,7 +6694,7 @@ TRUNCATE TABLE `albums`;
 -- Dumping data for table `albums`
 --
 
-INSERT DELAYED IGNORE INTO `albums` (`id`, `name`, `description`, `cover_image`, `created_by`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `albums` (`id`, `name`, `description`, `cover_image`, `created_by`, `created_at`, `updated_at`) VALUES
 (2, 'Test Album 1766400769', 'Test media album', NULL, 1, '2025-12-22 13:52:49', '2025-12-22 13:52:49'),
 (3, 'Test Album 1766434749', 'Test media album', NULL, 1, '2025-12-22 23:19:09', '2025-12-22 23:19:09');
 
@@ -6916,7 +6916,7 @@ CREATE TABLE IF NOT EXISTS `annual_scores` (
   `avg_summative_percentage` decimal(5,2) DEFAULT 0.00,
   `pathway_classification` enum('excelling','on_track','support_needed') DEFAULT 'on_track' COMMENT 'Student learning pathway based on performance patterns',
   `insights_summary` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Recommendations for parents/teachers on student pathways and next steps' CHECK (json_valid(`insights_summary`)),
-  `calculated_at` timestamp NULL DEFAULT NULL,
+  `calculated_at` datetime NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -7058,7 +7058,7 @@ CREATE TABLE IF NOT EXISTS `assessments` (
   `assigned_by` int(10) UNSIGNED NOT NULL,
   `status` enum('pending_submission','submitted','pending_approval','approved') NOT NULL DEFAULT 'pending_submission',
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
-  `approved_at` timestamp NULL DEFAULT NULL,
+  `approved_at` datetime NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `assessment_type_id` int(10) UNSIGNED DEFAULT NULL,
   `learning_outcome_id` int(10) UNSIGNED DEFAULT NULL,
@@ -7189,7 +7189,7 @@ CREATE TABLE IF NOT EXISTS `assessment_results` (
   `points` decimal(3,1) DEFAULT NULL,
   `remarks` varchar(255) DEFAULT NULL,
   `peer_feedback` text DEFAULT NULL,
-  `submitted_at` timestamp NULL DEFAULT NULL,
+  `submitted_at` datetime NULL DEFAULT NULL,
   `is_submitted` tinyint(1) NOT NULL DEFAULT 0,
   `is_approved` tinyint(1) NOT NULL DEFAULT 0,
   `responder_type` enum('teacher','self','peer') NOT NULL DEFAULT 'teacher',
@@ -7360,7 +7360,7 @@ TRUNCATE TABLE `assessment_type_classifications`;
 -- Dumping data for table `assessment_type_classifications`
 --
 
-INSERT DELAYED IGNORE INTO `assessment_type_classifications` (`id`, `code`, `name`, `description`, `is_national`, `is_knec_managed`, `knec_portal_code`, `grade_applicable`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `assessment_type_classifications` (`id`, `code`, `name`, `description`, `is_national`, `is_knec_managed`, `knec_portal_code`, `grade_applicable`, `status`, `created_at`) VALUES
 (1, 'CA', 'Classroom Assessment', 'Teacher-developed assessment in classroom', 0, 0, NULL, 'PP1,PP2,G1,G2,G3,G4,G5,G6,G7,G8,G9', 'active', '2025-11-28 18:19:19'),
 (2, 'SBA', 'School-Based Assessment', 'KNEC-provided tools for standardized assessment', 1, 1, NULL, 'G3,G4,G5,G6', 'active', '2025-11-28 18:19:19'),
 (3, 'SA', 'Summative Assessment', 'National examinations', 1, 1, NULL, 'G6,G9', 'active', '2025-11-28 18:19:19');
@@ -7408,7 +7408,7 @@ TRUNCATE TABLE `audit_logs`;
 -- Dumping data for table `audit_logs`
 --
 
-INSERT DELAYED IGNORE INTO `audit_logs` (`id`, `action`, `entity`, `entity_id`, `user_id`, `ip_address`, `user_agent`, `details`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `audit_logs` (`id`, `action`, `entity`, `entity_id`, `user_id`, `ip_address`, `user_agent`, `details`, `status`, `created_at`) VALUES
 (130, 'create', 'user', 1, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_sysadmin\",\"email\":\"angerasilas@gmail.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 15:55:47'),
 (131, 'create', 'user', 2, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_director\",\"email\":\"john@yahoo.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 15:55:48'),
 (132, 'create', 'user', 3, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_scholadmin\",\"email\":\"alice@outlook.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 15:55:48'),
@@ -7489,7 +7489,7 @@ TRUNCATE TABLE `audit_trail`;
 -- Dumping data for table `audit_trail`
 --
 
-INSERT DELAYED IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
+INSERT IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
 (1, NULL, 'inventory_items', 1, 'insert', NULL, '{\"name\": \"Rice (10kg)\", \"code\": \"RICE-10\", \"current_quantity\": 20, \"status\": \"active\"}', NULL, NULL, '2025-11-28 18:47:30'),
 (2, NULL, 'inventory_items', 2, 'insert', NULL, '{\"name\": \"Maize Flour (25kg)\", \"code\": \"MFL-25\", \"current_quantity\": 15, \"status\": \"active\"}', NULL, NULL, '2025-11-28 18:47:30'),
 (3, NULL, 'inventory_items', 3, 'insert', NULL, '{\"name\": \"Beans (20kg)\", \"code\": \"BEANS-20\", \"current_quantity\": 8, \"status\": \"active\"}', NULL, NULL, '2025-11-28 18:47:30'),
@@ -7682,7 +7682,7 @@ INSERT DELAYED IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record
 (197, 4, 'users', 4, 'update', '{\"username\": \"test_school_administrative_officer_test_archived_X\", \"email\": \"schooladministrativeofficer@kingsway.ac.ke\", \"role_id\": 4, \"status\": \"inactive\"}', '{\"username\": \"test_school_administrative_officer_test_archived_X\", \"email\": \"schooladministrativeofficer@kingsway.ac.ke\", \"role_id\": 4, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14'),
 (198, 5, 'users', 5, 'update', '{\"username\": \"test_headteacher_test_archived_X\", \"email\": \"headteacher@kingsway.ac.ke\", \"role_id\": 5, \"status\": \"inactive\"}', '{\"username\": \"test_headteacher_test_archived_X_X\", \"email\": \"headteacher@kingsway.ac.ke\", \"role_id\": 5, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14'),
 (199, 6, 'users', 6, 'update', '{\"username\": \"test_deputy_headteacher_test_archived_X\", \"email\": \"deputyheadteacher@kingsway.ac.ke\", \"role_id\": 6, \"status\": \"inactive\"}', '{\"username\": \"test_deputy_headteacher_test_archived_X_X\", \"email\": \"deputyheadteacher@kingsway.ac.ke\", \"role_id\": 6, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14');
-INSERT DELAYED IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
+INSERT IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
 (200, 7, 'users', 7, 'update', '{\"username\": \"test_class_teacher_test_archived_X\", \"email\": \"classteacher@kingsway.ac.ke\", \"role_id\": 7, \"status\": \"inactive\"}', '{\"username\": \"test_class_teacher_test_archived_X_X\", \"email\": \"classteacher@kingsway.ac.ke\", \"role_id\": 7, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14'),
 (201, 8, 'users', 8, 'update', '{\"username\": \"test_subject_teacher_test_archived_X\", \"email\": \"subjectteacher@kingsway.ac.ke\", \"role_id\": 8, \"status\": \"inactive\"}', '{\"username\": \"test_subject_teacher_test_archived_X_X\", \"email\": \"subjectteacher@kingsway.ac.ke\", \"role_id\": 8, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14'),
 (202, 9, 'users', 9, 'update', '{\"username\": \"test_intern_student_teacher_test_archived_X\", \"email\": \"internstudentteacher@kingsway.ac.ke\", \"role_id\": 9, \"status\": \"inactive\"}', '{\"username\": \"test_intern_student_teacher_test_archived_X_X\", \"email\": \"internstudentteacher@kingsway.ac.ke\", \"role_id\": 9, \"status\": \"inactive\"}', NULL, NULL, '2025-12-12 16:06:14'),
@@ -7900,7 +7900,7 @@ INSERT DELAYED IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record
 (417, NULL, 'users', 150, 'insert', NULL, '{\"username\": \"test_deputy_head_-_academic\", \"email\": \"test_deputy_head_-_academic@kingsway.local\", \"role_id\": 6, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:25'),
 (418, NULL, 'users', 151, 'insert', NULL, '{\"username\": \"test_class_teacher\", \"email\": \"test_class_teacher@kingsway.local\", \"role_id\": 7, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:26'),
 (419, NULL, 'users', 152, 'insert', NULL, '{\"username\": \"test_subject_teacher\", \"email\": \"test_subject_teacher@kingsway.local\", \"role_id\": 8, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:26');
-INSERT DELAYED IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
+INSERT IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `action`, `old_values`, `new_values`, `ip_address`, `user_agent`, `created_at`) VALUES
 (420, NULL, 'users', 153, 'insert', NULL, '{\"username\": \"test_accountant\", \"email\": \"test_accountant@kingsway.local\", \"role_id\": 10, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:27'),
 (421, NULL, 'users', 154, 'insert', NULL, '{\"username\": \"test_inventory_manager\", \"email\": \"test_inventory_manager@kingsway.local\", \"role_id\": 14, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:28'),
 (422, NULL, 'users', 155, 'insert', NULL, '{\"username\": \"test_cateress\", \"email\": \"test_cateress@kingsway.local\", \"role_id\": 16, \"status\": \"active\"}', NULL, NULL, '2025-12-20 10:50:28'),
@@ -8145,7 +8145,7 @@ CREATE TABLE IF NOT EXISTS `auth_sessions` (
   `user_agent` varchar(255) DEFAULT NULL,
   `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`payload`)),
   `last_activity` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `expires_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_token` (`token`),
@@ -8205,7 +8205,7 @@ TRUNCATE TABLE `bank_transactions`;
 -- Dumping data for table `bank_transactions`
 --
 
-INSERT DELAYED IGNORE INTO `bank_transactions` (`id`, `transaction_ref`, `student_id`, `amount`, `transaction_date`, `bank_name`, `account_number`, `narration`, `webhook_data`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `bank_transactions` (`id`, `transaction_ref`, `student_id`, `amount`, `transaction_date`, `bank_name`, `account_number`, `narration`, `webhook_data`, `status`, `created_at`) VALUES
 (3, 'TEST-BANK-1765659360', 101, 5000.00, '2025-12-13 23:56:00', 'KCB Bank', '123456789', 'Direct test', '{\"test\":true}', 'processed', '2025-12-13 20:56:00'),
 (4, 'TEST-BANK-1765659542', 101, 5000.00, '2025-12-13 23:59:02', 'KCB Bank', '123456789', 'Direct test', '{\"test\":true}', 'processed', '2025-12-13 20:59:02'),
 (5, 'TEST-BANK-1765659878', 101, 5000.00, '2025-12-14 00:04:38', 'KCB Bank', '123456789', 'Direct test', '{\"test\":true}', 'processed', '2025-12-13 21:04:38'),
@@ -8320,7 +8320,7 @@ CREATE TABLE IF NOT EXISTS `blocked_ips` (
   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) NOT NULL COMMENT 'IPv4 or IPv6 address',
   `reason` varchar(255) NOT NULL COMMENT 'Why this IP was blocked',
-  `expires_at` timestamp NULL DEFAULT NULL COMMENT 'NULL = permanent block',
+  `expires_at` datetime NULL DEFAULT NULL COMMENT 'NULL = permanent block',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `created_by` int(10) UNSIGNED DEFAULT NULL COMMENT 'Admin user who blocked this IP',
   PRIMARY KEY (`id`),
@@ -8381,7 +8381,7 @@ TRUNCATE TABLE `classes`;
 -- Dumping data for table `classes`
 --
 
-INSERT DELAYED IGNORE INTO `classes` (`id`, `name`, `level_id`, `teacher_id`, `capacity`, `room_number`, `academic_year`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `classes` (`id`, `name`, `level_id`, `teacher_id`, `capacity`, `room_number`, `academic_year`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Grade 6', 1, NULL, 40, NULL, '2025', 'active', '2025-11-29 11:23:13', '2025-11-29 11:23:13'),
 (2, 'Grade 3', 2, NULL, 35, NULL, '2025', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
 (4, 'Grade 9', 4, NULL, 45, NULL, '2025', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34');
@@ -8458,7 +8458,7 @@ CREATE TABLE IF NOT EXISTS `class_enrollments` (
   `promotion_date` date DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_student_year` (`student_id`,`academic_year_id`),
   KEY `idx_student` (`student_id`),
@@ -8682,7 +8682,7 @@ TRUNCATE TABLE `class_streams`;
 -- Dumping data for table `class_streams`
 --
 
-INSERT DELAYED IGNORE INTO `class_streams` (`id`, `class_id`, `stream_name`, `capacity`, `teacher_id`, `status`, `created_at`, `updated_at`, `current_students`) VALUES
+INSERT IGNORE INTO `class_streams` (`id`, `class_id`, `stream_name`, `capacity`, `teacher_id`, `status`, `created_at`, `updated_at`, `current_students`) VALUES
 (1, 1, 'Grade 6', 40, NULL, 'active', '2025-11-29 11:23:13', '2025-11-29 12:09:56', 3),
 (2, 2, 'Grade 3', 35, NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34', 0),
 (3, 4, 'Grade 9', 45, NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34', 0);
@@ -8859,7 +8859,7 @@ TRUNCATE TABLE `communications`;
 -- Dumping data for table `communications`
 --
 
-INSERT DELAYED IGNORE INTO `communications` (`id`, `sender_id`, `subject`, `content`, `type`, `status`, `priority`, `template_id`, `scheduled_at`, `created_at`) VALUES
+INSERT IGNORE INTO `communications` (`id`, `sender_id`, `subject`, `content`, `type`, `status`, `priority`, `template_id`, `scheduled_at`, `created_at`) VALUES
 (3, 1, 'Message with Attachment', 'Test attachment', 'email', 'draft', 'medium', NULL, NULL, '2025-12-02 21:07:48'),
 (4, 1, 'Staff Message', 'Test recipient', 'email', 'draft', 'medium', NULL, NULL, '2025-12-02 21:07:51'),
 (5, 1, 'Test Communication', 'Testing communication endpoint', 'email', 'draft', 'medium', NULL, NULL, '2025-12-02 21:11:29'),
@@ -9121,7 +9121,7 @@ TRUNCATE TABLE `communication_recipients`;
 -- Dumping data for table `communication_recipients`
 --
 
-INSERT DELAYED IGNORE INTO `communication_recipients` (`id`, `communication_id`, `recipient_id`, `status`, `delivered_at`, `delivery_attempts`, `last_attempt_at`, `error_message`, `opened_at`, `clicked_at`, `device_info`) VALUES
+INSERT IGNORE INTO `communication_recipients` (`id`, `communication_id`, `recipient_id`, `status`, `delivered_at`, `delivery_attempts`, `last_attempt_at`, `error_message`, `opened_at`, `clicked_at`, `device_info`) VALUES
 (2, 4, 1, 'pending', NULL, 0, NULL, NULL, NULL, NULL, NULL);
 
 -- --------------------------------------------------------
@@ -9169,7 +9169,7 @@ TRUNCATE TABLE `communication_templates`;
 -- Dumping data for table `communication_templates`
 --
 
-INSERT DELAYED IGNORE INTO `communication_templates` (`id`, `name`, `template_type`, `category`, `subject`, `template_body`, `variables_json`, `example_output`, `created_by`, `status`, `usage_count`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `communication_templates` (`id`, `name`, `template_type`, `category`, `subject`, `template_body`, `variables_json`, `example_output`, `created_by`, `status`, `usage_count`, `created_at`, `updated_at`) VALUES
 (2, 'Fee Reminder Template', 'sms', NULL, 'Fee Reminder', 'Dear {{student_name}}, kindly pay your fees', NULL, NULL, 1, 'active', 0, '2025-12-02 21:07:52', '2025-12-02 21:07:52'),
 (3, 'Fee Reminder Template', 'sms', NULL, 'Fee Reminder', 'Dear {{student_name}}, kindly pay your fees', NULL, NULL, 1, 'active', 0, '2025-12-02 21:11:31', '2025-12-02 21:11:31'),
 (4, 'Fee Reminder', 'sms', NULL, 'Fee Reminder', 'Dear {{student_name}}, pay your fees', NULL, NULL, 1, 'active', 0, '2025-12-02 21:13:36', '2025-12-02 21:13:36'),
@@ -9214,7 +9214,7 @@ CREATE TABLE IF NOT EXISTS `communication_workflow_instances` (
   `status` enum('active','completed','cancelled','escalated') NOT NULL DEFAULT 'active',
   `initiated_by` int(10) UNSIGNED NOT NULL,
   `initiated_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `communication_id` (`communication_id`),
   KEY `workflow_code` (`workflow_code`)
@@ -9233,7 +9233,7 @@ TRUNCATE TABLE `communication_workflow_instances`;
 -- Dumping data for table `communication_workflow_instances`
 --
 
-INSERT DELAYED IGNORE INTO `communication_workflow_instances` (`id`, `communication_id`, `workflow_code`, `current_stage`, `stage_code`, `status`, `initiated_by`, `initiated_at`, `completed_at`) VALUES
+INSERT IGNORE INTO `communication_workflow_instances` (`id`, `communication_id`, `workflow_code`, `current_stage`, `stage_code`, `status`, `initiated_by`, `initiated_at`, `completed_at`) VALUES
 (1, 33, 'communication_approval', 'initiated', NULL, 'active', 1, '2025-12-02 22:28:19', NULL),
 (2, 34, 'communication_approval', 'initiated', NULL, 'active', 1, '2025-12-02 22:28:19', NULL),
 (3, 35, 'communication_approval', 'initiated', NULL, 'active', 1, '2025-12-02 22:28:57', NULL),
@@ -9383,7 +9383,7 @@ TRUNCATE TABLE `contact_directory`;
 -- Dumping data for table `contact_directory`
 --
 
-INSERT DELAYED IGNORE INTO `contact_directory` (`id`, `contact_type`, `linked_id`, `name`, `email`, `phone`, `department`, `role`, `notes`, `created_at`) VALUES
+INSERT IGNORE INTO `contact_directory` (`id`, `contact_type`, `linked_id`, `name`, `email`, `phone`, `department`, `role`, `notes`, `created_at`) VALUES
 (2, 'parent', NULL, 'John Smith', 'john@example.com', '+254712345678', NULL, NULL, '\n[Opted out from SMS: 2025-12-03 22:14:16]\n[Opted out from SMS: 2025-12-03 22:59:15]\n[Opted out from SMS: 2025-12-03 23:29:27]\n[Opted out from SMS: 2025-12-03 23:33:10]\n[Opted out from SMS: 2025-12-03 23:48:25]\n[Opted out from SMS: 2025-12-03 23:51:38]\n[Opted out from SMS: 2025-12-03 23:55:21]\n[Opted out from SMS: 2025-12-03 23:58:22]', '2025-12-02 21:07:42'),
 (3, 'parent', NULL, 'Test', 'test@example.com', '+254712345678', NULL, NULL, '\n[Opted out from SMS: 2025-12-03 22:14:16]\n[Opted out from SMS: 2025-12-03 22:59:15]\n[Opted out from SMS: 2025-12-03 23:29:27]\n[Opted out from SMS: 2025-12-03 23:33:10]\n[Opted out from SMS: 2025-12-03 23:48:25]\n[Opted out from SMS: 2025-12-03 23:51:38]\n[Opted out from SMS: 2025-12-03 23:55:21]\n[Opted out from SMS: 2025-12-03 23:58:22]', '2025-12-02 21:08:52'),
 (4, 'parent', NULL, 'John Smith', 'john@example.com', '+254712345678', NULL, NULL, '\n[Opted out from SMS: 2025-12-03 22:14:16]\n[Opted out from SMS: 2025-12-03 22:59:15]\n[Opted out from SMS: 2025-12-03 23:29:27]\n[Opted out from SMS: 2025-12-03 23:33:10]\n[Opted out from SMS: 2025-12-03 23:48:25]\n[Opted out from SMS: 2025-12-03 23:51:38]\n[Opted out from SMS: 2025-12-03 23:55:21]\n[Opted out from SMS: 2025-12-03 23:58:22]', '2025-12-02 21:11:19'),
@@ -9486,7 +9486,7 @@ TRUNCATE TABLE `core_competencies`;
 -- Dumping data for table `core_competencies`
 --
 
-INSERT DELAYED IGNORE INTO `core_competencies` (`id`, `code`, `name`, `description`, `grade_range`, `learning_outcomes`, `assessment_criteria`, `sort_order`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `core_competencies` (`id`, `code`, `name`, `description`, `grade_range`, `learning_outcomes`, `assessment_criteria`, `sort_order`, `status`, `created_at`) VALUES
 (1, 'CC001', 'Communication & Collaboration', 'Ability to express ideas clearly and work effectively with others', 'PP1-9', NULL, NULL, 1, 'active', '2025-11-28 18:19:19'),
 (2, 'CC002', 'Critical Thinking & Problem Solving', 'Ability to analyze information and solve complex problems', 'PP1-9', NULL, NULL, 2, 'active', '2025-11-28 18:19:19'),
 (3, 'CC003', 'Creativity & Imagination', 'Ability to think innovatively and create new solutions', 'PP1-9', NULL, NULL, 3, 'active', '2025-11-28 18:19:19'),
@@ -9532,7 +9532,7 @@ TRUNCATE TABLE `core_values`;
 -- Dumping data for table `core_values`
 --
 
-INSERT DELAYED IGNORE INTO `core_values` (`id`, `code`, `name`, `description`, `behavioral_indicators`, `grade_range`, `sort_order`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `core_values` (`id`, `code`, `name`, `description`, `behavioral_indicators`, `grade_range`, `sort_order`, `status`, `created_at`) VALUES
 (1, 'CV001', 'Responsibility', 'Taking ownership of one\'s actions and obligations', NULL, 'PP1-9', 1, 'active', '2025-11-28 18:19:19'),
 (2, 'CV002', 'Respect', 'Valuing and honoring others and their contributions', NULL, 'PP1-9', 2, 'active', '2025-11-28 18:19:19'),
 (3, 'CV003', 'Integrity', 'Acting with honesty and strong moral principles', NULL, 'PP1-9', 3, 'active', '2025-11-28 18:19:19'),
@@ -9690,7 +9690,7 @@ TRUNCATE TABLE `deduction_types`;
 -- Dumping data for table `deduction_types`
 --
 
-INSERT DELAYED IGNORE INTO `deduction_types` (`id`, `code`, `name`, `description`, `default_rate`, `is_mandatory`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `deduction_types` (`id`, `code`, `name`, `description`, `default_rate`, `is_mandatory`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'PAYE', 'Pay As You Earn Tax', 'Government tax withholding', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
 (2, 'NSSF', 'National Social Security Fund', 'NSSF employee contribution', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
 (3, 'NHIF', 'National Health Insurance Fund', 'Health insurance contribution', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
@@ -9738,7 +9738,7 @@ TRUNCATE TABLE `departments`;
 -- Dumping data for table `departments`
 --
 
-INSERT DELAYED IGNORE INTO `departments` (`id`, `name`, `code`, `description`, `head_id`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `departments` (`id`, `name`, `code`, `description`, `head_id`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Academics', 'ACAD', 'Academic Department', NULL, 'active', '2025-11-29 11:23:13', '2025-11-29 11:23:13'),
 (2, 'Transport', 'TRAN', 'Responsible for school buses, transport logistics, driver management, and routes', NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
 (3, 'Food and Nutrition', 'FOOD', 'Handles meal preparation, dietary planning, kitchen management, and nutrition services', NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
@@ -9778,7 +9778,7 @@ TRUNCATE TABLE `department_accounts`;
 -- Dumping data for table `department_accounts`
 --
 
-INSERT DELAYED IGNORE INTO `department_accounts` (`id`, `department_id`, `amount`, `allocated_by`, `allocated_at`) VALUES
+INSERT IGNORE INTO `department_accounts` (`id`, `department_id`, `amount`, `allocated_by`, `allocated_at`) VALUES
 (1, 1, 500000.00, 1, '2025-12-12 22:39:08'),
 (2, 1, 500000.00, 1, '2025-12-12 22:49:58'),
 (3, 1, 500000.00, 1, '2025-12-12 23:17:50'),
@@ -9815,7 +9815,7 @@ CREATE TABLE IF NOT EXISTS `department_budget_proposals` (
   `created_by` int(11) NOT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `reviewed_at` timestamp NULL DEFAULT NULL,
+  `reviewed_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -9832,7 +9832,7 @@ TRUNCATE TABLE `department_budget_proposals`;
 -- Dumping data for table `department_budget_proposals`
 --
 
-INSERT DELAYED IGNORE INTO `department_budget_proposals` (`id`, `department_id`, `title`, `description`, `amount_requested`, `status`, `created_by`, `reviewed_by`, `created_at`, `reviewed_at`) VALUES
+INSERT IGNORE INTO `department_budget_proposals` (`id`, `department_id`, `title`, `description`, `amount_requested`, `status`, `created_by`, `reviewed_by`, `created_at`, `reviewed_at`) VALUES
 (8, 1, 'Q1 2026 Operations', 'First quarter operational budget', 500000.00, 'pending', 1, NULL, '2025-12-12 22:46:57', NULL),
 (9, 2, 'Transport Maintenance', 'Vehicle maintenance and fuel', 300000.00, 'approved', 1, NULL, '2025-12-12 22:46:57', NULL),
 (10, 1, 'Annual Operations Budget', 'Annual operations and activities', 500000.00, 'pending', 1, NULL, '2025-12-12 22:49:58', NULL),
@@ -9869,7 +9869,7 @@ CREATE TABLE IF NOT EXISTS `department_fund_requests` (
   `requested_by` int(11) NOT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `requested_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `reviewed_at` timestamp NULL DEFAULT NULL,
+  `reviewed_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -9886,7 +9886,7 @@ TRUNCATE TABLE `department_fund_requests`;
 -- Dumping data for table `department_fund_requests`
 --
 
-INSERT DELAYED IGNORE INTO `department_fund_requests` (`id`, `department_id`, `amount`, `reason`, `status`, `requested_by`, `reviewed_by`, `requested_at`, `reviewed_at`) VALUES
+INSERT IGNORE INTO `department_fund_requests` (`id`, `department_id`, `amount`, `reason`, `status`, `requested_by`, `reviewed_by`, `requested_at`, `reviewed_at`) VALUES
 (1, 1, 50000.00, 'Office supplies', 'pending', 1, NULL, '2025-12-12 22:39:08', NULL),
 (2, 1, 50000.00, 'Office supplies', 'pending', 1, NULL, '2025-12-12 22:49:59', NULL),
 (3, 1, 50000.00, 'Office supplies', 'pending', 1, NULL, '2025-12-12 23:17:50', NULL),
@@ -10032,7 +10032,7 @@ TRUNCATE TABLE `equipment_maintenance_types`;
 -- Dumping data for table `equipment_maintenance_types`
 --
 
-INSERT DELAYED IGNORE INTO `equipment_maintenance_types` (`id`, `name`, `code`, `description`, `frequency_days`, `estimated_cost`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `equipment_maintenance_types` (`id`, `name`, `code`, `description`, `frequency_days`, `estimated_cost`, `status`, `created_at`) VALUES
 (1, 'Routine Cleaning', 'CLEAN', 'Regular cleaning and dusting', 7, 500.00, 'active', '2025-11-28 18:47:30'),
 (2, 'Inspection', 'INSP', 'General equipment inspection', 30, 1000.00, 'active', '2025-11-28 18:47:30'),
 (3, 'Repairs', 'REPAIR', 'Minor and major repairs', NULL, 5000.00, 'active', '2025-11-28 18:47:30'),
@@ -10102,7 +10102,7 @@ CREATE TABLE IF NOT EXISTS `expenses` (
   `created_by` int(10) UNSIGNED DEFAULT NULL,
   `status` enum('pending','approved','rejected') DEFAULT 'pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  `updated_at` datetime NULL DEFAULT NULL ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_expense_category` (`expense_category`),
   KEY `idx_expense_date` (`expense_date`)
@@ -10239,7 +10239,7 @@ TRUNCATE TABLE `external_inbound_messages`;
 -- Dumping data for table `external_inbound_messages`
 --
 
-INSERT DELAYED IGNORE INTO `external_inbound_messages` (`id`, `source_type`, `source_address`, `received_at`, `linked_user_id`, `linked_parent_id`, `linked_student_id`, `subject`, `body`, `status`, `processing_notes`) VALUES
+INSERT IGNORE INTO `external_inbound_messages` (`id`, `source_type`, `source_address`, `received_at`, `linked_user_id`, `linked_parent_id`, `linked_student_id`, `subject`, `body`, `status`, `processing_notes`) VALUES
 (2, 'sms', '+254712345678', '2025-12-03 00:07:42', NULL, NULL, NULL, NULL, 'Test incoming message', 'pending', NULL),
 (3, 'sms', '+254712345678', '2025-12-03 00:07:42', NULL, NULL, NULL, NULL, 'Inbound test message', 'pending', NULL),
 (4, 'sms', '+254712345678', '2025-12-03 00:11:18', NULL, NULL, NULL, NULL, 'Test incoming message', 'pending', NULL),
@@ -10477,7 +10477,7 @@ TRUNCATE TABLE `fee_structures`;
 -- Dumping data for table `fee_structures`
 --
 
-INSERT DELAYED IGNORE INTO `fee_structures` (`id`, `name`, `amount`, `due_date`, `description`) VALUES
+INSERT IGNORE INTO `fee_structures` (`id`, `name`, `amount`, `due_date`, `description`) VALUES
 (4, 'Tuition Fee 2025/2026', 150000.00, '2026-03-31', 'Annual tuition fee for 2025/2026'),
 (5, 'Transport Fee 2025/2026', 30000.00, '2026-03-31', 'Annual transport fee'),
 (6, 'Lunch Fee 2025/2026', 20000.00, '2026-03-31', 'Annual lunch fee'),
@@ -10631,7 +10631,7 @@ TRUNCATE TABLE `fee_structure_rollover_log`;
 -- Dumping data for table `fee_structure_rollover_log`
 --
 
-INSERT DELAYED IGNORE INTO `fee_structure_rollover_log` (`id`, `source_academic_year`, `target_academic_year`, `rollover_date`, `executed_by`, `structures_copied`, `notification_sent`, `notification_sent_at`, `notification_recipients`, `rollover_status`, `error_message`) VALUES
+INSERT IGNORE INTO `fee_structure_rollover_log` (`id`, `source_academic_year`, `target_academic_year`, `rollover_date`, `executed_by`, `structures_copied`, `notification_sent`, `notification_sent_at`, `notification_recipients`, `rollover_status`, `error_message`) VALUES
 (1, '2024', '2025', '2025-12-13 02:48:51', NULL, 0, 0, NULL, NULL, 'completed', NULL),
 (2, '2024', '2025', '2025-12-13 02:51:53', NULL, 0, 0, NULL, NULL, 'completed', NULL),
 (3, '2024', '2025', '2025-12-13 02:52:45', NULL, 0, 0, NULL, NULL, 'completed', NULL),
@@ -10752,7 +10752,7 @@ TRUNCATE TABLE `fee_types`;
 -- Dumping data for table `fee_types`
 --
 
-INSERT DELAYED IGNORE INTO `fee_types` (`id`, `code`, `name`, `description`, `category`, `is_mandatory`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `fee_types` (`id`, `code`, `name`, `description`, `category`, `is_mandatory`, `status`, `created_at`) VALUES
 (1, 'TUITION', 'Tuition Fee', 'Core tuition charges', 'tuition', 1, 'active', '2025-11-28 18:19:20'),
 (2, 'BOARDING', 'Boarding Fee', 'Accommodation and meals', 'boarding', 0, 'active', '2025-11-28 18:19:20'),
 (3, 'ACTIVITY', 'Activity Fee', 'Sports, clubs, co-curricular activities', 'activity', 1, 'active', '2025-11-28 18:19:20'),
@@ -10778,7 +10778,7 @@ CREATE TABLE IF NOT EXISTS `financial_periods` (
   `end_date` date NOT NULL,
   `status` enum('active','closed') NOT NULL DEFAULT 'active',
   `closed_by` int(10) UNSIGNED DEFAULT NULL,
-  `closed_at` timestamp NULL DEFAULT NULL,
+  `closed_at` datetime NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_date_range` (`start_date`,`end_date`),
@@ -10817,10 +10817,10 @@ CREATE TABLE IF NOT EXISTS `financial_transactions` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `transaction_date` datetime NOT NULL,
   `processed_by` int(10) UNSIGNED DEFAULT NULL,
-  `processed_at` timestamp NULL DEFAULT NULL,
+  `processed_at` datetime NULL DEFAULT NULL,
   `reconciliation_status` enum('pending','reconciled','disputed') NOT NULL DEFAULT 'pending',
   `reconciled_by` int(10) UNSIGNED DEFAULT NULL,
-  `reconciled_at` timestamp NULL DEFAULT NULL,
+  `reconciled_at` datetime NULL DEFAULT NULL,
   `notes` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `processed_by` (`processed_by`),
@@ -11073,7 +11073,7 @@ TRUNCATE TABLE `forum_threads`;
 -- Dumping data for table `forum_threads`
 --
 
-INSERT DELAYED IGNORE INTO `forum_threads` (`id`, `title`, `created_by`, `forum_type`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `forum_threads` (`id`, `title`, `created_by`, `forum_type`, `status`, `created_at`, `updated_at`) VALUES
 (2, 'Test Discussion Thread', 1, 'general', 'open', '2025-12-02 20:49:09', '2025-12-02 20:49:09'),
 (3, 'Discussion Thread', 1, 'general', 'open', '2025-12-02 21:07:43', '2025-12-02 21:07:43'),
 (4, 'Staff Discussion', 1, 'staff', 'open', '2025-12-02 21:07:46', '2025-12-02 21:07:46'),
@@ -11145,7 +11145,7 @@ TRUNCATE TABLE `grade_rules`;
 -- Dumping data for table `grade_rules`
 --
 
-INSERT DELAYED IGNORE INTO `grade_rules` (`id`, `scale_id`, `grade_code`, `grade_name`, `min_mark`, `max_mark`, `grade_points`, `performance_level`, `description`, `sort_order`, `created_at`) VALUES
+INSERT IGNORE INTO `grade_rules` (`id`, `scale_id`, `grade_code`, `grade_name`, `min_mark`, `max_mark`, `grade_points`, `performance_level`, `description`, `sort_order`, `created_at`) VALUES
 (1, 1, 'EE1', 'Exceeding Expectation 1', 90.00, 100.00, 4.0, 'Exceeding Expectation', 'Outstanding performance. Exceeds expectations significantly.', 1, '2025-11-28 18:19:19'),
 (2, 1, 'EE2', 'Exceeding Expectation 2', 75.00, 89.00, 3.5, 'Exceeding Expectation', 'Excellent work. Exceeds expectations.', 2, '2025-11-28 18:19:19'),
 (3, 1, 'ME1', 'Meeting Expectation 1', 58.00, 74.00, 3.0, 'Meeting Expectation', 'Good job. Meets expectations well.', 3, '2025-11-28 18:19:19'),
@@ -11186,7 +11186,7 @@ TRUNCATE TABLE `grading_comments`;
 -- Dumping data for table `grading_comments`
 --
 
-INSERT DELAYED IGNORE INTO `grading_comments` (`id`, `grade_code`, `comment`, `created_at`) VALUES
+INSERT IGNORE INTO `grading_comments` (`id`, `grade_code`, `comment`, `created_at`) VALUES
 (1, 'EE1', 'Outstanding performance. Exceeds expectations.', '2025-11-28 18:19:19'),
 (2, 'EE2', 'Excellent work. Exceeds expectations.', '2025-11-28 18:19:19'),
 (3, 'ME1', 'Good job. Meets expectations.', '2025-11-28 18:19:19'),
@@ -11231,7 +11231,7 @@ TRUNCATE TABLE `grading_scales`;
 -- Dumping data for table `grading_scales`
 --
 
-INSERT DELAYED IGNORE INTO `grading_scales` (`id`, `name`, `description`, `min_mark`, `max_mark`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `grading_scales` (`id`, `name`, `description`, `min_mark`, `max_mark`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'CBE Kenya Standard', 'Competency-Based Education grading scale used in Kenya', 0.00, 100.00, 'active', '2025-11-28 18:19:19', '2025-11-28 18:19:19');
 
 -- --------------------------------------------------------
@@ -11361,7 +11361,7 @@ TRUNCATE TABLE `internal_conversations`;
 -- Dumping data for table `internal_conversations`
 --
 
-INSERT DELAYED IGNORE INTO `internal_conversations` (`id`, `title`, `conversation_type`, `created_by`, `is_locked`, `last_message_at`, `last_message_by`, `participant_count`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `internal_conversations` (`id`, `title`, `conversation_type`, `created_by`, `is_locked`, `last_message_at`, `last_message_by`, `participant_count`, `created_at`, `updated_at`) VALUES
 (2, 'Fee Report Required', 'one_on_one', 1, 0, NULL, NULL, 0, '2025-12-02 23:06:31', '2025-12-02 23:06:31'),
 (3, 'Fee Report Required', 'one_on_one', 1, 0, NULL, NULL, 0, '2025-12-02 23:07:08', '2025-12-02 23:07:08'),
 (4, 'Fee Report Required', 'one_on_one', 1, 0, NULL, NULL, 0, '2025-12-02 23:15:14', '2025-12-02 23:15:14'),
@@ -11429,7 +11429,7 @@ TRUNCATE TABLE `internal_messages`;
 -- Dumping data for table `internal_messages`
 --
 
-INSERT DELAYED IGNORE INTO `internal_messages` (`id`, `conversation_id`, `sender_id`, `subject`, `message_body`, `message_type`, `priority`, `status`, `is_edited`, `last_edited_at`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `internal_messages` (`id`, `conversation_id`, `sender_id`, `subject`, `message_body`, `message_type`, `priority`, `status`, `is_edited`, `last_edited_at`, `created_at`, `updated_at`) VALUES
 (2, NULL, 1, 'Important Announcement', '', 'announcement', 'normal', 'sent', 0, NULL, '2025-12-02 21:07:44', '2025-12-02 21:07:44'),
 (3, NULL, 1, 'Important Announcement', '', 'announcement', 'normal', 'sent', 0, NULL, '2025-12-02 21:11:23', '2025-12-02 21:11:23'),
 (4, NULL, 1, 'Important', '', 'announcement', 'normal', 'sent', 0, NULL, '2025-12-02 21:13:29', '2025-12-02 21:13:29'),
@@ -11698,7 +11698,7 @@ TRUNCATE TABLE `inventory_categories`;
 -- Dumping data for table `inventory_categories`
 --
 
-INSERT DELAYED IGNORE INTO `inventory_categories` (`id`, `name`, `code`, `description`, `parent_id`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `inventory_categories` (`id`, `name`, `code`, `description`, `parent_id`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Grains & Cereals', 'GRAIN', 'Rice, maize, wheat, flour', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (2, 'Proteins', 'PROT', 'Beans, lentils, meat, eggs', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (3, 'Vegetables', 'VEG', 'Fresh vegetables', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
@@ -11821,7 +11821,7 @@ TRUNCATE TABLE `inventory_departments`;
 -- Dumping data for table `inventory_departments`
 --
 
-INSERT DELAYED IGNORE INTO `inventory_departments` (`id`, `name`, `code`, `description`, `department_head_id`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `inventory_departments` (`id`, `name`, `code`, `description`, `department_head_id`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Kitchen', 'KIT', 'Kitchen and food preparation', NULL, 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29'),
 (2, 'Maintenance', 'MAINT', 'Building and equipment maintenance', NULL, 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29'),
 (3, 'Classrooms', 'CLASS', 'Classroom supplies and materials', NULL, 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29'),
@@ -11882,7 +11882,7 @@ TRUNCATE TABLE `inventory_items`;
 -- Dumping data for table `inventory_items`
 --
 
-INSERT DELAYED IGNORE INTO `inventory_items` (`id`, `category_id`, `name`, `code`, `barcode`, `sku`, `description`, `unit`, `minimum_quantity`, `current_quantity`, `unit_cost`, `location`, `status`, `created_at`, `updated_at`, `brand`, `model`, `reorder_level`, `expiry_date`, `batch_tracking`, `serial_tracking`) VALUES
+INSERT IGNORE INTO `inventory_items` (`id`, `category_id`, `name`, `code`, `barcode`, `sku`, `description`, `unit`, `minimum_quantity`, `current_quantity`, `unit_cost`, `location`, `status`, `created_at`, `updated_at`, `brand`, `model`, `reorder_level`, `expiry_date`, `batch_tracking`, `serial_tracking`) VALUES
 (1, 1, 'Rice (10kg)', 'RICE-10', 'RICE001', 'SKU-RICE-10', 'Long grain white rice', 'bags', 5, 20, 450.00, 'Store Room A', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Premium', NULL, 10, NULL, 1, 0),
 (2, 1, 'Maize Flour (25kg)', 'MFL-25', 'MFLOUR001', 'SKU-MFL-25', 'Refined maize flour', 'bags', 3, 15, 250.00, 'Store Room A', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Local', NULL, 6, NULL, 1, 0),
 (3, 2, 'Beans (20kg)', 'BEANS-20', 'BEANS001', 'SKU-BEANS-20', 'Mixed beans', 'bags', 2, 8, 400.00, 'Store Room B', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Farm Fresh', NULL, 4, NULL, 1, 0),
@@ -12584,7 +12584,7 @@ TRUNCATE TABLE `learning_areas`;
 -- Dumping data for table `learning_areas`
 --
 
-INSERT DELAYED IGNORE INTO `learning_areas` (`id`, `name`, `code`, `description`, `status`, `created_at`, `updated_at`, `levels`, `is_optional`) VALUES
+INSERT IGNORE INTO `learning_areas` (`id`, `name`, `code`, `description`, `status`, `created_at`, `updated_at`, `levels`, `is_optional`) VALUES
 (1, 'Psychosocial & Emotional Development', 'PSED', 'Emotional, social, and behavioral development for early learners', 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29', 'Playgroup', 0),
 (2, 'Language & Communication', 'LAC', 'Basic language use, listening, speaking, communication foundations', 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29', 'Playgroup', 0),
 (3, 'Numeracy Foundations', 'NUMF', 'Early counting skills, number sense, patterns, and comparing objects', 'active', '2025-11-28 18:47:29', '2025-11-28 18:47:29', 'Playgroup', 0),
@@ -12700,9 +12700,9 @@ TRUNCATE TABLE `leave_types`;
 -- Dumping data for table `leave_types`
 --
 
-INSERT DELAYED IGNORE INTO `leave_types` (`id`, `code`, `name`, `description`, `days_allowed`, `requires_approval`, `is_paid`, `applicable_to`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `leave_types` (`id`, `code`, `name`, `description`, `days_allowed`, `requires_approval`, `is_paid`, `applicable_to`, `status`, `created_at`) VALUES
 (1, 'ANNUAL', 'Annual Leave', 'Regular annual leave entitlement', 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
-(2, 'SICK', 'Sick Leave', 'Medical leave with doctor\'s note', 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
+(2, 'SICK', "Sick Leave", "Medical leave with doctor\'s note", 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (3, 'MATERNITY', 'Maternity Leave', 'Maternity leave for female staff', 90, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (4, 'PATERNITY', 'Paternity Leave', 'Paternity leave for male staff', 14, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (5, 'COMPASSIONATE', 'Compassionate Leave', 'Leave for family emergencies', 7, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
@@ -12974,7 +12974,7 @@ TRUNCATE TABLE `menu_items`;
 -- Dumping data for table `menu_items`
 --
 
-INSERT DELAYED IGNORE INTO `menu_items` (`id`, `name`, `description`, `meal_type`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `menu_items` (`id`, `name`, `description`, `meal_type`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Breakfast Cereal', 'Maize porridge with milk and sugar', 'breakfast', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (2, 'Tea & Bread', 'Tea with bread and margarine', 'breakfast', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (3, 'Rice & Beans', 'Rice with mixed beans and vegetables', 'lunch', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
@@ -13023,7 +13023,7 @@ TRUNCATE TABLE `menu_item_ingredients`;
 -- Dumping data for table `menu_item_ingredients`
 --
 
-INSERT DELAYED IGNORE INTO `menu_item_ingredients` (`id`, `menu_item_id`, `inventory_item_id`, `quantity_per_portion`, `unit`, `notes`, `created_at`) VALUES
+INSERT IGNORE INTO `menu_item_ingredients` (`id`, `menu_item_id`, `inventory_item_id`, `quantity_per_portion`, `unit`, `notes`, `created_at`) VALUES
 (1, 1, 1, 0.20, 'kg', NULL, '2025-11-28 18:47:30'),
 (2, 2, 3, 0.05, 'kg', NULL, '2025-11-28 18:47:30'),
 (3, 3, 1, 0.15, 'kg', NULL, '2025-11-28 18:47:30'),
@@ -13339,7 +13339,7 @@ TRUNCATE TABLE `parents`;
 -- Dumping data for table `parents`
 --
 
-INSERT DELAYED IGNORE INTO `parents` (`id`, `first_name`, `last_name`, `gender`, `phone_1`, `phone_2`, `email`, `occupation`, `address`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `parents` (`id`, `first_name`, `last_name`, `gender`, `phone_1`, `phone_2`, `email`, `occupation`, `address`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Jane', 'Doe', 'female', '254712345678', '254712345679', 'jane.doe@example.com', 'Teacher', '123 Main Street', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00'),
 (2, 'John', 'Smith', 'male', '254722345678', '254722345679', 'john.smith@example.com', 'Engineer', '456 Oak Avenue', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00'),
 (3, 'Mary', 'Johnson', 'female', '254732345678', '254732345679', 'mary.johnson@example.com', 'Doctor', '789 Pine Road', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00');
@@ -13429,7 +13429,7 @@ TRUNCATE TABLE `parent_portal_messages`;
 -- Dumping data for table `parent_portal_messages`
 --
 
-INSERT DELAYED IGNORE INTO `parent_portal_messages` (`id`, `parent_id`, `student_id`, `sender_type`, `sender_id`, `recipient_type`, `recipient_id`, `subject`, `body`, `status`, `is_reply`, `reply_to_id`, `created_at`) VALUES
+INSERT IGNORE INTO `parent_portal_messages` (`id`, `parent_id`, `student_id`, `sender_type`, `sender_id`, `recipient_type`, `recipient_id`, `subject`, `body`, `status`, `is_reply`, `reply_to_id`, `created_at`) VALUES
 (2, 1, NULL, 'school', 1, 'parent', 1, 'Important Message', 'Test message for parents', 'sent', 0, NULL, '2025-12-02 21:11:26'),
 (3, 1, NULL, 'school', 1, 'parent', 1, 'Message', 'Body', 'sent', 0, NULL, '2025-12-02 21:13:30'),
 (4, 1, NULL, 'school', 1, 'parent', 1, 'Academic Progress', 'Your child scored 85 in Math', 'sent', 0, NULL, '2025-12-02 23:06:31'),
@@ -13490,7 +13490,7 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
   `email` varchar(100) NOT NULL,
   `token` varchar(255) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `expires_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `used` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_email_token` (`email`,`token`),
@@ -13703,7 +13703,7 @@ TRUNCATE TABLE `payment_transactions`;
 -- Dumping data for table `payment_transactions`
 --
 
-INSERT DELAYED IGNORE INTO `payment_transactions` (`id`, `student_id`, `academic_year`, `term_id`, `term_allocation`, `fee_structure_detail_id`, `parent_id`, `amount_paid`, `payment_date`, `payment_method`, `reference_no`, `receipt_no`, `received_by`, `status`, `notes`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `payment_transactions` (`id`, `student_id`, `academic_year`, `term_id`, `term_allocation`, `fee_structure_detail_id`, `parent_id`, `amount_paid`, `payment_date`, `payment_method`, `reference_no`, `receipt_no`, `received_by`, `status`, `notes`, `created_at`, `updated_at`) VALUES
 (1001, 1, NULL, NULL, NULL, NULL, NULL, 500.00, '2025-12-13 03:03:33', 'cash', 'TEST-REF-1001', 'RCT-00001001', NULL, 'confirmed', NULL, '2025-12-13 00:03:03', '2025-12-13 00:03:33'),
 (1011, 101, '2001', NULL, NULL, NULL, 1, 5000.00, '2025-12-14 00:04:38', 'bank_transfer', 'TEST-DIRECT-1765659878', NULL, NULL, 'confirmed', 'Direct test payment', '2025-12-13 21:04:38', '2025-12-13 21:04:38'),
 (1012, 101, '2001', NULL, NULL, NULL, 1, 5000.00, '2025-12-14 00:05:04', 'bank_transfer', 'TEST-DIRECT-1765659904', NULL, NULL, 'confirmed', 'Direct test payment', '2025-12-13 21:05:04', '2025-12-13 21:05:04'),
@@ -13815,7 +13815,7 @@ TRUNCATE TABLE `payment_webhooks_log`;
 -- Dumping data for table `payment_webhooks_log`
 --
 
-INSERT DELAYED IGNORE INTO `payment_webhooks_log` (`id`, `source`, `webhook_data`, `status`, `error_message`, `created_at`) VALUES
+INSERT IGNORE INTO `payment_webhooks_log` (`id`, `source`, `webhook_data`, `status`, `error_message`, `created_at`) VALUES
 (2, 'kcb_bank', '{\"event_type\":\"credit\",\"bank\":\"KCB\",\"transaction_ref\":\"TEST-BANK-1765657479\",\"account_number\":\"ADM101\",\"amount\":5000,\"transaction_date\":\"2025-12-13 23:24:39\"}', 'received', NULL, '2025-12-13 20:24:39'),
 (3, 'kcb_bank', '{\"event_type\":\"credit\",\"bank\":\"KCB\",\"transaction_ref\":\"TEST-BANK-1765657513\",\"account_number\":\"ADM101\",\"amount\":5000,\"transaction_date\":\"2025-12-13 23:25:13\"}', 'received', NULL, '2025-12-13 20:25:13'),
 (4, 'kcb_bank', '{\"event_type\":\"credit\",\"bank\":\"KCB\",\"transaction_ref\":\"TEST-BANK-1765658550\",\"account_number\":\"ADM101\",\"amount\":5000,\"transaction_date\":\"2025-12-13 23:42:30\"}', 'received', NULL, '2025-12-13 20:42:30'),
@@ -13945,7 +13945,7 @@ TRUNCATE TABLE `payroll_configurations`;
 -- Dumping data for table `payroll_configurations`
 --
 
-INSERT DELAYED IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`, `financial_year`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`, `financial_year`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'NSSF_RATE', '6', 2025, 'NSSF employee contribution rate', 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
 (2, 'NSSF_RATE_EMPLOYER', '6', 2025, 'NSSF employer contribution rate', 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
 (3, 'NSSF_MAX_CONTRIBUTION', '18000', 2025, 'Maximum monthly NSSF contribution', 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
@@ -14041,7 +14041,7 @@ TRUNCATE TABLE `pcis`;
 -- Dumping data for table `pcis`
 --
 
-INSERT DELAYED IGNORE INTO `pcis` (`id`, `topic_code`, `topic_name`, `description`, `category`, `learning_area_id`, `grade_applicable`, `learning_resources`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `pcis` (`id`, `topic_code`, `topic_name`, `description`, `category`, `learning_area_id`, `grade_applicable`, `learning_resources`, `status`, `created_at`) VALUES
 (1, 'PCI001', 'Climate Change & Environmental Conservation', NULL, 'environmental', NULL, 'PP1-9', NULL, 'active', '2025-11-28 18:19:20'),
 (2, 'PCI002', 'Cybersecurity & Digital Safety', NULL, 'social', NULL, 'G4-9', NULL, 'active', '2025-11-28 18:19:20'),
 (3, 'PCI003', 'Gender Equality & Inclusivity', NULL, 'social', NULL, 'PP1-9', NULL, 'active', '2025-11-28 18:19:20'),
@@ -14085,7 +14085,7 @@ TRUNCATE TABLE `performance_levels_cbc`;
 -- Dumping data for table `performance_levels_cbc`
 --
 
-INSERT DELAYED IGNORE INTO `performance_levels_cbc` (`id`, `level`, `code`, `name`, `description`, `mark_range_min`, `mark_range_max`, `feedback_template`, `created_at`) VALUES
+INSERT IGNORE INTO `performance_levels_cbc` (`id`, `level`, `code`, `name`, `description`, `mark_range_min`, `mark_range_max`, `feedback_template`, `created_at`) VALUES
 (1, 1, 'BE', 'Below Expectation', 'Learner has not yet acquired the required competency', 0.00, 39.00, 'Learner needs additional support to meet expectations.', '2025-11-28 18:19:19'),
 (2, 2, 'AE', 'Approaching Expectation', 'Learner is progressing towards the required competency', 40.00, 59.00, 'Learner is making progress and approaching expectations.', '2025-11-28 18:19:19'),
 (3, 3, 'ME', 'Meeting Expectation', 'Learner meets the required standard', 60.00, 74.00, 'Learner meets expectations and demonstrates solid understanding.', '2025-11-28 18:19:19'),
@@ -14208,7 +14208,7 @@ TRUNCATE TABLE `permissions`;
 -- Dumping data for table `permissions`
 --
 
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (1, 'academic_assessments_annotate', 'Academic assessments annotate', 'academic_assessments', 'annotate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2, 'academic_assessments_approve', 'Academic assessments approve', 'academic_assessments', 'approve', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3, 'academic_assessments_approve_final', 'Academic assessments approve final', 'academic_assessments_approve', 'final', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -14558,7 +14558,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (347, 'academic_streams_validate', 'Academic streams validate', 'academic_streams', 'validate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (348, 'academic_streams_verify', 'Academic streams verify', 'academic_streams', 'verify', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (349, 'academic_streams_view', 'Academic streams view', 'academic_streams', 'view', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (350, 'academic_streams_view_all', 'Academic streams view all', 'academic_streams_view', 'all', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (351, 'academic_streams_view_own', 'Academic streams view own', 'academic_streams_view', 'own', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (352, 'academic_subjects_annotate', 'Academic subjects annotate', 'academic_subjects', 'annotate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -14900,7 +14900,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (688, 'admission_documents_reschedule', 'Admission documents reschedule', 'admission_documents', 'reschedule', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (689, 'admission_documents_restore', 'Admission documents restore', 'admission_documents', 'restore', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (690, 'admission_documents_schedule', 'Admission documents schedule', 'admission_documents', 'schedule', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (691, 'admission_documents_split', 'Admission documents split', 'admission_documents', 'split', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (692, 'admission_documents_submit', 'Admission documents submit', 'admission_documents', 'submit', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (693, 'admission_documents_unassign', 'Admission documents unassign', 'admission_documents', 'unassign', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -15257,7 +15257,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (1044, 'boarding_discipline_unassign', 'Boarding discipline unassign', 'boarding_discipline', 'unassign', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1045, 'boarding_discipline_unflag', 'Boarding discipline unflag', 'boarding_discipline', 'unflag', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1046, 'boarding_discipline_unlock', 'Boarding discipline unlock', 'boarding_discipline', 'unlock', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (1047, 'boarding_discipline_unpublish', 'Boarding discipline unpublish', 'boarding_discipline', 'unpublish', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1048, 'boarding_discipline_upload', 'Boarding discipline upload', 'boarding_discipline', 'upload', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1049, 'boarding_discipline_validate', 'Boarding discipline validate', 'boarding_discipline', 'validate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -15608,7 +15608,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (1394, 'communications_inbound_submit', 'Communications inbound submit', 'communications_inbound', 'submit', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1395, 'communications_inbound_unassign', 'Communications inbound unassign', 'communications_inbound', 'unassign', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1396, 'communications_inbound_unflag', 'Communications inbound unflag', 'communications_inbound', 'unflag', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (1397, 'communications_inbound_unlock', 'Communications inbound unlock', 'communications_inbound', 'unlock', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1398, 'communications_inbound_unpublish', 'Communications inbound unpublish', 'communications_inbound', 'unpublish', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1399, 'communications_inbound_upload', 'Communications inbound upload', 'communications_inbound', 'upload', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -15949,7 +15949,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (1734, 'finance_budgets_import', 'Finance budgets import', 'finance_budgets', 'import', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1735, 'finance_budgets_lock', 'Finance budgets lock', 'finance_budgets', 'lock', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1736, 'finance_budgets_merge', 'Finance budgets merge', 'finance_budgets', 'merge', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (1737, 'finance_budgets_print', 'Finance budgets print', 'finance_budgets', 'print', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1738, 'finance_budgets_publish', 'Finance budgets publish', 'finance_budgets', 'publish', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (1739, 'finance_budgets_purge', 'Finance budgets purge', 'finance_budgets', 'purge', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -16309,7 +16309,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (2093, 'integrations_sms_restore', 'Integrations sms restore', 'integrations_sms', 'restore', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2094, 'integrations_sms_schedule', 'Integrations sms schedule', 'integrations_sms', 'schedule', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2095, 'integrations_sms_split', 'Integrations sms split', 'integrations_sms', 'split', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (2096, 'integrations_sms_submit', 'Integrations sms submit', 'integrations_sms', 'submit', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2097, 'integrations_sms_unassign', 'Integrations sms unassign', 'integrations_sms', 'unassign', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2098, 'integrations_sms_unflag', 'Integrations sms unflag', 'integrations_sms', 'unflag', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -16645,7 +16645,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (2428, 'inventory_suppliers_delete', 'Inventory suppliers delete', 'inventory_suppliers', 'delete', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2429, 'inventory_suppliers_download', 'Inventory suppliers download', 'inventory_suppliers', 'download', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2430, 'inventory_suppliers_edit', 'Inventory suppliers edit', 'inventory_suppliers', 'edit', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (2431, 'inventory_suppliers_edit_own', 'Inventory suppliers edit own', 'inventory_suppliers_edit', 'own', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2432, 'inventory_suppliers_escalate', 'Inventory suppliers escalate', 'inventory_suppliers', 'escalate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2433, 'inventory_suppliers_export', 'Inventory suppliers export', 'inventory_suppliers', 'export', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -17003,7 +17003,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (2785, 'reports_audit_flag', 'Reports audit flag', 'reports_audit', 'flag', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2786, 'reports_audit_generate', 'Reports audit generate', 'reports_audit', 'generate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2787, 'reports_audit_import', 'Reports audit import', 'reports_audit', 'import', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (2788, 'reports_audit_lock', 'Reports audit lock', 'reports_audit', 'lock', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2789, 'reports_audit_merge', 'Reports audit merge', 'reports_audit', 'merge', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (2790, 'reports_audit_print', 'Reports audit print', 'reports_audit', 'print', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -17367,7 +17367,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (3148, 'settings_notifications_split', 'Settings notifications split', 'settings_notifications', 'split', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3149, 'settings_notifications_submit', 'Settings notifications submit', 'settings_notifications', 'submit', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3150, 'settings_notifications_unassign', 'Settings notifications unassign', 'settings_notifications', 'unassign', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (3151, 'settings_notifications_unflag', 'Settings notifications unflag', 'settings_notifications', 'unflag', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3152, 'settings_notifications_unlock', 'Settings notifications unlock', 'settings_notifications', 'unlock', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3153, 'settings_notifications_unpublish', 'Settings notifications unpublish', 'settings_notifications', 'unpublish', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -17746,7 +17746,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (3526, 'students_attendance_download', 'Students attendance download', 'students_attendance', 'download', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3527, 'students_attendance_edit', 'Students attendance edit', 'students_attendance', 'edit', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3528, 'students_attendance_edit_own', 'Students attendance edit own', 'students_attendance_edit', 'own', '2025-12-06 13:24:24', '2025-12-06 13:24:24');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (3529, 'students_attendance_escalate', 'Students attendance escalate', 'students_attendance', 'escalate', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3530, 'students_attendance_export', 'Students attendance export', 'students_attendance', 'export', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
 (3531, 'students_attendance_flag', 'Students attendance flag', 'students_attendance', 'flag', '2025-12-06 13:24:24', '2025-12-06 13:24:24'),
@@ -18108,7 +18108,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (3887, 'students_transfers_verify', 'Students transfers verify', 'students_transfers', 'verify', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (3888, 'students_transfers_view', 'Students transfers view', 'students_transfers', 'view', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (3889, 'students_transfers_view_all', 'Students transfers view all', 'students_transfers_view', 'all', '2025-12-06 13:24:25', '2025-12-06 13:24:25');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (3890, 'students_transfers_view_own', 'Students transfers view own', 'students_transfers_view', 'own', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (3891, 'students_unassign', 'Students unassign', 'students', 'unassign', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (3892, 'students_unflag', 'Students unflag', 'students', 'unflag', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
@@ -18485,7 +18485,7 @@ INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`,
 (4263, 'transport_trips_edit', 'Transport trips edit', 'transport_trips', 'edit', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4264, 'transport_trips_edit_own', 'Transport trips edit own', 'transport_trips_edit', 'own', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4265, 'transport_trips_escalate', 'Transport trips escalate', 'transport_trips', 'escalate', '2025-12-06 13:24:25', '2025-12-06 13:24:25');
-INSERT DELAYED IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action`, `created_at`, `updated_at`) VALUES
 (4266, 'transport_trips_export', 'Transport trips export', 'transport_trips', 'export', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4267, 'transport_trips_flag', 'Transport trips flag', 'transport_trips', 'flag', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4268, 'transport_trips_generate', 'Transport trips generate', 'transport_trips', 'generate', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
@@ -18845,7 +18845,7 @@ CREATE TABLE IF NOT EXISTS `promotion_batches` (
   `total_rejected` int(11) DEFAULT 0,
   `created_by` int(10) UNSIGNED NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_at` datetime NULL DEFAULT NULL,
   `notes` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
@@ -18964,7 +18964,7 @@ CREATE TABLE IF NOT EXISTS `refresh_tokens` (
   `token` varchar(500) NOT NULL,
   `expires_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `revoked_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `token` (`token`),
   KEY `idx_user_id` (`user_id`),
@@ -18987,7 +18987,7 @@ TRUNCATE TABLE `refresh_tokens`;
 -- Dumping data for table `refresh_tokens`
 --
 
-INSERT DELAYED IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `created_at`, `revoked_at`) VALUES
+INSERT IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `created_at`, `revoked_at`) VALUES
 (1, 2, 'a1820e62040f8a39a7816a6f0423f3b17e497b7337dd1e052979eb81bd32d6c9', '2025-12-15 13:02:27', '2025-12-08 13:02:27', NULL),
 (2, 2, 'eeda7f938a989d8ede3e4657611eacc32343e3a2fb21671ff82b6cfe9bad51ad', '2025-12-15 13:10:47', '2025-12-08 13:10:47', NULL),
 (3, 2, '6e08f9a17bfd668cd3aa7f10d6776480c4b4a546dfd5e7cbd36a72290462bcdc', '2025-12-15 13:13:31', '2025-12-08 13:13:31', NULL),
@@ -19153,7 +19153,7 @@ TRUNCATE TABLE `roles`;
 -- Dumping data for table `roles`
 --
 
-INSERT DELAYED IGNORE INTO `roles` (`id`, `name`, `description`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `roles` (`id`, `name`, `description`, `created_at`, `updated_at`) VALUES
 (2, 'System Administrator', '[ROOT/SUPER USER] Complete system access: codebase management, database management, system configuration, all permissions, full technical control. This is the developer/technical admin account.', '2025-12-06 12:54:06', '2025-12-10 08:32:11'),
 (3, 'Director', 'School Director - Financial reports viewing, approvals for transactions, fees structure updates, transport fees, payroll approvals, strategic decisions', '2025-12-06 12:54:06', '2025-12-10 08:19:13'),
 (4, 'School Administrator', 'School Administrator - Operational school admin: manages school users, roles & permissions, provides support to all staff, accesses most school operations (academic, students, staff, communications). Does NOT have codebase/database access.', '2025-12-06 12:54:06', '2025-12-10 08:32:11'),
@@ -19211,7 +19211,7 @@ TRUNCATE TABLE `role_permissions`;
 -- Dumping data for table `role_permissions`
 --
 
-INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
+INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
 (78390, 2, 1, '2025-12-12 16:06:12'),
 (78391, 2, 2, '2025-12-12 16:06:12'),
 (78392, 2, 4, '2025-12-12 16:06:12'),
@@ -20519,7 +20519,7 @@ INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`,
 (79694, 2, 1304, '2025-12-12 16:06:12'),
 (79695, 2, 1305, '2025-12-12 16:06:12'),
 (79696, 2, 1306, '2025-12-12 16:06:12');
-INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
+INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
 (79697, 2, 1307, '2025-12-12 16:06:12'),
 (79698, 2, 1308, '2025-12-12 16:06:12'),
 (79699, 2, 1309, '2025-12-12 16:06:12'),
@@ -21799,7 +21799,7 @@ INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`,
 (80973, 2, 2581, '2025-12-12 16:06:12'),
 (80974, 2, 2582, '2025-12-12 16:06:12'),
 (80975, 2, 2583, '2025-12-12 16:06:12');
-INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
+INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
 (80976, 2, 2584, '2025-12-12 16:06:12'),
 (80977, 2, 2585, '2025-12-12 16:06:12'),
 (80978, 2, 2586, '2025-12-12 16:06:12'),
@@ -23079,7 +23079,7 @@ INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`,
 (82252, 2, 3819, '2025-12-12 16:06:12'),
 (82253, 2, 3844, '2025-12-12 16:06:12'),
 (82254, 2, 3845, '2025-12-12 16:06:12');
-INSERT DELAYED IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
+INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
 (82255, 2, 3852, '2025-12-12 16:06:12'),
 (82256, 2, 3853, '2025-12-12 16:06:12'),
 (82257, 2, 3855, '2025-12-12 16:06:12'),
@@ -24028,7 +24028,7 @@ TRUNCATE TABLE `school_configuration`;
 -- Dumping data for table `school_configuration`
 --
 
-INSERT DELAYED IGNORE INTO `school_configuration` (`id`, `school_name`, `school_code`, `logo_url`, `favicon_url`, `motto`, `vision`, `mission`, `core_values`, `about_us`, `email`, `phone`, `alternative_phone`, `address`, `city`, `state`, `country`, `postal_code`, `website`, `facebook_url`, `twitter_url`, `instagram_url`, `linkedin_url`, `youtube_url`, `established_year`, `principal_name`, `principal_message`, `academic_calendar_url`, `prospectus_url`, `student_handbook_url`, `timezone`, `currency`, `language`, `date_format`, `time_format`, `is_active`, `created_at`, `updated_at`, `created_by`, `updated_by`) VALUES
+INSERT IGNORE INTO `school_configuration` (`id`, `school_name`, `school_code`, `logo_url`, `favicon_url`, `motto`, `vision`, `mission`, `core_values`, `about_us`, `email`, `phone`, `alternative_phone`, `address`, `city`, `state`, `country`, `postal_code`, `website`, `facebook_url`, `twitter_url`, `instagram_url`, `linkedin_url`, `youtube_url`, `established_year`, `principal_name`, `principal_message`, `academic_calendar_url`, `prospectus_url`, `student_handbook_url`, `timezone`, `currency`, `language`, `date_format`, `time_format`, `is_active`, `created_at`, `updated_at`, `created_by`, `updated_by`) VALUES
 (1, 'Kingsway Academy Test', 'KWA-TEST', NULL, NULL, 'Excellence in Education', NULL, NULL, NULL, NULL, 'info@kingswayacademy.test', '+254700000000', NULL, NULL, 'Nairobi', NULL, 'Kenya', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2025-12-22 20:19:08', '2025-12-22 20:19:08', NULL, NULL);
 
 -- --------------------------------------------------------
@@ -24066,7 +24066,7 @@ TRUNCATE TABLE `school_levels`;
 -- Dumping data for table `school_levels`
 --
 
-INSERT DELAYED IGNORE INTO `school_levels` (`id`, `name`, `code`, `description`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `school_levels` (`id`, `name`, `code`, `description`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Primary', 'PRI', 'Primary School', 'active', '2025-11-29 11:23:13', '2025-11-29 11:23:13'),
 (2, 'Lower Primary', 'LP', 'Grades 1, 2 and 3', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
 (3, 'Upper Primary', 'UP', 'Grades 4, 5 and 6', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
@@ -24277,7 +24277,7 @@ TRUNCATE TABLE `staff`;
 -- Dumping data for table `staff`
 --
 
-INSERT DELAYED IGNORE INTO `staff` (`id`, `staff_type_id`, `staff_category_id`, `staff_no`, `first_name`, `last_name`, `department_id`, `supervisor_id`, `user_id`, `position`, `employment_date`, `contract_type`, `nssf_no`, `kra_pin`, `nhif_no`, `bank_account`, `salary`, `gender`, `marital_status`, `tsc_no`, `address`, `profile_pic_url`, `documents_folder`, `status`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `staff` (`id`, `staff_type_id`, `staff_category_id`, `staff_no`, `first_name`, `last_name`, `department_id`, `supervisor_id`, `user_id`, `position`, `employment_date`, `contract_type`, `nssf_no`, `kra_pin`, `nhif_no`, `bank_account`, `salary`, `gender`, `marital_status`, `tsc_no`, `address`, `profile_pic_url`, `documents_folder`, `status`, `created_at`, `updated_at`) VALUES
 (22, 3, 14, 'KWPS001', 'John', 'Director', 4, NULL, 22, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:25', '2025-12-21 17:09:25'),
 (24, 3, 15, 'KWPS002', 'Robert', 'Headteacher', 4, NULL, 24, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
 (25, 3, 16, 'KWPS003', 'Margaret', 'DeputyAcad', 4, NULL, 25, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
@@ -24412,7 +24412,7 @@ TRUNCATE TABLE `staff_categories`;
 -- Dumping data for table `staff_categories`
 --
 
-INSERT DELAYED IGNORE INTO `staff_categories` (`id`, `staff_type_id`, `category_name`, `description`, `kpi_applicable`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `staff_categories` (`id`, `staff_type_id`, `category_name`, `description`, `kpi_applicable`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 1, 'Playgroup Teacher', 'Playgroup class teacher', 1, 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (2, 1, 'Pre-Primary Teacher', 'Pre-Primary (PP1/PP2) teacher', 1, 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (3, 1, 'Lower Primary Teacher', 'Grade 1 - 3 teacher', 1, 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
@@ -24875,7 +24875,7 @@ TRUNCATE TABLE `staff_payroll`;
 -- Dumping data for table `staff_payroll`
 --
 
-INSERT DELAYED IGNORE INTO `staff_payroll` (`id`, `staff_id`, `payroll_month`, `payroll_year`, `basic_salary`, `gross_salary`, `nssf_deduction`, `nhif_deduction`, `paye_tax`, `other_deductions`, `total_deductions`, `allowances`, `deductions`, `net_salary`, `status`, `payment_date`, `payment_reference`, `created_at`, `updated_at`, `payroll_period`) VALUES
+INSERT IGNORE INTO `staff_payroll` (`id`, `staff_id`, `payroll_month`, `payroll_year`, `basic_salary`, `gross_salary`, `nssf_deduction`, `nhif_deduction`, `paye_tax`, `other_deductions`, `total_deductions`, `allowances`, `deductions`, `net_salary`, `status`, `payment_date`, `payment_reference`, `created_at`, `updated_at`, `payroll_period`) VALUES
 (13, 1, 12, 2025, 50000.00, 55000.00, NULL, NULL, NULL, NULL, NULL, 5000.00, 8000.00, 47000.00, 'draft', NULL, NULL, '2025-12-12 22:46:57', '2025-12-12 22:46:57', '2025-12'),
 (14, 1, 11, 2025, 50000.00, 55000.00, NULL, NULL, NULL, NULL, NULL, 5000.00, 8000.00, 47000.00, 'approved', NULL, NULL, '2025-12-12 22:46:57', '2025-12-12 22:46:57', '2025-11'),
 (15, 1, 10, 2025, 50000.00, 55000.00, NULL, NULL, NULL, NULL, 8000.00, 5000.00, 8000.00, 47000.00, 'cancelled', NULL, NULL, '2025-12-12 22:46:57', '2025-12-13 00:13:05', '2025-10');
@@ -25052,7 +25052,7 @@ TRUNCATE TABLE `staff_types`;
 -- Dumping data for table `staff_types`
 --
 
-INSERT DELAYED IGNORE INTO `staff_types` (`id`, `name`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `staff_types` (`id`, `name`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'Teaching Staff', 'Classroom teachers and instructors', 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (2, 'Non-Teaching Staff', 'Support and administrative staff', 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (3, 'Administration', 'School management and administration', 1, '2025-11-28 18:47:30', '2025-11-28 18:47:30');
@@ -25159,7 +25159,7 @@ TRUNCATE TABLE `students`;
 -- Dumping data for table `students`
 --
 
-INSERT DELAYED IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `user_id`, `admission_date`, `nemis_number`, `upi`, `upi_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
+INSERT IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `user_id`, `admission_date`, `nemis_number`, `upi`, `upi_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
 (101, 'ADM101', 'John', NULL, 'Doe', '2012-01-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
 (102, 'ADM102', 'Jane', NULL, 'Smith', '2012-02-01', 'female', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
 (103, 'ADM103', 'Ali', NULL, 'Omondi', '2012-03-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL);
@@ -25374,7 +25374,7 @@ TRUNCATE TABLE `student_attendance`;
 -- Dumping data for table `student_attendance`
 --
 
-INSERT DELAYED IGNORE INTO `student_attendance` (`id`, `student_id`, `date`, `status`, `class_id`, `term_id`, `created_at`, `marked_by`) VALUES
+INSERT IGNORE INTO `student_attendance` (`id`, `student_id`, `date`, `status`, `class_id`, `term_id`, `created_at`, `marked_by`) VALUES
 (4, 101, '2025-12-02', 'present', 1, NULL, '2025-12-02 16:45:18', 1),
 (6, 101, '2025-12-02', 'present', 1, NULL, '2025-12-02 16:47:28', 1);
 
@@ -25665,7 +25665,7 @@ TRUNCATE TABLE `student_payment_history_summary`;
 -- Dumping data for table `student_payment_history_summary`
 --
 
-INSERT DELAYED IGNORE INTO `student_payment_history_summary` (`id`, `student_id`, `academic_year`, `term_id`, `total_fees_due`, `total_paid`, `payment_count`, `balance`, `cash_payments`, `mpesa_payments`, `bank_transfers`, `last_payment_date`, `last_updated_at`) VALUES
+INSERT IGNORE INTO `student_payment_history_summary` (`id`, `student_id`, `academic_year`, `term_id`, `total_fees_due`, `total_paid`, `payment_count`, `balance`, `cash_payments`, `mpesa_payments`, `bank_transfers`, `last_payment_date`, `last_updated_at`) VALUES
 (1, 101, '2001', 10, 0.00, 115500.00, 28, -115500.00, 0.00, 0.00, 115500.00, '2025-12-17 01:15:00', '2025-12-16 22:15:43'),
 (7, 102, '2001', 10, 0.00, 22500.00, 8, -22500.00, 0.00, 0.00, 22500.00, '2025-12-14 15:30:00', '2025-12-16 22:15:42'),
 (8, 103, '2001', 10, 0.00, 63000.00, 15, -63000.00, 0.00, 0.00, 63000.00, '2025-12-14 16:00:00', '2025-12-16 22:15:42');
@@ -25865,7 +25865,7 @@ TRUNCATE TABLE `student_types`;
 -- Dumping data for table `student_types`
 --
 
-INSERT DELAYED IGNORE INTO `student_types` (`id`, `code`, `name`, `description`, `status`, `created_at`) VALUES
+INSERT IGNORE INTO `student_types` (`id`, `code`, `name`, `description`, `status`, `created_at`) VALUES
 (1, 'DAY', 'Day Student', 'Student who goes home daily', 'active', '2025-11-28 18:19:20'),
 (2, 'BOARD', 'Full Boarder', 'Student who boards the entire term', 'active', '2025-11-28 18:19:20'),
 (3, 'WEEKLY', 'Weekly Boarder', 'Student who boards Monday-Friday', 'active', '2025-11-28 18:19:20');
@@ -25934,7 +25934,7 @@ TRUNCATE TABLE `system_events`;
 -- Dumping data for table `system_events`
 --
 
-INSERT DELAYED IGNORE INTO `system_events` (`id`, `event_type`, `event_data`, `created_at`) VALUES
+INSERT IGNORE INTO `system_events` (`id`, `event_type`, `event_data`, `created_at`) VALUES
 (1, 'attendance_marked', '{\"student_id\": 101, \"date\": \"2025-12-02\", \"status\": \"present\", \"class_id\": 1, \"term_id\": 1}', '2025-12-02 16:43:29'),
 (2, 'attendance_marked', '{\"student_id\": 101, \"date\": \"2025-12-02\", \"status\": \"present\", \"class_id\": 1, \"term_id\": 1}', '2025-12-02 16:45:18'),
 (3, 'attendance_marked', '{\"student_id\": 101, \"date\": \"2025-12-02\", \"status\": \"present\", \"class_id\": 1, \"term_id\": 1}', '2025-12-02 16:46:59'),
@@ -26028,7 +26028,7 @@ TRUNCATE TABLE `tax_brackets`;
 -- Dumping data for table `tax_brackets`
 --
 
-INSERT DELAYED IGNORE INTO `tax_brackets` (`id`, `financial_year`, `min_income`, `max_income`, `tax_rate`, `relief_amount`, `is_active`, `created_at`) VALUES
+INSERT IGNORE INTO `tax_brackets` (`id`, `financial_year`, `min_income`, `max_income`, `tax_rate`, `relief_amount`, `is_active`, `created_at`) VALUES
 (1, 2025, 0.00, 24000.00, 10.00, 2400.00, 1, '2025-11-28 18:51:55'),
 (2, 2025, 24001.00, 40800.00, 15.00, 0.00, 1, '2025-11-28 18:51:55'),
 (3, 2025, 40801.00, 999999999.00, 30.00, 0.00, 1, '2025-11-28 18:51:55');
@@ -26124,7 +26124,7 @@ CREATE TABLE IF NOT EXISTS `term_consolidations` (
   `best_subject_grade` varchar(4) DEFAULT NULL,
   `worst_subject_id` int(10) UNSIGNED DEFAULT NULL,
   `worst_subject_grade` varchar(4) DEFAULT NULL,
-  `consolidated_at` timestamp NULL DEFAULT NULL,
+  `consolidated_at` datetime NULL DEFAULT NULL,
   `consolidated_by` int(10) UNSIGNED DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -26181,7 +26181,7 @@ CREATE TABLE IF NOT EXISTS `term_subject_scores` (
   `overall_grade` varchar(4) DEFAULT NULL,
   `overall_points` decimal(3,1) DEFAULT 0.0,
   `assessment_count` int(11) DEFAULT 0,
-  `calculated_at` timestamp NULL DEFAULT NULL,
+  `calculated_at` datetime NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -26451,8 +26451,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `failed_login_attempts` int(11) DEFAULT 0 COMMENT 'Count of consecutive failed logins',
-  `account_locked_until` timestamp NULL DEFAULT NULL COMMENT 'Account locked until this time',
-  `password_expires_at` timestamp NULL DEFAULT NULL COMMENT 'When password expires (if policy enabled)',
+  `account_locked_until` datetime NULL DEFAULT NULL COMMENT 'Account locked until this time',
+  `password_expires_at` datetime NULL DEFAULT NULL COMMENT 'When password expires (if policy enabled)',
   `force_password_change` tinyint(1) DEFAULT 0 COMMENT 'Force password change on next login',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_username` (`username`),
@@ -26482,7 +26482,7 @@ TRUNCATE TABLE `users`;
 -- Dumping data for table `users`
 --
 
-INSERT DELAYED IGNORE INTO `users` (`id`, `username`, `email`, `first_name`, `last_name`, `password`, `role_id`, `status`, `last_login`, `password_changed_at`, `created_at`, `updated_at`, `failed_login_attempts`, `account_locked_until`, `password_expires_at`, `force_password_change`) VALUES
+INSERT IGNORE INTO `users` (`id`, `username`, `email`, `first_name`, `last_name`, `password`, `role_id`, `status`, `last_login`, `password_changed_at`, `created_at`, `updated_at`, `failed_login_attempts`, `account_locked_until`, `password_expires_at`, `force_password_change`) VALUES
 (1, 'test_sysadmin', 'angerasilas@gmail.com', 'Silas', 'Angera', '$2y$10$UmVmkpkgQP2JLLlZHLsZy.AEUkbNCB9jm/oh.lqjXxfKFDDkFEmPO', 2, 'active', NULL, NULL, '2025-12-21 17:12:18', '2025-12-21 17:12:18', 0, NULL, NULL, 0),
 (2, 'test_director', 'john@yahoo.com', 'John', 'Director', '$2y$10$OBrp7GvkVBuAZ/.UQ/3sAu3JUINP61MfZ6O.DtZ1WazVhms0p8G.a', 3, 'active', NULL, NULL, '2025-12-21 17:12:19', '2025-12-21 17:12:19', 0, NULL, NULL, 0),
 (3, 'test_scholadmin', 'alice@outlook.com', 'Alice', 'Administrator', '$2y$10$Upile43XOv3jfY0RjupKzuPxZltdjXvSE2OpoN4LOXwFbuwUGhan6', 4, 'active', NULL, NULL, '2025-12-21 17:12:20', '2025-12-21 17:12:20', 0, NULL, NULL, 0),
@@ -26689,7 +26689,7 @@ CREATE TABLE IF NOT EXISTS `user_permissions` (
   `permission_type` enum('grant','deny','override') NOT NULL DEFAULT 'grant',
   `reason` varchar(255) DEFAULT NULL,
   `granted_by` int(10) UNSIGNED DEFAULT NULL,
-  `expires_at` timestamp NULL DEFAULT NULL,
+  `expires_at` datetime NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -26756,7 +26756,7 @@ TRUNCATE TABLE `user_roles`;
 -- Dumping data for table `user_roles`
 --
 
-INSERT DELAYED IGNORE INTO `user_roles` (`id`, `user_id`, `role_id`, `created_at`) VALUES
+INSERT IGNORE INTO `user_roles` (`id`, `user_id`, `role_id`, `created_at`) VALUES
 (1, 1, 2, '2025-12-21 17:12:18'),
 (2, 2, 3, '2025-12-21 17:12:19'),
 (3, 3, 4, '2025-12-21 17:12:20'),
@@ -27417,7 +27417,7 @@ CREATE TABLE IF NOT EXISTS `vw_lesson_plan_summary` (
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `teacher_name` varchar(101) DEFAULT NULL,
   `learning_area_name` varchar(100) DEFAULT NULL,
   `class_name` varchar(50) DEFAULT NULL,
@@ -28132,18 +28132,6 @@ CREATE TABLE IF NOT EXISTS `v_active_users` (
 ,`total_permissions` bigint(21)
 );
 
--- --------------------------------------------------------
-
---
--- Stand-in structure for view `v_delegatable_actions`
--- (See below for the actual view)
---
-DROP VIEW IF EXISTS `v_delegatable_actions`;
-CREATE TABLE IF NOT EXISTS `v_delegatable_actions` (
-);
-
--- --------------------------------------------------------
-
 --
 -- Stand-in structure for view `v_role_permission_summary`
 -- (See below for the actual view)
@@ -28167,8 +28155,7 @@ CREATE TABLE IF NOT EXISTS `v_role_permission_summary` (
 -- (See below for the actual view)
 --
 DROP VIEW IF EXISTS `v_user_permissions_effective`;
-CREATE TABLE IF NOT EXISTS `v_user_permissions_effective` (
-);
+
 
 -- --------------------------------------------------------
 
@@ -28183,7 +28170,7 @@ CREATE TABLE IF NOT EXISTS `v_user_security` (
 ,`email` varchar(100)
 ,`status` enum('active','inactive','suspended','pending')
 ,`failed_login_attempts` int(11)
-,`account_locked_until` timestamp
+,`account_locked_until` datetime
 ,`last_login` datetime
 ,`last_password_change` datetime
 ,`password_age_days` int(7)
@@ -28227,7 +28214,7 @@ TRUNCATE TABLE `workflow_definitions`;
 -- Dumping data for table `workflow_definitions`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_definitions` (`id`, `code`, `name`, `description`, `category`, `handler_class`, `config_json`, `is_active`, `created_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `workflow_definitions` (`id`, `code`, `name`, `description`, `category`, `handler_class`, `config_json`, `is_active`, `created_at`, `updated_at`) VALUES
 (1, 'term_holiday_scheduling', 'Term & Holiday Scheduling', 'Term and holiday scheduling workflow', 'administrative', 'App\\API\\Modules\\schedules\\TermHolidayWorkflow', '{\"database_ready\": true, \"missing_objects\": []}', 1, '2025-11-28 18:14:09', '2025-11-28 18:14:09'),
 (2, 'stock_procurement', 'Stock Procurement', 'Procurement and purchasing workflow', 'administrative', 'App\\API\\Modules\\Inventory\\StockProcurementWorkflow', '{\"database_ready\": true}', 1, '2025-11-28 18:14:09', '2025-11-28 18:14:09'),
 (3, 'stock_audit', 'Stock Audit', 'Inventory audit workflow', 'administrative', 'App\\API\\Modules\\Inventory\\StockAuditWorkflow', '{\"database_ready\": true}', 1, '2025-11-28 18:14:09', '2025-11-28 18:14:09'),
@@ -28280,7 +28267,7 @@ TRUNCATE TABLE `workflow_history`;
 -- Dumping data for table `workflow_history`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_history` (`id`, `workflow_id`, `stage`, `action`, `performed_by`, `created_at`) VALUES
+INSERT IGNORE INTO `workflow_history` (`id`, `workflow_id`, `stage`, `action`, `performed_by`, `created_at`) VALUES
 (1, 100, 'execute', 'Activity execution started', 1, '2025-12-01 23:02:55'),
 (2, 100, 'prepare', 'Team preparation completed', 1, '2025-12-01 23:02:55'),
 (3, 100, 'participate', 'Competition participation recorded', 1, '2025-12-01 23:02:55'),
@@ -28428,7 +28415,7 @@ CREATE TABLE IF NOT EXISTS `workflow_instances` (
   `status` enum('pending','in_progress','completed','cancelled','error') NOT NULL DEFAULT 'pending',
   `started_by` int(10) UNSIGNED NOT NULL,
   `started_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` timestamp NULL DEFAULT NULL,
+  `completed_at` datetime NULL DEFAULT NULL,
   `data_json` longtext DEFAULT NULL COMMENT 'Instance-specific data' CHECK (json_valid(`data_json`)),
   PRIMARY KEY (`id`),
   KEY `idx_workflow_ref` (`workflow_id`,`reference_type`,`reference_id`),
@@ -28453,7 +28440,7 @@ TRUNCATE TABLE `workflow_instances`;
 -- Dumping data for table `workflow_instances`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_instances` (`id`, `workflow_id`, `reference_type`, `reference_id`, `current_stage`, `stage_code`, `status`, `started_by`, `started_at`, `completed_at`, `data_json`) VALUES
+INSERT IGNORE INTO `workflow_instances` (`id`, `workflow_id`, `reference_type`, `reference_id`, `current_stage`, `stage_code`, `status`, `started_by`, `started_at`, `completed_at`, `data_json`) VALUES
 (33, 100, 'activity', 1, 'register', NULL, 'in_progress', 1, '2025-12-02 12:09:39', NULL, '{\"competition_name\":\"Inter-School Debate\",\"venue\":\"Main Hall\",\"competition_date\":\"2025-12-10\",\"category\":\"Debate\",\"participants\":[105,106]}'),
 (34, 101, 'activity_participant', 1, 'assess', NULL, 'in_progress', 1, '2025-12-02 12:09:40', NULL, '{\"participant_id\":105,\"evaluation_period\":\"Term 3 2025\",\"criteria\":[{\"criterion\":\"Teamwork\",\"score\":null},{\"criterion\":\"Discipline\",\"score\":null}]}'),
 (35, 100, 'activity', 1, 'register', NULL, 'in_progress', 1, '2025-12-02 12:14:20', NULL, '{\"competition_name\":\"Inter-School Debate\",\"venue\":\"Main Hall\",\"competition_date\":\"2025-12-10\",\"category\":\"Debate\",\"participants\":[105,106]}'),
@@ -28495,7 +28482,7 @@ CREATE TABLE IF NOT EXISTS `workflow_notifications` (
   `message` text NOT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `read_at` timestamp NULL DEFAULT NULL,
+  `read_at` datetime NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_workflow_notify` (`instance_id`,`notification_type`),
   KEY `idx_user_notifications` (`user_id`,`is_read`)
@@ -28518,7 +28505,7 @@ TRUNCATE TABLE `workflow_notifications`;
 -- Dumping data for table `workflow_notifications`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_notifications` (`id`, `instance_id`, `notification_type`, `user_id`, `title`, `message`, `is_read`, `created_at`, `read_at`) VALUES
+INSERT IGNORE INTO `workflow_notifications` (`id`, `instance_id`, `notification_type`, `user_id`, `title`, `message`, `is_read`, `created_at`, `read_at`) VALUES
 (1, 33, 'stage_entry', 1, 'Action Required: Competition Workflow', 'Stage \'Register\' requires your attention.', 0, '2025-12-02 12:09:39', NULL),
 (2, 34, 'stage_entry', 1, 'Action Required: Performance Evaluation Workflow', 'Stage \'Assess\' requires your attention.', 0, '2025-12-02 12:09:40', NULL),
 (3, 35, 'stage_entry', 1, 'Action Required: Competition Workflow', 'Stage \'Register\' requires your attention.', 0, '2025-12-02 12:14:20', NULL),
@@ -28574,7 +28561,7 @@ TRUNCATE TABLE `workflow_stages`;
 -- Dumping data for table `workflow_stages`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `description`, `sequence`, `required_role`, `allowed_transitions`, `action_config`, `timeout_hours`, `is_active`) VALUES
+INSERT IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `description`, `sequence`, `required_role`, `allowed_transitions`, `action_config`, `timeout_hours`, `is_active`) VALUES
 (1, 1, 'initiate', 'Initiate Scheduling', 'Create term/holiday draft', 1, 'admin', '[\"validate\", \"cancelled\"]', '{\"tables\": [\"academic_terms\", \"holidays\"]}', NULL, 1),
 (2, 1, 'validate', 'Validate Schedule', 'Validate for conflicts and overlaps', 2, 'schedules_manager', '[\"publish\", \"initiate\"]', '{\"procedures\": [\"sp_validate_term_holiday_conflicts\"]}', NULL, 1),
 (3, 1, 'publish', 'Publish Schedule', 'Publish term and holiday schedule', 3, 'admin', '[\"completed\"]', '{\"procedures\": [\"sp_transition_to_new_term\"]}', NULL, 1),
@@ -28683,7 +28670,7 @@ TRUNCATE TABLE `workflow_stage_history`;
 -- Dumping data for table `workflow_stage_history`
 --
 
-INSERT DELAYED IGNORE INTO `workflow_stage_history` (`id`, `instance_id`, `stage_code`, `from_stage`, `to_stage`, `action_taken`, `processed_by`, `processed_at`, `remarks`, `data_json`) VALUES
+INSERT IGNORE INTO `workflow_stage_history` (`id`, `instance_id`, `stage_code`, `from_stage`, `to_stage`, `action_taken`, `processed_by`, `processed_at`, `remarks`, `data_json`) VALUES
 (1, 33, NULL, 'register', 'register', 'entered', 1, '2025-12-02 12:09:39', 'Workflow started', NULL),
 (2, 34, NULL, 'assess', 'assess', 'entered', 1, '2025-12-02 12:09:40', 'Workflow started', NULL),
 (3, 35, NULL, 'register', 'register', 'entered', 1, '2025-12-02 12:14:20', 'Workflow started', NULL),
@@ -28729,7 +28716,7 @@ CREATE TABLE IF NOT EXISTS `vw_active_allocations`(
     `expected_return_date` date DEFAULT NULL,
     `allocated_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `allocated_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -28802,8 +28789,8 @@ DROP TABLE IF EXISTS `vw_currently_blocked_ips`;
 CREATE TABLE IF NOT EXISTS `vw_currently_blocked_ips`(
     `ip_address` varchar(45) COLLATE utf8mb4_general_ci NOT NULL COMMENT 'IPv4 or IPv6 address',
     `reason` varchar(255) COLLATE utf8mb4_general_ci NOT NULL COMMENT 'Why this IP was blocked',
-    `blocked_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
-    `expires_at` timestamp DEFAULT NULL COMMENT 'NULL = permanent block',
+    `blocked_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `expires_at` datetime DEFAULT NULL COMMENT 'NULL = permanent block',
     `block_status` varchar(40) COLLATE utf8mb4_general_ci DEFAULT NULL
 );
 
@@ -28874,7 +28861,7 @@ DROP TABLE IF EXISTS `vw_failed_attempts_by_ip`;
 CREATE TABLE IF NOT EXISTS `vw_failed_attempts_by_ip`(
     `ip_address` varchar(45) COLLATE utf8mb4_general_ci NOT NULL,
     `attempt_count` bigint(21) NOT NULL DEFAULT '0',
-    `last_attempt` timestamp DEFAULT 'current_timestamp()',
+    `last_attempt` timestamp DEFAULT CURRENT_TIMESTAMP,
     `failure_reasons` mediumtext COLLATE utf8mb4_general_ci DEFAULT NULL
 );
 
@@ -28895,7 +28882,7 @@ CREATE TABLE IF NOT EXISTS `vw_fee_carryover_summary`(
     `previous_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance carried forward from previous period (positive = debt)',
     `surplus_amount` decimal(12,2) DEFAULT '0.00' COMMENT 'Surplus from previous period (positive = credit)',
     `action_taken` enum('fresh_bill','add_to_current','deduct_from_current','manual_adjustment') COLLATE utf8mb4_general_ci DEFAULT 'fresh_bill' COMMENT 'Action taken during carryover',
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL
 );
 
@@ -28985,7 +28972,7 @@ CREATE TABLE IF NOT EXISTS `vw_fee_transition_audit`(
     `amount_transferred` decimal(12,2) DEFAULT '0.00' COMMENT 'Amount transferred/adjusted',
     `previous_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance before adjustment',
     `new_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance after adjustment',
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL
 );
 
@@ -29045,11 +29032,11 @@ CREATE TABLE IF NOT EXISTS `vw_internal_conversations`(
     `first_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `last_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `total_messages` bigint(21) NOT NULL DEFAULT '0',
-    `last_message_date` timestamp DEFAULT 'current_timestamp()',
+    `last_message_date` timestamp DEFAULT CURRENT_TIMESTAMP,
     `high_priority_messages` bigint(21) NOT NULL DEFAULT '0',
     `participant_count` bigint(21) NOT NULL DEFAULT '0',
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
-    `updated_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29073,7 +29060,7 @@ CREATE TABLE IF NOT EXISTS `vw_inventory_health`(
     `unit_cost` decimal(10,2) NOT NULL,
     `inventory_value` decimal(20,2) NOT NULL DEFAULT '0.00',
     `status` enum('active','inactive','out_of_stock') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
-    `updated_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29095,7 +29082,7 @@ CREATE TABLE IF NOT EXISTS `vw_maintenance_schedule`(
     `days_until_due` int(7) DEFAULT NULL,
     `urgency` varchar(8) COLLATE utf8mb4_general_ci DEFAULT NULL,
     `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29150,11 +29137,11 @@ CREATE TABLE IF NOT EXISTS `vw_payment_tracking`(
     `admission_number` varchar(20) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
     `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
     `amount` decimal(10,2) NOT NULL DEFAULT '0.00',
-    `transaction_date` datetime NOT NULL DEFAULT '0000-00-00 00:00:00',
+    `transaction_date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `contact` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
     `status` varchar(9) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
     `checkout_request_id` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29167,7 +29154,7 @@ CREATE TABLE IF NOT EXISTS `vw_pending_fee_structure_reviews`(
     `academic_year` year(4) NOT NULL,
     `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
     `pending_structures` bigint(21) NOT NULL DEFAULT '0',
-    `oldest_pending_date` timestamp DEFAULT 'current_timestamp()',
+    `oldest_pending_date` timestamp DEFAULT CURRENT_TIMESTAMP,
     `days_pending` int(7) DEFAULT NULL,
     `start_date` date NOT NULL,
     `days_until_start` int(7) DEFAULT NULL,
@@ -29194,7 +29181,7 @@ CREATE TABLE IF NOT EXISTS `vw_pending_requisitions`(
     `created_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `approved_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `approved_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29214,7 +29201,7 @@ CREATE TABLE IF NOT EXISTS `vw_pending_sms`(
     `template_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `sent_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `sent_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `sent_at` datetime DEFAULT NULL,
     `delivered_at` datetime DEFAULT NULL,
     `hours_pending` bigint(21) DEFAULT NULL
@@ -29243,7 +29230,7 @@ CREATE TABLE IF NOT EXISTS `vw_requisition_fulfillment`(
     `priority` enum('low','normal','high','urgent') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'normal',
     `required_date` date NOT NULL,
     `days_remaining` int(7) DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()'
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- --------------------------------------------------------
@@ -29262,10 +29249,10 @@ CREATE TABLE IF NOT EXISTS `vw_sent_emails`(
     `email_type` enum('inquiry','report','application','information','request','other') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'information',
     `status` enum('draft','queued','sent','delivered','failed','bounced') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
     `attempts` bigint(21) NOT NULL DEFAULT '0',
-    `last_attempt` timestamp DEFAULT 'current_timestamp()',
+    `last_attempt` timestamp DEFAULT CURRENT_TIMESTAMP,
     `sent_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `sent_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `delivery_status_text` varchar(22) COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''
 );
 
@@ -29310,9 +29297,9 @@ CREATE TABLE IF NOT EXISTS `vw_staff_assignments_detailed`(
     `end_date` date DEFAULT NULL,
     `status` enum('active','completed','transferred','terminated') COLLATE utf8mb4_general_ci DEFAULT 'active',
     `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp DEFAULT 'current_timestamp()',
+    `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
     `created_by` int(10) unsigned DEFAULT NULL,
-    `updated_at` timestamp DEFAULT 'current_timestamp()',
+    `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP,
     `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `stream_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -29378,8 +29365,8 @@ CREATE TABLE IF NOT EXISTS `vw_staff_loan_details`(
     `months_remaining` bigint(14) DEFAULT NULL,
     `status` enum('active','paid_off','defaulted','suspended') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
     `status_description` varchar(30) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `loan_created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
-    `last_updated` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `loan_created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `last_updated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `payments_made_count` bigint(21) DEFAULT NULL,
     `total_deducted` decimal(34,2) DEFAULT NULL,
     `expected_completion_date` date DEFAULT NULL
@@ -29441,8 +29428,8 @@ CREATE TABLE IF NOT EXISTS `vw_staff_payroll_summary`(
     `payslip_status` enum('draft','approved','paid','cancelled') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
     `approved_by_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
-    `updated_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `ytd_gross` decimal(34,2) DEFAULT NULL,
     `ytd_paye` decimal(34,2) DEFAULT NULL,
     `ytd_nssf` decimal(34,2) DEFAULT NULL,
@@ -29587,8 +29574,8 @@ CREATE TABLE IF NOT EXISTS `vw_unread_announcements`(
     `published_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `published_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `status` enum('draft','scheduled','published','archived','expired') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
-    `updated_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `total_views` bigint(21) NOT NULL DEFAULT '0'
 );
 
@@ -29608,20 +29595,14 @@ CREATE TABLE IF NOT EXISTS `v_active_users`(
     `role_id` int(10) unsigned NOT NULL,
     `role_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `last_login` datetime DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT 'current_timestamp()',
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `total_roles` bigint(21) NOT NULL DEFAULT '0',
     `total_permissions` bigint(21) NOT NULL DEFAULT '0'
 );
 
 -- --------------------------------------------------------
 
---
--- Structure for view `v_delegatable_actions` exported as a table
---
-DROP TABLE IF EXISTS `v_delegatable_actions`;
-CREATE TABLE IF NOT EXISTS `v_delegatable_actions`(
 
-);
 
 -- --------------------------------------------------------
 
@@ -29646,9 +29627,6 @@ CREATE TABLE IF NOT EXISTS `v_role_permission_summary`(
 -- Structure for view `v_user_permissions_effective` exported as a table
 --
 DROP TABLE IF EXISTS `v_user_permissions_effective`;
-CREATE TABLE IF NOT EXISTS `v_user_permissions_effective`(
-
-);
 
 -- --------------------------------------------------------
 
@@ -29662,7 +29640,7 @@ CREATE TABLE IF NOT EXISTS `v_user_security`(
     `email` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
     `status` enum('active','inactive','suspended','pending') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
     `failed_login_attempts` int(11) DEFAULT '0' COMMENT 'Count of consecutive failed logins',
-    `account_locked_until` timestamp DEFAULT NULL COMMENT 'Account locked until this time',
+    `account_locked_until` datetime DEFAULT NULL COMMENT 'Account locked until this time',
     `last_login` datetime DEFAULT NULL,
     `last_password_change` datetime DEFAULT NULL,
     `password_age_days` int(7) DEFAULT NULL,
@@ -31834,7 +31812,7 @@ TRUNCATE TABLE `pma__table_uiprefs`;
 -- Dumping data for table `pma__table_uiprefs`
 --
 
-INSERT DELAYED IGNORE INTO `pma__table_uiprefs` (`username`, `db_name`, `table_name`, `prefs`, `last_update`) VALUES
+INSERT IGNORE INTO `pma__table_uiprefs` (`username`, `db_name`, `table_name`, `prefs`, `last_update`) VALUES
 ('root', 'KingsWayAcademy', 'departments', '{\"sorted_col\":\"`code` ASC\"}', '2025-12-06 09:57:41');
 
 --
@@ -35973,3 +35951,6 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
+
+
+
