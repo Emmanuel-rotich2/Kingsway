@@ -21,6 +21,12 @@ class DataTable {
         this.permissions = options.permissions || {};
         this.formatters = options.formatters || {};
         this.bulkActions = options.bulkActions || [];
+        this.dataField = options.dataField || null;
+        // When true, skip front-end permission validation before calling API (useful for public dashboard widgets)
+        this.checkPermission =
+          options.checkPermission !== undefined
+            ? options.checkPermission
+            : false;
         
         // State
         this.data = [];
@@ -115,31 +121,67 @@ class DataTable {
 
     async loadData() {
         try {
-            const params = {
-                page: this.currentPage,
-                per_page: this.pageSize,
-                sort_by: this.sortBy,
-                sort_order: this.sortOrder,
-                ...this.filters
-            };
+          const params = {
+            page: this.currentPage,
+            per_page: this.pageSize,
+            sort_by: this.sortBy,
+            sort_order: this.sortOrder,
+            ...this.filters,
+          };
 
-            const data = await window.API.apiCall(this.apiEndpoint, 'GET', null, params);
-            
-            // Handle different response formats
-            if (Array.isArray(data)) {
-                this.data = data;
-            } else if (data.data && Array.isArray(data.data)) {
-                this.data = data.data;
-            } else if (data.items && Array.isArray(data.items)) {
-                this.data = data.items;
-            } else {
-                this.data = [];
-            }
+          // Add a small console debug so we can see what the server returned for dashboard widgets
+          // Normalize endpoint to ensure it starts with a leading slash (prevents concatenation bugs)
+          let endpoint = this.apiEndpoint || "";
+          if (!endpoint.startsWith("/")) {
+            endpoint = "/" + endpoint;
+            console.warn(
+              `[DataTable:${this.containerId}] Normalized apiEndpoint to '${endpoint}' (added leading slash)`
+            );
+          }
 
-            this.filteredData = [...this.data];
-            this.totalPages = Math.ceil(this.filteredData.length / this.pageSize);
-            this.renderTableBody();
-            this.renderPagination();
+          console.debug(
+            `[DataTable:${this.containerId}] Loading from ${endpoint} params:`,
+            params,
+            "checkPermission:",
+            this.checkPermission
+          );
+
+          const data = await window.API.apiCall(endpoint, "GET", null, params, {
+            checkPermission: this.checkPermission,
+          });
+
+          // Log the raw payload for debugging; this is helpful when endpoints wrap data differently
+          console.debug(`[DataTable:${this.containerId}] Raw response:`, data);
+
+          // Handle different response formats
+          if (Array.isArray(data)) {
+            this.data = data;
+          } else if (data.data && Array.isArray(data.data)) {
+            this.data = data.data;
+          } else if (
+            data.data &&
+            this.dataField &&
+            Array.isArray(data.data[this.dataField])
+          ) {
+            // Support responses like { data: { pending_approvals: [...] } }
+            this.data = data.data[this.dataField];
+          } else if (this.dataField && Array.isArray(data[this.dataField])) {
+            // Support top-level fields like { recent: [...], pending: [...] }
+            this.data = data[this.dataField];
+          } else if (data.items && Array.isArray(data.items)) {
+            this.data = data.items;
+          } else if (data.recent && Array.isArray(data.recent)) {
+            this.data = data.recent; // legacy shape from admissions/pending
+          } else if (data.pending && Array.isArray(data.pending)) {
+            this.data = data.pending; // legacy shape from system/pending-approvals
+          } else {
+            this.data = [];
+          }
+
+          this.filteredData = [...this.data];
+          this.totalPages = Math.ceil(this.filteredData.length / this.pageSize);
+          this.renderTableBody();
+          this.renderPagination();
         } catch (error) {
             console.error('Failed to load data:', error);
             this.renderError('Failed to load data. Please try again.');

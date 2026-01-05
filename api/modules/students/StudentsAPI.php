@@ -128,13 +128,21 @@ class StudentsAPI extends BaseAPI
     public function create($data)
     {
         try {
-            $required = ['admission_no', 'first_name', 'last_name', 'stream_id', 'date_of_birth', 'gender', 'admission_date'];
+            $required = ['admission_no', 'first_name', 'last_name', 'stream_id', 'date_of_birth', 'gender', 'admission_date', 'parent_info'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
                     'status' => 'error',
                     'message' => 'Missing required fields',
                     'fields' => $missing
+                ], 400);
+            }
+
+            // parent_info must include at least first_name and phone_1 or email
+            if (empty($data['parent_info']['first_name']) || (empty($data['parent_info']['phone_1']) && empty($data['parent_info']['email']))) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Parent information must include parent first name and either phone_1 or email'
                 ], 400);
             }
 
@@ -155,47 +163,205 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            // BUSINESS RULE: Student must be either sponsored OR have initial payment
+            // If not sponsored and no initial_payment_amount provided, reject
+            $isSponsored = !empty($data['is_sponsored']) && $data['is_sponsored'] == 1;
+            $initialPayment = $data['initial_payment_amount'] ?? 0;
+            $skipPaymentCheck = $data['skip_payment_check'] ?? false; // Admin override flag
+
+            if (!$isSponsored && $initialPayment <= 0 && !$skipPaymentCheck) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Student cannot be enrolled without payment. Either mark as sponsored or provide initial payment amount.',
+                    'hint' => 'Use is_sponsored=1 for sponsored students, or provide initial_payment_amount with payment details'
+                ], 400);
+            }
+
+            // Start transaction so parent linking and student insert are atomic
+            $this->db->beginTransaction();
+
             $sql = "
                 INSERT INTO students (
                     admission_no,
                     first_name,
+                    middle_name,
                     last_name,
                     date_of_birth,
                     gender,
                     stream_id,
-                    user_id,
+                    student_type_id,
                     admission_date,
+                    assessment_number,
+                    assessment_status,
                     status,
-                    photo_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    photo_url,
+                    qr_code_path,
+                    is_sponsored,
+                    sponsor_name,
+                    sponsor_type,
+                    sponsor_waiver_percentage,
+                    blood_group
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['admission_no'],
                 $data['first_name'],
+                $data['middle_name'] ?? null,
                 $data['last_name'],
                 $data['date_of_birth'],
                 $data['gender'],
                 $data['stream_id'],
-                $data['user_id'] ?? null,
+                $data['student_type_id'] ?? null,
                 $data['admission_date'],
+                $data['assessment_number'] ?? null,
+                $data['assessment_status'] ?? 'not_assigned',
                 $data['status'] ?? 'active',
-                $data['photo_url'] ?? null
+                $data['photo_url'] ?? null,
+                $data['qr_code_path'] ?? null,
+                $data['is_sponsored'] ?? 0,
+                $data['sponsor_name'] ?? null,
+                $data['sponsor_type'] ?? null,
+                $data['sponsor_waiver_percentage'] ?? null,
+                $data['blood_group'] ?? null
             ]);
 
-            $id = $this->db->lastInsertId();
+            $studentId = $this->db->lastInsertId();
 
-            $this->logAction('create', $id, "Created new student: {$data['first_name']} {$data['last_name']}");
+            // Link parent as part of student creation
+            try {
+                $this->addParent($studentId, $data['parent_info']);
+            } catch (Exception $e) {
+                // If parent creation/link fails, rollback student and return error
+                $this->db->rollBack();
+                return $this->handleException($e);
+            }
+
+            // Get class_id from stream_id for enrollment
+            $stmt = $this->db->prepare("SELECT class_id FROM class_streams WHERE id = ?");
+            $stmt->execute([$data['stream_id']]);
+            $classId = $stmt->fetchColumn();
+
+            // Create class enrollment and fee obligations using stored procedure
+            $enrollmentId = null;
+            $feeObligationsCreated = 0;
+
+            if ($classId && $data['stream_id']) {
+                try {
+                    $stmt = $this->db->prepare("CALL sp_complete_student_enrollment(?, ?, ?, NULL, @enr_id, @fees)");
+                    $stmt->execute([$studentId, $classId, $data['stream_id']]);
+
+                    $result = $this->db->query("SELECT @enr_id as enrollment_id, @fees as fee_obligations")->fetch(\PDO::FETCH_ASSOC);
+                    $enrollmentId = $result['enrollment_id'];
+                    $feeObligationsCreated = $result['fee_obligations'];
+                } catch (Exception $e) {
+                    // Log but don't fail - enrollment and fees can be created later
+                    error_log("Warning: Could not create enrollment/fees for student $studentId: " . $e->getMessage());
+                }
+            }
+
+            // Record initial payment if provided
+            if ($initialPayment > 0 && !empty($data['payment_method'])) {
+                try {
+                    $this->recordInitialPayment($studentId, [
+                        'amount' => $initialPayment,
+                        'method' => $data['payment_method'],
+                        'reference' => $data['payment_reference'] ?? null,
+                        'receipt_no' => $data['receipt_no'] ?? null
+                    ]);
+                } catch (Exception $e) {
+                    error_log("Warning: Could not record initial payment for student $studentId: " . $e->getMessage());
+                }
+            }
+
+            $this->logAction('create', $studentId, "Created new student: {$data['first_name']} {$data['last_name']}");
+
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Student created successfully',
-                'data' => ['id' => $id]
+                'data' => [
+                    'id' => $studentId,
+                    'enrollment_id' => $enrollmentId,
+                    'fee_obligations_created' => $feeObligationsCreated
+                ]
             ], 201);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
+    }
+
+    /**
+     * Record initial payment for a newly enrolled student
+     */
+    private function recordInitialPayment($studentId, $paymentData)
+    {
+        // Get current academic year and term
+        $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
+        $academicYearId = $stmt->fetchColumn();
+
+        $stmt = $this->db->query("SELECT id FROM terms WHERE is_current = 1 LIMIT 1");
+        $termId = $stmt->fetchColumn();
+
+        // Record in payment_transactions
+        $sql = "INSERT INTO payment_transactions (
+            student_id, academic_year_id, term_id, amount, 
+            payment_method, reference_no, receipt_no, 
+            payment_date, status, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), 'confirmed', NOW())";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            $studentId,
+            $academicYearId,
+            $termId,
+            $paymentData['amount'],
+            $paymentData['method'],
+            $paymentData['reference'],
+            $paymentData['receipt_no']
+        ]);
+
+        $paymentId = $this->db->lastInsertId();
+
+        // Update fee obligations with this payment (distribute across obligations)
+        $remainingAmount = $paymentData['amount'];
+
+        $stmt = $this->db->prepare("
+            SELECT id, balance FROM student_fee_obligations 
+            WHERE student_id = ? AND balance > 0 
+            ORDER BY due_date ASC
+        ");
+        $stmt->execute([$studentId]);
+        $obligations = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        foreach ($obligations as $obligation) {
+            if ($remainingAmount <= 0)
+                break;
+
+            $paymentForThis = min($remainingAmount, $obligation['balance']);
+
+            $stmt = $this->db->prepare("
+                UPDATE student_fee_obligations 
+                SET amount_paid = amount_paid + ?,
+                    balance = balance - ?,
+                    payment_status = CASE 
+                        WHEN balance - ? <= 0 THEN 'paid'
+                        ELSE 'partial'
+                    END,
+                    updated_at = NOW()
+                WHERE id = ?
+            ");
+            $stmt->execute([$paymentForThis, $paymentForThis, $paymentForThis, $obligation['id']]);
+
+            $remainingAmount -= $paymentForThis;
+        }
+
+        return $paymentId;
     }
 
     // Update student
@@ -227,7 +393,24 @@ class StudentsAPI extends BaseAPI
             $updates = [];
             $params = [];
             $allowedFields = [
-                'admission_no', 'first_name', 'last_name', 'date_of_birth', 'gender', 'stream_id', 'user_id', 'admission_date', 'status', 'photo_url'
+                'admission_no',
+                'first_name',
+                'middle_name',
+                'last_name',
+                'date_of_birth',
+                'gender',
+                'stream_id',
+                'student_type_id',
+                'admission_date',
+                'status',
+                'photo_url',
+                'assessment_number',
+                'assessment_status',
+                'is_sponsored',
+                'sponsor_name',
+                'sponsor_type',
+                'sponsor_waiver_percentage',
+                'blood_group'
             ];
 
             foreach ($allowedFields as $field) {
@@ -331,23 +514,52 @@ class StudentsAPI extends BaseAPI
             throw new Exception('Invalid gender value. Must be: male, female, or other');
         }
 
-        // Check if parent exists
-        $stmt = $this->db->prepare("SELECT id FROM parents WHERE phone_1 = ? OR (email IS NOT NULL AND email = ?) LIMIT 1");
-        $stmt->execute([$parentData['phone_1'], $parentData['email'] ?? null]);
+        // Robust parent lookup: check by phone_1, phone_2, email, or name+phone
+        $stmt = $this->db->prepare("SELECT id, phone_1, phone_2, email, first_name, last_name FROM parents WHERE phone_1 = ? OR phone_2 = ? OR (email IS NOT NULL AND email = ?) LIMIT 1");
+        $stmt->execute([$parentData['phone_1'] ?? null, $parentData['phone_2'] ?? null, $parentData['email'] ?? null]);
         $existingParent = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existingParent) {
             $parentId = $existingParent['id'];
+            // Update missing info if provided
+            $updates = [];
+            $params = [];
+            if (!empty($parentData['first_name']) && $parentData['first_name'] !== $existingParent['first_name']) {
+                $updates[] = 'first_name = ?';
+                $params[] = $parentData['first_name'];
+            }
+            if (!empty($parentData['last_name']) && $parentData['last_name'] !== $existingParent['last_name']) {
+                $updates[] = 'last_name = ?';
+                $params[] = $parentData['last_name'];
+            }
+            if (!empty($parentData['phone_1']) && $parentData['phone_1'] !== $existingParent['phone_1']) {
+                $updates[] = 'phone_1 = ?';
+                $params[] = $parentData['phone_1'];
+            }
+            if (!empty($parentData['phone_2']) && $parentData['phone_2'] !== $existingParent['phone_2']) {
+                $updates[] = 'phone_2 = ?';
+                $params[] = $parentData['phone_2'];
+            }
+            if (!empty($parentData['email']) && $parentData['email'] !== $existingParent['email']) {
+                $updates[] = 'email = ?';
+                $params[] = $parentData['email'];
+            }
+            if (!empty($updates)) {
+                $params[] = $existingParent['id'];
+                $sql = 'UPDATE parents SET ' . implode(', ', $updates) . ' WHERE id = ?';
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($params);
+            }
         } else {
             // Create new parent
-            $sql = "INSERT INTO parents (first_name, last_name, gender, phone_1, phone_2, email, occupation, address, status) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')";
+            $sql = "INSERT INTO parents (first_name, last_name, gender, phone_1, phone_2, email, occupation, address, status, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $parentData['first_name'],
                 $parentData['last_name'],
                 $parentData['gender'] ?? 'other',
-                $parentData['phone_1'],
+                $parentData['phone_1'] ?? null,
                 $parentData['phone_2'] ?? null,
                 $parentData['email'] ?? null,
                 $parentData['occupation'] ?? null,
@@ -356,10 +568,15 @@ class StudentsAPI extends BaseAPI
             $parentId = $this->db->lastInsertId();
         }
 
-        // Create student-parent relationship (no relationship column)
-        $sql = "INSERT INTO student_parents (student_id, parent_id) VALUES (?, ?)";
+        // Create student-parent relationship if not exists
+        $sql = "SELECT id FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$studentId, $parentId]);
+        if (!$stmt->fetch()) {
+            $sql = "INSERT INTO student_parents (student_id, parent_id) VALUES (?, ?)";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$studentId, $parentId]);
+        }
     }
 
     private function getStudentParents($studentId)
@@ -792,7 +1009,7 @@ class StudentsAPI extends BaseAPI
             // Generate QR code image
             $result = $writer->write($qrCode);
 
-            // Save QR code
+            // Save QR code to images folder
             $qrPath = 'images/qr_codes/' . $student['admission_no'] . '.png';
             $dir = dirname($qrPath);
             if (!is_dir($dir)) {
@@ -800,9 +1017,30 @@ class StudentsAPI extends BaseAPI
             }
             $result->saveToFile($qrPath);
 
-            // Update student record with QR code path
-            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-            $stmt->execute([$qrPath, $id]);
+            // Import generated QR into MediaManager so it's managed under uploads/students/{id}
+            try {
+                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+                $projectRoot = realpath(__DIR__ . '/../../..');
+                if ($projectRoot) {
+                    $fullSource = $projectRoot . DIRECTORY_SEPARATOR . $qrPath;
+                    if (file_exists($fullSource)) {
+                        $mediaId = $mediaManager->import($fullSource, 'students', $id, basename($fullSource), null, 'student qr code');
+                        $preview = $mediaManager->getPreviewUrl($mediaId);
+                        // Update student record with managed preview URL if available
+                        if ($preview) {
+                            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
+                            $stmt->execute([$preview, $id]);
+                        } else {
+                            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
+                            $stmt->execute(['/' . $qrPath, $id]);
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                // Fallback: store local path
+                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
+                $stmt->execute(['/' . $qrPath, $id]);
+            }
 
             return $this->response([
                 'status' => 'success',
@@ -2260,7 +2498,7 @@ class StudentsAPI extends BaseAPI
                 INSERT INTO students (
                     admission_no, first_name, middle_name, last_name, 
                     date_of_birth, gender, stream_id, admission_date,
-                    nemis_number, birth_certificate_no, nationality,
+                    assessment_number, birth_certificate_no, nationality,
                     religion, blood_group, special_needs,
                     previous_school, previous_class,
                     status, created_at, created_by
@@ -2277,7 +2515,7 @@ class StudentsAPI extends BaseAPI
                 $data['gender'],
                 $streamId,
                 $data['admission_date'],
-                $data['nemis_number'] ?? null,
+                $data['assessment_number'] ?? null,
                 $data['birth_certificate_no'] ?? null,
                 $data['nationality'] ?? 'Kenyan',
                 $data['religion'] ?? null,
@@ -2479,7 +2717,7 @@ class StudentsAPI extends BaseAPI
                         'class_id' => $row['class_id'],
                         'stream_name' => $row['stream_name'] ?? 'A',
                         'admission_date' => $row['admission_date'],
-                        'nemis_number' => $row['nemis_number'] ?? null,
+                        'assessment_number' => $row['assessment_number'] ?? null,
                         'nationality' => $row['nationality'] ?? 'Kenyan',
                         'religion' => $row['religion'] ?? null
                     ];
@@ -2550,7 +2788,7 @@ class StudentsAPI extends BaseAPI
             'class_id',
             'stream_name',
             'admission_date',
-            'nemis_number',
+            'assessment_number',
             'birth_certificate_no',
             'nationality',
             'religion',

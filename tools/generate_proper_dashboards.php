@@ -174,23 +174,78 @@ $dashboardDefinitions = [
                 'subitems' => []
             ],
             [
+                'label' => 'Students',
+                'icon' => 'fas fa-user-graduate',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'All Students', 'url' => 'manage_students'],
+                    ['label' => 'Admissions', 'url' => 'manage_students_admissions'],
+                    ['label' => 'Attendance', 'url' => 'mark_attendance'],
+                    ['label' => 'Discipline', 'url' => 'student_discipline'],
+                    ['label' => 'Transfers', 'url' => 'manage_transfers'],
+                    ['label' => 'Medical Records', 'url' => 'student_medical_records']
+                ]
+            ],
+            [
+                'label' => 'Academic',
+                'icon' => 'fas fa-graduation-cap',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Classes & Streams', 'url' => 'manage_classes'],
+                    ['label' => 'Timetable', 'url' => 'manage_timetable'],
+                    ['label' => 'Exams', 'url' => 'manage_exams'],
+                    ['label' => 'Assessments', 'url' => 'manage_assessments'],
+                    ['label' => 'Results', 'url' => 'view_results'],
+                    ['label' => 'Curriculum', 'url' => 'manage_curriculum']
+                ]
+            ],
+            [
+                'label' => 'Staff',
+                'icon' => 'fas fa-chalkboard-teacher',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Teaching Staff', 'url' => 'manage_teachers'],
+                    ['label' => 'Non-Teaching Staff', 'url' => 'manage_non_teaching_staff'],
+                    ['label' => 'Staff Attendance', 'url' => 'staff_attendance'],
+                    ['label' => 'Leave Management', 'url' => 'manage_leaves'],
+                    ['label' => 'Performance Reviews', 'url' => 'staff_performance'],
+                    ['label' => 'Payroll', 'url' => 'manage_payrolls']
+                ]
+            ],
+            [
                 'label' => 'Finance',
                 'icon' => 'fas fa-coins',
                 'url' => null,
                 'subitems' => [
-                    ['label' => 'Financial Reports', 'url' => 'finance_reports'],
-                    ['label' => 'Budget Overview', 'url' => 'budget_overview'],
+                    ['label' => 'Financial Overview', 'url' => 'manage_finance'],
+                    ['label' => 'Fee Management', 'url' => 'manage_fees'],
+                    ['label' => 'Student Payments', 'url' => 'manage_payments'],
+                    ['label' => 'Expenses', 'url' => 'manage_expenses'],
+                    ['label' => 'Budget', 'url' => 'budget_overview'],
                     ['label' => 'Approvals', 'url' => 'finance_approvals']
                 ]
             ],
             [
-                'label' => 'Reports',
-                'icon' => 'fas fa-chart-line',
+                'label' => 'Inventory & Uniforms',
+                'icon' => 'fas fa-boxes',
                 'url' => null,
                 'subitems' => [
-                    ['label' => 'Financial', 'url' => 'financial_reports'],
-                    ['label' => 'Enrollment', 'url' => 'enrollment_reports'],
-                    ['label' => 'Performance', 'url' => 'performance_reports']
+                    ['label' => 'Inventory Items', 'url' => 'manage_inventory'],
+                    ['label' => 'Uniform Sales', 'url' => 'uniform_sales'],
+                    ['label' => 'Stock Levels', 'url' => 'view_stock'],
+                    ['label' => 'Requisitions', 'url' => 'manage_requisitions'],
+                    ['label' => 'Stock Movements', 'url' => 'inventory_transactions']
+                ]
+            ],
+            [
+                'label' => 'Transport',
+                'icon' => 'fas fa-bus',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Routes', 'url' => 'manage_routes'],
+                    ['label' => 'Vehicles', 'url' => 'manage_vehicles'],
+                    ['label' => 'Drivers', 'url' => 'manage_drivers'],
+                    ['label' => 'Trip Logs', 'url' => 'manage_trip_logs']
                 ]
             ],
             [
@@ -198,7 +253,57 @@ $dashboardDefinitions = [
                 'icon' => 'fas fa-comments',
                 'url' => null,
                 'subitems' => [
-                    ['label' => 'Messages', 'url' => 'manage_communications']
+                    ['label' => 'Messages', 'url' => 'manage_communications'],
+                    ['label' => 'Announcements', 'url' => 'manage_announcements'],
+                    ['label' => 'SMS', 'url' => 'manage_sms'],
+                    ['label' => 'Emails', 'url' => 'manage_email'],
+                    ['label' => 'Email Templates', 'url' => 'manage_email_templates']
+                ]
+            ],
+            [
+                'label' => 'Reports',
+                'icon' => 'fas fa-chart-line',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Financial Reports', 'url' => 'financial_reports'],
+                    ['label' => 'Enrollment Reports', 'url' => 'enrollment_reports'],
+                    ['label' => 'Academic Performance', 'url' => 'performance_reports'],
+                    ['label' => 'Attendance Reports', 'url' => 'attendance_reports'],
+                    ['label' => 'Staff Reports', 'url' => 'staff_reports'],
+                    ['label' => 'Inventory Reports', 'url' => 'inventory_reports']
+                ]
+            ],
+            [
+                'label' => 'Activities & Events',
+                'icon' => 'fas fa-calendar',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Activities', 'url' => 'manage_activities'],
+                    ['label' => 'Events', 'url' => 'manage_events'],
+                    ['label' => 'Sports', 'url' => 'manage_sports'],
+                    ['label' => 'Clubs', 'url' => 'manage_clubs']
+                ]
+            ],
+            [
+                'label' => 'Boarding Management',
+                'icon' => 'fas fa-bed',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'Boarding Houses', 'url' => 'manage_boarding'],
+                    ['label' => 'Room Assignments', 'url' => 'manage_room_assignments'],
+                    ['label' => 'Boarding Rules', 'url' => 'manage_boarding_rules'],
+                    ['label' => 'Health & Welfare', 'url' => 'boarding_health']
+                ]
+            ],
+            [
+                'label' => 'School Settings',
+                'icon' => 'fas fa-cog',
+                'url' => null,
+                'subitems' => [
+                    ['label' => 'School Information', 'url' => 'school_settings'],
+                    ['label' => 'Academic Calendar', 'url' => 'manage_academic_calendar'],
+                    ['label' => 'Terms & Sessions', 'url' => 'manage_terms'],
+                    ['label' => 'Configuration', 'url' => 'system_configuration']
                 ]
             ]
         ]

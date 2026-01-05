@@ -1,6 +1,11 @@
 <?php
 namespace App\Database;
 
+// Load config for database constants if not already defined
+if (!defined('DB_HOST')) {
+    require_once __DIR__ . '/../config/config.php';
+}
+
 use PDO;
 use PDOException;
 use Exception;
@@ -67,7 +72,7 @@ class Database
             return $stmt;
         } catch (PDOException $e) {
             error_log("Query failed: " . $e->getMessage());
-            throw new Exception("Database query failed");
+            throw new Exception("Database query failed: " . $e->getMessage());
         }
     }
 

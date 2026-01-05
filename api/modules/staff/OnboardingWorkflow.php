@@ -316,20 +316,47 @@ class OnboardingWorkflow extends WorkflowHandler
             // Create user (password should be generated and sent via email in production)
             $defaultPassword = password_hash('temp_password_' . uniqid(), PASSWORD_DEFAULT);
 
-            $stmt = $this->db->prepare("
-                INSERT INTO users (
-                    username, email, password, role, staff_id, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, 'active', NOW())
-            ");
-            $stmt->execute([
-                $data['username'],
-                $data['email'],
-                $defaultPassword,
-                $data['role'],
-                $staffId
-            ]);
+            // Resolve role_id: accept numeric or role name
+            $roleId = null;
+            if (isset($data['role']) && is_numeric($data['role'])) {
+                $roleId = (int) $data['role'];
+            } elseif (!empty($data['role'])) {
+                $stmt = $this->db->prepare("SELECT id FROM roles WHERE name = ? LIMIT 1");
+                $stmt->execute([$data['role']]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                $roleId = $row['id'] ?? 1;
+            } else {
+                $roleId = 1; // default role
+            }
 
-            $userId_new = $this->db->lastInsertId();
+            // Build user payload and call UsersAPI->create to centralize user creation and role assignment
+            $usersApi = new \App\API\Modules\users\UsersAPI();
+            $userPayload = [
+                'username' => $data['username'],
+                'email' => $data['email'],
+                'password' => $defaultPassword,
+                'first_name' => $data['first_name'] ?? null,
+                'last_name' => $data['last_name'] ?? null,
+                'role_id' => $roleId,
+                'staff_info' => [
+                    'position' => $data['position'] ?? null,
+                    'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
+                    'staff_id' => $staffId
+                ]
+            ];
+
+            $userResult = $usersApi->create($userPayload);
+            if (!isset($userResult['success']) || !$userResult['success']) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Failed to create user account: ' . ($userResult['error'] ?? json_encode($userResult)));
+            }
+
+            $userId_new = $userResult['data']['id'] ?? null;
+            if (!$userId_new) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Failed to determine created user id');
+            }
+
             $workflowData['user_id'] = $userId_new;
 
             // Advance to completion stage and capture the result

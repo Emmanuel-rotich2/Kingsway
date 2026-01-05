@@ -239,7 +239,16 @@ class ModalForm {
                     ? `${this.apiEndpoint}/${this.currentId}`
                     : this.apiEndpoint;
 
-                const response = await window.API.apiCall(endpoint, method, this.formData);
+                // Use FormData for file uploads
+                let payload = this.formData;
+                let options = {};
+
+                if (this.formData._hasFiles) {
+                    payload = this.buildFormDataForUpload(this.formData);
+                    options = { isFile: true };
+                }
+
+                const response = await window.API.apiCall(endpoint, method, payload, {}, options);
                 
                 window.API.showNotification(
                     response.message || `${this.isEditing ? 'Updated' : 'Created'} successfully`,
@@ -269,27 +278,54 @@ class ModalForm {
         const form = document.getElementById(`${this.modalId}-form`);
         const formData = new FormData(form);
         const data = {};
+        let hasFiles = false;
 
         for (const [key, value] of formData.entries()) {
-            // Handle file uploads
-            if (value instanceof File) {
-                data[key] = value;
-            }
-            // Handle checkboxes
-            else if (form.elements[key].type === 'checkbox') {
-                data[key] = form.elements[key].checked ? 1 : 0;
-            }
-            // Handle multiselect
-            else if (form.elements[key].multiple) {
-                if (!data[key]) data[key] = [];
-                data[key].push(value);
-            }
-            else {
-                data[key] = value;
-            }
+          // Handle file uploads
+          if (value instanceof File && value.size > 0) {
+            hasFiles = true;
+            data[key] = value;
+          }
+          // Handle checkboxes
+          else if (
+            form.elements[key] &&
+            form.elements[key].type === "checkbox"
+          ) {
+            data[key] = form.elements[key].checked ? 1 : 0;
+          }
+          // Handle multiselect
+          else if (form.elements[key] && form.elements[key].multiple) {
+            if (!data[key]) data[key] = [];
+            data[key].push(value);
+          } else if (!(value instanceof File)) {
+            data[key] = value;
+          }
         }
 
+        // Mark data if it contains files for proper handling
+        data._hasFiles = hasFiles;
+
         return data;
+    }
+
+    /**
+     * Convert form data to FormData object for file uploads
+     */
+    buildFormDataForUpload(data) {
+        const formData = new FormData();
+        for (const [key, value] of Object.entries(data)) {
+            if (key === '_hasFiles') continue;
+            if (value instanceof File) {
+                formData.append(key, value);
+            } else if (Array.isArray(value)) {
+                value.forEach(item => formData.append(`${key}[]`, item));
+            } else if (typeof value === 'object' && value !== null) {
+                formData.append(key, JSON.stringify(value));
+            } else if (value !== null && value !== undefined) {
+                formData.append(key, value);
+            }
+        }
+        return formData;
     }
 
     setSubmitButtonLoading(loading) {

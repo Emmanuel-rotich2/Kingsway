@@ -223,17 +223,16 @@ class ExaminationWorkflow extends WorkflowHandler {
                 throw new Exception("Invalid workflow state for question paper submission");
             }
 
-            // Upload question paper file
-            $uploaded = $this->uploadFile($file, [
-                'allowed_types' => ['pdf', 'doc', 'docx'],
-                'max_size' => 10 * 1024 * 1024, // 10MB
-                'destination' => UPLOAD_PATH . '/assessments/' . $assessment_id . '/papers'
-            ]);
+            // Upload question paper file via MediaManager into uploads/documents/{assessment_id}
+            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaId = $mediaManager->upload($file, 'documents', $assessment_id, null, $this->user_id, 'question paper');
+            $preview = $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
+
             // Store paper path in workflow data
             $data = json_decode($instance['data_json'], true) ?: [];
             $data['papers'] = $data['papers'] ?? [];
             $data['papers'][(string)$assessment_id] = [
-                'path' => $uploaded['path'],
+                'path' => $preview,
                 'submitted_by' => $this->user_id,
                 'submitted_at' => date('Y-m-d H:i:s')
             ];
@@ -243,7 +242,7 @@ class ExaminationWorkflow extends WorkflowHandler {
 
             return formatResponse(true, [
                 'assessment_id' => $assessment_id,
-                'paper_path' => $uploaded['path']
+                'paper_path' => $preview
             ], 'Question paper submitted successfully');
 
         } catch (Exception $e) {

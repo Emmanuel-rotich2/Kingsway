@@ -25,6 +25,47 @@ class ActivitiesController extends BaseController
         return $this->success(['message' => 'Activities API is running']);
     }
 
+    /**
+     * GET /api/activities/list - Get recent activities for dashboard
+     */
+    public function getList($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = $this->db;
+
+            // Get recent activities/announcements
+            $query = "
+                SELECT 
+                    id,
+                    title,
+                    description,
+                    activity_date as created_at,
+                    activity_type as type
+                FROM activities
+                WHERE status = 'active'
+                ORDER BY activity_date DESC
+                LIMIT 10
+            ";
+
+            $result = $db->query($query);
+            $activities = [];
+            while ($row = $result->fetch()) {
+                $activities[] = [
+                    'id' => $row['id'],
+                    'title' => $row['title'] ?? 'Activity',
+                    'description' => $row['description'] ?? '',
+                    'created_at' => $row['created_at'],
+                    'type' => $row['type'] ?? 'general'
+                ];
+            }
+
+            return $this->success($activities, 'Activities retrieved');
+
+        } catch (\Exception $e) {
+            return $this->error('Failed to fetch activities: ' . $e->getMessage());
+        }
+    }
+
     // ========================================
     // SECTION 1: Base CRUD Operations
     // ========================================

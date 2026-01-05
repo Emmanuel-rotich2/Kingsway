@@ -9,11 +9,11 @@ class AuthMiddleware
 {
     // Static test token for local/dev testing (header: X-Test-Token)
     const TEST_USER = [
-        'user_id' => 1,
-        'username' => 'testuser',
-        'email' => 'test@example.com',
-        'roles' => ['admin'],
-        'display_name' => 'Test User',
+        'user_id' => 2,
+        'username' => 'director',
+        'email' => 'john@yahoo.com',
+        'role_ids' => [3],
+        'display_name' => 'John Director',
         'permissions' => ['*']
     ];
     /**
