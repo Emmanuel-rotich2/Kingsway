@@ -42,6 +42,35 @@ class MediaService
         return $this->db->lastInsertId();
     }
 
+    // Import an existing file on disk into managed uploads and register metadata
+    public function importFile($sourcePath, $context, $entityId = null, $originalName = null, $uploaderId = null, $description = '', $tags = '')
+    {
+        if (!file_exists($sourcePath)) {
+            throw new Exception('Source file does not exist: ' . $sourcePath);
+        }
+        $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
+        $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv', 'zip', 'mp3', 'mp4', 'avi', 'mov'];
+        if (!in_array($ext, $allowedTypes)) {
+            throw new Exception('File type not allowed for import');
+        }
+
+        $dir = $this->uploadBase . "/$context" . ($entityId ? "/$entityId" : '');
+        if (!is_dir($dir))
+            mkdir($dir, 0755, true);
+        $filename = uniqid('media_') . '_' . time() . ".{$ext}";
+        $path = "$dir/$filename";
+        if (!@copy($sourcePath, $path)) {
+            throw new Exception('Failed to copy file to uploads');
+        }
+
+        $filesize = filesize($path);
+        $origName = $originalName ?? basename($sourcePath);
+
+        $stmt = $this->db->prepare("INSERT INTO media_files (filename, original_name, file_type, file_size, uploader_id, context, entity_id, album_id, description, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$filename, $origName, $ext, $filesize, $uploaderId, $context, $entityId, null, $description, $tags]);
+        return $this->db->lastInsertId();
+    }
+
     // 2. Create Album
     public function createAlbum($name, $description = '', $coverImage = null, $createdBy = null)
     {

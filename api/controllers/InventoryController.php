@@ -1147,6 +1147,129 @@ class InventoryController extends BaseController
         return lcfirst(str_replace('-', '', ucwords($string, '-')));
     }
 
+    // ========================================
+    // SECTION 9: Uniform Sales Management
+    // ========================================
+
+    /**
+     * GET /api/inventory/uniforms - List all uniform items
+     */
+    public function getUniformItems($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->listUniformItems($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniforms/{id}/sizes - Get size variants for uniform item
+     */
+    public function getUniformSizes($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Uniform item ID is required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getUniformSizes($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/inventory/uniforms/sales - Register a uniform sale
+     */
+    public function postUniformSales($id = null, $data = [], $segments = [])
+    {
+        $student_id = $data['student_id'] ?? null;
+        $item_id = $data['item_id'] ?? null;
+
+        if (!$student_id || !$item_id) {
+            return $this->badRequest('Student ID and item ID are required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->registerUniformSale($student_id, $item_id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniforms/sales/{student_id} - Get student uniform sales history
+     */
+    public function getUniformSalesByStudent($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getStudentUniformSales($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/inventory/uniforms/sales/{id}/payment - Update payment status
+     */
+    public function putUniformSalesPayment($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Sale ID is required');
+        }
+
+        $payment_status = $data['payment_status'] ?? 'paid';
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->updateUniformSalePayment($id, $payment_status);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniforms/dashboard - Uniform sales dashboard metrics
+     */
+    public function getUniformDashboard($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getUniformSalesDashboard();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniforms/payments/summary - Payment status summary
+     */
+    public function getUniformPaymentSummary($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getUniformPaymentSummary();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/inventory/uniforms/students/{id}/profile - Update student uniform profile
+     */
+    public function putUniformStudentProfile($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->updateStudentUniformProfile($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniforms/students/{id}/profile - Get student uniform profile
+     */
+    public function getUniformStudentProfile($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getStudentUniformProfile($id);
+        return $this->handleResponse($result);
+    }
+
     /**
      * Handle API response and format appropriately
      */

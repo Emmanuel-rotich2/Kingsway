@@ -81,16 +81,39 @@ class StudentIDCardGenerator extends BaseAPI
             // Resize and optimize image
             $this->resizeImage($fileData['tmp_name'], $filepath, 400, 500);
 
-            // Update database
-            $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-            $stmt->execute(['/images/students/' . $filename, $studentId]);
+            // Import into MediaManager to register under uploads/students/{studentId}
+            try {
+                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+                $projectRoot = realpath(__DIR__ . '/../../..');
+                $fullSource = $projectRoot ? ($projectRoot . DIRECTORY_SEPARATOR . trim($filepath, '/')) : $filepath;
+                $mediaId = null;
+                if (file_exists($fullSource)) {
+                    $mediaId = $mediaManager->import($fullSource, 'students', $studentId, $fileData['name'], null, 'student photo');
+                }
+                $preview = $mediaId ? $mediaManager->getPreviewUrl($mediaId) : null;
 
-            $this->logAction('update', $studentId, "Uploaded student photo: {$filename}");
+                // Update database with managed preview URL if available, else local images path
+                $dbPath = $preview ?? ('/images/students/' . $filename);
+                $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$dbPath, $studentId]);
 
-            return formatResponse(true, [
-                'photo_url' => '/images/students/' . $filename,
-                'filename' => $filename
-            ], 'Photo uploaded successfully');
+                $this->logAction('update', $studentId, "Uploaded student photo: {$filename}");
+
+                return formatResponse(true, [
+                    'photo_url' => $dbPath,
+                    'filename' => $filename,
+                    'media_id' => $mediaId
+                ], 'Photo uploaded successfully');
+            } catch (\Exception $e) {
+                // fallback behavior
+                $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute(['/images/students/' . $filename, $studentId]);
+                $this->logAction('update', $studentId, "Uploaded student photo (fallback): {$filename}");
+                return formatResponse(true, [
+                    'photo_url' => '/images/students/' . $filename,
+                    'filename' => $filename
+                ], 'Photo uploaded (fallback)');
+            }
 
         } catch (Exception $e) {
             $this->logError('uploadStudentPhoto', $e->getMessage());
@@ -162,16 +185,35 @@ class StudentIDCardGenerator extends BaseAPI
             $filepath = $this->qrCodesPath . $filename;
             $result->saveToFile($filepath);
 
-            // Update database
-            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
-            $stmt->execute(['/images/qr_codes/' . $filename, $studentId]);
-
-            $this->logAction('create', $studentId, "Generated enhanced QR code: {$filename}");
-
-            return formatResponse(true, [
-                'qr_code_path' => '/images/qr_codes/' . $filename,
-                'qr_data' => json_decode($qrData, true)
-            ], 'QR code generated successfully');
+            // Import into MediaManager and update student record with managed preview
+            try {
+                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+                $projectRoot = realpath(__DIR__ . '/../../..');
+                $fullSource = $projectRoot ? ($projectRoot . DIRECTORY_SEPARATOR . trim($filepath, '/')) : $filepath;
+                $mediaId = null;
+                if (file_exists($fullSource)) {
+                    $mediaId = $mediaManager->import($fullSource, 'students', $studentId, $filename, null, 'enhanced qr');
+                }
+                $preview = $mediaId ? $mediaManager->getPreviewUrl($mediaId) : null;
+                $dbPath = $preview ?? ('/images/qr_codes/' . $filename);
+                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute([$dbPath, $studentId]);
+                $this->logAction('create', $studentId, "Generated enhanced QR code: {$filename}");
+                return formatResponse(true, [
+                    'qr_code_path' => $dbPath,
+                    'qr_data' => json_decode($qrData, true),
+                    'media_id' => $mediaId
+                ], 'QR code generated successfully');
+            } catch (\Exception $e) {
+                // fallback
+                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
+                $stmt->execute(['/images/qr_codes/' . $filename, $studentId]);
+                $this->logAction('create', $studentId, "Generated enhanced QR code (fallback): {$filename}");
+                return formatResponse(true, [
+                    'qr_code_path' => '/images/qr_codes/' . $filename,
+                    'qr_data' => json_decode($qrData, true)
+                ], 'QR code generated (fallback)');
+            }
 
         } catch (Exception $e) {
             $this->logError('generateEnhancedQRCode', $e->getMessage());

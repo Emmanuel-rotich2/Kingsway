@@ -1,21 +1,37 @@
 <?php
 /**
- * Dashboard Manager
+ * Dashboard Manager (Database-Driven)
  * 
  * Handles dashboard and menu selection based on user roles and permissions.
- * Caches dashboard configuration for fast loading.
+ * ALL DATA IS SOURCED FROM THE DATABASE - no hard-coded configurations.
+ * 
+ * Database Tables Used:
+ * - dashboards: Dashboard definitions
+ * - role_dashboards: Role to dashboard mappings
+ * - sidebar_menu_items: Navigation menu items with hierarchy
+ * - role_sidebar_menus: Role to menu item mappings
+ * - routes: Route definitions with domain classification
+ * - role_routes: Role to route access permissions
+ * 
+ * @package App\Includes
+ * @since 2025-12-28
  */
+
+require_once dirname(__DIR__, 1) . '/../database/Database.php';
+
+use App\Database\Database;
 
 class DashboardManager
 {
-    private $dashboardConfig = [];
-    private $currentUser = null;
-    private $permissionCache = [];
+    private ?\PDO $db = null;
+    private ?array $currentUser = null;
+    private array $permissionCache = [];
+    private array $dashboardCache = [];
+    private array $menuCache = [];
 
     public function __construct()
     {
-        // Load dashboard configuration
-        $this->dashboardConfig = include __DIR__ . '/dashboards.php';
+        $this->db = Database::getInstance()->getConnection();
     }
 
     /**
@@ -23,20 +39,19 @@ class DashboardManager
      * 
      * @param array $userData User data array with 'roles' and 'permissions'
      */
-    public function setUser($userData)
+    public function setUser($userData): void
     {
         $this->currentUser = $userData;
+        $this->permissionCache = [];
+        $this->dashboardCache = [];
+        $this->menuCache = [];
 
         // Build permission cache for fast lookups
         if (isset($userData['permissions']) && is_array($userData['permissions'])) {
-            $this->permissionCache = [];
             foreach ($userData['permissions'] as $perm) {
-                // Handle both permission objects and permission codes (strings)
                 if (is_string($perm)) {
-                    // Permission is already a code (compact format)
                     $this->permissionCache[] = $perm;
                 } elseif (is_array($perm)) {
-                    // Permission is an object, extract code
                     $code = $perm['permission_code'] ?? $perm['code'] ?? null;
                     if ($code) {
                         $this->permissionCache[] = $code;
@@ -47,270 +62,281 @@ class DashboardManager
     }
 
     /**
-     * Get all available dashboards
-     * 
-     * @return array List of all dashboards from config
+     * Get primary role ID from current user
      */
-    public function getAllDashboards()
+    private function getPrimaryRoleId(): ?int
     {
-        return $this->dashboardConfig;
+        if (!$this->currentUser) {
+            return null;
+        }
+
+        $roles = $this->currentUser['roles'] ?? [];
+        if (empty($roles)) {
+            return null;
+        }
+
+        $firstRole = $roles[0];
+        if (is_array($firstRole)) {
+            return (int) ($firstRole['id'] ?? $firstRole['role_id'] ?? null);
+        }
+        return (int) $firstRole;
     }
 
     /**
-     * Get dashboards accessible to current user
-     * Filters by roles and permissions
-     * 
-     * @return array Accessible dashboards keyed by route name
+     * Get all role IDs for current user
      */
-    public function getAccessibleDashboards()
+    private function getUserRoleIds(): array
     {
         if (!$this->currentUser) {
             return [];
         }
 
-        $accessible = [];
-        $userRoles = $this->currentUser['roles'] ?? [];
+        $roles = $this->currentUser['roles'] ?? [];
+        $roleIds = [];
 
-        // Ensure roles is an array of strings
-        if (is_array($userRoles) && count($userRoles) > 0) {
-            if (is_array($userRoles[0])) {
-                // If roles is array of objects, extract names
-                $extracted = [];
-                foreach ($userRoles as $role) {
-                    $extracted[] = isset($role['name']) ? $role['name'] : $role;
-                }
-                $userRoles = $extracted;
+        foreach ($roles as $role) {
+            if (is_array($role)) {
+                $roleIds[] = (int) ($role['id'] ?? $role['role_id'] ?? 0);
+            } else {
+                $roleIds[] = (int) $role;
             }
         }
 
-        foreach ($this->dashboardConfig as $key => $dashboard) {
-            // Check role requirement
-            $requiredRoles = $dashboard['roles'] ?? [];
-            if (!empty($requiredRoles)) {
-                $hasRole = false;
-                foreach ($requiredRoles as $role) {
-                    if (in_array($role, $userRoles)) {
-                        $hasRole = true;
-                        break;
-                    }
-                }
-                if (!$hasRole) {
-                    continue;
-                }
-            }
-
-            // Check permission requirement
-            $requiredPerms = $dashboard['permissions'] ?? [];
-            if (!empty($requiredPerms)) {
-                $hasAllPerms = true;
-                foreach ($requiredPerms as $perm) {
-                    if (!in_array($perm, $this->permissionCache)) {
-                        $hasAllPerms = false;
-                        break;
-                    }
-                }
-                if (!$hasAllPerms) {
-                    continue;
-                }
-            }
-
-            $accessible[$key] = $dashboard;
-        }
-
-        return $accessible;
+        return array_filter($roleIds);
     }
 
     /**
-     * Get first accessible dashboard for user
-     * Used as default landing page
+     * Get all dashboards from database
+     * 
+     * @return array List of all active dashboards
+     */
+    public function getAllDashboards(): array
+    {
+        $stmt = $this->db->query(
+            "SELECT d.*, r.name as route_name, r.url as route_url
+             FROM dashboards d
+             LEFT JOIN routes r ON r.id = d.route_id
+             WHERE d.is_active = 1
+             ORDER BY d.id"
+        );
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get dashboards accessible to current user based on role
+     * 
+     * @return array Accessible dashboards
+     */
+    public function getAccessibleDashboards(): array
+    {
+        if (!$this->currentUser) {
+            return [];
+        }
+
+        $roleIds = $this->getUserRoleIds();
+        if (empty($roleIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT DISTINCT d.*, r.name as route_name, r.url as route_url, rd.is_primary
+             FROM dashboards d
+             JOIN role_dashboards rd ON rd.dashboard_id = d.id
+             LEFT JOIN routes r ON r.id = d.route_id
+             WHERE rd.role_id IN ({$placeholders}) AND d.is_active = 1
+             ORDER BY rd.is_primary DESC, rd.display_order"
+        );
+        $stmt->execute($roleIds);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get the default/primary dashboard for current user
      * 
      * @return array|null Dashboard config or null if none accessible
      */
-    public function getDefaultDashboard()
+    public function getDefaultDashboard(): ?array
     {
-        $accessible = $this->getAccessibleDashboards();
-        if (empty($accessible)) {
+        $roleId = $this->getPrimaryRoleId();
+        if (!$roleId) {
             return null;
         }
 
-        return array_shift($accessible);
+        $stmt = $this->db->prepare(
+            "SELECT d.*, r.name as route_name, r.url as route_url
+             FROM dashboards d
+             JOIN role_dashboards rd ON rd.dashboard_id = d.id
+             LEFT JOIN routes r ON r.id = d.route_id
+             WHERE rd.role_id = ? AND d.is_active = 1
+             ORDER BY rd.is_primary DESC, rd.display_order
+             LIMIT 1"
+        );
+        $stmt->execute([$roleId]);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $result ?: null;
     }
 
     /**
-     * Get specific dashboard by key
+     * Get specific dashboard by ID or name
      * 
-     * @param string $dashboardKey Dashboard key from config
+     * @param string|int $dashboardKey Dashboard ID or name
      * @return array|null Dashboard config or null if not found
      */
-    public function getDashboard($dashboardKey)
+    public function getDashboard($dashboardKey): ?array
     {
-        return $this->dashboardConfig[$dashboardKey] ?? null;
+        if (is_numeric($dashboardKey)) {
+            $stmt = $this->db->prepare(
+                "SELECT d.*, r.name as route_name, r.url as route_url
+                 FROM dashboards d
+                 LEFT JOIN routes r ON r.id = d.route_id
+                 WHERE d.id = ? AND d.is_active = 1"
+            );
+        } else {
+            $stmt = $this->db->prepare(
+                "SELECT d.*, r.name as route_name, r.url as route_url
+                 FROM dashboards d
+                 LEFT JOIN routes r ON r.id = d.route_id
+                 WHERE d.name = ? AND d.is_active = 1"
+            );
+        }
+        $stmt->execute([$dashboardKey]);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $result ?: null;
     }
 
     /**
-     * Get menu items for a dashboard, filtered by user permissions
+     * Get menu items for current user's role from database
+     * Returns hierarchical menu structure
      * 
-     * @param string $dashboardKey Dashboard key
-     * @return array Filtered menu items
+     * @param string|int|null $dashboardKey Optional dashboard key (uses primary role if null)
+     * @return array Filtered menu items with hierarchy
      */
-    public function getMenuItems($dashboardKey)
+    public function getMenuItems($dashboardKey = null): array
     {
-        $dashboard = $this->getDashboard($dashboardKey);
-        if (!$dashboard) {
+        $roleId = $this->getPrimaryRoleId();
+        if (!$roleId) {
             return [];
         }
 
-        // Support both 'menu_items' and 'menus' keys for backwards compatibility
-        $menuItems = $dashboard['menu_items'] ?? $dashboard['menus'] ?? [];
+        // Get all menu items assigned to this role
+        $stmt = $this->db->prepare(
+            "SELECT smi.*, rsm.custom_order
+             FROM sidebar_menu_items smi
+             JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
+             WHERE rsm.role_id = ? AND smi.is_active = 1
+             ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
+        );
+        $stmt->execute([$roleId]);
+        $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        if (empty($menuItems)) {
-            return [];
+        // Build hierarchical structure
+        return $this->buildMenuHierarchy($items);
+    }
+
+    /**
+     * Build hierarchical menu structure from flat database results
+     * 
+     * @param array $items Flat array of menu items
+     * @return array Hierarchical menu structure
+     */
+    private function buildMenuHierarchy(array $items): array
+    {
+        // First, index all items by ID
+        $indexed = [];
+        foreach ($items as $item) {
+            $indexed[$item['id']] = [
+                'label' => $item['label'],
+                'url' => $item['url'],
+                'icon' => $item['icon'],
+                'id' => $item['id'],
+                'parent_id' => $item['parent_id'],
+                'display_order' => $item['custom_order'] ?? $item['display_order'],
+                'subitems' => []
+            ];
         }
 
-        $filteredItems = $this->filterMenuByPermissions($menuItems);
+        // Build the tree
+        $tree = [];
+        foreach ($indexed as $id => &$item) {
+            if ($item['parent_id'] === null) {
+                // Top-level item
+                $tree[] = &$item;
+            } else {
+                // Child item - attach to parent if parent exists
+                $parentId = $item['parent_id'];
+                if (isset($indexed[$parentId])) {
+                    $indexed[$parentId]['subitems'][] = &$item;
+                }
+            }
+        }
+        unset($item);
 
-        // The first menu item is usually the Dashboard - use its URL
-        // Don't prepend a fabricated Dashboard link if the actual dashboard item is already there
-        // Check if first item is a dashboard/home link
-        if (
-            !empty($filteredItems) && isset($filteredItems[0]['label']) &&
-            strtolower($filteredItems[0]['label']) === 'dashboard'
-        ) {
-            // First item is already a Dashboard link, use it as-is
-            return $filteredItems;
+        // Sort each level by display_order
+        usort($tree, fn($a, $b) => ($a['display_order'] ?? 0) <=> ($b['display_order'] ?? 0));
+        foreach ($indexed as &$item) {
+            if (!empty($item['subitems'])) {
+                usort($item['subitems'], fn($a, $b) => ($a['display_order'] ?? 0) <=> ($b['display_order'] ?? 0));
+            }
         }
 
-        // If no Dashboard link found, create one using the dashboard key from config
-        // Look for the dashboard route in the original menus (before filtering)
-        $originalMenus = $dashboard['menu_items'] ?? $dashboard['menus'] ?? [];
-        $dashboardUrl = null;
-
-        if (!empty($originalMenus) && isset($originalMenus[0]['url'])) {
-            $dashboardUrl = $originalMenus[0]['url'];
-        }
-
-        // Fallback: if still no dashboard URL, use the key
-        if (!$dashboardUrl) {
-            $dashboardUrl = is_numeric($dashboardKey) ? 'dashboard' : $dashboardKey . '_dashboard';
-        }
-
-        $dashboardItem = [
-            'label' => 'Dashboard',
-            'url' => $dashboardUrl,
-            'icon' => $originalMenus[0]['icon'] ?? 'bi-speedometer2'
-        ];
-
-        array_unshift($filteredItems, $dashboardItem);
-
-        return $filteredItems;
+        return $tree;
     }
 
     /**
      * Filter menu items based on user permissions
-     * Recursively filters subitems as well
      * 
-     * @param array $menuItems Raw menu items
-     * @return array Filtered menu items user has access to
+     * @param array $menuItems Menu items to filter
+     * @return array Filtered menu items
      */
-    private function filterMenuByPermissions($menuItems)
+    public function filterMenuItems($menuItems): array
     {
-        $filtered = [];
-
-        foreach ($menuItems as $item) {
-            // Check if item has permission requirement
-            if (isset($item['permissions'])) {
-                $hasAccess = false;
-                foreach ($item['permissions'] as $perm) {
-                    if (in_array($perm, $this->permissionCache)) {
-                        $hasAccess = true;
-                        break;
-                    }
-                }
-                if (!$hasAccess) {
-                    continue;
-                }
-            }
-
-            // Recursively filter subitems
-            if (isset($item['subitems']) && is_array($item['subitems'])) {
-                $item['subitems'] = $this->filterMenuByPermissions($item['subitems']);
-
-                // Skip item if it has no accessible subitems
-                if (empty($item['subitems'])) {
-                    continue;
-                }
-            }
-
-            $filtered[] = $item;
-        }
-
-        return $filtered;
+        // For database-driven menus, filtering is already done via role_sidebar_menus
+        // This method is kept for backwards compatibility
+        return $menuItems;
     }
 
     /**
      * Check if user can access a specific route
      * 
-     * @param string $route Page/dashboard route name
+     * @param string $route Route name
      * @return bool Whether user can access this route
      */
-    public function canAccessRoute($route)
+    public function canAccessRoute($route): bool
     {
-        // Check all dashboards for this route
-        foreach ($this->dashboardConfig as $dashboard) {
-            if ($dashboard['route'] === $route) {
-                // Found dashboard, check if user can access it
-                $accessible = $this->getAccessibleDashboards();
-                foreach ($accessible as $key => $dash) {
-                    if ($dash['route'] === $route) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-
-            // Check menu items for this route
-            $this->checkMenuRoutes($dashboard['menu_items'] ?? [], $route);
+        $roleIds = $this->getUserRoleIds();
+        if (empty($roleIds)) {
+            return false;
         }
 
-        return true; // Unknown routes allowed (backend will enforce)
-    }
-
-    /**
-     * Helper to check if route exists in menu items
-     * 
-     * @param array $menuItems Menu items to search
-     * @param string $route Route to find
-     * @return bool Whether route found in menu
-     */
-    private function checkMenuRoutes($menuItems, $route)
-    {
-        foreach ($menuItems as $item) {
-            if (($item['url'] ?? null) === $route) {
-                return true;
-            }
-            if (isset($item['subitems'])) {
-                if ($this->checkMenuRoutes($item['subitems'], $route)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT COUNT(*) FROM role_routes rr
+             JOIN routes r ON r.id = rr.route_id
+             WHERE rr.role_id IN ({$placeholders}) AND r.name = ? AND rr.is_allowed = 1"
+        );
+        $params = array_merge($roleIds, [$route]);
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn() > 0;
     }
 
     /**
      * Get dashboard info by route name
      * 
-     * @param string $routeName Route name (e.g., 'admin_dashboard')
+     * @param string $routeName Route name
      * @return array|null Dashboard config or null if not found
      */
-    public function getDashboardByRoute($routeName)
+    public function getDashboardByRoute($routeName): ?array
     {
-        foreach ($this->dashboardConfig as $dashboard) {
-            if ($dashboard['route'] === $routeName) {
-                return $dashboard;
-            }
-        }
-        return null;
+        $stmt = $this->db->prepare(
+            "SELECT d.*, r.name as route_name, r.url as route_url
+             FROM dashboards d
+             JOIN routes r ON r.id = d.route_id
+             WHERE r.name = ? AND d.is_active = 1"
+        );
+        $stmt->execute([$routeName]);
+        $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $result ?: null;
     }
 
     /**
@@ -318,135 +344,125 @@ class DashboardManager
      * 
      * @param string $dashboardKey Current dashboard
      * @param string $currentRoute Current route/page
-     * @return array Breadcrumb trail [['label' => ..., 'url' => ...], ...]
+     * @return array Breadcrumb trail
      */
-    public function getBreadcrumbs($dashboardKey, $currentRoute)
+    public function getBreadcrumbs($dashboardKey, $currentRoute): array
     {
         $breadcrumbs = [];
-        $dashboard = $this->getDashboard($dashboardKey);
 
-        if ($dashboard) {
-            // Add dashboard
-            $breadcrumbs[] = [
-                'label' => $dashboard['label'],
-                'url' => '?route=' . $dashboard['route']
-            ];
+        // Get the menu item for current route
+        $stmt = $this->db->prepare(
+            "SELECT id, label, url, parent_id FROM sidebar_menu_items WHERE url = ? AND is_active = 1"
+        );
+        $stmt->execute([$currentRoute]);
+        $current = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-            // Find current route in menu
-            $menuItems = $this->getMenuItems($dashboardKey);
-            $found = $this->findBreadcrumb($menuItems, $currentRoute, $breadcrumbs);
+        if (!$current) {
+            return $breadcrumbs;
         }
 
-        return $breadcrumbs;
-    }
+        // Build breadcrumb trail by walking up the parent chain
+        $trail = [];
+        $itemId = $current['id'];
+        $visited = [];
 
-    /**
-     * Helper to find breadcrumb path recursively
-     * 
-     * @param array $menuItems Menu items to search
-     * @param string $targetRoute Target route to find
-     * @param array &$breadcrumbs Breadcrumb array to build
-     * @return bool Whether route was found
-     */
-    private function findBreadcrumb($menuItems, $targetRoute, &$breadcrumbs)
-    {
-        foreach ($menuItems as $item) {
-            if (($item['url'] ?? null) === $targetRoute) {
-                $breadcrumbs[] = [
-                    'label' => $item['label'],
-                    'url' => '?route=' . $item['url']
-                ];
-                return true;
-            }
+        while ($itemId !== null && !in_array($itemId, $visited)) {
+            $visited[] = $itemId;
 
-            if (isset($item['subitems'])) {
-                $before = count($breadcrumbs);
-                if ($this->findBreadcrumb($item['subitems'], $targetRoute, $breadcrumbs)) {
-                    // Add parent to breadcrumb
-                    array_splice($breadcrumbs, $before, 0, [
-                        [
-                            'label' => $item['label'],
-                            'url' => null // Parent items not directly clickable
-                        ]
-                    ]);
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Export sidebar as JSON for JavaScript
-     * For faster client-side rendering
-     * 
-     * @param string $dashboardKey Dashboard key
-     * @return string JSON string of menu items
-     */
-    public function getMenuItemsJson($dashboardKey)
-    {
-        return json_encode($this->getMenuItems($dashboardKey));
-    }
-
-    /**
-     * Cache dashboards to file for faster loading
-     * Call this during deployment or configuration changes
-     * 
-     * @param string $cacheDir Directory to store cache files
-     * @return bool Whether cache was created successfully
-     */
-    public function cacheDashboards($cacheDir = null)
-    {
-        if (!$cacheDir) {
-            $cacheDir = __DIR__ . '/../temp/cache';
-        }
-
-        if (!is_dir($cacheDir)) {
-            mkdir($cacheDir, 0755, true);
-        }
-
-        $cacheFile = $cacheDir . '/dashboards_cache.json';
-
-        try {
-            file_put_contents(
-                $cacheFile,
-                json_encode($this->dashboardConfig, JSON_PRETTY_PRINT)
+            $stmt = $this->db->prepare(
+                "SELECT id, label, url, parent_id FROM sidebar_menu_items WHERE id = ?"
             );
-            return true;
-        } catch (Exception $e) {
-            error_log("Failed to cache dashboards: " . $e->getMessage());
-            return false;
+            $stmt->execute([$itemId]);
+            $item = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if ($item) {
+                array_unshift($trail, [
+                    'label' => $item['label'],
+                    'url' => $item['url']
+                ]);
+                $itemId = $item['parent_id'];
+            } else {
+                break;
+            }
         }
+
+        return $trail;
     }
 
     /**
-     * Load dashboards from cache if available
-     * Falls back to config file if cache doesn't exist or is stale
+     * Get sidebar menu for a specific role (for rendering)
      * 
-     * @param string $cacheDir Directory where cache files are stored
-     * @return void
+     * @param int $roleId Role ID
+     * @return array Menu items with hierarchy
      */
-    public function loadFromCacheIfAvailable($cacheDir = null)
+    public function getSidebarForRole(int $roleId): array
     {
-        if (!$cacheDir) {
-            $cacheDir = __DIR__ . '/../temp/cache';
-        }
+        $stmt = $this->db->prepare(
+            "SELECT smi.*, rsm.custom_order
+             FROM sidebar_menu_items smi
+             JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
+             WHERE rsm.role_id = ? AND smi.is_active = 1
+             ORDER BY COALESCE(rsm.custom_order, smi.display_order)"
+        );
+        $stmt->execute([$roleId]);
+        $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        $cacheFile = $cacheDir . '/dashboards_cache.json';
-        $configFile = __DIR__ . '/dashboards.php';
+        return $this->buildMenuHierarchy($items);
+    }
 
-        // Check if cache exists and is newer than config
-        if (file_exists($cacheFile) && file_exists($configFile)) {
-            if (filemtime($cacheFile) >= filemtime($configFile)) {
-                try {
-                    $cached = json_decode(file_get_contents($cacheFile), true);
-                    if ($cached && is_array($cached)) {
-                        $this->dashboardConfig = $cached;
-                    }
-                } catch (Exception $e) {
-                    error_log("Failed to load dashboards from cache: " . $e->getMessage());
-                }
-            }
-        }
+    /**
+     * Get dashboard route for a role (for login redirect)
+     * 
+     * @param int $roleId Role ID
+     * @return string|null Dashboard route name or null
+     */
+    public function getDashboardRouteForRole(int $roleId): ?string
+    {
+        $stmt = $this->db->prepare(
+            "SELECT r.name
+             FROM dashboards d
+             JOIN role_dashboards rd ON rd.dashboard_id = d.id
+             JOIN routes r ON r.id = d.route_id
+             WHERE rd.role_id = ? AND d.is_active = 1
+             ORDER BY rd.is_primary DESC
+             LIMIT 1"
+        );
+        $stmt->execute([$roleId]);
+        $result = $stmt->fetchColumn();
+        return $result ?: null;
+    }
+
+    /**
+     * Check if a dashboard belongs to SYSTEM domain
+     * 
+     * @param string $dashboardName Dashboard name
+     * @return bool
+     */
+    public function isSystemDashboard(string $dashboardName): bool
+    {
+        $stmt = $this->db->prepare(
+            "SELECT domain FROM dashboards WHERE name = ?"
+        );
+        $stmt->execute([$dashboardName]);
+        $domain = $stmt->fetchColumn();
+        return $domain === 'SYSTEM';
+    }
+
+    /**
+     * Get all menu items for a role (flat list for quick lookups)
+     * 
+     * @param int $roleId Role ID
+     * @return array Flat list of menu item URLs
+     */
+    public function getAllMenuRoutesForRole(int $roleId): array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT smi.url
+             FROM sidebar_menu_items smi
+             JOIN role_sidebar_menus rsm ON rsm.menu_item_id = smi.id
+             WHERE rsm.role_id = ? AND smi.is_active = 1 AND smi.url IS NOT NULL"
+        );
+        $stmt->execute([$roleId]);
+        return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 }

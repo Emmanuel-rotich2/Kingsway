@@ -1142,4 +1142,579 @@ class FinanceAPI extends BaseAPI
     {
         return $this->feeManager->getAnnualFeeSummary($academicYear, $levelId);
     }
+
+    // ========================================================================
+    // STAFF CHILDREN FEE DEDUCTIONS - Payroll Integration
+    // ========================================================================
+
+    /**
+     * Get staff list with children info for payroll processing
+     */
+    public function getStaffForPayroll()
+    {
+        try {
+            $sql = "SELECT 
+                        s.id,
+                        s.staff_number,
+                        CONCAT(s.first_name, ' ', s.last_name) AS full_name,
+                        s.first_name,
+                        s.last_name,
+                        s.position,
+                        s.department,
+                        s.basic_salary,
+                        s.employment_status,
+                        (SELECT COUNT(*) FROM staff_children sc WHERE sc.staff_id = s.id) AS children_count
+                    FROM staff s
+                    WHERE s.employment_status = 'active'
+                    ORDER BY s.first_name, s.last_name";
+            $stmt = $this->db->query($sql);
+            $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, $staff, 'Staff list retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get staff details with children and their fee balances
+     */
+    public function getStaffPayrollDetails($staffId)
+    {
+        try {
+            // Get staff info
+            $sql = "SELECT 
+                        s.id,
+                        s.staff_number,
+                        s.first_name,
+                        s.last_name,
+                        s.position,
+                        s.department,
+                        s.basic_salary,
+                        s.employment_status
+                    FROM staff s
+                    WHERE s.id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$staffId]);
+            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$staff) {
+                return formatResponse(false, null, 'Staff not found', 404);
+            }
+
+            // Get children with fee balances
+            $childrenSql = "SELECT 
+                                sc.id AS staff_child_id,
+                                sc.student_id,
+                                sc.relationship,
+                                sc.fee_deduction_enabled,
+                                sc.fee_deduction_percentage,
+                                st.admission_no,
+                                CONCAT(st.first_name, ' ', st.last_name) AS student_name,
+                                c.name AS class_name,
+                                cs.name AS stream_name,
+                                COALESCE(sfb.total_fees, 0) AS total_fees,
+                                COALESCE(sfb.total_paid, 0) AS total_paid,
+                                COALESCE(sfb.balance, 0) AS fee_balance
+                            FROM staff_children sc
+                            JOIN students st ON sc.student_id = st.id
+                            LEFT JOIN class_streams cs ON st.stream_id = cs.id
+                            LEFT JOIN classes c ON cs.class_id = c.id
+                            LEFT JOIN student_fee_balances sfb ON st.id = sfb.student_id 
+                                AND sfb.academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)
+                            WHERE sc.staff_id = ? AND st.status = 'active'
+                            ORDER BY st.first_name";
+            $childrenStmt = $this->db->prepare($childrenSql);
+            $childrenStmt->execute([$staffId]);
+            $children = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $staff['children'] = $children;
+            $staff['has_children'] = count($children) > 0;
+            $staff['total_children_fees'] = array_sum(array_column($children, 'fee_balance'));
+
+            return formatResponse(true, $staff, 'Staff payroll details retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Process payroll with children fee deductions
+     */
+    public function processPayrollWithDeductions($data)
+    {
+        try {
+            $staffId = $data['staff_id'] ?? null;
+            $payrollMonth = $data['payroll_month'] ?? date('n');
+            $payrollYear = $data['payroll_year'] ?? date('Y');
+            $basicSalary = $data['basic_salary'] ?? 0;
+            $allowances = $data['allowances'] ?? [];
+            $otherDeductions = $data['other_deductions'] ?? 0;
+            $childrenDeductions = $data['children_deductions'] ?? [];
+            $processedBy = $data['processed_by'] ?? null;
+
+            if (!$staffId) {
+                return formatResponse(false, null, 'Staff ID required');
+            }
+
+            // Calculate totals
+            $totalAllowances = is_array($allowances)
+                ? array_sum(array_values($allowances))
+                : floatval($allowances);
+
+            $grossSalary = $basicSalary + $totalAllowances;
+
+            // Calculate statutory deductions
+            $nssf = $this->calculateNSSF($grossSalary);
+            $nhif = $this->calculateNHIF($grossSalary);
+            $paye = $this->calculatePAYE($grossSalary - $nssf);
+            $housingLevy = $grossSalary * 0.015;
+
+            // Calculate children fee deduction total
+            $totalChildrenFees = 0;
+            if (is_array($childrenDeductions)) {
+                foreach ($childrenDeductions as $deduction) {
+                    $totalChildrenFees += floatval($deduction['amount'] ?? 0);
+                }
+            }
+
+            $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $totalChildrenFees + $otherDeductions;
+            $netSalary = $grossSalary - $totalDeductions;
+
+            $payrollPeriod = sprintf('%04d-%02d', $payrollYear, $payrollMonth);
+
+            // Start transaction
+            $this->db->beginTransaction();
+
+            // Check if payroll already exists
+            $checkSql = "SELECT id FROM staff_payroll WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?";
+            $checkStmt = $this->db->prepare($checkSql);
+            $checkStmt->execute([$staffId, $payrollMonth, $payrollYear]);
+            $existing = $checkStmt->fetch();
+
+            if ($existing) {
+                // Update existing
+                $sql = "UPDATE staff_payroll SET
+                            basic_salary = ?,
+                            gross_salary = ?,
+                            allowances = ?,
+                            nssf_deduction = ?,
+                            nhif_deduction = ?,
+                            paye_tax = ?,
+                            other_deductions = ?,
+                            total_deductions = ?,
+                            net_salary = ?,
+                            status = 'pending',
+                            updated_at = NOW()
+                        WHERE id = ?";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $basicSalary,
+                    $grossSalary,
+                    $totalAllowances,
+                    $nssf,
+                    $nhif,
+                    $paye,
+                    $otherDeductions + $totalChildrenFees,
+                    $totalDeductions,
+                    $netSalary,
+                    $existing['id']
+                ]);
+                $payrollId = $existing['id'];
+            } else {
+                // Insert new
+                $sql = "INSERT INTO staff_payroll 
+                        (staff_id, payroll_month, payroll_year, payroll_period, basic_salary, 
+                         gross_salary, allowances, nssf_deduction, nhif_deduction, paye_tax, 
+                         other_deductions, total_deductions, deductions, net_salary, status) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([
+                    $staffId,
+                    $payrollMonth,
+                    $payrollYear,
+                    $payrollPeriod,
+                    $basicSalary,
+                    $grossSalary,
+                    $totalAllowances,
+                    $nssf,
+                    $nhif,
+                    $paye,
+                    $otherDeductions + $totalChildrenFees,
+                    $totalDeductions,
+                    $totalDeductions,
+                    $netSalary
+                ]);
+                $payrollId = $this->db->lastInsertId();
+            }
+
+            // Record children fee deductions
+            if (!empty($childrenDeductions)) {
+                foreach ($childrenDeductions as $deduction) {
+                    $studentId = $deduction['student_id'] ?? null;
+                    $amount = floatval($deduction['amount'] ?? 0);
+                    $staffChildId = $deduction['staff_child_id'] ?? null;
+
+                    if ($studentId && $amount > 0) {
+                        // Insert into staff_child_fee_deductions
+                        $dedSql = "INSERT INTO staff_child_fee_deductions 
+                                   (staff_child_id, staff_id, student_id, payslip_id, payroll_month, payroll_year,
+                                    gross_fee_amount, deductible_amount, deducted_amount, status)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                                   ON DUPLICATE KEY UPDATE 
+                                   deducted_amount = VALUES(deducted_amount),
+                                   status = 'pending',
+                                   updated_at = NOW()";
+                        $dedStmt = $this->db->prepare($dedSql);
+                        $dedStmt->execute([
+                            $staffChildId,
+                            $staffId,
+                            $studentId,
+                            $payrollId,
+                            $payrollMonth,
+                            $payrollYear,
+                            $amount,
+                            $amount,
+                            $amount
+                        ]);
+                    }
+                }
+            }
+
+            $this->db->commit();
+
+            // Log action
+            $this->logAction('process_payroll', $payrollId, "Processed payroll with {$totalChildrenFees} in children fees");
+
+            return formatResponse(true, [
+                'payroll_id' => $payrollId,
+                'staff_id' => $staffId,
+                'period' => $payrollPeriod,
+                'basic_salary' => $basicSalary,
+                'gross_salary' => $grossSalary,
+                'total_allowances' => $totalAllowances,
+                'nssf' => $nssf,
+                'nhif' => $nhif,
+                'paye' => $paye,
+                'housing_levy' => $housingLevy,
+                'children_fees' => $totalChildrenFees,
+                'other_deductions' => $otherDeductions,
+                'total_deductions' => $totalDeductions,
+                'net_salary' => $netSalary
+            ], 'Payroll processed successfully');
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get detailed payslip with children fee breakdown
+     */
+    public function getDetailedPayslip($payrollId)
+    {
+        try {
+            // Get payroll record
+            $sql = "SELECT 
+                        sp.*,
+                        s.staff_number,
+                        s.first_name,
+                        s.last_name,
+                        s.position,
+                        s.department,
+                        s.bank_name,
+                        s.bank_account_number
+                    FROM staff_payroll sp
+                    JOIN staff s ON sp.staff_id = s.id
+                    WHERE sp.id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$payrollId]);
+            $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$payroll) {
+                return formatResponse(false, null, 'Payroll record not found', 404);
+            }
+
+            // Get children fee deductions for this payslip
+            $childrenSql = "SELECT 
+                                scfd.*,
+                                st.admission_no,
+                                CONCAT(st.first_name, ' ', st.last_name) AS student_name,
+                                c.name AS class_name
+                            FROM staff_child_fee_deductions scfd
+                            JOIN students st ON scfd.student_id = st.id
+                            LEFT JOIN class_streams cs ON st.stream_id = cs.id
+                            LEFT JOIN classes c ON cs.class_id = c.id
+                            WHERE scfd.payslip_id = ?";
+            $childrenStmt = $this->db->prepare($childrenSql);
+            $childrenStmt->execute([$payrollId]);
+            $childrenDeductions = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $payroll['children_deductions'] = $childrenDeductions;
+            $payroll['total_children_fees'] = array_sum(array_column($childrenDeductions, 'deducted_amount'));
+            $payroll['statutory_deductions'] = [
+                'nssf' => $payroll['nssf_deduction'],
+                'nhif' => $payroll['nhif_deduction'],
+                'paye' => $payroll['paye_tax'],
+                'housing_levy' => $payroll['gross_salary'] * 0.015
+            ];
+
+            return formatResponse(true, $payroll, 'Detailed payslip retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get payroll statistics
+     */
+    public function getPayrollStats($month = null, $year = null)
+    {
+        try {
+            $month = $month ?: date('n');
+            $year = $year ?: date('Y');
+
+            // Total staff
+            $staffSql = "SELECT COUNT(*) FROM staff WHERE employment_status = 'active'";
+            $totalStaff = $this->db->query($staffSql)->fetchColumn();
+
+            // Staff with children
+            $childrenSql = "SELECT COUNT(DISTINCT staff_id) FROM staff_children";
+            $staffWithChildren = $this->db->query($childrenSql)->fetchColumn();
+
+            // This month's totals
+            $payrollSql = "SELECT 
+                                COUNT(*) AS payroll_count,
+                                COALESCE(SUM(net_salary), 0) AS total_net,
+                                COALESCE(SUM(gross_salary), 0) AS total_gross,
+                                COALESCE(SUM(total_deductions), 0) AS total_deductions
+                           FROM staff_payroll 
+                           WHERE payroll_month = ? AND payroll_year = ?";
+            $payrollStmt = $this->db->prepare($payrollSql);
+            $payrollStmt->execute([$month, $year]);
+            $payrollStats = $payrollStmt->fetch(PDO::FETCH_ASSOC);
+
+            // Children fees deducted this month
+            $feesSql = "SELECT COALESCE(SUM(deducted_amount), 0) 
+                        FROM staff_child_fee_deductions 
+                        WHERE payroll_month = ? AND payroll_year = ?";
+            $feesStmt = $this->db->prepare($feesSql);
+            $feesStmt->execute([$month, $year]);
+            $childrenFees = $feesStmt->fetchColumn();
+
+            return formatResponse(true, [
+                'total_staff' => (int) $totalStaff,
+                'staff_with_children' => (int) $staffWithChildren,
+                'this_month_net' => (float) $payrollStats['total_net'],
+                'this_month_gross' => (float) $payrollStats['total_gross'],
+                'children_fees_deducted' => (float) $childrenFees,
+                'payroll_count' => (int) $payrollStats['payroll_count']
+            ], 'Payroll stats retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Calculate NSSF (Kenya 2024 rates)
+     */
+    private function calculateNSSF($grossSalary)
+    {
+        // Tier I: 6% of first 7,000
+        $tierI = min($grossSalary, 7000) * 0.06;
+        // Tier II: 6% of amount between 7,000 and 36,000
+        $tierII = max(0, min($grossSalary - 7000, 29000)) * 0.06;
+        return $tierI + $tierII;
+    }
+
+    /**
+     * Calculate NHIF (Kenya 2024 rates)
+     */
+    private function calculateNHIF($grossSalary)
+    {
+        $rates = [
+            5999 => 150,
+            7999 => 300,
+            11999 => 400,
+            14999 => 500,
+            19999 => 600,
+            24999 => 750,
+            29999 => 850,
+            34999 => 900,
+            39999 => 950,
+            44999 => 1000,
+            49999 => 1100,
+            59999 => 1200,
+            69999 => 1300,
+            79999 => 1400,
+            89999 => 1500,
+            99999 => 1600,
+            PHP_INT_MAX => 1700
+        ];
+        foreach ($rates as $limit => $contribution) {
+            if ($grossSalary <= $limit)
+                return $contribution;
+        }
+        return 1700;
+    }
+
+    /**
+     * Calculate PAYE (Kenya 2024 tax bands)
+     */
+    private function calculatePAYE($taxableIncome)
+    {
+        $bands = [
+            24000 => 0.10,
+            32333 => 0.25,
+            500000 => 0.30,
+            800000 => 0.325,
+            PHP_INT_MAX => 0.35
+        ];
+        $personalRelief = 2400;
+        $tax = 0;
+        $remaining = $taxableIncome;
+        $prevLimit = 0;
+
+        foreach ($bands as $limit => $rate) {
+            $taxable = min($remaining, $limit - $prevLimit);
+            $tax += $taxable * $rate;
+            $remaining -= $taxable;
+            $prevLimit = $limit;
+            if ($remaining <= 0)
+                break;
+        }
+
+        return max(0, $tax - $personalRelief);
+    }
+
+    /**
+     * Get payroll list with filters
+     */
+    public function getPayrollList($filters = [])
+    {
+        try {
+            $sql = "SELECT 
+                        sp.*,
+                        s.staff_number,
+                        CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
+                        s.position,
+                        s.department,
+                        (SELECT COALESCE(SUM(scfd.deducted_amount), 0) 
+                         FROM staff_child_fee_deductions scfd 
+                         WHERE scfd.payslip_id = sp.id) AS children_fees_deducted
+                    FROM staff_payroll sp
+                    JOIN staff s ON sp.staff_id = s.id
+                    WHERE 1=1";
+            $params = [];
+
+            if (!empty($filters['month'])) {
+                $sql .= " AND sp.payroll_month = ?";
+                $params[] = $filters['month'];
+            }
+            if (!empty($filters['year'])) {
+                $sql .= " AND sp.payroll_year = ?";
+                $params[] = $filters['year'];
+            }
+            if (!empty($filters['status'])) {
+                $sql .= " AND sp.status = ?";
+                $params[] = $filters['status'];
+            }
+            if (!empty($filters['search'])) {
+                $sql .= " AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.staff_number LIKE ?)";
+                $search = '%' . $filters['search'] . '%';
+                $params[] = $search;
+                $params[] = $search;
+                $params[] = $search;
+            }
+
+            $sql .= " ORDER BY sp.created_at DESC";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $payrolls = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, $payrolls, 'Payroll list retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Mark payroll as paid and record children fee payments
+     */
+    public function markPayrollPaid($payrollId, $paymentRef = null)
+    {
+        try {
+            $this->db->beginTransaction();
+
+            // Update payroll status
+            $sql = "UPDATE staff_payroll SET 
+                        status = 'paid', 
+                        payment_date = NOW(),
+                        payment_reference = ?
+                    WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$paymentRef, $payrollId]);
+
+            // Update children fee deductions status
+            $dedSql = "UPDATE staff_child_fee_deductions SET status = 'deducted' WHERE payslip_id = ?";
+            $dedStmt = $this->db->prepare($dedSql);
+            $dedStmt->execute([$payrollId]);
+
+            // Record fee payments for children
+            $this->recordChildrenFeePayments($payrollId);
+
+            $this->db->commit();
+            $this->logAction('mark_paid', $payrollId, "Marked payroll as paid with ref: {$paymentRef}");
+
+            return formatResponse(true, ['payroll_id' => $payrollId], 'Payroll marked as paid');
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Record fee payments for children after payroll is paid
+     */
+    private function recordChildrenFeePayments($payrollId)
+    {
+        // Get all children deductions for this payroll
+        $sql = "SELECT scfd.*, sp.payroll_period 
+                FROM staff_child_fee_deductions scfd
+                JOIN staff_payroll sp ON scfd.payslip_id = sp.id
+                WHERE scfd.payslip_id = ?";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$payrollId]);
+        $deductions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($deductions as $deduction) {
+            // Record payment transaction for each child
+            $paymentSql = "INSERT INTO payment_transactions 
+                           (student_id, amount, payment_method, payment_reference, transaction_date, status, notes)
+                           VALUES (?, ?, 'salary_deduction', ?, NOW(), 'confirmed', ?)";
+            $paymentStmt = $this->db->prepare($paymentSql);
+            $paymentStmt->execute([
+                $deduction['student_id'],
+                $deduction['deducted_amount'],
+                "SALARY-" . $deduction['payroll_period'] . "-" . $payrollId,
+                "Deducted from staff salary for period " . $deduction['payroll_period']
+            ]);
+
+            // Update student fee balance
+            $balanceSql = "UPDATE student_fee_balances 
+                           SET total_paid = total_paid + ?, 
+                               balance = balance - ?,
+                               updated_at = NOW()
+                           WHERE student_id = ? 
+                           AND academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)";
+            $balanceStmt = $this->db->prepare($balanceSql);
+            $balanceStmt->execute([
+                $deduction['deducted_amount'],
+                $deduction['deducted_amount'],
+                $deduction['student_id']
+            ]);
+        }
+    }
 }
+

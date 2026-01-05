@@ -3,6 +3,8 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\staff\StaffAPI;
+use RuntimeException;
+use Exception;
 
 /**
  * StaffController - Explicit REST endpoints for Staff Management
@@ -23,6 +25,73 @@ class StaffController extends BaseController
     public function index()
     {
         return $this->success(['message' => 'Staff API is running']);
+    }
+
+    /**
+     * GET /api/staff/stats - Get staff statistics for dashboard
+     * Returns: total staff count, present today, percentage
+     */
+    public function getStats($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = $this->db;
+
+            // Get total staff count by type
+            $totalResult = $db->query(
+                "SELECT COUNT(*) as total FROM staff WHERE status = 'active'"
+            );
+            $totalRow = $totalResult->fetch();
+            $totalStaff = (int) ($totalRow['total'] ?? 0);
+
+            // Get teacher count
+            $teachersResult = $db->query(
+                "SELECT COUNT(*) as count FROM staff WHERE status = 'active' AND staff_type = 'teaching'"
+            );
+            $teachersRow = $teachersResult->fetch();
+            $teacherCount = (int) ($teachersRow['count'] ?? 0);
+
+            // Get staff present today
+            $today = date('Y-m-d');
+            $presentResult = $db->query(
+                "SELECT COUNT(DISTINCT staff_id) as present FROM staff_attendance 
+                 WHERE DATE(date) = ? AND status = 'present'",
+                [$today]
+            );
+            $presentRow = $presentResult->fetch();
+            $staffPresentToday = (int) ($presentRow['present'] ?? 0);
+
+            // Department distribution
+            $deptResult = $db->query(
+                "SELECT d.name as department, COUNT(s.id) as count 
+                 FROM staff s
+                 LEFT JOIN departments d ON s.department_id = d.id
+                 WHERE s.status = 'active'
+                 GROUP BY s.department_id, d.name
+                 ORDER BY count DESC"
+            );
+            $departmentDistribution = [];
+            while ($row = $deptResult->fetch()) {
+                $departmentDistribution[] = [
+                    'department' => $row['department'] ?? 'Unassigned',
+                    'count' => (int) $row['count']
+                ];
+            }
+
+            $percentage = $totalStaff > 0 ? round(($staffPresentToday / $totalStaff) * 100, 2) : 100;
+
+            return $this->success([
+                'total_staff' => $totalStaff,
+                'teacher_count' => $teacherCount,
+                'staff_present_today' => $staffPresentToday,
+                'attendance_percentage' => (float) $percentage,
+                'department_distribution' => $departmentDistribution,
+                'date' => $today,
+                'timestamp' => date('Y-m-d H:i:s')
+            ], 'Staff statistics');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch staff statistics: ' . $e->getMessage());
+        }
     }
 
 

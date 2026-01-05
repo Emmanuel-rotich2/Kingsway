@@ -119,7 +119,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <form id="userForm">
+                <form id="userForm" enctype="multipart/form-data">
                     <input type="hidden" id="userId">
                     <div class="row mb-3">
                         <div class="col-md-6">
@@ -141,6 +141,8 @@
                             <input type="text" id="lastName" class="form-control" required>
                         </div>
                     </div>
+
+                    <!-- Roles -->
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label">Main Role *</label>
@@ -149,18 +151,167 @@
                             </select>
                         </div>
                         <div class="col-md-6">
+                            <label class="form-label">Additional Roles</label>
+                            <div id="extraRolesCreateContainer" class="border rounded p-2" style="max-height:120px;overflow-y:auto;"></div>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
                             <label class="form-label">Status</label>
                             <select id="userStatus" class="form-select">
                                 <option value="active">Active</option>
                                 <option value="inactive">Inactive</option>
                             </select>
                         </div>
-                    </div>
-                    <div class="row mb-3" id="passwordSection">
-                        <div class="col-md-12">
-                            <label class="form-label">Password *</label>
+                        <div class="col-md-6" id="passwordSection">
+                            <label class="form-label">Password</label>
                             <input type="password" id="password" class="form-control">
                             <small class="text-muted">Leave blank to auto-generate (for new users only)</small>
+                        </div>
+                    </div>
+
+                    <!-- Staff info collapsible -->
+                    <div class="accordion" id="staffInfoAccordion">
+                        <div class="accordion-item">
+                            <h2 class="accordion-header" id="headingOne">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#staffInfoCollapse" aria-expanded="false" aria-controls="staffInfoCollapse">
+                                    Staff Information (optional)
+                                </button>
+                            </h2>
+                            <div id="staffInfoCollapse" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#staffInfoAccordion">
+                                <div class="accordion-body">
+                                    <!-- Row 1: Department, Position, Employment Date -->
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Department <span class="text-danger">*</span></label>
+                                            <select id="departmentId" class="form-select">
+                                                <option value="">-- Select Department --</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Position <span class="text-danger">*</span></label>
+                                            <input type="text" id="position" class="form-control" placeholder="e.g. Teacher, Accountant">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Employment Date <span class="text-danger">*</span></label>
+                                            <input type="date" id="employmentDate" class="form-control">
+                                        </div>
+                                    </div>
+                                    <!-- Row 2: Contract Type, Supervisor, Staff Type -->
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Contract Type</label>
+                                            <select id="contractType" class="form-select">
+                                                <option value="">-- Select --</option>
+                                                <option value="permanent">Permanent</option>
+                                                <option value="contract">Contract</option>
+                                                <option value="probation">Probation</option>
+                                                <option value="intern">Intern</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Supervisor</label>
+                                            <select id="supervisorId" class="form-select">
+                                                <option value="">-- Select Supervisor --</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Staff Type</label>
+                                            <select id="staffTypeId" class="form-select">
+                                                <option value="">-- Select Type --</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <!-- Row 3: Staff Category -->
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Staff Category</label>
+                                            <select id="staffCategoryId" class="form-select">
+                                                <option value="">-- Select Category --</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Gender <span class="text-danger">*</span></label>
+                                            <select id="gender" class="form-select">
+                                                <option value="">-- Select --</option>
+                                                <option value="male">Male</option>
+                                                <option value="female">Female</option>
+                                                <option value="other">Other</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
+                                            <input type="date" id="dateOfBirth" class="form-control">
+                                        </div>
+                                    </div>
+                                    <!-- Row 4: Statutory Info -->
+                                    <h6 class="mb-2 mt-3 text-secondary"><i class="bi bi-file-earmark-text"></i> Statutory Information</h6>
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label">NSSF No <span class="text-danger">*</span></label>
+                                            <input type="text" id="nssfNo" class="form-control" placeholder="NSSF Number">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">KRA PIN <span class="text-danger">*</span></label>
+                                            <input type="text" id="kraPin" class="form-control" placeholder="A000000000X">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">NHIF No <span class="text-danger">*</span></label>
+                                            <input type="text" id="nhifNo" class="form-control" placeholder="NHIF Number">
+                                        </div>
+                                    </div>
+                                    <!-- Row 5: Financial Info -->
+                                    <h6 class="mb-2 mt-3 text-secondary"><i class="bi bi-bank"></i> Financial Information</h6>
+                                    <div class="row mb-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Bank Account <span class="text-danger">*</span></label>
+                                            <input type="text" id="bankAccount" class="form-control" placeholder="Bank account number">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Salary <span class="text-danger">*</span></label>
+                                            <div class="input-group">
+                                                <span class="input-group-text">KES</span>
+                                                <input type="number" step="0.01" id="salary" class="form-control" placeholder="0.00">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <!-- Row 6: Personal Info -->
+                                    <h6 class="mb-2 mt-3 text-secondary"><i class="bi bi-person-lines-fill"></i> Additional Personal Info</h6>
+                                    <div class="row mb-2">
+                                        <div class="col-md-4">
+                                            <label class="form-label">Marital Status</label>
+                                            <select id="maritalStatus" class="form-select">
+                                                <option value="">-- Select --</option>
+                                                <option value="single">Single</option>
+                                                <option value="married">Married</option>
+                                                <option value="divorced">Divorced</option>
+                                                <option value="widowed">Widowed</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">TSC No (teachers only)</label>
+                                            <input type="text" id="tscNo" class="form-control" placeholder="TSC Registration Number">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">National ID</label>
+                                            <input type="text" id="nationalId" class="form-control" placeholder="ID Number">
+                                        </div>
+                                    </div>
+                                    <!-- Row 7: Address and Profile -->
+                                    <div class="row mb-2">
+                                        <div class="col-md-6">
+                                            <label class="form-label">Address</label>
+                                            <textarea id="address" class="form-control" rows="2" placeholder="Physical or postal address"></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label">Profile Picture</label>
+                                            <input type="file" id="profilePicFile" class="form-control" accept="image/jpeg,image/png,image/gif,image/webp">
+                                            <small class="text-muted">Accepted: JPG, PNG, GIF, WEBP (max 5MB)</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </form>

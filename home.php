@@ -12,12 +12,12 @@ require_once __DIR__ . '/config/DashboardRouter.php';
 // The actual authentication check happens via JWT token in JavaScript
 $route = $_GET['route'] ?? '';
 
-// If no route specified, redirect to a sensible default immediately
-// Don't show 'loading' which causes flash of wrong content
+// If no route specified, show 'loading' and let JavaScript determine the correct dashboard
+// JavaScript will read JWT token from localStorage and determine the correct dashboard via DashboardRouter
+// This ensures the director gets director_owner_dashboard, not system_administrator_dashboard
 if (empty($route)) {
-    // Redirect immediately - don't wait for JS
-    header('Location: /Kingsway/home.php?route=system_administrator_dashboard');
-    exit();
+    // Use 'loading' placeholder - JavaScript will determine actual dashboard
+    $route = 'loading';
 }
 
 $main_role = 'user'; // Default, will be populated by JavaScript from token
@@ -72,6 +72,7 @@ $roles = [$main_role];
 
     <!-- Application Scripts -->
     <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/components/DataTable.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/index.js?v=<?php echo time(); ?>"></script>
@@ -102,12 +103,37 @@ $roles = [$main_role];
             const route = urlParams.get('route');
 
             // Route is required - if missing, PHP already redirected
-            // Only validate if user has permission for this route
             if (route) {
                 const user = AuthContext.getUser();
                 console.log(`Authenticated as: ${user.username}`);
                 console.log(`Current route: ${route}`);
-                // Continue with normal page load
+
+                // Server-validated sidebar/route guard: ensure current route is allowed
+                // Uses backend UsersAPI::getSidebarItems which filters by effective permissions
+                API.users.getSidebarItems(user.id)
+                    .then(items => {
+                        try {
+                            const allowed = new Set();
+                            const stack = Array.isArray(items) ? items.slice() : (items?.data || []);
+                            while (stack.length) {
+                                const it = stack.pop();
+                                if (it?.url) allowed.add(String(it.url));
+                                if (Array.isArray(it?.subitems)) {
+                                    for (const sub of it.subitems) stack.push(sub);
+                                }
+                            }
+                            if (route && !allowed.has(route)) {
+                                console.warn('Route not permitted by server-filtered sidebar. Redirecting.');
+                                const first = [...allowed][0] || (AuthContext.getDashboardInfo()?.url) || 'home';
+                                window.location.replace(`/Kingsway/home.php?route=${first}`);
+                            }
+                        } catch (e) {
+                            console.warn('Sidebar route guard failed:', e);
+                        }
+                    })
+                    .catch(err => {
+                        console.warn('Failed to fetch sidebar items for guard:', err);
+                    });
             } else {
                 // This shouldn't happen because PHP redirects, but handle it anyway
                 const dashboardInfo = AuthContext.getDashboardInfo();

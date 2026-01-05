@@ -83,22 +83,45 @@ const manageUsersController = {
      * Populate role filter dropdown
      */
     populateRoleFilters: function() {
-        const roleFilter = document.getElementById('roleFilter');
-        const mainRoleSelect = document.getElementById('mainRole');
-        
-        if (roleFilter) {
-            roleFilter.innerHTML = '<option value="">All Roles</option>';
-            this.roles.forEach(role => {
-                roleFilter.innerHTML += `<option value="${role.role_id || role.id}">${role.role_name || role.name}</option>`;
-            });
-        }
-        
-        if (mainRoleSelect) {
-            mainRoleSelect.innerHTML = '<option value="">-- Select Role --</option>';
-            this.roles.forEach(role => {
-                mainRoleSelect.innerHTML += `<option value="${role.role_id || role.id}">${role.role_name || role.name}</option>`;
-            });
-        }
+      const roleFilter = document.getElementById("roleFilter");
+      const mainRoleSelect = document.getElementById("mainRole");
+
+      if (roleFilter) {
+        roleFilter.innerHTML = '<option value="">All Roles</option>';
+        this.roles.forEach((role) => {
+          roleFilter.innerHTML += `<option value="${role.role_id || role.id}">${
+            role.role_name || role.name
+          }</option>`;
+        });
+      }
+
+      if (mainRoleSelect) {
+        mainRoleSelect.innerHTML =
+          '<option value="">-- Select Role --</option>';
+        this.roles.forEach((role) => {
+          mainRoleSelect.innerHTML += `<option value="${
+            role.role_id || role.id
+          }">${role.role_name || role.name}</option>`;
+        });
+      }
+      // Populate additional roles container for create modal
+      const extraCreateContainer = document.getElementById(
+        "extraRolesCreateContainer"
+      );
+      if (extraCreateContainer) {
+        extraCreateContainer.innerHTML = "";
+        this.roles.forEach((role) => {
+          const roleId = role.role_id || role.id;
+          extraCreateContainer.innerHTML += `
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="${roleId}" id="create_role_${roleId}">
+                        <label class="form-check-label" for="create_role_${roleId}">${
+            role.role_name || role.name
+          }</label>
+                    </div>
+                `;
+        });
+      }
     },
 
     /**
@@ -345,85 +368,204 @@ const manageUsersController = {
      */
     saveUser: async function() {
         try {
-            const userId = document.getElementById('userId').value;
-            const formData = {
-                username: document.getElementById('username').value,
-                email: document.getElementById('email').value,
-                first_name: document.getElementById('firstName').value,
-                last_name: document.getElementById('lastName').value,
-                main_role_id: document.getElementById('mainRole').value,
-                status: document.getElementById('userStatus').value
-            };
+          const userId = document.getElementById("userId").value;
 
-            // Add password if creating or if password field has value
-            const passwordField = document.getElementById('password');
-            if (passwordField && passwordField.value) {
-                formData.password = passwordField.value;
+          // Collect selected roles (main + extras)
+          const mainRoleVal = document.getElementById("mainRole").value;
+          const extraRoleVals = [
+            ...document.querySelectorAll(
+              '#extraRolesCreateContainer input[type="checkbox"]:checked'
+            ),
+          ].map((cb) => parseInt(cb.value));
+          const roleSet = new Set();
+          if (mainRoleVal) roleSet.add(parseInt(mainRoleVal));
+          extraRoleVals.forEach((r) => {
+            if (!isNaN(r)) roleSet.add(r);
+          });
+          const roleIds = Array.from(roleSet);
+
+          // Collect optional staff fields from the form if present and include as staff_info
+          const staffFieldMap = {
+            staff_type_id: "staffTypeId",
+            staff_category_id: "staffCategoryId",
+            department_id: "departmentId",
+            supervisor_id: "supervisorId",
+            position: "position",
+            employment_date: "employmentDate",
+            contract_type: "contractType",
+            nssf_no: "nssfNo",
+            kra_pin: "kraPin",
+            nhif_no: "nhifNo",
+            bank_account: "bankAccount",
+            salary: "salary",
+            gender: "gender",
+            marital_status: "maritalStatus",
+            tsc_no: "tscNo",
+            address: "address",
+            date_of_birth: "dateOfBirth",
+            first_name: "firstName",
+            last_name: "lastName",
+          };
+          const staffInfo = {};
+          Object.keys(staffFieldMap).forEach((key) => {
+            const el = document.getElementById(staffFieldMap[key]);
+            if (el && el.value !== undefined && el.value !== "") {
+              staffInfo[key] = el.value;
+            }
+          });
+
+          // Clear previous errors
+          FormValidation.clearAllErrors("userForm");
+
+          // Build base form data for validation
+          const baseData = {
+            username: document.getElementById("username").value,
+            email: document.getElementById("email").value,
+            first_name: document.getElementById("firstName").value,
+            last_name: document.getElementById("lastName").value,
+            role_ids: roleIds,
+            status: document.getElementById("userStatus").value,
+          };
+
+          // Add password if creating or if password field has value
+          const passwordField = document.getElementById("password");
+          if (passwordField && passwordField.value) {
+            baseData.password = passwordField.value;
+          }
+
+          // Validate form data
+          const validation = FormValidation.validateUserForm(
+            baseData,
+            !!userId
+          );
+
+          if (!validation.valid) {
+            // Show validation errors
+            validation.errors.forEach((error) => {
+              showNotification(error, "warning");
+            });
+
+            // Highlight specific fields with errors
+            if (baseData.username) {
+              const usernameResult = FormValidation.validateUsername(
+                baseData.username
+              );
+              if (!usernameResult.valid) {
+                FormValidation.showFieldError("username", usernameResult.error);
+              }
             }
 
-            // Clear previous errors
-            FormValidation.clearAllErrors('userForm');
-
-            // Validate form data
-            const validation = FormValidation.validateUserForm(formData, !!userId);
-            
-            if (!validation.valid) {
-                // Show validation errors
-                validation.errors.forEach(error => {
-                    showNotification(error, 'warning');
-                });
-                
-                // Highlight specific fields with errors
-                if (formData.username) {
-                    const usernameResult = FormValidation.validateUsername(formData.username);
-                    if (!usernameResult.valid) {
-                        FormValidation.showFieldError('username', usernameResult.error);
-                    }
-                }
-                
-                if (formData.email) {
-                    const emailResult = FormValidation.validateEmail(formData.email);
-                    if (!emailResult.valid) {
-                        FormValidation.showFieldError('email', emailResult.error);
-                    }
-                }
-                
-                if (formData.password) {
-                    const passwordResult = FormValidation.validatePassword(formData.password);
-                    if (!passwordResult.valid) {
-                        FormValidation.showFieldError('password', passwordResult.error);
-                    }
-                }
-                
-                if (formData.first_name) {
-                    const firstNameResult = FormValidation.validateName(formData.first_name, 'First name');
-                    if (!firstNameResult.valid) {
-                        FormValidation.showFieldError('firstName', firstNameResult.error);
-                    }
-                }
-                
-                if (formData.last_name) {
-                    const lastNameResult = FormValidation.validateName(formData.last_name, 'Last name');
-                    if (!lastNameResult.valid) {
-                        FormValidation.showFieldError('lastName', lastNameResult.error);
-                    }
-                }
-                
-                return;
+            if (baseData.email) {
+              const emailResult = FormValidation.validateEmail(baseData.email);
+              if (!emailResult.valid) {
+                FormValidation.showFieldError("email", emailResult.error);
+              }
             }
 
-            if (userId) {
-                // Update existing user
-                const response = await API.users.update(userId, formData);
-                showNotification('User updated successfully', 'success');
+            if (baseData.password) {
+              const passwordResult = FormValidation.validatePassword(
+                baseData.password
+              );
+              if (!passwordResult.valid) {
+                FormValidation.showFieldError("password", passwordResult.error);
+              }
+            }
+
+            if (baseData.first_name) {
+              const firstNameResult = FormValidation.validateName(
+                baseData.first_name,
+                "First name"
+              );
+              if (!firstNameResult.valid) {
+                FormValidation.showFieldError(
+                  "firstName",
+                  firstNameResult.error
+                );
+              }
+            }
+
+            if (baseData.last_name) {
+              const lastNameResult = FormValidation.validateName(
+                baseData.last_name,
+                "Last name"
+              );
+              if (!lastNameResult.valid) {
+                FormValidation.showFieldError("lastName", lastNameResult.error);
+              }
+            }
+
+            return;
+          }
+
+          // Check for profile picture file upload
+          const profilePicFile =
+            document.getElementById("profilePicFile")?.files[0];
+
+          // Build FormData for multipart upload if file is present
+          let formData;
+          let useFormData = !!profilePicFile;
+
+          if (useFormData) {
+            formData = new FormData();
+            formData.append("username", baseData.username);
+            formData.append("email", baseData.email);
+            formData.append("first_name", baseData.first_name);
+            formData.append("last_name", baseData.last_name);
+            formData.append("status", baseData.status);
+            formData.append("role_ids", JSON.stringify(roleIds));
+
+            if (baseData.password) {
+              formData.append("password", baseData.password);
+            }
+
+            if (Object.keys(staffInfo).length > 0) {
+              formData.append("staff_info", JSON.stringify(staffInfo));
+            }
+
+            formData.append("profile_pic", profilePicFile);
+          } else {
+            // Use JSON payload
+            formData = { ...baseData };
+            if (Object.keys(staffInfo).length > 0) {
+              formData.staff_info = staffInfo;
+            }
+          }
+
+          if (userId) {
+            // Update existing user
+            if (useFormData) {
+              formData.append("id", userId);
+              await API.apiCall(
+                `/users/user/${userId}`,
+                "PUT",
+                formData,
+                {},
+                { isFile: true }
+              );
             } else {
-                // Create new user
-                const response = await API.users.create(formData);
-                showNotification('User created successfully', 'success');
+              await API.users.update(userId, formData);
             }
+            showNotification("User updated successfully", "success");
+          } else {
+            // Create new user
+            if (useFormData) {
+              await API.apiCall(
+                "/users/user",
+                "POST",
+                formData,
+                {},
+                { isFile: true }
+              );
+            } else {
+              await API.users.create(formData);
+            }
+            showNotification("User created successfully", "success");
+          }
 
-            await this.loadUsers();
-            bootstrap.Modal.getInstance(document.getElementById('userModal')).hide();
+          await this.loadUsers();
+          bootstrap.Modal.getInstance(
+            document.getElementById("userModal")
+          ).hide();
         } catch (error) {
             console.error('Error saving user:', error);
             

@@ -72,4 +72,10 @@ class MediaManager
     {
         return $this->mediaService->getPreviewUrl($mediaId);
     }
+
+    // Import existing file from disk into uploads and register metadata
+    public function import($sourcePath, $context, $entityId = null, $originalName = null, $uploaderId = null, $description = '', $tags = '')
+    {
+        return $this->mediaService->importFile($sourcePath, $context, $entityId, $originalName, $uploaderId, $description, $tags);
+    }
 }

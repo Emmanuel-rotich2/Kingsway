@@ -4,6 +4,8 @@ namespace App\API\Includes;
 require_once __DIR__ . '/BulkOperationsHelper.php';
 require_once __DIR__ . '/ExportHelper.php';
 
+use App\API\Modules\system\MediaManager;
+
 class BulkCrudController {
     private $db;
     private $bulkHelper;
@@ -74,31 +76,38 @@ class BulkCrudController {
                     $this->exportHelper->export($rows, $format, "{$table}_export", $columns);
                     exit;
                 }
-                // Optional: handle profile/doc upload
+                // Optional: handle profile/doc upload (use MediaManager for consistent handling)
                 elseif ($action === 'upload_profile_pic' && $id && isset($extra['profile_pic_column'])) {
                     if (!empty($_FILES['profile_pic'])) {
-                        $targetDir = __DIR__ . "/../../uploads/$table/";
-                        if (!is_dir($targetDir)) mkdir($targetDir, 0777, true);
-                        $filename = "{$table}_" . $id . '_' . time() . '.' . pathinfo($_FILES['profile_pic']['name'], PATHINFO_EXTENSION);
-                        move_uploaded_file($_FILES['profile_pic']['tmp_name'], $targetDir . $filename);
-                        $stmt = $this->db->prepare("UPDATE $table SET {$extra['profile_pic_column']} = ? WHERE $identifier = ?");
-                        $stmt->execute([$filename, $id]);
-                        echo json_encode(['status' => 'success', 'filename' => $filename]);
+                        try {
+                            $mediaManager = new MediaManager($this->db);
+                            $mediaId = $mediaManager->upload($_FILES['profile_pic'], $table, $id, null, null, 'profile picture');
+                            $preview = $mediaManager->getPreviewUrl($mediaId);
+                            // Update existing profile column with preview path for backward compatibility
+                            $stmt = $this->db->prepare("UPDATE $table SET {$extra['profile_pic_column']} = ? WHERE $identifier = ?");
+                            $stmt->execute([$preview ?: $mediaId, $id]);
+                            echo json_encode(['status' => 'success', 'media_id' => $mediaId, 'preview' => $preview]);
+                        } catch (\Exception $e) {
+                            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+                        }
                     } else {
                         echo json_encode(['status' => 'error', 'message' => 'No file uploaded']);
                     }
                     exit;
                 }
-                // Optional: handle document upload
+                // Optional: handle document upload (store via MediaManager and record in document table)
                 elseif ($action === 'upload_document' && $id && isset($extra['document_table'])) {
                     if (!empty($_FILES['document'])) {
-                        $targetDir = __DIR__ . "/../../uploads/{$table}_docs/";
-                        if (!is_dir($targetDir)) mkdir($targetDir, 0777, true);
-                        $filename = "{$table}doc_" . $id . '_' . time() . '.' . pathinfo($_FILES['document']['name'], PATHINFO_EXTENSION);
-                        move_uploaded_file($_FILES['document']['tmp_name'], $targetDir . $filename);
-                        $stmt = $this->db->prepare("INSERT INTO {$extra['document_table']} ({$extra['document_ref_column']}, filename, uploaded_at) VALUES (?, ?, NOW())");
-                        $stmt->execute([$id, $filename]);
-                        echo json_encode(['status' => 'success', 'filename' => $filename]);
+                        try {
+                            $mediaManager = new MediaManager($this->db);
+                            $mediaId = $mediaManager->upload($_FILES['document'], 'documents', $id, null, null, 'document upload');
+                            $preview = $mediaManager->getPreviewUrl($mediaId);
+                            $stmt = $this->db->prepare("INSERT INTO {$extra['document_table']} ({$extra['document_ref_column']}, filename, uploaded_at, media_id) VALUES (?, ?, NOW(), ?)");
+                            $stmt->execute([$id, $preview ?: $mediaId, $mediaId]);
+                            echo json_encode(['status' => 'success', 'media_id' => $mediaId, 'preview' => $preview]);
+                        } catch (\Exception $e) {
+                            echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+                        }
                     } else {
                         echo json_encode(['status' => 'error', 'message' => 'No file uploaded']);
                     }
