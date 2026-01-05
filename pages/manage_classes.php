@@ -1,3 +1,11 @@
+<?php
+/**
+ * Manage Classes Page
+ * HTML structure only - all logic in js/pages/academics.js (academicsController)
+ * Embedded in app_layout.php
+ */
+?>
+
 <!-- Classes Management Page -->
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-primary text-white">
@@ -6,10 +14,10 @@
                 <i class="bi bi-building"></i> Classes Management
             </h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="academicsController.showClassModal()" data-permission="create_class">
+                <button class="btn btn-light btn-sm" onclick="academicsController.showClassModal()" data-permission="academic_create">
                     <i class="bi bi-plus-circle"></i> Add Class
                 </button>
-                <button class="btn btn-light btn-sm" onclick="academicsController.showStreamModal()" data-permission="create_stream">
+                <button class="btn btn-light btn-sm" onclick="academicsController.showStreamModal()" data-permission="academic_create">
                     <i class="bi bi-diagram-3"></i> Add Stream
                 </button>
                 <button class="btn btn-outline-light btn-sm" onclick="academicsController.exportClasses()">
@@ -60,7 +68,7 @@
         <ul class="nav nav-tabs mb-3" id="classesTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="all-tab" data-bs-toggle="tab" data-bs-target="#all-classes" 
-                        type="button" role="tab" onclick="academicsController.loadClasses('all')">
+                        type="button" role="tab" onclick="academicsController.loadClasses(1)">
                     <i class="bi bi-grid"></i> All Classes
                 </button>
             </li>

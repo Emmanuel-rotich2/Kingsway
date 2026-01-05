@@ -30,7 +30,7 @@ abstract class BaseController
     public function __construct()
     {
         $this->db = Database::getInstance();
-        $this->user = $_REQUEST['user'] ?? null;
+        $this->user = $_SERVER['auth_user'] ?? $_REQUEST['user'] ?? null;
         $this->requestId = uniqid('req_');
         $this->module = strtolower(str_replace('Controller', '', $this->getClassName()));
 
@@ -162,6 +162,16 @@ abstract class BaseController
             $message,
             500
         );
+    }
+
+    /**
+     * Legacy method for backwards compatibility
+     * Generic error response - automatically sets 400/500 based on message
+     * @deprecated Use success(), created(), badRequest(), etc. instead
+     */
+    protected function error($message = 'An error occurred', $data = null, $code = 400)
+    {
+        return $this->formatResponse('error', $data, $message, $code);
     }
 
     /**

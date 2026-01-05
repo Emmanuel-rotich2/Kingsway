@@ -25114,9 +25114,8 @@ CREATE TABLE IF NOT EXISTS `students` (
   `student_type_id` int(10) UNSIGNED DEFAULT 1 COMMENT 'Day/Boarding/Weekly boarder - links to student_types',
   `user_id` int(10) UNSIGNED DEFAULT NULL,
   `admission_date` date NOT NULL,
-  `nemis_number` varchar(50) DEFAULT NULL COMMENT 'National NEMIS registration number',
-  `upi` varchar(50) DEFAULT NULL COMMENT 'Unique Personal Identifier (assigned at Grade 3)',
-  `upi_status` enum('not_assigned','assigned','transferred','pending') NOT NULL DEFAULT 'not_assigned' COMMENT 'UPI assignment status',
+  `assessment_number` varchar(50) DEFAULT NULL COMMENT 'National assessment number (UPI/NEMIS)',
+  `assessment_status` enum('not_assigned','pending','assigned','verified','transferred') NOT NULL DEFAULT 'not_assigned' COMMENT 'Assessment number status',
   `status` enum('active','inactive','graduated','transferred','suspended') NOT NULL DEFAULT 'active',
   `photo_url` varchar(255) DEFAULT NULL,
   `qr_code_path` varchar(255) DEFAULT NULL COMMENT 'Path to generated QR code image',
@@ -25129,14 +25128,12 @@ CREATE TABLE IF NOT EXISTS `students` (
   `blood_group` varchar(10) DEFAULT NULL COMMENT 'Blood group (A+, B+, O+, AB+, A-, B-, O-, AB-)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_admission_no` (`admission_no`),
-  UNIQUE KEY `upi` (`upi`),
-  UNIQUE KEY `uk_nemis` (`nemis_number`),
+  UNIQUE KEY `uk_assessment_number` (`assessment_number`),
   KEY `idx_stream` (`stream_id`),
   KEY `idx_student_type` (`student_type_id`),
   KEY `idx_user` (`user_id`),
   KEY `idx_status` (`status`),
-  KEY `idx_upi` (`upi`),
-  KEY `idx_upi_status` (`upi_status`),
+  KEY `idx_assessment_status` (`assessment_status`),
   KEY `idx_sponsored` (`is_sponsored`),
   KEY `idx_sponsor_type` (`sponsor_type`),
   KEY `idx_qr_code` (`qr_code_path`)
@@ -25159,10 +25156,10 @@ TRUNCATE TABLE `students`;
 -- Dumping data for table `students`
 --
 
-INSERT DELAYED IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `user_id`, `admission_date`, `nemis_number`, `upi`, `upi_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
-(101, 'ADM101', 'John', NULL, 'Doe', '2012-01-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
-(102, 'ADM102', 'Jane', NULL, 'Smith', '2012-02-01', 'female', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
-(103, 'ADM103', 'Ali', NULL, 'Omondi', '2012-03-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL);
+INSERT DELAYED IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `user_id`, `admission_date`, `assessment_number`, `assessment_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
+(101, 'ADM101', 'John', NULL, 'Doe', '2012-01-01', 'male', 1, 1, NULL, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
+(102, 'ADM102', 'Jane', NULL, 'Smith', '2012-02-01', 'female', 1, 1, NULL, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
+(103, 'ADM103', 'Ali', NULL, 'Omondi', '2012-03-01', 'male', 1, 1, NULL, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL);
 
 --
 -- Triggers `students`

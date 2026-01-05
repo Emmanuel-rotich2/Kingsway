@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\students\StudentsAPI;
 use Exception;
+use RuntimeException;
 
 /**
  * StudentsController - REST endpoints for all student operations
@@ -22,7 +23,7 @@ class StudentsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->mediaManager = new MediaManager($this->db);
+        $this->mediaManager = new MediaManager($this->db->getConnection());
         $this->api = new StudentsAPI();
     }
     public function index()
@@ -31,7 +32,6 @@ class StudentsController extends BaseController
     }
 
     // --- Media Operations ---
-    // Upload student document or photo
     public function postMediaUpload($id = null, $data = [], $segments = [])
     {
         $studentId = $data['student_id'] ?? $id ?? null;
@@ -1132,5 +1132,329 @@ class StudentsController extends BaseController
     private function getCurrentUserId()
     {
         return $this->user['id'] ?? null;
+    }
+
+    /**
+     * GET /api/students/stats - Get student statistics for dashboard
+     * Returns: total count, growth percent, recent admissions
+     */
+    public function getStats($id = null, $data = [], $segments = [])
+    {
+        try {
+            // Total students count
+            $totalResult = $this->db->query("SELECT COUNT(*) as total FROM students WHERE status = 'active'");
+            if (!$totalResult) {
+                throw new Exception("Query failed on COUNT");
+            }
+            $totalRow = $totalResult->fetch();
+            $totalStudents = $totalRow['total'] ?? 0;
+
+            // Grade Distribution
+            $gradeResult = $this->db->query(
+                "SELECT current_grade as grade, COUNT(*) as count FROM students 
+                 WHERE status = 'active' AND current_grade IS NOT NULL 
+                 GROUP BY current_grade ORDER BY current_grade"
+            );
+            $gradeDistribution = [];
+            while ($row = $gradeResult->fetch()) {
+                $gradeDistribution[] = [
+                    'grade' => $row['grade'] ?? 'Unassigned',
+                    'count' => (int) $row['count']
+                ];
+            }
+
+            // Class Financials (students per class with fee collection)
+            $classFinancialsResult = $this->db->query(
+                "SELECT c.name as class_name, COUNT(DISTINCT ce.student_id) as student_count,
+                        COALESCE(SUM(pt.amount), 0) as total_fees
+                 FROM class_enrollments ce
+                 LEFT JOIN classes c ON ce.class_id = c.id
+                 LEFT JOIN students s ON ce.student_id = s.id
+                 LEFT JOIN payment_transactions pt ON s.id = pt.student_id 
+                     AND YEAR(pt.transaction_date) = YEAR(NOW())
+                     AND MONTH(pt.transaction_date) = MONTH(NOW())
+                 WHERE s.status = 'active'
+                 GROUP BY c.id, c.name
+                 ORDER BY c.name"
+            );
+            $classFinancials = [];
+            while ($row = $classFinancialsResult->fetch()) {
+                $classFinancials[] = [
+                    'class_name' => $row['class_name'] ?? 'Unknown',
+                    'student_count' => (int) $row['student_count'],
+                    'total_fees' => (float) ($row['total_fees'] ?? 0)
+                ];
+            }
+
+            // Growth percent (admissions this month vs last month)
+            $thisMonthResult = $this->db->query(
+                "SELECT COUNT(*) as current FROM students WHERE MONTH(admission_date) = MONTH(NOW()) AND YEAR(admission_date) = YEAR(NOW()) AND status = 'active'"
+            );
+            $thisMonthRow = $thisMonthResult->fetch();
+            $thisMonthCount = $thisMonthRow['current'] ?? 0;
+
+            $lastMonthResult = $this->db->query(
+                "SELECT COUNT(*) as last FROM students WHERE MONTH(admission_date) = MONTH(DATE_SUB(NOW(), INTERVAL 1 MONTH)) AND YEAR(admission_date) = YEAR(DATE_SUB(NOW(), INTERVAL 1 MONTH)) AND status = 'active'"
+            );
+            $lastMonthRow = $lastMonthResult->fetch();
+            $lastMonthCount = $lastMonthRow['last'] ?? 0;
+
+            $growthPercent = $lastMonthCount > 0 ? round((($thisMonthCount - $lastMonthCount) / $lastMonthCount) * 100, 1) : 0;
+
+            // Recent admissions (last 8)
+            $admissionsResult = $this->db->query(
+                "SELECT id, first_name, last_name, admission_date FROM students WHERE status = 'active' ORDER BY admission_date DESC LIMIT 8"
+            );
+            $recentAdmissions = [];
+            while ($row = $admissionsResult->fetch()) {
+                $recentAdmissions[] = [
+                    'id' => $row['id'],
+                    'student_name' => $row['first_name'] . ' ' . $row['last_name'],
+                    'admission_date' => $row['admission_date'],
+                    'status' => 'Active'
+                ];
+            }
+
+            return $this->success([
+                'total_students' => $totalStudents,
+                'growth_percent' => $growthPercent,
+                'grade_distribution' => $gradeDistribution,
+                'class_financials' => $classFinancials,
+                'recent_admissions' => $recentAdmissions
+            ], 'Student statistics retrieved');
+        } catch (Exception $e) {
+            return $this->error('Failed to retrieve student statistics: ' . $e->getMessage());
+        }
+    }
+
+    // ========================================
+    // SECTION: Family Groups Management
+    // ========================================
+
+    /**
+     * GET /api/students/family-groups/list
+     * List all parents/guardians with filters
+     */
+    public function getFamilyGroupsList($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $filters = array_merge($_GET, $data);
+        $result = $familyManager->getParents($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/family-groups/search?q=term
+     * Search family groups by parent name, ID, phone, or child details
+     */
+    public function getFamilyGroupsSearch($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $searchTerm = $_GET['q'] ?? $data['q'] ?? '';
+        $limit = (int) ($_GET['limit'] ?? $data['limit'] ?? 50);
+        $offset = (int) ($_GET['offset'] ?? $data['offset'] ?? 0);
+
+        $result = $familyManager->searchFamilyGroups($searchTerm, $limit, $offset);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/family-groups/stats
+     * Get family group statistics
+     */
+    public function getFamilyGroupsStats($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $result = $familyManager->getFamilyGroupStats();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/family-groups/view
+     * Get family groups view data
+     */
+    public function getFamilyGroupsView($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $filters = array_merge($_GET, $data);
+        $result = $familyManager->getFamilyGroupsView($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/parents/list
+     * Alias for family-groups/list
+     */
+    public function getParentsList($id = null, $data = [], $segments = [])
+    {
+        return $this->getFamilyGroupsList($id, $data, $segments);
+    }
+
+    /**
+     * GET /api/students/parents/get?parent_id=X
+     * Get parent details with all children
+     */
+    public function getParentsGet($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $_GET['parent_id'] ?? $data['parent_id'] ?? $id ?? null;
+
+        if (!$parentId) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = $familyManager->getParentDetails((int) $parentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/parents/children?parent_id=X
+     * Get all children for a parent
+     */
+    public function getParentsChildren($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $_GET['parent_id'] ?? $data['parent_id'] ?? $id ?? null;
+
+        if (!$parentId) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = $familyManager->getParentChildren((int) $parentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/parents/create
+     * Create a new parent
+     */
+    public function postParentsCreate($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $result = $familyManager->createParent($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/students/parents/update?parent_id=X
+     * Update a parent
+     */
+    public function putParentsUpdate($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $_GET['parent_id'] ?? $data['parent_id'] ?? $id ?? null;
+
+        if (!$parentId) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = $familyManager->updateParent((int) $parentId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/parents/update
+     * Update a parent (POST alternative)
+     */
+    public function postParentsUpdate($id = null, $data = [], $segments = [])
+    {
+        return $this->putParentsUpdate($id, $data, $segments);
+    }
+
+    /**
+     * DELETE /api/students/parents/delete?parent_id=X
+     * Delete (deactivate) a parent
+     */
+    public function deleteParentsDelete($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $_GET['parent_id'] ?? $data['parent_id'] ?? $id ?? null;
+
+        if (!$parentId) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = $familyManager->deleteParent((int) $parentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/parents/delete
+     * Delete (deactivate) a parent (POST alternative)
+     */
+    public function postParentsDelete($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteParentsDelete($id, $data, $segments);
+    }
+
+    /**
+     * POST /api/students/parents/link-child
+     * Link a parent to a student
+     */
+    public function postParentsLinkChild($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $data['parent_id'] ?? null;
+        $studentId = $data['student_id'] ?? null;
+
+        if (!$parentId || !$studentId) {
+            return $this->badRequest('Parent ID and Student ID are required');
+        }
+
+        $linkData = [
+            'relationship' => $data['relationship'] ?? 'guardian',
+            'is_primary_contact' => $data['is_primary_contact'] ?? 0,
+            'is_emergency_contact' => $data['is_emergency_contact'] ?? 0,
+            'financial_responsibility' => $data['financial_responsibility'] ?? 100.00
+        ];
+
+        $result = $familyManager->linkParentToStudent((int) $parentId, (int) $studentId, $linkData);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/parents/unlink-child
+     * Unlink a parent from a student
+     */
+    public function postParentsUnlinkChild($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $data['parent_id'] ?? null;
+        $studentId = $data['student_id'] ?? null;
+
+        if (!$parentId || !$studentId) {
+            return $this->badRequest('Parent ID and Student ID are required');
+        }
+
+        $result = $familyManager->unlinkParentFromStudent((int) $parentId, (int) $studentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/parents/available-students?parent_id=X
+     * Get students available to be linked to a parent
+     */
+    public function getParentsAvailableStudents($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $parentId = $_GET['parent_id'] ?? $data['parent_id'] ?? $id ?? null;
+
+        if (!$parentId) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = $familyManager->getAvailableStudentsForParent((int) $parentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/students/without-parents
+     * Get students not linked to any parent
+     */
+    public function getWithoutParents($id = null, $data = [], $segments = [])
+    {
+        $familyManager = new \App\API\Modules\students\FamilyGroupsManager();
+        $result = $familyManager->getStudentsWithoutParents();
+        return $this->handleResponse($result);
     }
 }

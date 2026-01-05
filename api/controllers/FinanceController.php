@@ -350,6 +350,103 @@ class FinanceController extends BaseController
     }
 
     // ========================================
+    // SECTION 2B: Enhanced Payroll with Children Fees
+    // ========================================
+
+    /**
+     * GET /api/finance/staff-for-payroll
+     * Get list of staff available for payroll processing with children count
+     */
+    public function getStaffForPayroll($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getStaffForPayroll();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/staff-payroll-details?staff_id=X
+     * Get detailed staff info including children and fee balances
+     */
+    public function getStaffPayrollDetails($id = null, $data = [], $segments = [])
+    {
+        $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? $id ?? null;
+
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $result = $this->api->getStaffPayrollDetails($staffId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/process-payroll-with-deductions
+     * Process payroll including children school fee deductions
+     */
+    public function postProcessPayrollWithDeductions($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->processPayrollWithDeductions($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/detailed-payslip?payroll_id=X
+     * Get detailed payslip with children fee deductions breakdown
+     */
+    public function getDetailedPayslip($id = null, $data = [], $segments = [])
+    {
+        $payrollId = $_GET['payroll_id'] ?? $data['payroll_id'] ?? $id ?? null;
+
+        if (!$payrollId) {
+            return $this->badRequest('Payroll ID is required');
+        }
+
+        $result = $this->api->getDetailedPayslip($payrollId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/payroll-stats?month=X&year=Y
+     * Get payroll statistics for dashboard
+     */
+    public function getPayrollStats($id = null, $data = [], $segments = [])
+    {
+        $month = $_GET['month'] ?? $data['month'] ?? date('n');
+        $year = $_GET['year'] ?? $data['year'] ?? date('Y');
+
+        $result = $this->api->getPayrollStats($month, $year);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/payroll-list
+     * Get filtered payroll records
+     */
+    public function getPayrollList($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $result = $this->api->getPayrollList($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/mark-payroll-paid
+     * Mark payroll as paid and record children fee payments
+     */
+    public function postMarkPayrollPaid($id = null, $data = [], $segments = [])
+    {
+        $payrollId = $data['payroll_id'] ?? $id ?? null;
+
+        if (!$payrollId) {
+            return $this->badRequest('Payroll ID is required');
+        }
+
+        $paymentRef = $data['payment_reference'] ?? '';
+        $result = $this->api->markPayrollPaid($payrollId, $paymentRef);
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
     // SECTION 3: Payment & Receipt Operations
     // ========================================
 

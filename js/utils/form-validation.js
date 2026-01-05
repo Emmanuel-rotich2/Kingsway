@@ -180,65 +180,74 @@ const FormValidation = {
      * Comprehensive user form validation
      */
     validateUserForm(formData, isUpdate = false) {
-        const errors = [];
+      const errors = [];
 
-        // Username validation
-        if (!isUpdate || formData.username !== undefined) {
-            const result = this.validateUsername(formData.username);
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      // Username validation
+      if (!isUpdate || formData.username !== undefined) {
+        const result = this.validateUsername(formData.username);
+        if (!result.valid) {
+          errors.push(result.error);
         }
+      }
 
-        // Email validation
-        if (!isUpdate || formData.email !== undefined) {
-            const result = this.validateEmail(formData.email);
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      // Email validation
+      if (!isUpdate || formData.email !== undefined) {
+        const result = this.validateEmail(formData.email);
+        if (!result.valid) {
+          errors.push(result.error);
         }
+      }
 
-        // Password validation (required for create, optional for update)
-        if (!isUpdate) {
-            const result = this.validatePassword(formData.password);
-            if (!result.valid) {
-                errors.push(result.error);
-            }
-        } else if (formData.password && formData.password !== '') {
-            const result = this.validatePassword(formData.password);
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      // Password validation (required for create, optional for update)
+      if (!isUpdate) {
+        const result = this.validatePassword(formData.password);
+        if (!result.valid) {
+          errors.push(result.error);
         }
-
-        // First name validation
-        if (!isUpdate || formData.first_name !== undefined) {
-            const result = this.validateName(formData.first_name, 'First name');
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      } else if (formData.password && formData.password !== "") {
+        const result = this.validatePassword(formData.password);
+        if (!result.valid) {
+          errors.push(result.error);
         }
+      }
 
-        // Last name validation
-        if (!isUpdate || formData.last_name !== undefined) {
-            const result = this.validateName(formData.last_name, 'Last name');
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      // First name validation
+      if (!isUpdate || formData.first_name !== undefined) {
+        const result = this.validateName(formData.first_name, "First name");
+        if (!result.valid) {
+          errors.push(result.error);
         }
+      }
 
-        // Status validation
-        if (formData.status !== undefined) {
-            const result = this.validateStatus(formData.status);
-            if (!result.valid) {
-                errors.push(result.error);
-            }
+      // Last name validation
+      if (!isUpdate || formData.last_name !== undefined) {
+        const result = this.validateName(formData.last_name, "Last name");
+        if (!result.valid) {
+          errors.push(result.error);
         }
+      }
 
-        return {
-            valid: errors.length === 0,
-            errors: errors
-        };
+      // Status validation
+      if (formData.status !== undefined) {
+        const result = this.validateStatus(formData.status);
+        if (!result.valid) {
+          errors.push(result.error);
+        }
+      }
+
+      // Role(s) validation - ensure at least one role selected on create
+      if (!isUpdate) {
+        const roleIds = formData.role_ids || formData.role_id || [];
+        const count = Array.isArray(roleIds) ? roleIds.length : roleIds ? 1 : 0;
+        if (count === 0) {
+          errors.push("At least one role must be selected");
+        }
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors: errors,
+      };
     },
 
     /**

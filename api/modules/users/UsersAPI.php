@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\MenuBuilderService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -244,6 +245,45 @@ class UsersAPI extends BaseAPI
     }
     public function create($data)
     {
+        // Normalize incoming payload: accept flattened staff fields (staff_type_id, department_id, etc.)
+        // and move them into `staff_info` expected by business logic/validation.
+        $staffFieldKeys = [
+            'staff_type_id',
+            'staff_category_id',
+            'department_id',
+            'supervisor_id',
+            'position',
+            'employment_date',
+            'contract_type',
+            'nssf_no',
+            'kra_pin',
+            'nhif_no',
+            'bank_account',
+            'salary',
+            'gender',
+            'marital_status',
+            'tsc_no',
+            'address',
+            'profile_pic_url',
+            'documents_folder',
+            'date_of_birth',
+            'first_name',
+            'last_name'
+        ];
+        if (empty($data['staff_info'])) {
+            $staffInfo = [];
+            foreach ($staffFieldKeys as $k) {
+                if (isset($data[$k])) {
+                    $staffInfo[$k] = $data[$k];
+                    // keep payload tidy by unsetting top-level staff fields (optional)
+                    unset($data[$k]);
+                }
+            }
+            if (!empty($staffInfo)) {
+                $data['staff_info'] = $staffInfo;
+            }
+        }
+
         // Validate input data
         $validation = ValidationHelper::validateUserData($data, $this->db, false);
 
@@ -257,17 +297,17 @@ class UsersAPI extends BaseAPI
 
         $validatedData = $validation['data'];
 
-        // Extract role_ids from input
+        // Extract role_ids from input (accept role_ids array or single role_id)
         $roleIds = [];
         if (isset($data['role_ids']) && is_array($data['role_ids'])) {
-            $roleIds = array_filter($data['role_ids'], 'is_numeric');
+            $roleIds = array_values(array_filter($data['role_ids'], 'is_numeric'));
         } elseif (isset($data['role_id']) && is_numeric($data['role_id'])) {
-            $roleIds = [$data['role_id']];
+            $roleIds = [(int) $data['role_id']];
         }
 
-        // Default to role_id 1 if no roles provided
+        // Do not auto-assign a default role. Role must be provided by frontend.
         if (empty($roleIds)) {
-            $roleIds = [1];
+            throw new Exception('Role ID(s) must be provided on user creation');
         }
 
         // Start transaction for atomicity
@@ -276,10 +316,11 @@ class UsersAPI extends BaseAPI
         try {
             // STEP 1: Create user record with PRIMARY role only
             // The primary role goes in users.role_id
-            $primaryRoleId = $roleIds[0] ?? 1;
+            $primaryRoleId = $roleIds[0];
 
-            $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            // Allow optional user fields to be set at creation time
+            $sql = 'INSERT INTO users (username, email, password, first_name, last_name, role_id, status, last_login, password_changed_at, failed_login_attempts, account_locked_until, password_expires_at, force_password_change, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
@@ -289,7 +330,13 @@ class UsersAPI extends BaseAPI
                 $validatedData['first_name'],
                 $validatedData['last_name'],
                 $primaryRoleId,
-                $validatedData['status'] ?? 'active'
+                $validatedData['status'] ?? 'active',
+                $data['last_login'] ?? null,
+                $data['password_changed_at'] ?? null,
+                $data['failed_login_attempts'] ?? 0,
+                $data['account_locked_until'] ?? null,
+                $data['password_expires_at'] ?? null,
+                $data['force_password_change'] ?? 0
             ]);
 
             if (!$ok) {
@@ -297,11 +344,13 @@ class UsersAPI extends BaseAPI
             }
 
             $userId = $this->db->lastInsertId();
+            error_log("User creation: inserted id=$userId");
 
             // STEP 2: Assign PRIMARY role and copy its permissions
             // Only the primary role is assigned to user_roles (for consistency)
             $rolesAssigned = 0;
             $roleResult = $this->userRoleManager->assignRole($userId, $primaryRoleId);
+            error_log("User creation: assignRole result=" . json_encode($roleResult));
             if ($roleResult['success']) {
                 $rolesAssigned++;
             } else {
@@ -332,19 +381,43 @@ class UsersAPI extends BaseAPI
                 }
             }
 
-            // STEP 4: Add to staff table (unless system_admin or superuser)
+            // STEP 4: Add to staff table (only if front-end provided staff_info). Do NOT auto-create staff without explicit data.
             $isSystemAdmin = $this->isSystemAdmin($roleIds);
-            if (!$isSystemAdmin) {
-                // Use provided staff_info or create default from user data
-                $staffInfo = isset($data['staff_info']) ? $data['staff_info'] : [
-                    'first_name' => $validatedData['first_name'],
-                    'last_name' => $validatedData['last_name'],
-                    'position' => $data['position'] ?? 'Staff',
-                    'employment_date' => date('Y-m-d'),
-                    'contract_type' => $data['contract_type'] ?? 'permanent'
-                ];
+            if (!$isSystemAdmin && isset($data['staff_info']) && is_array($data['staff_info'])) {
+                $staffInfo = $data['staff_info'];
+
+                // Required staff fields for payroll/legal reasons
+                $requiredStaffFields = ['department_id', 'position', 'employment_date', 'date_of_birth', 'nssf_no', 'kra_pin', 'nhif_no', 'bank_account', 'salary'];
+                $missingStaff = [];
+                foreach ($requiredStaffFields as $f) {
+                    if (empty($staffInfo[$f])) {
+                        $missingStaff[] = $f;
+                    }
+                }
+                if (!empty($missingStaff)) {
+                    throw new Exception('Missing required staff fields: ' . implode(', ', $missingStaff));
+                }
+
+                // TSC number required for teacher-like roles
+                $primaryRoleId = $roleIds[0] ?? null;
+                if ($primaryRoleId) {
+                    $cat = $this->getStaffCategoryIdForRole($primaryRoleId);
+                    // If mapping indicates teacher types (cat values for teachers are 4,6,8 etc.) require tsc_no
+                    $teacherCategories = [4, 6, 8];
+                    if (in_array($cat, $teacherCategories) && empty($staffInfo['tsc_no'])) {
+                        throw new Exception('tsc_no is required for Teacher role');
+                    }
+                }
+
                 // Pass roleIds to allow intelligent department/type/category mapping
-                $this->addToStaffTable($userId, $staffInfo, $roleIds);
+                $staffId = $this->addToStaffTable($userId, $staffInfo, $roleIds);
+                if (!$staffId) {
+                    throw new Exception('Failed to add staff record');
+                }
+            } elseif (!$isSystemAdmin) {
+                // If not system admin and no staff_info provided, enforce explicitness
+                // Do NOT auto-add staff. Frontend must create staff explicitly if needed.
+                // We don't throw here to allow non-staff users to be created, but we require explicit staff creation when needed.
             }
 
             // STEP 5: Audit log
@@ -372,6 +445,8 @@ class UsersAPI extends BaseAPI
             error_log("User creation error: " . $e->getMessage());
             return ['success' => false, 'error' => $e->getMessage()];
         }
+        error_log($e->getTraceAsString());
+
     }
 
     public function bulkCreate($data)
@@ -386,9 +461,45 @@ class UsersAPI extends BaseAPI
         $failed = [];
 
         try {
-            $stmt = $this->db->prepare('INSERT INTO users (username, email, password, first_name, last_name, role_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
+            $stmt = $this->db->prepare('INSERT INTO users (username, email, password, first_name, last_name, role_id, status, last_login, password_changed_at, failed_login_attempts, account_locked_until, password_expires_at, force_password_change, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
+                // Normalize top-level staff fields into staff_info for each user record
+                $staffFieldKeys = [
+                    'staff_type_id',
+                    'staff_category_id',
+                    'department_id',
+                    'supervisor_id',
+                    'position',
+                    'employment_date',
+                    'contract_type',
+                    'nssf_no',
+                    'kra_pin',
+                    'nhif_no',
+                    'bank_account',
+                    'salary',
+                    'gender',
+                    'marital_status',
+                    'tsc_no',
+                    'address',
+                    'profile_pic_url',
+                    'documents_folder',
+                    'date_of_birth',
+                    'first_name',
+                    'last_name'
+                ];
+                if (empty($userData['staff_info'])) {
+                    $staffInfoLocal = [];
+                    foreach ($staffFieldKeys as $k) {
+                        if (isset($userData[$k])) {
+                            $staffInfoLocal[$k] = $userData[$k];
+                            unset($userData[$k]);
+                        }
+                    }
+                    if (!empty($staffInfoLocal)) {
+                        $userData['staff_info'] = $staffInfoLocal;
+                    }
+                }
                 // Validate required fields
                 if (empty($userData['username']) || empty($userData['email']) || empty($userData['password'])) {
                     $failed[] = [
@@ -419,7 +530,13 @@ class UsersAPI extends BaseAPI
                         $userData['first_name'] ?? '',
                         $userData['last_name'] ?? '',
                         $roleIds[0] ?? 1,
-                        $userData['status'] ?? 'active'
+                        $userData['status'] ?? 'active',
+                        $userData['last_login'] ?? null,
+                        $userData['password_changed_at'] ?? null,
+                        $userData['failed_login_attempts'] ?? 0,
+                        $userData['account_locked_until'] ?? null,
+                        $userData['password_expires_at'] ?? null,
+                        $userData['force_password_change'] ?? 0
                     ]);
 
                     if (!$ok) {
@@ -688,34 +805,32 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'user_id required'];
         }
 
-        // Get user's main role with role_id
+        // Get all roles for the user
         $rolesResult = $this->userRoleManager->getUserRoles($userId);
-        if (!$rolesResult['success'] || empty($rolesResult['data'])) {
-            // Fallback: return a minimal menu
-            return [
-                'success' => true,
-                'data' => [
-                    [
-                        'label' => 'Dashboard',
-                        'icon' => 'bi bi-speedometer2',
-                        'url' => 'dashboard'
-                    ]
-                ]
-            ];
+        $roleIds = [];
+        if ($rolesResult['success'] && !empty($rolesResult['data'])) {
+            foreach ($rolesResult['data'] as $role) {
+                $roleIds[] = $role['role_id'] ?? $role['id'] ?? null;
+            }
+            $roleIds = array_values(array_filter(array_unique($roleIds)));
         }
 
-        $mainRole = $rolesResult['data'][0];
-        $roleId = $mainRole['role_id'] ?? $mainRole['id'] ?? null;
+        // Use MenuBuilderService to build sidebar (ensures consistency with login response)
+        $items = [];
+        if (!empty($roleIds)) {
+            try {
+                $menuBuilder = MenuBuilderService::getInstance();
 
-        // Load comprehensive dashboard config
-        $dashboardsConfig = include(__DIR__ . '/../../includes/dashboards.php');
-
-        // Get menu items for this role
-        $items = $dashboardsConfig[$roleId]['menus'] ?? [];
-
-        // Fallback to System Administrator (role_id: 2) if not found
-        if (empty($items)) {
-            $items = $dashboardsConfig[2]['menus'] ?? [];
+                // If single role, use buildSidebarForUser; if multiple, use buildSidebarForMultipleRoles
+                if (count($roleIds) === 1) {
+                    $items = $menuBuilder->buildSidebarForUser($userId, $roleIds[0]);
+                } else {
+                    $items = $menuBuilder->buildSidebarForMultipleRoles($userId, $roleIds);
+                }
+            } catch (\Exception $e) {
+                error_log("UsersAPI.getSidebarItems() MenuBuilderService error: " . $e->getMessage());
+                $items = [];
+            }
         }
 
         return ['success' => true, 'data' => $items];
@@ -1021,6 +1136,14 @@ class UsersAPI extends BaseAPI
             // Determine staff category intelligently or use provided value
             $staffCategoryId = $staffInfo['staff_category_id'] ?? ($primaryRoleId ? $this->getStaffCategoryIdForRole($primaryRoleId) : null);
 
+            // Enforce mandatory payroll fields for staff (NSSF/KRA/NHIF/bank/salary)
+            $requiredPayroll = ['nssf_no', 'kra_pin', 'nhif_no', 'bank_account', 'salary'];
+            foreach ($requiredPayroll as $pf) {
+                if (empty($staffInfo[$pf])) {
+                    throw new Exception("Missing required staff payroll field: $pf");
+                }
+            }
+
             // Generate next KWPS staff number (KWPS001, KWPS002, etc.)
             $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
             $maxStmt->execute();
@@ -1029,25 +1152,44 @@ class UsersAPI extends BaseAPI
             $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
 
             // Insert staff record with all determined fields
-            $sql = 'INSERT INTO staff (user_id, first_name, last_name, staff_no, department_id, staff_type_id, staff_category_id, position, employment_date, contract_type, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $sql = 'INSERT INTO staff (user_id, staff_type_id, staff_category_id, staff_no, first_name, last_name, department_id, supervisor_id, position, employment_date, contract_type, nssf_no, kra_pin, nhif_no, bank_account, salary, gender, marital_status, tsc_no, address, profile_pic_url, documents_folder, status, date_of_birth, created_at, updated_at) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
                 $userId,
+                $staffInfo['staff_type_id'] ?? $staffTypeId,
+                $staffInfo['staff_category_id'] ?? $staffCategoryId,
+                $staffNo,
                 $staffInfo['first_name'] ?? $user['first_name'],
                 $staffInfo['last_name'] ?? $user['last_name'],
-                $staffNo,
                 $departmentId,
-                $staffTypeId,
-                $staffCategoryId,
+                $staffInfo['supervisor_id'] ?? null,
                 $staffInfo['position'] ?? 'Staff',
                 $staffInfo['employment_date'] ?? date('Y-m-d'),
-                $staffInfo['contract_type'] ?? 'permanent'
+                $staffInfo['contract_type'] ?? 'permanent',
+                $staffInfo['nssf_no'] ?? null,
+                $staffInfo['kra_pin'] ?? null,
+                $staffInfo['nhif_no'] ?? null,
+                $staffInfo['bank_account'] ?? null,
+                $staffInfo['salary'] ?? null,
+                $staffInfo['gender'] ?? $staffInfo['gender'] ?? null,
+                $staffInfo['marital_status'] ?? null,
+                $staffInfo['tsc_no'] ?? null,
+                $staffInfo['address'] ?? null,
+                $staffInfo['profile_pic_url'] ?? null,
+                $staffInfo['documents_folder'] ?? null,
+                $staffInfo['status'] ?? 'active',
+                $staffInfo['date_of_birth'] ?? null
             ]);
 
-            return $ok;
+            if ($ok) {
+                $staffId = $this->db->lastInsertId();
+                return $staffId;
+            }
+
+            return false;
         } catch (Exception $e) {
             error_log("Error adding staff record: " . $e->getMessage());
             return false;

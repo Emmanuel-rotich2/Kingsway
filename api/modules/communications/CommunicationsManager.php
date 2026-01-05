@@ -339,12 +339,30 @@ class CommunicationsManager
             $communicationId = 1; // Default to system communication
         }
 
+        // If an uploaded file is provided in $fileData (or in $_FILES), use MediaManager to store it
+        $filePath = $fileData['file_path'] ?? null;
+        $fileName = $fileData['file_name'] ?? null;
+        $mediaId = null;
+        try {
+            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
+            $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
+            if ($uploadFile) {
+                $mediaId = $mediaManager->upload($uploadFile, 'communications', $communicationId, null, $uploader, $fileData['description'] ?? 'communication attachment');
+                $preview = $mediaManager->getPreviewUrl($mediaId);
+                $filePath = $preview ?: $filePath;
+                $fileName = $fileName ?: ($uploadFile['name'] ?? basename($filePath));
+            }
+        } catch (\Exception $e) {
+            // fallback to provided file_path/file_name if media upload fails
+        }
+
         $sql = "INSERT INTO communication_attachments (communication_id, file_name, file_path) VALUES (:communication_id, :file_name, :file_path)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             ':communication_id' => $communicationId,
-            ':file_name' => $fileData['file_name'] ?? 'unnamed_file',
-            ':file_path' => $fileData['file_path'] ?? '/uploads/communications/unnamed_file'
+            ':file_name' => $fileName ?? 'unnamed_file',
+            ':file_path' => $filePath ?? '/uploads/communications/unnamed_file'
         ]);
         return $this->getAttachment($this->db->lastInsertId());
     }
@@ -490,7 +508,7 @@ class CommunicationsManager
     }
     public function listLogs($filters = [])
     {
-        $sql = "SELECT * FROM communication_logs WHERE 1=1";
+        $sql = "SELECT * FROM communupdate the frontend forms to send all the required data including uploadsication_logs WHERE 1=1";
         $params = [];
         foreach (["communication_id", "recipient_id", "event_type"] as $col) {
             if (isset($filters[$col])) {

@@ -117,10 +117,10 @@ class TermHolidayWorkflow extends WorkflowHandler
     /**
      * Start a new term/holiday scheduling workflow
      */
-    public function startWorkflow($referenceType, $referenceId, $initialData = [])
+    public function startWorkflow($reference_type, $reference_id, $initial_data = [], $userId = null)
     {
         // Use base handler to start workflow instance
-        return $this->startWorkflow($referenceType, $referenceId, $initialData);
+        return parent::startWorkflow($reference_type, $reference_id, $initial_data, $userId);
     }
 
     /**

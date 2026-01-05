@@ -30,10 +30,6 @@ logs/
 .env.*
 config/db_connection.php
 
-# Uploads and generated files
-uploads/
-images/qr_codes/
-
 # Cache
 cache/
 

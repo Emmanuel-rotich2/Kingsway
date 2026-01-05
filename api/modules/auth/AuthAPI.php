@@ -8,6 +8,9 @@ use App\API\Modules\users\PermissionManager;
 use App\API\Modules\users\UserRoleManager;
 use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\MenuBuilderService;
+use App\API\Services\SystemConfigService;
+use App\Services\PolicyEngine;
 use Firebase\JWT\JWT;
 
 require_once __DIR__ . '/../../includes/DashboardManager.php';
@@ -22,6 +25,13 @@ class AuthAPI extends BaseAPI
     private $userPermissionManager;
     private $communicationsApi;
 
+    // New database-driven services
+    private ?MenuBuilderService $menuBuilder = null;
+    private ?SystemConfigService $configService = null;
+
+    // Feature flag: use database-driven config (set to true when migration is complete)
+    private bool $useDatabaseConfig = false;
+
     public function __construct()
     {
         parent::__construct('auth');
@@ -31,6 +41,52 @@ class AuthAPI extends BaseAPI
         $this->userRoleManager = new UserRoleManager($this->db);
         $this->userPermissionManager = new UserPermissionManager($this->db);
         $this->communicationsApi = new CommunicationsAPI();
+
+        // Check if database-driven config is available
+        $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
+    }
+
+    /**
+     * Check if database-driven config tables exist
+     */
+    private function checkDatabaseConfigAvailable(): bool
+    {
+        try {
+            // Check for sidebar_menu_items table (renamed from menu_items to avoid collision with food menu)
+            $stmt = $this->db->query("SHOW TABLES LIKE 'sidebar_menu_items'");
+            if ($stmt->rowCount() === 0) {
+                return false;
+            }
+
+            // Also verify role_sidebar_menus has data
+            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_sidebar_menus");
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return ($result['cnt'] ?? 0) > 0;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get MenuBuilderService (lazy load)
+     */
+    private function getMenuBuilder(): MenuBuilderService
+    {
+        if ($this->menuBuilder === null) {
+            $this->menuBuilder = MenuBuilderService::getInstance();
+        }
+        return $this->menuBuilder;
+    }
+
+    /**
+     * Get SystemConfigService (lazy load)
+     */
+    private function getConfigService(): SystemConfigService
+    {
+        if ($this->configService === null) {
+            $this->configService = SystemConfigService::getInstance();
+        }
+        return $this->configService;
     }
     // Logout user (invalidate session/token as needed)
     public function logout($data)
@@ -161,10 +217,6 @@ class AuthAPI extends BaseAPI
                 // NO permissions in token!
             ]);
 
-            // Generate sidebar menu items based on user's roles and permissions
-            $dashboardManager = new \DashboardManager();
-            $dashboardManager->setUser($userData);
-
             // Get user's primary role for dashboard selection
             $userRoles = $userData['roles'] ?? [];
             $primaryRole = null;
@@ -180,47 +232,86 @@ class AuthAPI extends BaseAPI
                 }
             }
 
-            // Initialize dashboard manager
-            $dashboardManager = new \DashboardManager();
-            $dashboardManager->setUser($userData);
-
-            // Get filtered menu items for user's dashboard
-            $sidebarItems = [];
-            $defaultDashboard = null;
-            $dashboardKey = null;
-
-            // Get dashboard key using DashboardRouter (returns dashboard file key like 'system_administrator_dashboard')
-            if ($primaryRole) {
-                $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
-
-                // Try to get menu items using role ID as key (dashboards.php is keyed by role ID)
-                if ($primaryRoleId) {
-                    $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
-                    $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+            // Get all role IDs for multi-role support
+            $roleIds = [];
+            foreach ($userRoles as $role) {
+                if (is_array($role)) {
+                    $rid = $role['id'] ?? $role['role_id'] ?? null;
                 } else {
-                    // Fallback to normalized role name if no role ID
-                    $normalizedRole = strtolower(str_replace(['/', ' ', '-'], '_', $primaryRole));
-                    $sidebarItems = $dashboardManager->getMenuItems($normalizedRole);
-                    $defaultDashboard = $dashboardManager->getDashboard($normalizedRole);
+                    $rid = $role;
                 }
-
-                // Log for debugging
-                error_log("Login: Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
-            }
-
-            // If no sidebar items found, try to get first accessible dashboard
-            if (empty($sidebarItems)) {
-                $defaultDashboard = $dashboardManager->getDefaultDashboard();
-                if ($defaultDashboard) {
-                    // Support both 'menu_items' and 'menus' keys
-                    $sidebarItems = $defaultDashboard['menu_items'] ?? $defaultDashboard['menus'] ?? [];
+                if ($rid) {
+                    $roleIds[] = (int) $rid;
                 }
             }
+            $roleIds = array_values(array_unique($roleIds));
 
-            // Generate refresh token for token rotation
-            $refreshToken = $this->generateRefreshToken($userData['id']);
+            // Use database-driven config if available, otherwise fall back to file-based
+            if ($this->useDatabaseConfig) {
+                $loginData = $this->buildLoginResponseFromDatabase(
+                    $userData,
+                    $primaryRoleId,
+                    $roleIds,
+                    $token
+                );
+            } else {
+                $loginData = $this->buildLoginResponseFromFiles(
+                    $userData,
+                    $primaryRole,
+                    $primaryRoleId,
+                    $roleIds,
+                    $token
+                );
+            }
 
-            // Return comprehensive login response
+            return $loginData;
+        }
+        // If not successful, return error
+        return [
+            'status' => 'error',
+            'message' => $result['message'] ?? 'Login failed'
+        ];
+    }
+
+    /**
+     * Build login response using database-driven config
+     */
+    private function buildLoginResponseFromDatabase(
+        array $userData,
+        ?int $primaryRoleId,
+        array $roleIds,
+        string $token
+    ): array {
+        $userId = $userData['id'];
+        $userPermissions = array_column($userData['permissions'] ?? [], 'code');
+
+        try {
+            // Build sidebar from database using MenuBuilderService
+            if (count($roleIds) > 1) {
+                // Multi-role: combine menus from all roles
+                $sidebarItems = $this->getMenuBuilder()->buildSidebarForMultipleRoles(
+                    $userId,
+                    $roleIds,
+                    $userPermissions
+                );
+            } else {
+                // Single role: get menu for that role
+                $sidebarItems = $this->getMenuBuilder()->buildSidebarForUser(
+                    $userId,
+                    $primaryRoleId ?? 0,
+                    $userPermissions
+                );
+            }
+
+            // Get default route for the role from database
+            $defaultRoute = $this->getDefaultRouteForRole($primaryRoleId ?? 0);
+
+            // Get dashboard info from database (simple, no widgets - frontend handles display)
+            $dashboardInfo = $this->getConfigService()->getDashboardForRole($primaryRoleId ?? 0);
+
+            // Generate refresh token
+            $refreshToken = $this->generateRefreshToken($userId);
+
             return [
                 'status' => 'success',
                 'message' => 'Login successful',
@@ -231,21 +322,165 @@ class AuthAPI extends BaseAPI
                     'user' => $userData,
                     'sidebar_items' => $sidebarItems,
                     'dashboard' => [
-                        'key' => $dashboardKey ?? 'home',
-                        'url' => $dashboardKey ?? 'home',
-                        'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
-                    ]
+                        'key' => $dashboardInfo['name'] ?? 'home',
+                        'url' => $defaultRoute,
+                        'label' => $dashboardInfo['title'] ?? 'Dashboard'
+                    ],
+                    'config_source' => 'database'
                 ]
             ];
+        } catch (\Exception $e) {
+            error_log("Database config failed, falling back to files: " . $e->getMessage());
+            // Fall back to file-based config on error
+            return $this->buildLoginResponseFromFiles(
+                $userData,
+                $userData['roles'][0]['name'] ?? null,
+                $primaryRoleId,
+                $roleIds,
+                $token
+            );
         }
-        // If not successful, return error
-        return [
-            'status' => 'error',
-            'message' => $result['message'] ?? 'Login failed'
-        ];
     }
 
-    
+    /**
+     * Get default route for a role from database
+     */
+    private function getDefaultRouteForRole(int $roleId): string
+    {
+        try {
+            // Get the dashboard route for this role from role_dashboards -> dashboards -> routes
+            $stmt = $this->db->prepare(
+                "SELECT r.name 
+                 FROM role_dashboards rd
+                 JOIN dashboards d ON d.id = rd.dashboard_id
+                 JOIN routes r ON r.id = d.route_id
+                 WHERE rd.role_id = ? AND rd.is_primary = 1
+                 LIMIT 1"
+            );
+            $stmt->execute([$roleId]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if ($result && !empty($result['name'])) {
+                return $result['name'];
+            }
+
+            // Fallback: try to get any dashboard for this role
+            $stmt = $this->db->prepare(
+                "SELECT r.name 
+                 FROM role_dashboards rd
+                 JOIN dashboards d ON d.id = rd.dashboard_id
+                 JOIN routes r ON r.id = d.route_id
+                 WHERE rd.role_id = ?
+                 ORDER BY rd.is_primary DESC
+                 LIMIT 1"
+            );
+            $stmt->execute([$roleId]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            return $result['name'] ?? 'home';
+        } catch (\Exception $e) {
+            error_log("getDefaultRouteForRole error: " . $e->getMessage());
+            return 'home';
+        }
+    }
+
+    /**
+     * Build login response using file-based config (legacy fallback)
+     */
+    private function buildLoginResponseFromFiles(
+        array $userData,
+        ?string $primaryRole,
+        ?int $primaryRoleId,
+        array $roleIds,
+        string $token
+    ): array {
+        // Generate sidebar menu items based on user's roles and permissions
+        $dashboardManager = new \DashboardManager();
+        $dashboardManager->setUser($userData);
+
+        // Get filtered menu items for user's dashboard
+        $sidebarItems = [];
+        $defaultDashboard = null;
+        $dashboardKey = null;
+
+        // Get dashboard key using DashboardRouter
+        if ($primaryRole) {
+            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+
+            // Try to get menu items using role ID as key
+            if ($primaryRoleId) {
+                $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+                $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+            }
+
+            // If no items for primary role, combine from all roles
+            if (empty($sidebarItems) && !empty($roleIds)) {
+                // Union menus from dashboards config
+                $dashConfig = include __DIR__ . '/../../includes/dashboards.php';
+                $menusUnion = [];
+                $seen = [];
+
+                foreach ($roleIds as $rid) {
+                    $menus = $dashConfig[$rid]['menus'] ?? [];
+                    foreach ($menus as $menu) {
+                        $key = ($menu['label'] ?? '') . '|' . ($menu['url'] ?? '') . '|' . ($menu['icon'] ?? '');
+                        if (!isset($seen[$key])) {
+                            $menusUnion[] = $menu;
+                            $seen[$key] = true;
+                        }
+                    }
+                }
+
+                if (empty($menusUnion)) {
+                    $menusUnion = $dashConfig[2]['menus'] ?? [];
+                }
+
+                // Filter by permissions via DashboardManager
+                $sidebarItems = $dashboardManager->filterMenuItems($menusUnion);
+
+                // Choose default dashboard
+                if (!empty($sidebarItems)) {
+                    $first = $sidebarItems[0];
+                    $defaultDashboard = [
+                        'label' => $first['label'] ?? 'Dashboard',
+                        'route' => $first['url'] ?? 'home',
+                    ];
+                    $dashboardKey = $first['url'] ?? 'home';
+                }
+            }
+
+            error_log("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
+        }
+
+        // If no sidebar items found, try to get first accessible dashboard
+        if (empty($sidebarItems)) {
+            $defaultDashboard = $dashboardManager->getDefaultDashboard();
+            if ($defaultDashboard) {
+                $sidebarItems = $defaultDashboard['menu_items'] ?? $defaultDashboard['menus'] ?? [];
+            }
+        }
+
+        // Generate refresh token
+        $refreshToken = $this->generateRefreshToken($userData['id']);
+
+        return [
+            'status' => 'success',
+            'message' => 'Login successful',
+            'data' => [
+                'token' => $token,
+                'refresh_token' => $refreshToken,
+                'token_expires_in' => JWT_EXPIRY,
+                'user' => $userData,
+                'sidebar_items' => $sidebarItems,
+                'dashboard' => [
+                    'key' => $dashboardKey ?? 'home',
+                    'url' => $dashboardKey ?? 'home',
+                    'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
+                ],
+                'config_source' => 'file'
+            ]
+        ];
+    }
 
     // Generate JWT token
     private function generateToken($userData)

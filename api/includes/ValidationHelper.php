@@ -173,8 +173,8 @@ class ValidationHelper
             return ['valid' => false, 'error' => 'Role ID must be a number'];
         }
 
-        // Check if role exists
-        $stmt = $db->prepare('SELECT role_id FROM roles WHERE role_id = ?');
+        // Check if role exists (roles table uses 'id')
+        $stmt = $db->prepare('SELECT id FROM roles WHERE id = ?');
         $stmt->execute([$roleId]);
         
         if (!$stmt->fetch()) {
@@ -315,17 +315,98 @@ class ValidationHelper
             }
         }
 
-        // Role validation
-        if (!$isUpdate || isset($data['main_role_id'])) {
-            $roleId = $data['main_role_id'] ?? $data['role_id'] ?? null;
-            if ($roleId !== null) {
-                $result = self::validateRoleId($roleId, $db);
+        // Role validation - accept either single role_id/main_role_id or role_ids array (preferred)
+        $roleIds = null;
+        if (isset($data['role_ids']) && is_array($data['role_ids'])) {
+            $roleIds = array_values(array_filter($data['role_ids'], function ($v) {
+                return is_numeric($v); }));
+        }
+        $singleRole = $data['main_role_id'] ?? $data['role_id'] ?? null;
+
+        if (!$isUpdate) {
+            if (empty($roleIds) && $singleRole === null) {
+                $errors[] = 'Role ID(s) are required';
+            } else {
+                if (!empty($roleIds)) {
+                    $validated['role_ids'] = array_map('intval', $roleIds);
+                    // Validate each role id
+                    foreach ($validated['role_ids'] as $rid) {
+                        $result = self::validateRoleId($rid, $db);
+                        if (!$result['valid']) {
+                            $errors[] = 'Invalid role id: ' . $rid;
+                        }
+                    }
+                    // set primary role for backward compatibility
+                    $validated['role_id'] = $validated['role_ids'][0];
+                } else {
+                    $result = self::validateRoleId($singleRole, $db);
+                    if (!$result['valid']) {
+                        $errors[] = $result['error'];
+                    } else {
+                        $validated['role_id'] = $result['value'];
+                        $validated['role_ids'] = [$result['value']];
+                    }
+                }
+            }
+        } else {
+            // Update: allow role change via single role_id or role_ids
+            if (!empty($roleIds)) {
+                $validated['role_ids'] = array_map('intval', $roleIds);
+                $validated['role_id'] = $validated['role_ids'][0] ?? null;
+            } elseif ($singleRole !== null) {
+                $result = self::validateRoleId($singleRole, $db);
                 if (!$result['valid']) {
                     $errors[] = $result['error'];
                 } else {
                     $validated['role_id'] = $result['value'];
+                    $validated['role_ids'] = [$result['value']];
                 }
             }
+        }
+
+        // Permissions (optional array of codes or objects)
+        if (isset($data['permissions'])) {
+            if (!is_array($data['permissions'])) {
+                $errors[] = 'permissions must be an array';
+            } else {
+                $validated['permissions'] = $data['permissions'];
+            }
+        }
+
+        // Staff info (optional) - lightly validate known staff fields if provided
+        if (isset($data['staff_info']) && is_array($data['staff_info'])) {
+            $staffInfo = $data['staff_info'];
+            $validatedStaff = [];
+
+            if (isset($staffInfo['department_id']) && !is_numeric($staffInfo['department_id'])) {
+                $errors[] = 'department_id must be numeric';
+            } else {
+                $validatedStaff['department_id'] = isset($staffInfo['department_id']) ? intval($staffInfo['department_id']) : null;
+            }
+
+            if (isset($staffInfo['employment_date'])) {
+                // basic date format check YYYY-MM-DD
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $staffInfo['employment_date'])) {
+                    $errors[] = 'employment_date must be in YYYY-MM-DD format';
+                } else {
+                    $validatedStaff['employment_date'] = $staffInfo['employment_date'];
+                }
+            }
+
+            if (isset($staffInfo['salary']) && !is_numeric($staffInfo['salary'])) {
+                $errors[] = 'salary must be numeric';
+            } else {
+                $validatedStaff['salary'] = isset($staffInfo['salary']) ? $staffInfo['salary'] : null;
+            }
+
+            // Accept other staff fields as-is (autoprocessing occurs later)
+            foreach (['staff_type_id', 'staff_category_id', 'supervisor_id', 'position', 'contract_type', 'nssf_no', 'kra_pin', 'nhif_no', 'bank_account', 'gender', 'marital_status', 'tsc_no', 'address', 'profile_pic_url', 'documents_folder', 'date_of_birth', 'first_name', 'last_name'] as $sf) {
+                if (isset($staffInfo[$sf])) {
+                    $validatedStaff[$sf] = $staffInfo[$sf];
+                }
+            }
+
+            $validated['staff_info'] = $validatedStaff;
         }
 
         // Status validation

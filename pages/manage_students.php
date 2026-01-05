@@ -147,9 +147,25 @@
                 <h5 class="modal-title" id="studentModalLabel">Add Student</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="studentForm" onsubmit="studentsManagementController.saveStudent(event)">
+            <form id="studentForm" enctype="multipart/form-data" onsubmit="studentsManagementController.saveStudent(event)">
                 <div class="modal-body">
                     <input type="hidden" id="studentId">
+                    
+                    <!-- Profile Photo -->
+                    <h6 class="mb-3 text-primary"><i class="bi bi-camera"></i> Profile Photo</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Student Photo</label>
+                            <input type="file" id="studentProfilePic" name="profile_pic" class="form-control" accept="image/*">
+                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB</small>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                            <img id="studentPhotoPreview" src="/Kingsway/images/default-avatar.png" 
+                                class="rounded-circle" width="80" height="80" 
+                                onerror="this.src='/Kingsway/images/default-avatar.png'"
+                                style="object-fit: cover; border: 2px solid #dee2e6;">
+                        </div>
+                    </div>
                     
                     <!-- Personal Information -->
                     <h6 class="mb-3 text-primary"><i class="bi bi-person"></i> Personal Information</h6>
@@ -168,11 +184,11 @@
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
                             <input type="date" id="dateOfBirth" class="form-control" required>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Gender <span class="text-danger">*</span></label>
                             <select id="gender" class="form-select" required>
                                 <option value="">Select</option>
@@ -180,38 +196,58 @@
                                 <option value="F">Female</option>
                             </select>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">National ID / Birth Cert</label>
                             <input type="text" id="nationalId" class="form-control">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Blood Group</label>
+                            <select id="bloodGroup" class="form-select">
+                                <option value="">-- Select --</option>
+                                <option value="A+">A+</option>
+                                <option value="A-">A-</option>
+                                <option value="B+">B+</option>
+                                <option value="B-">B-</option>
+                                <option value="AB+">AB+</option>
+                                <option value="AB-">AB-</option>
+                                <option value="O+">O+</option>
+                                <option value="O-">O-</option>
+                            </select>
                         </div>
                     </div>
 
                     <!-- Academic Information -->
                     <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-mortarboard"></i> Academic Information</h6>
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Admission Number <span class="text-danger">*</span></label>
                             <input type="text" id="admissionNumber" class="form-control" required>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Class <span class="text-danger">*</span></label>
                             <select id="studentClass" class="form-select" required onchange="studentsManagementController.loadStreamsForClass(this.value)">
                                 <option value="">Select Class</option>
                             </select>
                         </div>
-                        <div class="col-md-4 mb-3">
-                            <label class="form-label">Stream</label>
-                            <select id="studentStream" class="form-select">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Stream <span class="text-danger">*</span></label>
+                            <select id="studentStream" class="form-select" required>
                                 <option value="">Select Stream</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Student Type <span class="text-danger">*</span></label>
+                            <select id="studentTypeId" class="form-select" required>
+                                <option value="">Select Type</option>
                             </select>
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Admission Date</label>
                             <input type="date" id="admissionDate" class="form-control">
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Status <span class="text-danger">*</span></label>
                             <select id="studentStatus" class="form-select" required>
                                 <option value="active">Active</option>
@@ -219,12 +255,91 @@
                                 <option value="suspended">Suspended</option>
                             </select>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Boarding Status</label>
                             <select id="boardingStatus" class="form-select">
                                 <option value="day">Day Scholar</option>
                                 <option value="boarding">Boarding</option>
                             </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Assessment Number</label>
+                            <input type="text" id="assessmentNumber" class="form-control" placeholder="Assessment Number (UPI/NEMIS)">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Assessment Status</label>
+                            <select id="assessmentStatus" class="form-select">
+                                <option value="">-- Select --</option>
+                                <option value="not_assigned">Not Assigned</option>
+                                <option value="pending">Pending</option>
+                                <option value="assigned">Assigned</option>
+                                <option value="verified">Verified</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Sponsorship Information -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-award"></i> Sponsorship Information</h6>
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <div class="form-check mt-4">
+                                <input class="form-check-input" type="checkbox" id="isSponsored" onchange="studentsManagementController.toggleSponsorFields()">
+                                <label class="form-check-label" for="isSponsored">
+                                    <strong>Is Sponsored?</strong>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3" id="sponsorNameDiv" style="display:none;">
+                            <label class="form-label">Sponsor Name</label>
+                            <input type="text" id="sponsorName" class="form-control" placeholder="e.g. Equity Bank Foundation">
+                        </div>
+                        <div class="col-md-3 mb-3" id="sponsorTypeDiv" style="display:none;">
+                            <label class="form-label">Sponsor Type</label>
+                            <select id="sponsorType" class="form-select">
+                                <option value="">-- Select --</option>
+                                <option value="government">Government</option>
+                                <option value="ngo">NGO</option>
+                                <option value="corporate">Corporate</option>
+                                <option value="individual">Individual</option>
+                                <option value="religious">Religious Organization</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3" id="sponsorWaiverDiv" style="display:none;">
+                            <label class="form-label">Waiver Percentage (%)</label>
+                            <input type="number" id="sponsorWaiverPercentage" class="form-control" min="0" max="100" placeholder="e.g. 50">
+                        </div>
+                    </div>
+
+                    <!-- Initial Payment (Required unless sponsored) -->
+                    <h6 class="mb-3 mt-3 text-primary" id="paymentSectionHeader"><i class="bi bi-cash-coin"></i> Initial Payment <span class="text-danger">*</span></h6>
+                    <div class="alert alert-info mb-3" id="paymentAlert">
+                        <i class="bi bi-info-circle"></i> Students must have an initial payment recorded OR be marked as sponsored before they can be assigned to a class.
+                    </div>
+                    <div class="row" id="paymentFieldsSection">
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Payment Amount (KES) <span class="text-danger">*</span></label>
+                            <input type="number" id="initialPaymentAmount" class="form-control" min="0" step="0.01" placeholder="e.g. 5000">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Payment Method <span class="text-danger">*</span></label>
+                            <select id="paymentMethod" class="form-select">
+                                <option value="">-- Select Method --</option>
+                                <option value="cash">Cash</option>
+                                <option value="mpesa">M-Pesa</option>
+                                <option value="bank">Bank Transfer</option>
+                                <option value="cheque">Cheque</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Payment Reference</label>
+                            <input type="text" id="paymentReference" class="form-control" placeholder="e.g. RCT12345 or M-Pesa code">
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">Receipt Number</label>
+                            <input type="text" id="receiptNo" class="form-control" placeholder="e.g. REC-2025-001">
                         </div>
                     </div>
 
@@ -247,32 +362,90 @@
                         </div>
                     </div>
 
-                    <!-- Guardian Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-people"></i> Guardian/Parent Information</h6>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Guardian Name</label>
-                            <input type="text" id="guardianName" class="form-control">
+                    <!-- Parent/Guardian Information -->
+                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-people"></i> Parent/Guardian Information</h6>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="isNewParent" checked onchange="studentsManagementController.toggleParentType()">
+                                <label class="form-check-label" for="isNewParent">
+                                    <strong>Add New Parent</strong> <small class="text-muted">(Uncheck to select existing parent)</small>
+                                </label>
+                            </div>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Guardian Phone</label>
-                            <input type="tel" id="guardianPhone" class="form-control">
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Guardian Email</label>
-                            <input type="email" id="guardianEmail" class="form-control">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Relationship</label>
-                            <select id="guardianRelationship" class="form-select">
+                        <div class="col-md-6">
+                            <label class="form-label">Relationship <span class="text-danger">*</span></label>
+                            <select id="guardianRelationship" class="form-select" required>
                                 <option value="">Select</option>
-                                <option value="parent">Parent</option>
+                                <option value="father">Father</option>
+                                <option value="mother">Mother</option>
                                 <option value="guardian">Guardian</option>
                                 <option value="relative">Relative</option>
                                 <option value="other">Other</option>
                             </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Existing Parent Selector (hidden by default) -->
+                    <div id="existingParentSection" style="display:none;">
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Select Existing Parent <span class="text-danger">*</span></label>
+                                <select id="existingParentId" class="form-select">
+                                    <option value="">-- Search and select parent --</option>
+                                </select>
+                                <small class="text-muted">Search by name, phone number, or email</small>
+                            </div>
+                        </div>
+                        <div id="selectedParentPreview" class="alert alert-info" style="display:none;">
+                            <strong>Selected Parent:</strong>
+                            <span id="selectedParentInfo"></span>
+                        </div>
+                    </div>
+
+                    <!-- New Parent Form (shown by default) -->
+                    <div id="newParentSection">
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">First Name <span class="text-danger">*</span></label>
+                                <input type="text" id="parentFirstName" class="form-control">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Last Name <span class="text-danger">*</span></label>
+                                <input type="text" id="parentLastName" class="form-control">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Gender</label>
+                                <select id="parentGender" class="form-select">
+                                    <option value="">-- Select --</option>
+                                    <option value="male">Male</option>
+                                    <option value="female">Female</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Primary Phone <span class="text-danger">*</span></label>
+                                <input type="tel" id="parentPhone1" class="form-control" placeholder="+254...">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Secondary Phone</label>
+                                <input type="tel" id="parentPhone2" class="form-control" placeholder="+254...">
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" id="parentEmail" class="form-control">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Occupation</label>
+                                <input type="text" id="parentOccupation" class="form-control" placeholder="e.g. Teacher, Engineer">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Address</label>
+                                <input type="text" id="parentAddress" class="form-control" placeholder="Physical/Postal address">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -342,4 +515,4 @@
 </div>
 
 <!-- Link Controller Script -->
-<script src="/Kingsway/js/pages/students.js"></script>
+<script src="/Kingsway/js/pages/manage_students.js"></script>

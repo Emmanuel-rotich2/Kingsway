@@ -294,8 +294,8 @@
                             <input type="text" class="form-control" name="stream_name" value="A">
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label class="form-label">NEMIS Number</label>
-                            <input type="text" class="form-control" name="nemis_number">
+                            <label class="form-label">Assessment Number</label>
+                            <input type="text" class="form-control" name="assessment_number">
                         </div>
                     </div>
 

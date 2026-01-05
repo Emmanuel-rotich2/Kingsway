@@ -118,12 +118,10 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 throw new Exception("No active workflow found for this application");
             }
 
-            // Upload file
-            $uploaded = $this->uploadFile($file, [
-                'allowed_types' => ['pdf', 'jpg', 'jpeg', 'png'],
-                'max_size' => 5 * 1024 * 1024, // 5MB
-                'destination' => UPLOAD_PATH . '/admission/' . $application_id
-            ]);
+            // Upload file via MediaManager into uploads/documents/{application_id}
+            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaId = $mediaManager->upload($file, 'documents', $application_id, null, $this->user_id, 'admission document');
+            $preview = $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
 
             // Save document record
             $sql = "INSERT INTO admission_documents (
@@ -135,7 +133,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $stmt->execute([
                 'app_id' => $application_id,
                 'type' => $document_type,
-                'path' => $uploaded['path'],
+                'path' => $preview,
                 'mandatory' => in_array($document_type, ['birth_certificate', 'immunization_card']) ? 1 : 0
             ]);
 
@@ -452,21 +450,18 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // Update application status
             $this->updateApplicationStatus($application_id, 'fees_pending');
 
-            // Check if minimum payment met (e.g., 50% of total fees)
-            $instance_data = json_decode($instance['data_json'], true);
-            $total_fees = $instance_data['total_fees'] ?? 0;
-            $min_payment = $total_fees * 0.5;
-
-            if ($payment_data['amount'] >= $min_payment) {
+            // Any payment recorded allows advancement to enrollment
+            // The school determines minimum payment requirements outside this workflow
+            if ($payment_data['amount'] > 0) {
                 // Advance to enrollment
-                $this->advanceStage($instance['id'], 'enrollment', 'minimum_payment_received');
+                $this->advanceStage($instance['id'], 'enrollment', 'payment_received');
             }
 
             $this->db->commit();
 
             return formatResponse(true, [
                 'amount_paid' => $payment_data['amount'],
-                'can_enroll' => $payment_data['amount'] >= $min_payment
+                'can_enroll' => $payment_data['amount'] > 0
             ], 'Payment recorded successfully');
 
         } catch (Exception $e) {
@@ -501,23 +496,35 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             // Generate student number using stored function/procedure
             $student_number = $this->generateStudentNumber($application['academic_year']);
 
-            // Get assigned class from workflow data
+            // Get assigned class and stream from workflow data
             $instance_data = json_decode($instance['data_json'], true);
             $class_id = $instance_data['assigned_class_id'] ?? null;
+            $stream_id = $instance_data['assigned_stream_id'] ?? null;
 
-            // Create student record
-            $sql = "INSERT INTO students (
-                student_number, first_name, last_name, date_of_birth,
-                gender, admission_date, class_id, status, created_at
-            ) VALUES (
-                :student_no, :first_name, :last_name, :dob,
-                :gender, NOW(), :class_id, 'active', NOW()
-            )";
+            // If only class_id provided, get the default stream for that class
+            if ($class_id && !$stream_id) {
+                $stmt = $this->db->prepare("SELECT id FROM class_streams WHERE class_id = :class_id LIMIT 1");
+                $stmt->execute(['class_id' => $class_id]);
+                $stream_id = $stmt->fetchColumn() ?: null;
+            }
+
+            // Get current academic year
+            $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
+            $academic_year_id = $stmt->fetchColumn();
 
             // Parse name (simple split - adjust as needed)
             $names = explode(' ', $application['applicant_name']);
             $first_name = $names[0];
             $last_name = isset($names[1]) ? implode(' ', array_slice($names, 1)) : '';
+
+            // Create student record with stream_id (not class_id)
+            $sql = "INSERT INTO students (
+                admission_no, first_name, last_name, date_of_birth,
+                gender, stream_id, admission_date, status
+            ) VALUES (
+                :student_no, :first_name, :last_name, :dob,
+                :gender, :stream_id, CURDATE(), 'active'
+            )";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
@@ -526,10 +533,30 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
                 'last_name' => $last_name,
                 'dob' => $application['date_of_birth'],
                 'gender' => $application['gender'],
-                'class_id' => $class_id
+                'stream_id' => $stream_id
             ]);
 
             $student_id = $this->db->lastInsertId();
+
+            // Create class enrollment record using stored procedure
+            if ($class_id && $stream_id) {
+                $stmt = $this->db->prepare("CALL sp_complete_student_enrollment(:student_id, :class_id, :stream_id, :year_id, @enr_id, @fees)");
+                $stmt->execute([
+                    'student_id' => $student_id,
+                    'class_id' => $class_id,
+                    'stream_id' => $stream_id,
+                    'year_id' => $academic_year_id
+                ]);
+
+                $result = $this->db->query("SELECT @enr_id as enrollment_id, @fees as fee_obligations")->fetch(PDO::FETCH_ASSOC);
+                $enrollment_id = $result['enrollment_id'];
+                $fee_obligations_created = $result['fee_obligations'];
+            }
+
+            // Link parent from application
+            if (!empty($application['parent_id'])) {
+                $this->linkParentToStudent($student_id, $application['parent_id']);
+            }
 
             // Update application status
             $this->updateApplicationStatus($application_id, 'enrolled');
@@ -538,6 +565,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $this->completeWorkflow($instance['id'], [
                 'student_id' => $student_id,
                 'student_number' => $student_number,
+                'enrollment_id' => $enrollment_id ?? null,
+                'fee_obligations_created' => $fee_obligations_created ?? 0,
                 'enrollment_date' => date('Y-m-d H:i:s')
             ]);
 
@@ -545,6 +574,8 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
 
             return formatResponse(true, [
                 'student_id' => $student_id,
+                'enrollment_id' => $enrollment_id ?? null,
+                'fee_obligations_created' => $fee_obligations_created ?? 0,
                 'student_number' => $student_number
             ], 'Enrollment completed successfully');
 
@@ -639,6 +670,21 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['type' => $ref_type, 'id' => $ref_id]);
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Link a parent to a student in the student_parents junction table
+     */
+    private function linkParentToStudent($student_id, $parent_id, $relationship = 'parent')
+    {
+        $sql = "INSERT IGNORE INTO student_parents (student_id, parent_id, relationship, is_primary, created_at)
+                VALUES (:student_id, :parent_id, :relationship, 1, NOW())";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([
+            'student_id' => $student_id,
+            'parent_id' => $parent_id,
+            'relationship' => $relationship
+        ]);
     }
 
     private function sendInterviewSMS($application_id, $date, $time, $venue) {

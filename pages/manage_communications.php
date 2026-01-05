@@ -231,7 +231,7 @@
                 <h5 class="modal-title">Compose New Message</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="composeForm" onsubmit="communicationsController.sendMessage(event)">
+            <form id="composeForm" enctype="multipart/form-data" onsubmit="communicationsController.sendMessage(event)">
                 <div class="modal-body">
                     <input type="hidden" id="messageId">
 
@@ -268,6 +268,12 @@
                         <label class="form-label">Message <span class="text-danger">*</span></label>
                         <textarea id="messageBody" class="form-control" rows="6" required maxlength="1000"></textarea>
                         <small class="text-muted">Characters: <span id="charCount">0</span>/1000</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Attachments (Optional)</label>
+                        <input type="file" id="messageAttachments" class="form-control" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif">
+                        <small class="text-muted">Allowed: PDF, Word, Excel, Images. Max 5MB per file.</small>
                     </div>
 
                     <div class="mb-3">

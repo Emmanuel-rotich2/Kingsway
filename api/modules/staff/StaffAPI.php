@@ -9,6 +9,7 @@ use App\API\Modules\system\MediaManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
+use \App\API\Modules\users\UsersAPI;
 class StaffAPI extends BaseAPI {
     private $service;
     private $mediaManager;
@@ -176,81 +177,160 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            // Start transaction
-            $this->db->beginTransaction();
+            // Delegate user+staff creation to UsersAPI (do not duplicate staff insert here)
 
-            // Create user account first
-            $sql = "
-                INSERT INTO users (
-                    first_name,
-                    last_name,
-                    email,
-                    password,
-                    role,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            ";
+            // Create user account via UsersAPI using canonical payload (role_ids + staff_info)
+            $usersApi = new UsersAPI();
+            $roleIds = [];
+            if (!empty($data['role_ids']) && is_array($data['role_ids'])) {
+                $roleIds = $data['role_ids'];
+            } elseif (isset($data['role_id'])) {
+                $roleIds = [$data['role_id']];
+            } else {
+                $roleIds = [1];
+            }
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['first_name'],
-                $data['last_name'],
-                $data['email'],
-                password_hash($data['password'] ?? 'changeme123', PASSWORD_DEFAULT),
-                'staff',
-                'active'
-            ]);
+            $staffInfo = array_filter([
+                'position' => $data['position'] ?? 'Staff',
+                'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
+                'department_id' => $data['department_id'] ?? null,
+                'date_of_birth' => $data['date_of_birth'] ?? null,
+                'nssf_no' => $data['nssf_no'] ?? null,
+                'kra_pin' => $data['kra_pin'] ?? null,
+                'nhif_no' => $data['nhif_no'] ?? null,
+                'bank_account' => $data['bank_account'] ?? null,
+                'salary' => $data['salary'] ?? null,
+                'gender' => $data['gender'] ?? null,
+                'marital_status' => $data['marital_status'] ?? null,
+                'tsc_no' => $data['tsc_no'] ?? null,
+                'address' => $data['address'] ?? null,
+                'profile_pic_url' => $data['profile_pic_url'] ?? null,
+                'documents_folder' => $data['documents_folder'] ?? null
+            ], function ($v) {
+                return $v !== null && $v !== '';
+            });
 
-            $userId = $this->db->lastInsertId();
+            $userPayload = [
+                'username' => $data['email'],
+                'email' => $data['email'],
+                'password' => $data['password'] ?? 'changeme123',
+                'first_name' => $data['first_name'],
+                'last_name' => $data['last_name'],
+                'role_ids' => $roleIds,
+                'staff_info' => $staffInfo
+            ];
 
-            // Generate staff number
-            $staffNo = $this->generateStaffNumber();
+            $userResult = $usersApi->create($userPayload);
+            if (!isset($userResult['success']) || !$userResult['success']) {
+                throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
+            }
 
-            // Create staff record
-            $sql = "
-                INSERT INTO staff (
-                    staff_no,
-                    user_id,
-                    department_id,
-                    position,
-                    employment_date,
-                    nssf_no,
-                    kra_pin,
-                    nhif_no,
-                    bank_account,
-                    salary,
-                    gender,
-                    marital_status,
-                    tsc_no,
-                    address,
-                    profile_pic_url,
-                    documents_folder,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ";
+            // Determine created user ID (returned in data or fetch by email as fallback)
+            $userId = $userResult['data']['id'] ?? null;
+            if (!$userId) {
+                $stmt = $this->db->prepare("SELECT id FROM users WHERE email = ?");
+                $stmt->execute([$data['email']]);
+                $row = $stmt->fetch();
+                if ($row) {
+                    $userId = $row['id'];
+                }
+            }
+            if (!$userId) {
+                throw new Exception('Unable to determine created user id');
+            }
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $staffNo,
-                $userId,
-                $data['department_id'],
-                $data['position'],
-                $data['employment_date'],
-                $data['nssf_no'] ?? null,
-                $data['kra_pin'] ?? null,
-                $data['nhif_no'] ?? null,
-                $data['bank_account'] ?? null,
-                $data['salary'] ?? null,
-                $data['gender'] ?? null,
-                $data['marital_status'] ?? null,
-                $data['tsc_no'] ?? null,
-                $data['address'] ?? null,
-                $data['profile_pic_url'] ?? null,
-                $data['documents_folder'] ?? null,
-                'active'
-            ]);
+            // Expect UsersAPI.create to have created the staff row.
+            $stmt = $this->db->prepare("SELECT id, staff_no, profile_pic_url, documents_folder FROM staff WHERE user_id = ?");
+            $stmt->execute([$userId]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($existing) {
+                $staffId = $existing['id'];
+                $staffNo = $existing['staff_no'];
+                $profilePic = $existing['profile_pic_url'] ?? null;
+                $docsFolder = $existing['documents_folder'] ?? null;
+            } else {
+                throw new Exception('Staff record was not created by UsersAPI');
+            }
 
-            $staffId = $this->db->lastInsertId();
+            // Ensure placeholders for profile picture and documents folder
+            $placeholderPic = '/images/placeholders/profile.png';
+            $defaultDocsFolder = "uploads/staff/{$staffNo}";
+            $needUpdate = false;
+            $updateParams = [];
+            $updateFields = [];
+            if (empty($profilePic)) {
+                $updateFields[] = 'profile_pic_url = ?';
+                $updateParams[] = $placeholderPic;
+                $needUpdate = true;
+            }
+            if (empty($docsFolder)) {
+                $updateFields[] = 'documents_folder = ?';
+                $updateParams[] = $defaultDocsFolder;
+                $needUpdate = true;
+            }
+            if ($needUpdate) {
+                $updateParams[] = $staffId;
+                $sql = 'UPDATE staff SET ' . implode(', ', $updateFields) . ' WHERE id = ?';
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($updateParams);
+            }
+
+            // Ensure the documents folder exists on disk under the project's uploads directory
+            // i.e. <projectRoot>/uploads/staff/{staffNo}
+            $projectRoot = realpath(__DIR__ . '/../../..');
+            if ($projectRoot) {
+                $uploadsBase = $projectRoot . DIRECTORY_SEPARATOR . 'uploads';
+                $fullDocsPath = $uploadsBase . DIRECTORY_SEPARATOR . 'staff' . DIRECTORY_SEPARATOR . $staffNo;
+                if (!is_dir($fullDocsPath)) {
+                    @mkdir($fullDocsPath, 0755, true);
+                    if (is_dir($fullDocsPath)) {
+                        @chmod($fullDocsPath, 0755);
+                    }
+                } else {
+                    @chmod($fullDocsPath, 0755);
+                }
+
+                // Register placeholder profile image via MediaManager so metadata exists
+                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'placeholders' . DIRECTORY_SEPARATOR . 'profile.png';
+                if (file_exists($placeholderFs)) {
+                    try {
+                        // import into uploads/staff/{staffNo}
+                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff', $staffId, 'profile.png', null, 'placeholder profile');
+                        $preview = $this->mediaManager->getPreviewUrl($mediaId);
+                        // Update staff profile_pic_url to the managed preview path if not already set
+                        if (empty($profilePic) && $preview) {
+                            $stmt = $this->db->prepare('UPDATE staff SET profile_pic_url = ? WHERE id = ?');
+                            $stmt->execute([$preview, $staffId]);
+                        }
+                    } catch (Exception $e) {
+                        // fallback: attempt a raw copy if import fails
+                        $destPic = $fullDocsPath . DIRECTORY_SEPARATOR . 'profile.png';
+                        if (!file_exists($destPic)) {
+                            @copy($placeholderFs, $destPic);
+                            @chmod($destPic, 0644);
+                        }
+                    }
+                }
+            }
+
+            // Ensure at least one placeholder qualification and experience row exist
+            $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_qualifications WHERE staff_id = ?");
+            $stmt->execute([$staffId]);
+            $qcount = (int) $stmt->fetchColumn();
+            if ($qcount === 0) {
+                $sql = "INSERT INTO staff_qualifications (staff_id, qualification_type, title, institution, year_obtained, description, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$staffId, 'placeholder', 'To be uploaded', null, null, null, null]);
+            }
+
+            $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_experience WHERE staff_id = ?");
+            $stmt->execute([$staffId]);
+            $ecount = (int) $stmt->fetchColumn();
+            if ($ecount === 0) {
+                $sql = "INSERT INTO staff_experience (staff_id, organization, position, start_date, end_date, responsibilities, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$staffId, 'placeholder', 'To be updated', null, null, null, null]);
+            }
 
             // Add qualifications if provided
             if (!empty($data['qualifications'])) {
@@ -306,16 +386,12 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
-            $this->db->commit();
-
             return $this->response([
                 'status' => 'success',
                 'message' => 'Staff member created successfully',
                 'data' => ['id' => $staffId, 'staff_no' => $staffNo]
             ], 201);
-
         } catch (Exception $e) {
-            $this->db->rollBack();
             return $this->handleException($e);
         }
     }
@@ -1114,6 +1190,101 @@ class StaffAPI extends BaseAPI {
         try {
             $result = $this->service->getPayrollManager()->exportPayrollHistory($staffId, $startDate, $endDate);
             return formatResponse('success', 'Payroll history exported successfully', $result);
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    // ===============================================================
+    // STAFF CHILDREN OPERATIONS (Child Fee Deductions from Payroll)
+    // ===============================================================
+
+    /**
+     * Get staff children (students enrolled in school)
+     */
+    public function getStaffChildren($staffId)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->getStaffChildren($staffId);
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Add a child to staff member
+     */
+    public function addStaffChild($staffId, $data)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->addStaffChild($staffId, $data);
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Update staff child settings
+     */
+    public function updateStaffChild($staffId, $childId, $data)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->updateStaffChild($staffId, $childId, $data);
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Remove staff child link
+     */
+    public function removeStaffChild($staffId, $childId)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->removeStaffChild($staffId, $childId);
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get child fee configuration
+     */
+    public function getChildFeeConfig()
+    {
+        try {
+            $result = $this->service->getPayrollManager()->getChildFeeConfig();
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Calculate child fee deductions for staff
+     */
+    public function calculateChildFeeDeductions($staffId, $month, $year)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->calculateChildFeeDeductions($staffId, $month, $year);
+            return $result;
+        } catch (Exception $e) {
+            $this->handleException($e);
+        }
+    }
+
+    /**
+     * Generate detailed payslip with all breakdowns
+     */
+    public function generateDetailedPayslip($staffId, $month, $year, $generatedBy = null)
+    {
+        try {
+            $result = $this->service->getPayrollManager()->generateDetailedPayslip($staffId, $month, $year, $generatedBy);
+            return $result;
         } catch (Exception $e) {
             $this->handleException($e);
         }
