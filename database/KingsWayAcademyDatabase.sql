@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Dec 23, 2025 at 09:26 PM
+-- Generation Time: Jan 05, 2026 at 04:25 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -1267,6 +1267,78 @@ VALUES (
   );
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_calculate_staff_child_fees`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_calculate_staff_child_fees` (IN `p_staff_id` INT UNSIGNED, IN `p_payroll_month` INT, IN `p_payroll_year` INT, OUT `p_total_fees` DECIMAL(12,2), OUT `p_fee_details` JSON)   BEGIN
+    DECLARE v_child_count INT DEFAULT 0;
+    DECLARE v_first_discount DECIMAL(5,2);
+    DECLARE v_second_discount DECIMAL(5,2);
+    DECLARE v_third_discount DECIMAL(5,2);
+    DECLARE v_max_deduction_pct DECIMAL(5,2);
+    DECLARE v_staff_salary DECIMAL(12,2);
+    DECLARE v_max_deductible DECIMAL(12,2);
+    DECLARE v_total DECIMAL(12,2) DEFAULT 0;
+    DECLARE v_details JSON DEFAULT JSON_ARRAY();
+    
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_first_discount 
+    FROM staff_child_fee_config WHERE config_key = 'first_child_discount_percentage' AND is_active = 1;
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_second_discount 
+    FROM staff_child_fee_config WHERE config_key = 'second_child_discount_percentage' AND is_active = 1;
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_third_discount 
+    FROM staff_child_fee_config WHERE config_key = 'third_child_discount_percentage' AND is_active = 1;
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_max_deduction_pct 
+    FROM staff_child_fee_config WHERE config_key = 'max_monthly_deduction_percentage' AND is_active = 1;
+    
+    
+    SET v_first_discount = IFNULL(v_first_discount, 50.00);
+    SET v_second_discount = IFNULL(v_second_discount, 40.00);
+    SET v_third_discount = IFNULL(v_third_discount, 30.00);
+    SET v_max_deduction_pct = IFNULL(v_max_deduction_pct, 30.00);
+    
+    
+    SELECT salary INTO v_staff_salary FROM staff WHERE id = p_staff_id;
+    SET v_max_deductible = (v_staff_salary * v_max_deduction_pct / 100);
+    
+    
+    SELECT JSON_ARRAYAGG(
+        JSON_OBJECT(
+            'student_id', sc.student_id,
+            'student_name', CONCAT(st.first_name, ' ', st.last_name),
+            'class_name', c.name,
+            'child_number', ROW_NUMBER() OVER (ORDER BY sc.created_at),
+            'discount_percentage', CASE 
+                WHEN ROW_NUMBER() OVER (ORDER BY sc.created_at) = 1 THEN v_first_discount
+                WHEN ROW_NUMBER() OVER (ORDER BY sc.created_at) = 2 THEN v_second_discount
+                ELSE v_third_discount
+            END,
+            'fee_deduction_enabled', sc.fee_deduction_enabled,
+            'custom_deduction_percentage', sc.fee_deduction_percentage
+        )
+    ) INTO v_details
+    FROM staff_children sc
+    JOIN students st ON sc.student_id = st.id
+    LEFT JOIN class_streams cs ON st.stream_id = cs.id
+    LEFT JOIN classes c ON cs.class_id = c.id
+    WHERE sc.staff_id = p_staff_id 
+    AND sc.fee_deduction_enabled = 1
+    AND st.status = 'active';
+    
+    
+    SELECT COUNT(*) INTO v_child_count 
+    FROM staff_children sc
+    JOIN students st ON sc.student_id = st.id
+    WHERE sc.staff_id = p_staff_id 
+    AND sc.fee_deduction_enabled = 1
+    AND st.status = 'active';
+    
+    SET p_total_fees = v_total;
+    SET p_fee_details = IFNULL(v_details, JSON_ARRAY());
+    
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_calculate_staff_full_payroll`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_calculate_staff_full_payroll` (IN `p_staff_id` INT, IN `p_month` INT, IN `p_year` INT, OUT `p_payroll_id` INT, OUT `p_net_salary` DECIMAL(10,2))   BEGIN
     DECLARE v_basic_salary DECIMAL(10,2);
@@ -1856,6 +1928,37 @@ SET status = 'completed',
 WHERE id = p_batch_id;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_complete_student_enrollment`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_complete_student_enrollment` (IN `p_student_id` INT UNSIGNED, IN `p_class_id` INT UNSIGNED, IN `p_stream_id` INT UNSIGNED, IN `p_academic_year_id` INT UNSIGNED, OUT `p_enrollment_id` INT UNSIGNED, OUT `p_fee_obligations_created` INT)   BEGIN
+    DECLARE v_enrollment_date DATE;
+    
+    SET v_enrollment_date = CURDATE();
+    
+    
+    CALL sp_enroll_student_in_class(
+        p_student_id,
+        p_academic_year_id,
+        p_class_id,
+        p_stream_id,
+        v_enrollment_date,
+        p_enrollment_id
+    );
+    
+    
+    CALL sp_generate_student_fee_obligations(
+        p_student_id,
+        p_academic_year_id,
+        NULL, 
+        p_fee_obligations_created
+    );
+    
+    
+    UPDATE students 
+    SET status = 'active'
+    WHERE id = p_student_id;
+    
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_consolidate_term_scores`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_consolidate_term_scores` (IN `p_term_id` INT UNSIGNED, IN `p_academic_year` YEAR(4))   BEGIN
 DECLARE done INT DEFAULT FALSE;
@@ -2168,6 +2271,51 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_create_exam_schedule` (IN `p_ter
     AND exam_type = p_exam_type;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_create_parent`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_create_parent` (IN `p_first_name` VARCHAR(50), IN `p_middle_name` VARCHAR(50), IN `p_last_name` VARCHAR(50), IN `p_id_number` VARCHAR(30), IN `p_gender` ENUM('male','female','other'), IN `p_date_of_birth` DATE, IN `p_phone_1` VARCHAR(20), IN `p_phone_2` VARCHAR(20), IN `p_email` VARCHAR(100), IN `p_occupation` VARCHAR(100), IN `p_address` TEXT, OUT `p_parent_id` INT UNSIGNED, OUT `p_success` TINYINT(1))   BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        SET p_success = 0;
+        SET p_parent_id = 0;
+        ROLLBACK;
+    END;
+    
+    START TRANSACTION;
+    
+    INSERT INTO parents (
+        first_name,
+        middle_name,
+        last_name,
+        id_number,
+        gender,
+        date_of_birth,
+        phone_1,
+        phone_2,
+        email,
+        occupation,
+        address,
+        status
+    ) VALUES (
+        p_first_name,
+        p_middle_name,
+        p_last_name,
+        p_id_number,
+        COALESCE(p_gender, 'other'),
+        p_date_of_birth,
+        p_phone_1,
+        p_phone_2,
+        p_email,
+        p_occupation,
+        p_address,
+        'active'
+    );
+    
+    SET p_parent_id = LAST_INSERT_ID();
+    
+    COMMIT;
+    SET p_success = 1;
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_create_promotion_batch`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_create_promotion_batch` (IN `p_from_year` YEAR, IN `p_to_year` YEAR, IN `p_batch_type` VARCHAR(50), IN `p_batch_scope` VARCHAR(255), IN `p_created_by` INT UNSIGNED, IN `p_notes` TEXT, OUT `p_batch_id` INT UNSIGNED)   BEGIN
 DECLARE v_error_msg VARCHAR(255);
@@ -2271,6 +2419,74 @@ VALUES (
     'user_session_ended',
     JSON_OBJECT('user_id', v_user_id)
   );
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_enroll_student_in_class`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_enroll_student_in_class` (IN `p_student_id` INT UNSIGNED, IN `p_academic_year_id` INT UNSIGNED, IN `p_class_id` INT UNSIGNED, IN `p_stream_id` INT UNSIGNED, IN `p_enrollment_date` DATE, OUT `p_enrollment_id` INT UNSIGNED)   BEGIN
+    DECLARE v_academic_year_id INT UNSIGNED;
+    DECLARE v_existing_enrollment_id INT UNSIGNED;
+    DECLARE v_enrollment_date DATE;
+    
+    
+    IF p_academic_year_id IS NULL THEN
+        SELECT id INTO v_academic_year_id 
+        FROM academic_years 
+        WHERE is_current = 1 
+        LIMIT 1;
+    ELSE
+        SET v_academic_year_id = p_academic_year_id;
+    END IF;
+    
+    
+    SET v_enrollment_date = COALESCE(p_enrollment_date, CURDATE());
+    
+    
+    SELECT id INTO v_existing_enrollment_id 
+    FROM class_enrollments 
+    WHERE student_id = p_student_id 
+      AND academic_year_id = v_academic_year_id
+      AND enrollment_status IN ('enrolled', 'active')
+    LIMIT 1;
+    
+    IF v_existing_enrollment_id IS NOT NULL THEN
+        
+        UPDATE class_enrollments 
+        SET class_id = p_class_id,
+            stream_id = p_stream_id,
+            updated_at = NOW()
+        WHERE id = v_existing_enrollment_id;
+        
+        SET p_enrollment_id = v_existing_enrollment_id;
+    ELSE
+        
+        INSERT INTO class_enrollments (
+            student_id, 
+            academic_year_id, 
+            class_id, 
+            stream_id,
+            enrollment_status,
+            enrollment_date,
+            promotion_status,
+            created_at
+        ) VALUES (
+            p_student_id,
+            v_academic_year_id,
+            p_class_id,
+            p_stream_id,
+            'enrolled',
+            v_enrollment_date,
+            'none',
+            NOW()
+        );
+        
+        SET p_enrollment_id = LAST_INSERT_ID();
+    END IF;
+    
+    
+    UPDATE students 
+    SET stream_id = p_stream_id 
+    WHERE id = p_student_id;
+    
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_ensure_class_streams`$$
@@ -2583,6 +2799,103 @@ FROM students s
 WHERE s.id = p_student_id;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_generate_student_fee_obligations`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_fee_obligations` (IN `p_student_id` INT UNSIGNED, IN `p_academic_year_id` INT UNSIGNED, IN `p_term_id` INT UNSIGNED, OUT `p_obligations_created` INT)   BEGIN
+    DECLARE v_academic_year_id INT UNSIGNED;
+    DECLARE v_academic_year YEAR;
+    DECLARE v_student_type_id INT UNSIGNED;
+    DECLARE v_level_id INT UNSIGNED;
+    DECLARE v_is_sponsored TINYINT;
+    DECLARE v_sponsor_waiver_percentage DECIMAL(5,2);
+    
+    SET p_obligations_created = 0;
+    
+    
+    IF p_academic_year_id IS NULL THEN
+        SELECT id, YEAR(start_date) INTO v_academic_year_id, v_academic_year
+        FROM academic_years 
+        WHERE is_current = 1 
+        LIMIT 1;
+    ELSE
+        SELECT id, YEAR(start_date) INTO v_academic_year_id, v_academic_year
+        FROM academic_years 
+        WHERE id = p_academic_year_id;
+    END IF;
+    
+    
+    SELECT 
+        s.student_type_id,
+        COALESCE(cs.level_id, c.level_id) as level_id,
+        s.is_sponsored,
+        s.sponsor_waiver_percentage
+    INTO 
+        v_student_type_id,
+        v_level_id,
+        v_is_sponsored,
+        v_sponsor_waiver_percentage
+    FROM students s
+    LEFT JOIN class_streams cs ON s.stream_id = cs.id
+    LEFT JOIN classes c ON cs.class_id = c.id
+    WHERE s.id = p_student_id;
+    
+    
+    INSERT INTO student_fee_obligations (
+        student_id,
+        fee_structure_detail_id,
+        academic_year_id,
+        term_id,
+        amount_due,
+        amount_paid,
+        amount_waived,
+        balance,
+        waiver_percentage,
+        waiver_reason,
+        payment_status,
+        due_date,
+        created_at
+    )
+    SELECT 
+        p_student_id,
+        fsd.id,
+        v_academic_year_id,
+        fsd.term_id,
+        fsd.amount,
+        0, 
+        CASE 
+            WHEN v_is_sponsored = 1 AND v_sponsor_waiver_percentage > 0 
+            THEN ROUND(fsd.amount * (v_sponsor_waiver_percentage / 100), 2)
+            ELSE 0
+        END, 
+        CASE 
+            WHEN v_is_sponsored = 1 AND v_sponsor_waiver_percentage > 0 
+            THEN fsd.amount - ROUND(fsd.amount * (v_sponsor_waiver_percentage / 100), 2)
+            ELSE fsd.amount
+        END, 
+        v_sponsor_waiver_percentage,
+        CASE 
+            WHEN v_is_sponsored = 1 THEN 'Sponsorship waiver'
+            ELSE NULL
+        END,
+        'unpaid',
+        COALESCE(fsd.due_date, DATE_ADD(CURDATE(), INTERVAL 30 DAY)),
+        NOW()
+    FROM fee_structures_detailed fsd
+    WHERE fsd.level_id = v_level_id
+      AND fsd.academic_year = v_academic_year
+      AND fsd.student_type_id = v_student_type_id
+      AND fsd.status = 'approved'
+      AND (p_term_id IS NULL OR fsd.term_id = p_term_id)
+      AND NOT EXISTS (
+          SELECT 1 FROM student_fee_obligations sfo 
+          WHERE sfo.student_id = p_student_id 
+            AND sfo.fee_structure_detail_id = fsd.id
+            AND sfo.academic_year_id = v_academic_year_id
+      );
+    
+    SET p_obligations_created = ROW_COUNT();
+    
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_generate_student_report`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_generate_student_report` (IN `p_student_id` INT UNSIGNED, IN `p_term_id` INT UNSIGNED)   BEGIN
   
@@ -2681,6 +2994,60 @@ ORDER BY cc.sort_order,
   lc.term_id;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_get_family_group_details`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_get_family_group_details` (IN `p_parent_id` INT UNSIGNED)   BEGIN
+    
+    SELECT 
+        p.id,
+        p.first_name,
+        p.middle_name,
+        p.last_name,
+        CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS full_name,
+        p.id_number,
+        p.gender,
+        p.date_of_birth,
+        p.phone_1,
+        p.phone_2,
+        p.email,
+        p.occupation,
+        p.address,
+        p.status,
+        p.created_at,
+        p.updated_at
+    FROM parents p
+    WHERE p.id = p_parent_id;
+    
+    
+    SELECT 
+        s.id AS student_id,
+        s.admission_no,
+        s.first_name,
+        s.middle_name,
+        s.last_name,
+        CONCAT(s.first_name, COALESCE(CONCAT(' ', s.middle_name), ''), ' ', s.last_name) AS full_name,
+        s.date_of_birth,
+        s.gender,
+        s.status,
+        s.photo_url,
+        c.name AS class_name,
+        cs.stream_name,
+        CONCAT(c.name, ' - ', cs.stream_name) AS class_stream,
+        sp.relationship,
+        sp.is_primary_contact,
+        sp.is_emergency_contact,
+        sp.financial_responsibility,
+        COALESCE(
+            (SELECT SUM(balance) FROM student_fee_balances WHERE student_id = s.id),
+            0
+        ) AS fee_balance
+    FROM students s
+    JOIN student_parents sp ON s.id = sp.student_id
+    LEFT JOIN class_streams cs ON s.stream_id = cs.id
+    LEFT JOIN classes c ON cs.class_id = c.id
+    WHERE sp.parent_id = p_parent_id
+    ORDER BY s.first_name, s.last_name;
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_get_fee_breakdown_for_review`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_get_fee_breakdown_for_review` (IN `p_academic_year` YEAR, IN `p_level_id` INT)   BEGIN
     SELECT 
@@ -2776,6 +3143,35 @@ WHERE cs.level_id = p_level_id
 GROUP BY s.id
 HAVING total_outstanding > 0
 ORDER BY total_outstanding DESC;
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_get_parent_children`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_get_parent_children` (IN `p_parent_id` INT UNSIGNED)   BEGIN
+    SELECT 
+        s.id AS student_id,
+        s.admission_no,
+        CONCAT(s.first_name, COALESCE(CONCAT(' ', s.middle_name), ''), ' ', s.last_name) AS student_name,
+        s.date_of_birth,
+        s.gender,
+        s.status,
+        s.photo_url,
+        c.name AS class_name,
+        cs.stream_name,
+        CONCAT(c.name, ' - ', cs.stream_name) AS class_stream,
+        sp.relationship,
+        sp.is_primary_contact,
+        sp.is_emergency_contact,
+        sp.financial_responsibility,
+        COALESCE(
+            (SELECT SUM(balance) FROM student_fee_balances WHERE student_id = s.id),
+            0
+        ) AS fee_balance
+    FROM students s
+    JOIN student_parents sp ON s.id = sp.student_id
+    LEFT JOIN class_streams cs ON s.stream_id = cs.id
+    LEFT JOIN classes c ON cs.class_id = c.id
+    WHERE sp.parent_id = p_parent_id
+    ORDER BY s.first_name, s.last_name;
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_get_payments_by_admission`$$
@@ -3041,6 +3437,58 @@ VALUES (
     JSON_OBJECT('allocation_id', p_allocation_id),
     NOW()
   );
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_link_parent_to_student`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_link_parent_to_student` (IN `p_parent_id` INT UNSIGNED, IN `p_student_id` INT UNSIGNED, IN `p_relationship` VARCHAR(20), IN `p_is_primary_contact` TINYINT(1), IN `p_is_emergency_contact` TINYINT(1), IN `p_financial_responsibility` DECIMAL(5,2), OUT `p_success` TINYINT(1))   BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        SET p_success = 0;
+        ROLLBACK;
+    END;
+    
+    START TRANSACTION;
+    
+    
+    IF p_is_primary_contact = 1 THEN
+        UPDATE student_parents 
+        SET is_primary_contact = 0 
+        WHERE student_id = p_student_id;
+    END IF;
+    
+    
+    INSERT INTO student_parents (
+        parent_id, 
+        student_id, 
+        relationship, 
+        is_primary_contact, 
+        is_emergency_contact,
+        financial_responsibility
+    ) VALUES (
+        p_parent_id, 
+        p_student_id, 
+        COALESCE(p_relationship, 'guardian'),
+        COALESCE(p_is_primary_contact, 0),
+        COALESCE(p_is_emergency_contact, 0),
+        COALESCE(p_financial_responsibility, 100.00)
+    )
+    ON DUPLICATE KEY UPDATE
+        relationship = VALUES(relationship),
+        is_primary_contact = VALUES(is_primary_contact),
+        is_emergency_contact = VALUES(is_emergency_contact),
+        financial_responsibility = VALUES(financial_responsibility),
+        updated_at = CURRENT_TIMESTAMP;
+    
+    COMMIT;
+    SET p_success = 1;
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_mark_uniform_sale_paid`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_mark_uniform_sale_paid` (IN `p_sale_id` INT, IN `p_payment_status` VARCHAR(20))   BEGIN
+  UPDATE `uniform_sales`
+  SET `payment_status` = p_payment_status,
+      `updated_at` = NOW()
+  WHERE `id` = p_sale_id;
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_moderate_marks`$$
@@ -4429,6 +4877,42 @@ CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_refresh_student_payment_summary`
         last_payment_date = v_last_payment;
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_register_uniform_sale`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_register_uniform_sale` (IN `p_student_id` INT, IN `p_item_id` INT, IN `p_size` VARCHAR(20), IN `p_quantity` INT, IN `p_unit_price` DECIMAL(10,2), IN `p_sold_by` INT, IN `p_notes` TEXT)   BEGIN
+  DECLARE v_sale_id INT;
+  DECLARE v_total_amount DECIMAL(10,2);
+  
+  SET v_total_amount = p_quantity * p_unit_price;
+  
+  
+  INSERT INTO `uniform_sales` 
+    (`student_id`, `item_id`, `size`, `quantity`, `unit_price`, `total_amount`, `sale_date`, `sold_by`, `notes`)
+  VALUES 
+    (p_student_id, p_item_id, p_size, p_quantity, p_unit_price, v_total_amount, CURDATE(), p_sold_by, p_notes);
+  
+  SET v_sale_id = LAST_INSERT_ID();
+  
+  
+  INSERT INTO `inventory_transactions`
+    (`item_id`, `transaction_type`, `quantity`, `transaction_date`, `created_at`, `reference_type`, `reference_id`, `unit_cost`, `total_cost`)
+  VALUES
+    (p_item_id, 'out', p_quantity, CURDATE(), NOW(), 'sale', v_sale_id, p_unit_price, v_total_amount);
+  
+  
+  UPDATE `uniform_sizes`
+  SET `quantity_sold` = `quantity_sold` + p_quantity,
+      `quantity_available` = `quantity_available` - p_quantity,
+      `updated_at` = NOW()
+  WHERE `item_id` = p_item_id AND `size` = p_size;
+  
+  
+  UPDATE `inventory_items`
+  SET `current_quantity` = `current_quantity` - p_quantity,
+      `updated_at` = NOW()
+  WHERE `id` = p_item_id;
+  
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_reject_class_promotion`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_reject_class_promotion` (IN `p_batch_id` INT UNSIGNED, IN `p_class_id` INT UNSIGNED, IN `p_stream_id` INT UNSIGNED, IN `p_rejection_reason` TEXT, IN `p_reviewed_by` INT UNSIGNED)   BEGIN
 DECLARE v_error_msg VARCHAR(255);
@@ -4832,6 +5316,58 @@ VALUES (
     ),
     NOW()
   );
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_search_family_groups`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_search_family_groups` (IN `p_search_term` VARCHAR(100), IN `p_limit` INT, IN `p_offset` INT)   BEGIN
+    DECLARE v_search VARCHAR(102);
+    SET v_search = CONCAT('%', COALESCE(p_search_term, ''), '%');
+    SET p_limit = COALESCE(p_limit, 50);
+    SET p_offset = COALESCE(p_offset, 0);
+    
+    SELECT SQL_CALC_FOUND_ROWS
+        p.id AS parent_id,
+        CONCAT(p.first_name, COALESCE(CONCAT(' ', p.middle_name), ''), ' ', p.last_name) AS parent_name,
+        p.id_number,
+        p.phone_1,
+        p.phone_2,
+        p.email,
+        p.gender,
+        p.occupation,
+        p.status,
+        COUNT(DISTINCT sp.student_id) AS children_count,
+        GROUP_CONCAT(
+            DISTINCT CONCAT(s.first_name, ' ', s.last_name)
+            ORDER BY s.first_name
+            SEPARATOR ', '
+        ) AS children_names,
+        COALESCE(
+            (SELECT SUM(sfb.balance) 
+             FROM student_fee_balances sfb 
+             JOIN student_parents sp2 ON sfb.student_id = sp2.student_id 
+             WHERE sp2.parent_id = p.id),
+            0
+        ) AS total_fee_balance
+    FROM parents p
+    LEFT JOIN student_parents sp ON p.id = sp.parent_id
+    LEFT JOIN students s ON sp.student_id = s.id
+    WHERE (
+        p.first_name LIKE v_search
+        OR p.last_name LIKE v_search
+        OR p.id_number LIKE v_search
+        OR p.phone_1 LIKE v_search
+        OR p.phone_2 LIKE v_search
+        OR p.email LIKE v_search
+        OR s.first_name LIKE v_search
+        OR s.last_name LIKE v_search
+        OR s.admission_no LIKE v_search
+    )
+    GROUP BY p.id
+    ORDER BY p.first_name, p.last_name
+    LIMIT p_limit OFFSET p_offset;
+    
+    
+    SELECT FOUND_ROWS() AS total_count;
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_send_announcement`$$
@@ -5454,6 +5990,17 @@ SET p_result_message = CONCAT(
   );
 END$$
 
+DROP PROCEDURE IF EXISTS `sp_unlink_parent_from_student`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_unlink_parent_from_student` (IN `p_parent_id` INT UNSIGNED, IN `p_student_id` INT UNSIGNED, OUT `p_success` TINYINT(1))   BEGIN
+    DECLARE v_affected INT DEFAULT 0;
+    
+    DELETE FROM student_parents 
+    WHERE parent_id = p_parent_id AND student_id = p_student_id;
+    
+    SET v_affected = ROW_COUNT();
+    SET p_success = IF(v_affected > 0, 1, 0);
+END$$
+
 DROP PROCEDURE IF EXISTS `sp_unlock_user_account`$$
 CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_unlock_user_account` (IN `p_user_id` INT UNSIGNED, IN `p_unlocked_by` INT UNSIGNED, IN `p_unlock_reason` TEXT)   BEGIN
 DECLARE v_locked_date DATETIME;
@@ -5536,6 +6083,29 @@ VALUES (
       v_target_value
     )
   );
+END$$
+
+DROP PROCEDURE IF EXISTS `sp_update_parent`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `sp_update_parent` (IN `p_parent_id` INT UNSIGNED, IN `p_first_name` VARCHAR(50), IN `p_middle_name` VARCHAR(50), IN `p_last_name` VARCHAR(50), IN `p_id_number` VARCHAR(30), IN `p_gender` ENUM('male','female','other'), IN `p_date_of_birth` DATE, IN `p_phone_1` VARCHAR(20), IN `p_phone_2` VARCHAR(20), IN `p_email` VARCHAR(100), IN `p_occupation` VARCHAR(100), IN `p_address` TEXT, OUT `p_success` TINYINT(1))   BEGIN
+    DECLARE v_affected INT DEFAULT 0;
+    
+    UPDATE parents SET
+        first_name = COALESCE(p_first_name, first_name),
+        middle_name = p_middle_name,
+        last_name = COALESCE(p_last_name, last_name),
+        id_number = p_id_number,
+        gender = COALESCE(p_gender, gender),
+        date_of_birth = p_date_of_birth,
+        phone_1 = COALESCE(p_phone_1, phone_1),
+        phone_2 = p_phone_2,
+        email = p_email,
+        occupation = p_occupation,
+        address = p_address,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = p_parent_id;
+    
+    SET v_affected = ROW_COUNT();
+    SET p_success = IF(v_affected > 0, 1, 0);
 END$$
 
 DROP PROCEDURE IF EXISTS `sp_users_with_multiple_roles`$$
@@ -5952,6 +6522,73 @@ WHERE batch_id = p_batch_id
 RETURN ROUND((v_approved / v_total) * 100, 2);
 END$$
 
+DROP FUNCTION IF EXISTS `fn_get_child_discount_rate`$$
+CREATE DEFINER=`root`@`localhost` FUNCTION `fn_get_child_discount_rate` (`p_staff_id` INT UNSIGNED, `p_student_id` INT UNSIGNED) RETURNS DECIMAL(5,2) DETERMINISTIC BEGIN
+    DECLARE v_child_order INT DEFAULT 1;
+    DECLARE v_discount DECIMAL(5,2);
+    DECLARE v_first_discount DECIMAL(5,2);
+    DECLARE v_second_discount DECIMAL(5,2);
+    DECLARE v_third_discount DECIMAL(5,2);
+    
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_first_discount 
+    FROM staff_child_fee_config WHERE config_key = 'first_child_discount_percentage' AND is_active = 1;
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_second_discount 
+    FROM staff_child_fee_config WHERE config_key = 'second_child_discount_percentage' AND is_active = 1;
+    
+    SELECT CAST(config_value AS DECIMAL(5,2)) INTO v_third_discount 
+    FROM staff_child_fee_config WHERE config_key = 'third_child_discount_percentage' AND is_active = 1;
+    
+    
+    SET v_first_discount = IFNULL(v_first_discount, 50.00);
+    SET v_second_discount = IFNULL(v_second_discount, 40.00);
+    SET v_third_discount = IFNULL(v_third_discount, 30.00);
+    
+    
+    SELECT COUNT(*) + 1 INTO v_child_order
+    FROM staff_children sc
+    JOIN students st ON sc.student_id = st.id
+    WHERE sc.staff_id = p_staff_id 
+    AND sc.student_id < p_student_id
+    AND sc.fee_deduction_enabled = 1
+    AND st.status = 'active';
+    
+    
+    SET v_discount = CASE 
+        WHEN v_child_order = 1 THEN v_first_discount
+        WHEN v_child_order = 2 THEN v_second_discount
+        ELSE v_third_discount
+    END;
+    
+    RETURN v_discount;
+END$$
+
+DROP FUNCTION IF EXISTS `fn_get_parent_children_count`$$
+CREATE DEFINER=`root`@`localhost` FUNCTION `fn_get_parent_children_count` (`p_parent_id` INT UNSIGNED) RETURNS INT(11) DETERMINISTIC READS SQL DATA BEGIN
+    DECLARE v_count INT DEFAULT 0;
+    
+    SELECT COUNT(DISTINCT student_id) 
+    INTO v_count
+    FROM student_parents 
+    WHERE parent_id = p_parent_id;
+    
+    RETURN v_count;
+END$$
+
+DROP FUNCTION IF EXISTS `fn_get_parent_total_fee_balance`$$
+CREATE DEFINER=`root`@`localhost` FUNCTION `fn_get_parent_total_fee_balance` (`p_parent_id` INT UNSIGNED) RETURNS DECIMAL(12,2) DETERMINISTIC READS SQL DATA BEGIN
+    DECLARE v_total DECIMAL(12,2) DEFAULT 0;
+    
+    SELECT COALESCE(SUM(sfb.balance), 0)
+    INTO v_total
+    FROM student_fee_balances sfb
+    JOIN student_parents sp ON sfb.student_id = sp.student_id
+    WHERE sp.parent_id = p_parent_id;
+    
+    RETURN v_total;
+END$$
+
 DROP FUNCTION IF EXISTS `fn_get_student_promotion_status`$$
 CREATE DEFINER=`root`@`localhost` FUNCTION `fn_get_student_promotion_status` (`p_student_id` INT UNSIGNED, `p_from_year` YEAR, `p_to_year` YEAR) RETURNS VARCHAR(50) CHARSET utf8mb4 COLLATE utf8mb4_unicode_ci DETERMINISTIC READS SQL DATA BEGIN
 DECLARE v_status VARCHAR(50);
@@ -6265,7 +6902,7 @@ CREATE TABLE IF NOT EXISTS `academic_year_archives` (
   `closure_date` datetime DEFAULT NULL,
   `closure_notes` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `archived_at` datetime NULL DEFAULT NULL,
+  `archived_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_academic_year` (`academic_year`),
   KEY `idx_status` (`status`),
@@ -6679,7 +7316,7 @@ CREATE TABLE IF NOT EXISTS `albums` (
   `created_at` datetime DEFAULT current_timestamp(),
   `updated_at` datetime DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `albums`:
@@ -6696,7 +7333,9 @@ TRUNCATE TABLE `albums`;
 
 INSERT IGNORE INTO `albums` (`id`, `name`, `description`, `cover_image`, `created_by`, `created_at`, `updated_at`) VALUES
 (2, 'Test Album 1766400769', 'Test media album', NULL, 1, '2025-12-22 13:52:49', '2025-12-22 13:52:49'),
-(3, 'Test Album 1766434749', 'Test media album', NULL, 1, '2025-12-22 23:19:09', '2025-12-22 23:19:09');
+(3, 'Test Album 1766434749', 'Test media album', NULL, 1, '2025-12-22 23:19:09', '2025-12-22 23:19:09'),
+(4, 'Test Album 1766666815', 'Test media album', NULL, 1, '2025-12-25 15:46:55', '2025-12-25 15:46:55'),
+(5, 'Test Album 1766666992', 'Test media album', NULL, 1, '2025-12-25 15:49:52', '2025-12-25 15:49:52');
 
 -- --------------------------------------------------------
 
@@ -6788,7 +7427,7 @@ CREATE TABLE IF NOT EXISTS `announcements_bulletin` (
   KEY `idx_status` (`status`),
   KEY `idx_announcement_type` (`announcement_type`),
   KEY `idx_published_at` (`published_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `announcements_bulletin`:
@@ -6802,45 +7441,53 @@ CREATE TABLE IF NOT EXISTS `announcements_bulletin` (
 
 TRUNCATE TABLE `announcements_bulletin`;
 --
+-- Dumping data for table `announcements_bulletin`
+--
+
+INSERT IGNORE INTO `announcements_bulletin` (`id`, `title`, `content`, `announcement_type`, `priority`, `target_audience`, `audience_json`, `published_by`, `status`, `scheduled_at`, `published_at`, `expires_at`, `view_count`, `created_at`, `updated_at`) VALUES
+(16, 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'academic', 'high', 'all', NULL, 22, 'published', NULL, '2025-12-29 16:07:16', '2026-01-12 16:07:16', 0, '2025-12-29 13:07:16', '2025-12-29 13:07:16'),
+(17, 'Boarding Parents Meeting', 'A meeting for all boarding parents will be held on January 15th at 10am in the main hall.', 'event', 'normal', 'parents', NULL, 22, 'published', NULL, '2025-12-29 16:07:16', '2026-01-08 16:07:16', 0, '2025-12-29 13:07:16', '2025-12-29 13:07:16'),
+(18, 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'administrative', 'high', 'all', NULL, 22, 'published', NULL, '2025-12-29 16:07:16', '2026-01-05 16:07:16', 0, '2025-12-29 13:07:16', '2025-12-29 13:07:16'),
+(19, 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'maintenance', 'normal', 'all', NULL, 22, 'published', NULL, '2025-12-29 16:07:16', '2026-01-03 16:07:16', 0, '2025-12-29 13:07:16', '2025-12-29 13:07:16'),
+(20, 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'general', 'critical', 'all', NULL, 22, 'published', NULL, '2025-12-29 16:07:16', '2026-01-28 16:07:16', 0, '2025-12-29 13:07:16', '2025-12-29 13:07:16');
+
+--
 -- Triggers `announcements_bulletin`
 --
 DROP TRIGGER IF EXISTS `trg_auto_create_notification`;
 DELIMITER $$
 CREATE TRIGGER `trg_auto_create_notification` AFTER INSERT ON `announcements_bulletin` FOR EACH ROW BEGIN 
-  IF NEW.target_audience = 'all'
-  OR NEW.target_audience = 'staff' THEN
-INSERT INTO notifications (
-    user_id,
-    title,
-    message,
-    notification_type,
-    priority,
-    status,
-    created_by,
-    created_at
-  )
-SELECT u.id,
-  NEW.title,
-  SUBSTRING(NEW.content, 1, 200),
-  'announcement',
-  NEW.priority,
-  'unread',
-  NEW.published_by,
-  NOW()
-FROM users u
-WHERE u.status = 'active'
-  AND u.id <> NEW.published_by;
-END IF;
-INSERT INTO system_events (event_type, event_data, created_at)
-VALUES (
+  IF NEW.target_audience = 'all' OR NEW.target_audience = 'staff' THEN
+    INSERT INTO notifications (
+      user_id,
+      title,
+      message,
+      type,
+      priority,
+      read_status,
+      created_at
+    )
+    SELECT u.id,
+      NEW.title,
+      SUBSTRING(NEW.content, 1, 200),
+      'announcement',
+      CASE 
+        WHEN NEW.priority = 'normal' THEN 'medium'
+        WHEN NEW.priority = 'critical' THEN 'high'
+        ELSE NEW.priority
+      END,
+      'unread',
+      NOW()
+    FROM users u
+    WHERE u.status = 'active' AND u.id <> NEW.published_by;
+  END IF;
+  INSERT INTO system_events (event_type, event_data, created_at)
+  VALUES (
     'announcement_created',
     JSON_OBJECT(
-      'announcement_id',
-      NEW.id,
-      'title',
-      NEW.title,
-      'audience',
-      NEW.target_audience
+      'announcement_id', NEW.id,
+      'title', NEW.title,
+      'audience', NEW.target_audience
     ),
     NOW()
   );
@@ -6916,7 +7563,7 @@ CREATE TABLE IF NOT EXISTS `annual_scores` (
   `avg_summative_percentage` decimal(5,2) DEFAULT 0.00,
   `pathway_classification` enum('excelling','on_track','support_needed') DEFAULT 'on_track' COMMENT 'Student learning pathway based on performance patterns',
   `insights_summary` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Recommendations for parents/teachers on student pathways and next steps' CHECK (json_valid(`insights_summary`)),
-  `calculated_at` datetime NULL DEFAULT NULL,
+  `calculated_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -7058,7 +7705,7 @@ CREATE TABLE IF NOT EXISTS `assessments` (
   `assigned_by` int(10) UNSIGNED NOT NULL,
   `status` enum('pending_submission','submitted','pending_approval','approved') NOT NULL DEFAULT 'pending_submission',
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
-  `approved_at` datetime NULL DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `assessment_type_id` int(10) UNSIGNED DEFAULT NULL,
   `learning_outcome_id` int(10) UNSIGNED DEFAULT NULL,
@@ -7189,7 +7836,7 @@ CREATE TABLE IF NOT EXISTS `assessment_results` (
   `points` decimal(3,1) DEFAULT NULL,
   `remarks` varchar(255) DEFAULT NULL,
   `peer_feedback` text DEFAULT NULL,
-  `submitted_at` datetime NULL DEFAULT NULL,
+  `submitted_at` timestamp NULL DEFAULT NULL,
   `is_submitted` tinyint(1) NOT NULL DEFAULT 0,
   `is_approved` tinyint(1) NOT NULL DEFAULT 0,
   `responder_type` enum('teacher','self','peer') NOT NULL DEFAULT 'teacher',
@@ -7391,7 +8038,7 @@ CREATE TABLE IF NOT EXISTS `audit_logs` (
   KEY `idx_action` (`action`),
   KEY `idx_created` (`created_at`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=206 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Comprehensive audit log for all user management actions';
+) ENGINE=InnoDB AUTO_INCREMENT=213 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='Comprehensive audit log for all user management actions';
 
 --
 -- RELATIONSHIPS FOR TABLE `audit_logs`:
@@ -7446,7 +8093,14 @@ INSERT IGNORE INTO `audit_logs` (`id`, `action`, `entity`, `entity_id`, `user_id
 (202, 'create', 'user', 16, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_kitchenstaff\",\"email\":\"james@yahoo.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 17:12:22'),
 (203, 'create', 'user', 17, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_securitystaff\",\"email\":\"joseph@outlook.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 17:12:22'),
 (204, 'create', 'user', 18, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_janitor\",\"email\":\"mary@gmail.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 17:12:22'),
-(205, 'create', 'user', 19, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_deputy_disc\",\"email\":\"william@outlook.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 17:12:22');
+(205, 'create', 'user', 19, 1, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"test_deputy_disc\",\"email\":\"william@outlook.com\",\"role_id\":null,\"status\":\"active\"}', 'success', '2025-12-21 17:12:22'),
+(206, 'create', 'user', 22, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test\",\"email\":\"teacher_test+seed@example.com\",\"role_id\":65,\"status\":\"active\"}', 'success', '2025-12-31 06:21:09'),
+(207, 'create', 'user', 23, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test2\",\"email\":\"teacher_test2+seed@example.com\",\"role_id\":65,\"status\":\"active\"}', 'success', '2025-12-31 06:21:58'),
+(208, 'create', 'user', 24, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test_176716306297\",\"email\":\"teacher_test_176716306297@example.com\",\"role_id\":66,\"status\":\"active\"}', 'success', '2025-12-31 06:37:43'),
+(209, 'create', 'user', 25, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test_176716415245\",\"email\":\"teacher_test_176716415245@example.com\",\"role_id\":67,\"status\":\"active\"}', 'success', '2025-12-31 06:55:52'),
+(210, 'create', 'user', 26, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test_176716418856\",\"email\":\"teacher_test_176716418856@example.com\",\"role_id\":68,\"status\":\"active\"}', 'success', '2025-12-31 06:56:28'),
+(211, 'create', 'user', 27, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_test_176716599626\",\"email\":\"teacher_test_176716599626@example.com\",\"role_id\":69,\"status\":\"active\"}', 'success', '2025-12-31 07:26:37'),
+(212, 'create', 'user', 29, 2, '127.0.0.1', 'curl/8.14.1', '{\"username\":\"teacher_payok_176716649133\",\"email\":\"teacher_payok_176716649133@example.com\",\"role_id\":70,\"status\":\"active\"}', 'success', '2025-12-31 07:34:51');
 
 -- --------------------------------------------------------
 
@@ -7472,7 +8126,7 @@ CREATE TABLE IF NOT EXISTS `audit_trail` (
   KEY `idx_table_record` (`table_name`,`record_id`),
   KEY `idx_user_action` (`user_id`,`action`),
   KEY `idx_created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=647 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=665 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `audit_trail`:
@@ -8126,7 +8780,24 @@ INSERT IGNORE INTO `audit_trail` (`id`, `user_id`, `table_name`, `record_id`, `a
 (643, 16, 'users', 16, 'insert', NULL, '{\"username\": \"test_kitchenstaff\", \"email\": \"james@yahoo.com\", \"role_id\": 32, \"status\": \"active\"}', NULL, NULL, '2025-12-21 17:12:22'),
 (644, 17, 'users', 17, 'insert', NULL, '{\"username\": \"test_securitystaff\", \"email\": \"joseph@outlook.com\", \"role_id\": 33, \"status\": \"active\"}', NULL, NULL, '2025-12-21 17:12:22'),
 (645, 18, 'users', 18, 'insert', NULL, '{\"username\": \"test_janitor\", \"email\": \"mary@gmail.com\", \"role_id\": 34, \"status\": \"active\"}', NULL, NULL, '2025-12-21 17:12:22'),
-(646, 19, 'users', 19, 'insert', NULL, '{\"username\": \"test_deputy_disc\", \"email\": \"william@outlook.com\", \"role_id\": 63, \"status\": \"active\"}', NULL, NULL, '2025-12-21 17:12:22');
+(646, 19, 'users', 19, 'insert', NULL, '{\"username\": \"test_deputy_disc\", \"email\": \"william@outlook.com\", \"role_id\": 63, \"status\": \"active\"}', NULL, NULL, '2025-12-21 17:12:22'),
+(647, NULL, 'inventory_items', 11, 'insert', NULL, '{\"name\": \"School Sweater (All Sizes)\", \"code\": \"UNF-SWTR\", \"current_quantity\": 200, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(648, NULL, 'inventory_items', 12, 'insert', NULL, '{\"name\": \"School Socks (Pack of 3)\", \"code\": \"UNF-SOCK\", \"current_quantity\": 150, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(649, NULL, 'inventory_items', 13, 'insert', NULL, '{\"name\": \"School Shorts (All Sizes)\", \"code\": \"UNF-SHRT\", \"current_quantity\": 180, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(650, NULL, 'inventory_items', 14, 'insert', NULL, '{\"name\": \"School Trousers (All Sizes)\", \"code\": \"UNF-TROU\", \"current_quantity\": 250, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(651, NULL, 'inventory_items', 15, 'insert', NULL, '{\"name\": \"School Shirt (Boys All Sizes)\", \"code\": \"UNF-SHRT-B\", \"current_quantity\": 220, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(652, NULL, 'inventory_items', 16, 'insert', NULL, '{\"name\": \"School Blouse (Girls All Sizes)\", \"code\": \"UNF-BLOU\", \"current_quantity\": 200, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(653, NULL, 'inventory_items', 17, 'insert', NULL, '{\"name\": \"School Skirt (Girls All Sizes)\", \"code\": \"UNF-SKRT\", \"current_quantity\": 150, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(654, NULL, 'inventory_items', 18, 'insert', NULL, '{\"name\": \"Games Skirt (All Sizes)\", \"code\": \"UNF-GAMS\", \"current_quantity\": 120, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(655, NULL, 'inventory_items', 19, 'insert', NULL, '{\"name\": \"Sleeping Pajamas (All Sizes)\", \"code\": \"UNF-PJMS\", \"current_quantity\": 100, \"status\": \"active\"}', NULL, NULL, '2025-12-28 13:32:34'),
+(656, 21, 'users', 21, 'insert', NULL, '{\"username\": \"tuser_api\", \"email\": \"tuser_api@example.com\", \"role_id\": 65, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:12:13'),
+(657, 22, 'users', 22, 'insert', NULL, '{\"username\": \"teacher_test\", \"email\": \"teacher_test+seed@example.com\", \"role_id\": 65, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:21:09'),
+(658, 23, 'users', 23, 'insert', NULL, '{\"username\": \"teacher_test2\", \"email\": \"teacher_test2+seed@example.com\", \"role_id\": 65, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:21:58'),
+(659, 24, 'users', 24, 'insert', NULL, '{\"username\": \"teacher_test_176716306297\", \"email\": \"teacher_test_176716306297@example.com\", \"role_id\": 66, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:37:43'),
+(660, 25, 'users', 25, 'insert', NULL, '{\"username\": \"teacher_test_176716415245\", \"email\": \"teacher_test_176716415245@example.com\", \"role_id\": 67, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:55:52'),
+(661, 26, 'users', 26, 'insert', NULL, '{\"username\": \"teacher_test_176716418856\", \"email\": \"teacher_test_176716418856@example.com\", \"role_id\": 68, \"status\": \"active\"}', NULL, NULL, '2025-12-31 06:56:28'),
+(662, 27, 'users', 27, 'insert', NULL, '{\"username\": \"teacher_test_176716599626\", \"email\": \"teacher_test_176716599626@example.com\", \"role_id\": 69, \"status\": \"active\"}', NULL, NULL, '2025-12-31 07:26:37'),
+(664, 29, 'users', 29, 'insert', NULL, '{\"username\": \"teacher_payok_176716649133\", \"email\": \"teacher_payok_176716649133@example.com\", \"role_id\": 70, \"status\": \"active\"}', NULL, NULL, '2025-12-31 07:34:51');
 
 -- --------------------------------------------------------
 
@@ -8145,7 +8816,7 @@ CREATE TABLE IF NOT EXISTS `auth_sessions` (
   `user_agent` varchar(255) DEFAULT NULL,
   `payload` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`payload`)),
   `last_activity` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_token` (`token`),
@@ -8320,7 +8991,7 @@ CREATE TABLE IF NOT EXISTS `blocked_ips` (
   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) NOT NULL COMMENT 'IPv4 or IPv6 address',
   `reason` varchar(255) NOT NULL COMMENT 'Why this IP was blocked',
-  `expires_at` datetime NULL DEFAULT NULL COMMENT 'NULL = permanent block',
+  `expires_at` timestamp NULL DEFAULT NULL COMMENT 'NULL = permanent block',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `created_by` int(10) UNSIGNED DEFAULT NULL COMMENT 'Admin user who blocked this IP',
   PRIMARY KEY (`id`),
@@ -8362,7 +9033,7 @@ CREATE TABLE IF NOT EXISTS `classes` (
   KEY `idx_level` (`level_id`),
   KEY `idx_teacher` (`teacher_id`),
   KEY `idx_status_year` (`status`,`academic_year`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `classes`:
@@ -8384,7 +9055,14 @@ TRUNCATE TABLE `classes`;
 INSERT IGNORE INTO `classes` (`id`, `name`, `level_id`, `teacher_id`, `capacity`, `room_number`, `academic_year`, `status`, `created_at`, `updated_at`) VALUES
 (1, 'Grade 6', 1, NULL, 40, NULL, '2025', 'active', '2025-11-29 11:23:13', '2025-11-29 11:23:13'),
 (2, 'Grade 3', 2, NULL, 35, NULL, '2025', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
-(4, 'Grade 9', 4, NULL, 45, NULL, '2025', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34');
+(4, 'Grade 9', 4, NULL, 45, NULL, '2025', 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34'),
+(5, 'Playgroup', 1, NULL, 40, NULL, '2026', 'active', '2025-12-30 18:52:15', '2025-12-30 18:52:15'),
+(6, 'Grade 1', 2, NULL, 40, NULL, '2026', 'active', '2025-12-30 18:54:30', '2025-12-30 18:54:30'),
+(7, 'Grade 2', 2, NULL, 40, NULL, '2026', 'active', '2025-12-30 18:55:47', '2025-12-30 18:55:47'),
+(8, 'Grade 4', 3, NULL, 40, NULL, '2026', 'active', '2025-12-30 18:56:03', '2025-12-30 18:56:03'),
+(9, 'Grade 5', 3, NULL, 40, NULL, '2026', 'active', '2025-12-31 05:26:49', '2025-12-31 05:26:49'),
+(10, 'Grade 7', 4, NULL, 40, NULL, '2026', 'active', '2025-12-31 05:26:54', '2025-12-31 05:26:54'),
+(11, 'Grade 8', 4, NULL, 40, NULL, '2026', 'active', '2025-12-31 05:26:57', '2025-12-31 05:26:57');
 
 --
 -- Triggers `classes`
@@ -8458,7 +9136,7 @@ CREATE TABLE IF NOT EXISTS `class_enrollments` (
   `promotion_date` date DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `completed_at` datetime NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `unique_student_year` (`student_id`,`academic_year_id`),
   KEY `idx_student` (`student_id`),
@@ -8663,7 +9341,7 @@ CREATE TABLE IF NOT EXISTS `class_streams` (
   UNIQUE KEY `uk_class_stream` (`class_id`,`stream_name`),
   KEY `idx_teacher` (`teacher_id`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `class_streams`:
@@ -8683,9 +9361,16 @@ TRUNCATE TABLE `class_streams`;
 --
 
 INSERT IGNORE INTO `class_streams` (`id`, `class_id`, `stream_name`, `capacity`, `teacher_id`, `status`, `created_at`, `updated_at`, `current_students`) VALUES
-(1, 1, 'Grade 6', 40, NULL, 'active', '2025-11-29 11:23:13', '2025-11-29 12:09:56', 3),
+(1, 1, 'Grade 6', 40, NULL, 'active', '2025-11-29 11:23:13', '2025-12-31 07:16:29', 6),
 (2, 2, 'Grade 3', 35, NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34', 0),
-(3, 4, 'Grade 9', 45, NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34', 0);
+(3, 4, 'Grade 9', 45, NULL, 'active', '2025-11-29 12:02:34', '2025-11-29 12:02:34', 0),
+(4, 5, 'Playgroup', 40, NULL, 'active', '2025-12-30 18:52:15', '2025-12-31 05:24:23', 2),
+(5, 6, 'Grade 1', 40, NULL, 'active', '2025-12-30 18:54:30', '2025-12-30 18:54:30', 0),
+(6, 7, 'Grade 2', 40, NULL, 'active', '2025-12-30 18:55:47', '2025-12-30 18:55:47', 0),
+(7, 8, 'Grade 4', 40, NULL, 'active', '2025-12-30 18:56:03', '2025-12-30 18:56:03', 0),
+(8, 9, 'Grade 5', 40, NULL, 'active', '2025-12-31 05:26:49', '2025-12-31 05:26:49', 0),
+(9, 10, 'Grade 7', 40, NULL, 'active', '2025-12-31 05:26:54', '2025-12-31 05:26:54', 0),
+(10, 11, 'Grade 8', 40, NULL, 'active', '2025-12-31 05:26:57', '2025-12-31 05:26:57', 0);
 
 --
 -- Triggers `class_streams`
@@ -9214,7 +9899,7 @@ CREATE TABLE IF NOT EXISTS `communication_workflow_instances` (
   `status` enum('active','completed','cancelled','escalated') NOT NULL DEFAULT 'active',
   `initiated_by` int(10) UNSIGNED NOT NULL,
   `initiated_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` datetime NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `communication_id` (`communication_id`),
   KEY `workflow_code` (`workflow_code`)
@@ -9345,6 +10030,42 @@ END
 $$
 DELIMITER ;
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `config_sync_log`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `config_sync_log`;
+CREATE TABLE IF NOT EXISTS `config_sync_log` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `config_type` enum('routes','menus','dashboards','policies','permissions','all') NOT NULL,
+  `file_path` varchar(500) NOT NULL COMMENT 'Generated file path',
+  `checksum` varchar(64) NOT NULL COMMENT 'SHA-256 of generated content',
+  `records_count` int(11) NOT NULL COMMENT 'Number of records exported',
+  `sync_status` enum('success','failed','partial') NOT NULL DEFAULT 'success',
+  `error_message` text DEFAULT NULL,
+  `synced_by` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_sync_log_type` (`config_type`),
+  KEY `idx_sync_log_status` (`sync_status`),
+  KEY `fk_sync_log_user` (`synced_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `config_sync_log`:
+--   `synced_by`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `config_sync_log`
+--
+
+TRUNCATE TABLE `config_sync_log`;
 -- --------------------------------------------------------
 
 --
@@ -9657,9 +10378,68 @@ TRUNCATE TABLE `daily_meal_allocations`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `dashboards`
+--
+-- Creation: Dec 28, 2025 at 05:16 PM
+--
+
+DROP TABLE IF EXISTS `dashboards`;
+CREATE TABLE IF NOT EXISTS `dashboards` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT 'Dashboard route key e.g. system_administrator_dashboard',
+  `display_name` varchar(150) NOT NULL COMMENT 'Human-readable name e.g. System Administrator Dashboard',
+  `description` varchar(500) DEFAULT NULL,
+  `domain` enum('SYSTEM','SCHOOL') NOT NULL DEFAULT 'SCHOOL',
+  `route_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Linked route for this dashboard landing page',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`),
+  KEY `idx_dashboards_domain` (`domain`),
+  KEY `idx_dashboards_active` (`is_active`),
+  KEY `fk_dashboards_route` (`route_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `dashboards`:
+--   `route_id`
+--       `routes` -> `id`
+--
+
+--
+-- Truncate table before insert `dashboards`
+--
+
+TRUNCATE TABLE `dashboards`;
+--
+-- Dumping data for table `dashboards`
+--
+
+INSERT IGNORE INTO `dashboards` (`id`, `name`, `display_name`, `description`, `domain`, `route_id`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'system_administrator_dashboard', 'System Administrator Dashboard', 'System infrastructure management', 'SYSTEM', 1, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(2, 'director_owner_dashboard', 'Director Dashboard', 'School director and owner dashboard', 'SCHOOL', 22, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(3, 'school_administrative_officer_dashboard', 'School Administrator Dashboard', 'School administrative operations', 'SCHOOL', 23, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(4, 'headteacher_dashboard', 'Headteacher Dashboard', 'Academic leadership and oversight', 'SCHOOL', 24, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(5, 'deputy_headteacher_dashboard', 'Deputy Head Dashboard', 'Deputy headteacher operations', 'SCHOOL', 25, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(6, 'class_teacher_dashboard', 'Class Teacher Dashboard', 'Class teacher daily operations', 'SCHOOL', 26, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(7, 'subject_teacher_dashboard', 'Subject Teacher Dashboard', 'Subject-specific teaching dashboard', 'SCHOOL', 27, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(8, 'intern_student_teacher_dashboard', 'Intern Teacher Dashboard', 'Intern/student teacher dashboard', 'SCHOOL', 28, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(9, 'school_accountant_dashboard', 'Accountant Dashboard', 'Financial operations and reporting', 'SCHOOL', 29, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(10, 'store_manager_dashboard', 'Inventory Manager Dashboard', 'Stock and inventory management', 'SCHOOL', 30, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(11, 'catering_manager_cook_lead_dashboard', 'Cateress Dashboard', 'Catering and food services', 'SCHOOL', 31, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(12, 'matron_housemother_dashboard', 'Boarding Master Dashboard', 'Boarding house operations', 'SCHOOL', 32, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(13, 'hod_talent_development_dashboard', 'Talent Development Dashboard', 'Extra-curricular activities', 'SCHOOL', 33, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(14, 'driver_dashboard', 'Driver Dashboard', 'Transport and routes', 'SCHOOL', 34, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59'),
+(15, 'school_counselor_chaplain_dashboard', 'Chaplain Dashboard', 'Counseling and chapel services', 'SCHOOL', 35, 1, '2025-12-28 17:16:59', '2025-12-28 17:16:59');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `deduction_types`
 --
--- Creation: Nov 09, 2025 at 11:16 PM
+-- Creation: Jan 05, 2026 at 01:09 PM
+-- Last update: Jan 05, 2026 at 01:09 PM
 --
 
 DROP TABLE IF EXISTS `deduction_types`;
@@ -9668,14 +10448,20 @@ CREATE TABLE IF NOT EXISTS `deduction_types` (
   `code` varchar(50) NOT NULL,
   `name` varchar(100) NOT NULL,
   `description` text DEFAULT NULL,
+  `category` enum('statutory','voluntary','loan','school_fees','advance','other') NOT NULL DEFAULT 'other',
+  `is_percentage` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Whether amount is percentage of salary',
+  `default_amount` decimal(12,2) DEFAULT NULL COMMENT 'Default fixed amount if applicable',
+  `default_percentage` decimal(5,2) DEFAULT NULL COMMENT 'Default percentage if is_percentage=1',
+  `is_taxable` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Whether this deduction affects taxable income',
   `default_rate` decimal(5,2) DEFAULT NULL,
   `is_mandatory` tinyint(1) NOT NULL DEFAULT 0,
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_code` (`code`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  UNIQUE KEY `uk_code` (`code`),
+  KEY `idx_category` (`category`)
+) ENGINE=InnoDB AUTO_INCREMENT=24 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `deduction_types`:
@@ -9690,14 +10476,19 @@ TRUNCATE TABLE `deduction_types`;
 -- Dumping data for table `deduction_types`
 --
 
-INSERT IGNORE INTO `deduction_types` (`id`, `code`, `name`, `description`, `default_rate`, `is_mandatory`, `is_active`, `created_at`, `updated_at`) VALUES
-(1, 'PAYE', 'Pay As You Earn Tax', 'Government tax withholding', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(2, 'NSSF', 'National Social Security Fund', 'NSSF employee contribution', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(3, 'NHIF', 'National Health Insurance Fund', 'Health insurance contribution', NULL, 1, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(4, 'LOAN', 'Loan Repayment', 'Staff loan deduction', NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(5, 'INSURANCE', 'Private Insurance', 'Optional insurance premium', NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(6, 'PROFESSIONAL_FEES', 'Professional Body Fees', 'Professional membership fees', NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
-(7, 'OTHER', 'Other Deductions', 'Miscellaneous deductions', NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55');
+INSERT IGNORE INTO `deduction_types` (`id`, `code`, `name`, `description`, `category`, `is_percentage`, `default_amount`, `default_percentage`, `is_taxable`, `default_rate`, `is_mandatory`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'PAYE', 'Pay As You Earn', 'Income tax deduction', 'statutory', 0, NULL, NULL, 0, NULL, 1, 1, '2025-11-28 18:51:55', '2026-01-05 13:09:53'),
+(2, 'NSSF', 'NSSF Contribution', 'National Social Security Fund contribution', 'statutory', 0, NULL, NULL, 0, NULL, 1, 1, '2025-11-28 18:51:55', '2026-01-05 13:09:53'),
+(3, 'NHIF', 'NHIF Contribution', 'National Hospital Insurance Fund contribution', 'statutory', 0, NULL, NULL, 0, NULL, 1, 1, '2025-11-28 18:51:55', '2026-01-05 13:09:53'),
+(4, 'LOAN', 'Loan Repayment', 'Staff loan deduction', 'other', 0, NULL, NULL, 0, NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
+(5, 'INSURANCE', 'Private Insurance', 'Optional insurance premium', 'other', 0, NULL, NULL, 0, NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
+(6, 'PROFESSIONAL_FEES', 'Professional Body Fees', 'Professional membership fees', 'other', 0, NULL, NULL, 0, NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
+(7, 'OTHER', 'Other Deductions', 'Miscellaneous deductions', 'other', 0, NULL, NULL, 0, NULL, 0, 1, '2025-11-28 18:51:55', '2025-11-28 18:51:55'),
+(8, 'SACCO', 'SACCO Contribution', 'Staff SACCO savings contribution', 'voluntary', 0, NULL, NULL, 0, NULL, 0, 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(9, 'LOAN_REPAY', 'Loan Repayment', 'Staff loan monthly repayment', 'loan', 0, NULL, NULL, 0, NULL, 0, 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(10, 'SALARY_ADVANCE', 'Salary Advance', 'Recovery of salary advance', 'advance', 0, NULL, NULL, 0, NULL, 0, 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(11, 'CHILD_FEES', 'Child School Fees', 'School fees for staff children', 'school_fees', 0, NULL, NULL, 0, NULL, 0, 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(12, 'HOUSING_LEVY', 'Housing Levy', 'Government housing levy', 'statutory', 1, NULL, 1.50, 1, NULL, 0, 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53');
 
 -- --------------------------------------------------------
 
@@ -9815,7 +10606,7 @@ CREATE TABLE IF NOT EXISTS `department_budget_proposals` (
   `created_by` int(11) NOT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `reviewed_at` datetime NULL DEFAULT NULL,
+  `reviewed_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -9869,7 +10660,7 @@ CREATE TABLE IF NOT EXISTS `department_fund_requests` (
   `requested_by` int(11) NOT NULL,
   `reviewed_by` int(11) DEFAULT NULL,
   `requested_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `reviewed_at` datetime NULL DEFAULT NULL,
+  `reviewed_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -9939,7 +10730,7 @@ TRUNCATE TABLE `drivers`;
 --
 -- Table structure for table `equipment_maintenance`
 --
--- Creation: Nov 09, 2025 at 11:15 PM
+-- Creation: Dec 25, 2025 at 12:40 PM
 --
 
 DROP TABLE IF EXISTS `equipment_maintenance`;
@@ -9948,7 +10739,7 @@ CREATE TABLE IF NOT EXISTS `equipment_maintenance` (
   `equipment_id` int(10) UNSIGNED NOT NULL,
   `maintenance_type_id` int(10) UNSIGNED NOT NULL,
   `last_maintenance_date` date DEFAULT NULL,
-  `next_maintenance_date` date NOT NULL,
+  `next_maintenance_date` date DEFAULT NULL,
   `status` enum('pending','scheduled','in_progress','completed','cancelled','overdue') NOT NULL DEFAULT 'pending',
   `notes` text DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -9957,7 +10748,7 @@ CREATE TABLE IF NOT EXISTS `equipment_maintenance` (
   KEY `idx_equipment_status` (`equipment_id`,`status`),
   KEY `maintenance_type_id` (`maintenance_type_id`),
   KEY `idx_next_date` (`next_maintenance_date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `equipment_maintenance`:
@@ -10102,7 +10893,7 @@ CREATE TABLE IF NOT EXISTS `expenses` (
   `created_by` int(10) UNSIGNED DEFAULT NULL,
   `status` enum('pending','approved','rejected') DEFAULT 'pending',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `updated_at` datetime NULL DEFAULT NULL ON UPDATE current_timestamp(),
+  `updated_at` timestamp NULL DEFAULT NULL ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_expense_category` (`expense_category`),
   KEY `idx_expense_date` (`expense_date`)
@@ -10778,7 +11569,7 @@ CREATE TABLE IF NOT EXISTS `financial_periods` (
   `end_date` date NOT NULL,
   `status` enum('active','closed') NOT NULL DEFAULT 'active',
   `closed_by` int(10) UNSIGNED DEFAULT NULL,
-  `closed_at` datetime NULL DEFAULT NULL,
+  `closed_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `idx_date_range` (`start_date`,`end_date`),
@@ -10817,10 +11608,10 @@ CREATE TABLE IF NOT EXISTS `financial_transactions` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `transaction_date` datetime NOT NULL,
   `processed_by` int(10) UNSIGNED DEFAULT NULL,
-  `processed_at` datetime NULL DEFAULT NULL,
+  `processed_at` timestamp NULL DEFAULT NULL,
   `reconciliation_status` enum('pending','reconciled','disputed') NOT NULL DEFAULT 'pending',
   `reconciled_by` int(10) UNSIGNED DEFAULT NULL,
-  `reconciled_at` datetime NULL DEFAULT NULL,
+  `reconciled_at` timestamp NULL DEFAULT NULL,
   `notes` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `processed_by` (`processed_by`),
@@ -11006,6 +11797,48 @@ CREATE TABLE IF NOT EXISTS `form_permissions` (
 --
 
 TRUNCATE TABLE `form_permissions`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `role_form_permissions`
+--
+-- Creation: Jan 06, 2026
+--
+
+DROP TABLE IF EXISTS `role_form_permissions`;
+CREATE TABLE IF NOT EXISTS `role_form_permissions` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `role_id` int(10) UNSIGNED NOT NULL,
+  `form_permission_id` int(10) UNSIGNED NOT NULL,
+  `allowed_actions` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`allowed_actions`)),
+  `can_delegate` tinyint(1) NOT NULL DEFAULT 0,
+  `action_type` varchar(50) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_role_id` (`role_id`),
+  KEY `idx_form_permission_id` (`form_permission_id`),
+  CONSTRAINT `fk_role_form_permissions_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_role_form_permissions_form` FOREIGN KEY (`form_permission_id`) REFERENCES `form_permissions` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `role_form_permissions`:
+--
+
+--
+-- Truncate table before insert `role_form_permissions`
+--
+
+TRUNCATE TABLE `role_form_permissions`;
+--
+-- Dumping data for table `role_form_permissions`
+--
+
+INSERT IGNORE INTO `role_form_permissions` (`id`, `role_id`, `form_permission_id`, `allowed_actions`, `can_delegate`, `action_type`, `created_at`, `updated_at`) VALUES
+(1, 1, 1, '[\"create\", \"read\", \"update\"]', 1, 'full_access', '2025-12-28 19:32:00', '2025-12-28 19:32:00'),
+(2, 2, 2, '[\"create\", \"read\"]', 0, 'read_only', '2025-12-28 19:32:00', '2025-12-28 19:32:00');
+
 -- --------------------------------------------------------
 
 --
@@ -11681,7 +12514,7 @@ CREATE TABLE IF NOT EXISTS `inventory_categories` (
   UNIQUE KEY `uk_code` (`code`),
   KEY `idx_parent` (`parent_id`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `inventory_categories`:
@@ -11707,7 +12540,8 @@ INSERT IGNORE INTO `inventory_categories` (`id`, `name`, `code`, `description`, 
 (6, 'Oils & Spices', 'SPICE', 'Cooking oils, spices, seasonings', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (7, 'Furniture', 'FURN', 'Desks, chairs, tables', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
 (8, 'Equipment', 'EQUIP', 'IT, lab, sports equipment', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(9, 'Stationery', 'STAT', 'Pens, papers, office supplies', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30');
+(9, 'Stationery', 'STAT', 'Pens, papers, office supplies', NULL, 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
+(10, 'Uniforms', 'UNIF', 'School uniforms (sweaters, shirts, trousers, skirts, etc.)', NULL, 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34');
 
 -- --------------------------------------------------------
 
@@ -11865,7 +12699,7 @@ CREATE TABLE IF NOT EXISTS `inventory_items` (
   UNIQUE KEY `uk_sku` (`sku`),
   KEY `idx_category` (`category_id`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `inventory_items`:
@@ -11891,7 +12725,16 @@ INSERT IGNORE INTO `inventory_items` (`id`, `category_id`, `name`, `code`, `barc
 (6, 6, 'Cooking Oil (10L)', 'OIL-10L', 'OIL0010', 'SKU-OIL-10', 'Vegetable cooking oil', 'jerrycans', 2, 8, 1200.00, 'Store Room A', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Best Oil', NULL, 4, NULL, 1, 0),
 (7, 7, 'Student Desk', 'DESK-STD', 'DESK0001', 'SKU-DESK-01', 'Standard school desk', 'units', 20, 150, 5000.00, 'Warehouse', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Furniture Plus', NULL, 30, NULL, 0, 0),
 (8, 7, 'Student Chair', 'CHAIR-STD', 'CHAIR001', 'SKU-CHAIR-01', 'Standard school chair', 'units', 20, 200, 2000.00, 'Warehouse', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'Furniture Plus', NULL, 30, NULL, 0, 0),
-(9, 8, 'Projector', 'PROJ-HD', 'PROJ0001', 'SKU-PROJ-01', 'HD Projector', 'units', 1, 5, 45000.00, 'Lab Storage', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'TechVision', NULL, 1, NULL, 0, 0);
+(9, 8, 'Projector', 'PROJ-HD', 'PROJ0001', 'SKU-PROJ-01', 'HD Projector', 'units', 1, 5, 45000.00, 'Lab Storage', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30', 'TechVision', NULL, 1, NULL, 0, 0),
+(11, 10, 'School Sweater (All Sizes)', 'UNF-SWTR', 'SWEATER001', 'SKU-SWEATER', 'Grey school sweater', 'pieces', 50, 200, 1200.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 75, NULL, 1, 0),
+(12, 10, 'School Socks (Pack of 3)', 'UNF-SOCK', 'SOCKS0001', 'SKU-SOCKS', 'White cotton socks pack', 'packs', 30, 150, 400.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 50, NULL, 1, 0),
+(13, 10, 'School Shorts (All Sizes)', 'UNF-SHRT', 'SHORTS001', 'SKU-SHORTS', 'Navy blue shorts', 'pieces', 40, 180, 1500.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 60, NULL, 1, 0),
+(14, 10, 'School Trousers (All Sizes)', 'UNF-TROU', 'TROUSERS01', 'SKU-TROUSERS', 'Navy blue trousers', 'pieces', 50, 250, 2000.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 80, NULL, 1, 0),
+(15, 10, 'School Shirt (Boys All Sizes)', 'UNF-SHRT-B', 'SHIRT-BOY01', 'SKU-SHIRT-BOY', 'White shirt (boys)', 'pieces', 50, 220, 1800.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 75, NULL, 1, 0),
+(16, 10, 'School Blouse (Girls All Sizes)', 'UNF-BLOU', 'BLOUSE001', 'SKU-BLOUSE', 'White blouse (girls)', 'pieces', 50, 200, 1800.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 75, NULL, 1, 0),
+(17, 10, 'School Skirt (Girls All Sizes)', 'UNF-SKRT', 'SKIRT0001', 'SKU-SKIRT', 'Navy blue skirt (girls)', 'pieces', 40, 150, 2200.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 60, NULL, 1, 0),
+(18, 10, 'Games Skirt (All Sizes)', 'UNF-GAMS', 'GAMESKIRT01', 'SKU-GAMES-SKIRT', 'Games skirt for PE', 'pieces', 30, 120, 1500.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 50, NULL, 1, 0),
+(19, 10, 'Sleeping Pajamas (All Sizes)', 'UNF-PJMS', 'PAJAMAS001', 'SKU-PAJAMAS', 'Sleeping pajamas set', 'sets', 25, 100, 1600.00, 'Uniform Store', 'active', '2025-12-28 13:32:34', '2025-12-28 13:32:34', 'Kingsway', 'Standard', 40, NULL, 1, 0);
 
 --
 -- Triggers `inventory_items`
@@ -12140,7 +12983,7 @@ CREATE TABLE IF NOT EXISTS `item_serials` (
   UNIQUE KEY `uk_serial_number` (`serial_number`),
   KEY `idx_item_status` (`item_id`,`status`),
   KEY `batch_id` (`batch_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `item_serials`:
@@ -12155,6 +12998,13 @@ CREATE TABLE IF NOT EXISTS `item_serials` (
 --
 
 TRUNCATE TABLE `item_serials`;
+--
+-- Dumping data for table `item_serials`
+--
+
+INSERT IGNORE INTO `item_serials` (`id`, `item_id`, `serial_number`, `batch_id`, `status`, `notes`, `created_at`) VALUES
+(1, 1, 'TEST-SERIAL-001', NULL, 'in_stock', NULL, '2025-12-25 12:43:12');
+
 -- --------------------------------------------------------
 
 --
@@ -12702,7 +13552,7 @@ TRUNCATE TABLE `leave_types`;
 
 INSERT IGNORE INTO `leave_types` (`id`, `code`, `name`, `description`, `days_allowed`, `requires_approval`, `is_paid`, `applicable_to`, `status`, `created_at`) VALUES
 (1, 'ANNUAL', 'Annual Leave', 'Regular annual leave entitlement', 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
-(2, 'SICK', "Sick Leave", "Medical leave with doctor\'s note", 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
+(2, 'SICK', 'Sick Leave', 'Medical leave with doctor\'s note', 30, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (3, 'MATERNITY', 'Maternity Leave', 'Maternity leave for female staff', 90, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (4, 'PATERNITY', 'Paternity Leave', 'Paternity leave for male staff', 14, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
 (5, 'COMPASSIONATE', 'Compassionate Leave', 'Leave for family emergencies', 7, 1, 1, 'all', 'active', '2025-11-11 12:23:10'),
@@ -12944,7 +13794,7 @@ TRUNCATE TABLE `media_files`;
 --
 -- Table structure for table `menu_items`
 --
--- Creation: Nov 09, 2025 at 11:15 PM
+-- Creation: Dec 28, 2025 at 05:15 PM
 --
 
 DROP TABLE IF EXISTS `menu_items`;
@@ -12959,7 +13809,7 @@ CREATE TABLE IF NOT EXISTS `menu_items` (
   PRIMARY KEY (`id`),
   KEY `idx_meal_type` (`meal_type`),
   KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `menu_items`:
@@ -12970,20 +13820,6 @@ CREATE TABLE IF NOT EXISTS `menu_items` (
 --
 
 TRUNCATE TABLE `menu_items`;
---
--- Dumping data for table `menu_items`
---
-
-INSERT IGNORE INTO `menu_items` (`id`, `name`, `description`, `meal_type`, `status`, `created_at`, `updated_at`) VALUES
-(1, 'Breakfast Cereal', 'Maize porridge with milk and sugar', 'breakfast', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(2, 'Tea & Bread', 'Tea with bread and margarine', 'breakfast', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(3, 'Rice & Beans', 'Rice with mixed beans and vegetables', 'lunch', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(4, 'Ugali & Sukuma', 'Ugali with sukuma wiki', 'lunch', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(5, 'Beans Stew', 'Beans stew with tomato sauce', 'lunch', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(6, 'Pasta Bolognese', 'Pasta with meat sauce', 'dinner', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(7, 'Fish & Chips', 'Fried fish with chips', 'dinner', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30'),
-(8, 'Fruit Salad', 'Mixed fresh fruits', 'snack', 'active', '2025-11-28 18:47:30', '2025-11-28 18:47:30');
-
 -- --------------------------------------------------------
 
 --
@@ -13204,7 +14040,7 @@ CREATE TABLE IF NOT EXISTS `notifications` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=175 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `notifications`:
@@ -13217,6 +14053,88 @@ CREATE TABLE IF NOT EXISTS `notifications` (
 --
 
 TRUNCATE TABLE `notifications`;
+--
+-- Dumping data for table `notifications`
+--
+
+INSERT IGNORE INTO `notifications` (`id`, `user_id`, `type`, `title`, `message`, `priority`, `read_status`, `created_at`) VALUES
+(63, 1, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(64, 2, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(65, 3, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(66, 4, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(67, 5, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(68, 6, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(69, 7, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(70, 8, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(71, 9, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(72, 10, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(73, 11, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(74, 12, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(75, 13, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(76, 14, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(77, 15, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(78, 16, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(79, 17, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(80, 18, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(81, 19, 'announcement', 'School Reopens January 10th', 'Kingsway Academy will reopen for Term 1 on January 10th. Please ensure all students are prepared.', 'high', 'unread', '2025-12-29 13:07:16'),
+(94, 1, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(95, 2, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(96, 3, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(97, 4, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(98, 5, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(99, 6, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(100, 7, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(101, 8, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(102, 9, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(103, 10, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(104, 11, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(105, 12, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(106, 13, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(107, 14, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(108, 15, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(109, 16, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(110, 17, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(111, 18, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(112, 19, 'announcement', 'Fee Payment Reminder', 'Please clear all outstanding fees before the start of the new term to avoid penalties.', 'high', 'unread', '2025-12-29 13:07:16'),
+(125, 1, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(126, 2, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(127, 3, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(128, 4, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(129, 5, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(130, 6, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(131, 7, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(132, 8, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(133, 9, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(134, 10, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(135, 11, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(136, 12, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(137, 13, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(138, 14, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(139, 15, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(140, 16, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(141, 17, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(142, 18, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(143, 19, 'announcement', 'Maintenance Notice', 'Scheduled maintenance of the school water system will occur on January 12th. Water supply may be interrupted.', 'medium', 'unread', '2025-12-29 13:07:16'),
+(156, 1, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(157, 2, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(158, 3, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(159, 4, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(160, 5, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(161, 6, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(162, 7, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(163, 8, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(164, 9, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(165, 10, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(166, 11, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(167, 12, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(168, 13, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(169, 14, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(170, 15, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(171, 16, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(172, 17, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(173, 18, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16'),
+(174, 19, 'announcement', 'COVID-19 Protocols', 'All students and staff must continue to observe COVID-19 protocols. Masks are mandatory on campus.', 'high', 'unread', '2025-12-29 13:07:16');
+
 -- --------------------------------------------------------
 
 --
@@ -13303,15 +14221,19 @@ DELIMITER ;
 --
 -- Table structure for table `parents`
 --
--- Creation: Nov 09, 2025 at 11:16 PM
+-- Creation: Jan 05, 2026 at 02:23 PM
+-- Last update: Jan 05, 2026 at 02:23 PM
 --
 
 DROP TABLE IF EXISTS `parents`;
 CREATE TABLE IF NOT EXISTS `parents` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `first_name` varchar(50) NOT NULL,
+  `middle_name` varchar(50) DEFAULT NULL,
   `last_name` varchar(50) NOT NULL,
+  `id_number` varchar(30) DEFAULT NULL COMMENT 'National ID/Passport Number',
   `gender` enum('male','female','other') NOT NULL,
+  `date_of_birth` date DEFAULT NULL COMMENT 'Parent date of birth',
   `phone_1` varchar(20) NOT NULL,
   `phone_2` varchar(20) DEFAULT NULL,
   `email` varchar(100) DEFAULT NULL,
@@ -13323,8 +14245,9 @@ CREATE TABLE IF NOT EXISTS `parents` (
   PRIMARY KEY (`id`),
   KEY `idx_phone` (`phone_1`),
   KEY `idx_email` (`email`),
-  KEY `idx_status` (`status`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+  KEY `idx_status` (`status`),
+  KEY `idx_id_number` (`id_number`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `parents`:
@@ -13339,10 +14262,13 @@ TRUNCATE TABLE `parents`;
 -- Dumping data for table `parents`
 --
 
-INSERT IGNORE INTO `parents` (`id`, `first_name`, `last_name`, `gender`, `phone_1`, `phone_2`, `email`, `occupation`, `address`, `status`, `created_at`, `updated_at`) VALUES
-(1, 'Jane', 'Doe', 'female', '254712345678', '254712345679', 'jane.doe@example.com', 'Teacher', '123 Main Street', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00'),
-(2, 'John', 'Smith', 'male', '254722345678', '254722345679', 'john.smith@example.com', 'Engineer', '456 Oak Avenue', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00'),
-(3, 'Mary', 'Johnson', 'female', '254732345678', '254732345679', 'mary.johnson@example.com', 'Doctor', '789 Pine Road', 'active', '2025-12-02 12:40:00', '2025-12-02 12:40:00');
+INSERT IGNORE INTO `parents` (`id`, `first_name`, `middle_name`, `last_name`, `id_number`, `gender`, `date_of_birth`, `phone_1`, `phone_2`, `email`, `occupation`, `address`, `status`, `created_at`, `updated_at`) VALUES
+(1, 'Jane', NULL, 'Doe', 'ID00000001', 'female', NULL, '254712345678', '254712345679', 'jane.doe@example.com', 'Teacher', '123 Main Street', 'active', '2025-12-02 12:40:00', '2026-01-05 14:23:29'),
+(2, 'John', NULL, 'Smith', 'ID00000002', 'male', NULL, '254722345678', '254722345679', 'john.smith@example.com', 'Engineer', '456 Oak Avenue', 'active', '2025-12-02 12:40:00', '2026-01-05 14:23:29'),
+(3, 'Mary', NULL, 'Johnson', 'ID00000003', 'female', NULL, '254732345678', '254732345679', 'mary.johnson@example.com', 'Doctor', '789 Pine Road', 'active', '2025-12-02 12:40:00', '2026-01-05 14:23:29'),
+(4, 'Parent', NULL, 'Test', 'ID00000004', 'other', NULL, '+254700000001', NULL, 'parent_test+seed@example.com', NULL, NULL, 'active', '2025-12-31 07:01:32', '2026-01-05 14:23:29'),
+(5, 'Parent', NULL, 'Test', 'ID00000005', 'other', NULL, '+2547000176716484086', NULL, 'parent_test_176716484086@example.com', NULL, NULL, 'active', '2025-12-31 07:07:21', '2026-01-05 14:23:29'),
+(6, 'Parent', NULL, 'Test', 'ID00000006', 'other', NULL, '+2547000176716538875', NULL, 'parent_test_176716538875@example.com', NULL, NULL, 'active', '2025-12-31 07:16:29', '2026-01-05 14:23:29');
 
 -- --------------------------------------------------------
 
@@ -13490,7 +14416,7 @@ CREATE TABLE IF NOT EXISTS `password_resets` (
   `email` varchar(100) NOT NULL,
   `token` varchar(255) NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `expires_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `expires_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `used` tinyint(1) NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_email_token` (`email`,`token`),
@@ -13960,7 +14886,8 @@ INSERT IGNORE INTO `payroll_configurations` (`id`, `config_key`, `config_value`,
 --
 -- Table structure for table `payslips`
 --
--- Creation: Nov 11, 2025 at 02:41 PM
+-- Creation: Jan 05, 2026 at 01:09 PM
+-- Last update: Jan 05, 2026 at 01:09 PM
 --
 
 DROP TABLE IF EXISTS `payslips`;
@@ -13976,13 +14903,23 @@ CREATE TABLE IF NOT EXISTS `payslips` (
   `nssf_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
   `nhif_contribution` decimal(12,2) NOT NULL DEFAULT 0.00,
   `loan_deduction` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `child_fees_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Total child school fees deducted',
+  `sacco_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'SACCO contribution',
+  `housing_levy` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Housing levy deduction',
+  `salary_advance_deduction` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Salary advance recovery',
   `other_deductions_total` decimal(12,2) NOT NULL DEFAULT 0.00,
   `net_salary` decimal(12,2) NOT NULL,
   `payment_method` enum('bank','cash','check','mobile_money') DEFAULT 'bank',
   `payment_date` date DEFAULT NULL,
   `payslip_status` enum('draft','approved','paid','cancelled') NOT NULL DEFAULT 'draft',
+  `payment_status` enum('pending','processing','paid','failed') NOT NULL DEFAULT 'pending',
+  `payment_reference` varchar(100) DEFAULT NULL,
+  `paid_at` datetime DEFAULT NULL,
   `signed_by` int(10) UNSIGNED DEFAULT NULL,
   `notes` text DEFAULT NULL,
+  `allowances_breakdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON breakdown of all allowances' CHECK (json_valid(`allowances_breakdown`)),
+  `deductions_breakdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON breakdown of all deductions' CHECK (json_valid(`deductions_breakdown`)),
+  `child_fees_breakdown` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'JSON breakdown of child fees by student' CHECK (json_valid(`child_fees_breakdown`)),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -14004,6 +14941,44 @@ CREATE TABLE IF NOT EXISTS `payslips` (
 --
 
 TRUNCATE TABLE `payslips`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `payslip_items`
+--
+-- Creation: Jan 05, 2026 at 01:09 PM
+--
+
+DROP TABLE IF EXISTS `payslip_items`;
+CREATE TABLE IF NOT EXISTS `payslip_items` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `payslip_id` int(10) UNSIGNED NOT NULL COMMENT 'Reference to payslips table',
+  `item_type` enum('allowance','deduction','statutory','child_fees','loan','advance') NOT NULL,
+  `item_code` varchar(50) NOT NULL COMMENT 'Code for the item (e.g., PAYE, NSSF, CHILD_FEES)',
+  `item_name` varchar(150) NOT NULL COMMENT 'Display name on payslip',
+  `description` text DEFAULT NULL COMMENT 'Additional details (e.g., child name for fees)',
+  `amount` decimal(12,2) NOT NULL,
+  `is_taxable` tinyint(1) NOT NULL DEFAULT 0,
+  `reference_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Reference to allowance/deduction/loan record',
+  `reference_type` varchar(50) DEFAULT NULL COMMENT 'Type of reference (staff_allowances, staff_deductions, etc)',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_payslip` (`payslip_id`),
+  KEY `idx_item_type` (`item_type`),
+  KEY `idx_item_code` (`item_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `payslip_items`:
+--   `payslip_id`
+--       `payslips` -> `id`
+--
+
+--
+-- Truncate table before insert `payslip_items`
+--
+
+TRUNCATE TABLE `payslip_items`;
 -- --------------------------------------------------------
 
 --
@@ -14193,7 +15168,7 @@ CREATE TABLE IF NOT EXISTS `permissions` (
   UNIQUE KEY `code_2` (`code`),
   KEY `idx_code` (`code`),
   KEY `idx_entity_action` (`entity`,`action`)
-) ENGINE=InnoDB AUTO_INCREMENT=4457 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4471 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `permissions`:
@@ -18676,7 +19651,21 @@ INSERT IGNORE INTO `permissions` (`id`, `code`, `description`, `entity`, `action
 (4453, 'transport_all_permissions', 'Transport all permissions', 'transport_all', 'permissions', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4454, 'communications_all_permissions', 'Communications all permissions', 'communications_all', 'permissions', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
 (4455, 'boarding_all_permissions', 'Boarding all permissions', 'boarding_all', 'permissions', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
-(4456, 'workflow_all_permissions', 'Workflow all permissions', 'workflow_all', 'permissions', '2025-12-06 13:24:25', '2025-12-06 13:24:25');
+(4456, 'workflow_all_permissions', 'Workflow all permissions', 'workflow_all', 'permissions', '2025-12-06 13:24:25', '2025-12-06 13:24:25'),
+(4457, 'system_view', 'System view', 'system', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4458, 'users_view', 'Users view', 'users', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4459, 'reports_view', 'Reports view', 'reports', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4460, 'finance_view', 'Finance view', 'finance', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4461, 'admission_view', 'Admission view', 'admission', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4462, 'attendance_view', 'Attendance view', 'attendance', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4463, 'academic_view', 'Academic view', 'academic', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4464, 'schedules_view', 'Schedules view', 'schedules', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4465, 'academic_update', 'Academic update', 'academic', 'update', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4466, 'inventory_view', 'Inventory view', 'inventory', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4467, 'boarding_view', 'Boarding view', 'boarding', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4468, 'transport_view', 'Transport view', 'transport', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4469, 'chapel_view', 'Chapel view', 'chapel', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24'),
+(4470, 'communications_view', 'Communications view', 'communications', 'view', '2025-12-28 17:58:24', '2025-12-28 17:58:24');
 
 -- --------------------------------------------------------
 
@@ -18845,7 +19834,7 @@ CREATE TABLE IF NOT EXISTS `promotion_batches` (
   `total_rejected` int(11) DEFAULT 0,
   `created_by` int(10) UNSIGNED NOT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` datetime NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
   `notes` text DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_status` (`status`),
@@ -18964,13 +19953,13 @@ CREATE TABLE IF NOT EXISTS `refresh_tokens` (
   `token` varchar(500) NOT NULL,
   `expires_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `revoked_at` datetime NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `token` (`token`),
   KEY `idx_user_id` (`user_id`),
   KEY `idx_expires_at` (`expires_at`),
   KEY `idx_revoked` (`revoked_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=93 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=179 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `refresh_tokens`:
@@ -19079,7 +20068,93 @@ INSERT IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `cr
 (89, 3, 'b6031c6cb3658ae5caa2750bb9cdc548f3ce070265be0a316a15d6b312c635e3', '2025-12-29 20:31:31', '2025-12-22 20:31:31', NULL),
 (90, 4, 'd1e40c7d3561d96800e6a78be9969f82b217ed1b7d9b87fd2f3d7b72fe6fbd46', '2025-12-29 20:31:31', '2025-12-22 20:31:31', NULL),
 (91, 9, '364c03c1440c146a40d3b0b5e30ca98497353c94c8ab21b3de9fd7a61453ba27', '2025-12-29 20:31:32', '2025-12-22 20:31:32', NULL),
-(92, 6, '44527dc58345caaf49b4335e26487aa8233c7c6e50e5540a77eef0a3d5dbdfba', '2025-12-29 20:31:33', '2025-12-22 20:31:33', NULL);
+(92, 6, '44527dc58345caaf49b4335e26487aa8233c7c6e50e5540a77eef0a3d5dbdfba', '2025-12-29 20:31:33', '2025-12-22 20:31:33', NULL),
+(93, 1, 'b4d9692b3d80ffb7dfe74ef698700352be1ec240ac190bf84fc9d7189a91c42e', '2025-12-30 20:30:11', '2025-12-23 20:30:11', NULL),
+(94, 1, 'ff46730983eea909e332018aa2370c6822dedf797cb931c58bdeef181a69a57c', '2026-01-01 07:14:13', '2025-12-25 07:14:13', NULL),
+(95, 1, 'a72335f135dcf642c67878848e5e56556bd56fa93770b76ab6ea0296eb751010', '2026-01-01 12:47:09', '2025-12-25 12:47:09', NULL),
+(96, 2, 'd88cb6ff863de7887d9cbb6ea3c6506333ef9abb80a6fba8d220fcb47563485f', '2026-01-01 12:47:09', '2025-12-25 12:47:09', NULL),
+(97, 3, 'c3a9b90752fd39bc4c1e24b414135400751005deb4cc93e43edd82ddc4ed4a21', '2026-01-01 12:47:10', '2025-12-25 12:47:10', NULL),
+(98, 4, 'b3748921e2835a3d10ac87c42e4ad694bf55de6d4db894fbfa2e4d8da1bd46e2', '2026-01-01 12:47:10', '2025-12-25 12:47:10', NULL),
+(99, 9, '480737a41c764b0ae6dd642ca03258d4e27a9a71af299efd1782ddacaf9d2214', '2026-01-01 12:47:11', '2025-12-25 12:47:11', NULL),
+(100, 6, '45badf46f2c7f1bcac787a9c96103796263e55e3b5d16205b5c2856934982a89', '2026-01-01 12:47:11', '2025-12-25 12:47:11', NULL),
+(101, 1, '91364453bfdfb38a29c6e608255c6146c1ccf6c03e5abc839c3eccaf29e930a3', '2026-01-01 12:49:47', '2025-12-25 12:49:47', NULL),
+(102, 2, '87c2ef9e7c12d89168031317e72427e6dc956d406e7eda7e67f441890cc29785', '2026-01-01 12:49:48', '2025-12-25 12:49:48', NULL),
+(103, 3, '5ac85e74403c7561149c0e3070eaad3a800d36d7d8177e302d2dec0deb89436d', '2026-01-01 12:49:49', '2025-12-25 12:49:49', NULL),
+(104, 4, 'e45a77dd652f01c40003060152a72bf1b27b47276fc33ef62d907842e521a577', '2026-01-01 12:49:49', '2025-12-25 12:49:49', NULL),
+(105, 9, 'e3cdd9840942c83464086019ea2ddf5c8c7c58137e00e9b6a977dbfbb217f105', '2026-01-01 12:49:50', '2025-12-25 12:49:50', NULL),
+(106, 6, '0f14e71ff43a98324a7e0058a0d7115e621bdd688c6334434df6090f7773627a', '2026-01-01 12:49:50', '2025-12-25 12:49:50', NULL),
+(107, 1, '516802d26fa5ac3b5db85d08a905e3eed08816e3c854065b548edb0a272b548d', '2026-01-02 11:21:26', '2025-12-26 11:21:26', NULL),
+(108, 1, '38bbb0c446f2830d174fba072d03c1cb69a65afaa6acb19c45cdf888a816fa8e', '2026-01-02 13:04:07', '2025-12-26 13:04:07', NULL),
+(109, 1, '47d3ff0f16f26ce3435ab0464b870451c0844b64257d5c39bb96eab293799f82', '2026-01-02 14:08:50', '2025-12-26 14:08:50', NULL),
+(110, 1, '7ff82dbac2092b11cbf26c36678b8c440e0c2ec28bc42ca0eb9887d868ec0ea4', '2026-01-02 15:23:40', '2025-12-26 15:23:40', NULL),
+(111, 1, '4aa0f8630f1b6fd3f7f992775ca362a473fb4ba4185287b6c5b5aa06549f1d10', '2026-01-03 17:28:34', '2025-12-27 17:28:34', NULL),
+(112, 1, 'ad67fab63cc1242ec6fef8e160857b7afdafb180cb4221e478d81f93a21828ce', '2026-01-03 18:35:16', '2025-12-27 18:35:16', NULL),
+(113, 1, 'a845f97abe7412ab02e07037280a92c60c003db7fe478e400a1bcbe887340709', '2026-01-04 06:30:08', '2025-12-28 06:30:08', NULL),
+(114, 1, '269d1515676310e81f0eb965cfbc500cd586997a87ff83d729ae920b4beb2dba', '2026-01-04 07:09:33', '2025-12-28 07:09:33', NULL),
+(115, 1, '1783b8883c47cadde051fe244b9e3dcfd49f0a1f6e1b3a19a02e4c2458779a8f', '2026-01-04 13:43:05', '2025-12-28 13:43:05', NULL),
+(116, 1, '559489285731c5337dd87d0734ad18b8cbfd19cefe91fcd30f4a995c8c88c945', '2026-01-04 14:46:09', '2025-12-28 14:46:09', NULL),
+(117, 1, '6ad2ede5389a2778e9a4a1041fe2e716d45c5cc1367e616b10963e91f57574f8', '2026-01-04 18:12:09', '2025-12-28 18:12:09', NULL),
+(118, 1, '3bb30798b74e7f99a8e3e376e5caf97a0084a93894fb8f017325c2f08c1682fd', '2026-01-04 18:12:32', '2025-12-28 18:12:32', NULL),
+(119, 1, 'a8c53246cf5ca6da5aa55924b6c4c92dc36e4789b5b1e7967ed4127804c530d4', '2026-01-04 18:23:12', '2025-12-28 18:23:12', NULL),
+(120, 1, 'a4fec013061c41a61d31a1b230cc5c1786a8ae8c764aff906736ffd9aa4a2864', '2026-01-04 18:24:24', '2025-12-28 18:24:24', NULL),
+(121, 1, '4ec0736d4ca15da544dbebd0f8ce91e666c016835a9da0723f2eb59b5907d0c0', '2026-01-04 18:25:41', '2025-12-28 18:25:41', NULL),
+(122, 1, 'b139a89b6bfcfbb0f257bd0fb63ab00a99b7fac223287eeb5690c4c22e5a37b8', '2026-01-04 18:28:18', '2025-12-28 18:28:18', NULL),
+(123, 1, '9a07551544c453d26e2eae3b6df88aeae95711ca5bee74df19cadd175a3e7389', '2026-01-04 18:28:57', '2025-12-28 18:28:57', NULL),
+(124, 1, 'ae3767ac70ee3277f1d0c66e20fb879e3a5fa36818749131fba875685cf11d3f', '2026-01-04 18:32:11', '2025-12-28 18:32:11', NULL),
+(125, 1, 'd672e7406736c9675770bd84f9408c855cd9021106fdd31eb4dc5b36437a0529', '2026-01-04 18:32:33', '2025-12-28 18:32:33', NULL),
+(126, 1, '16cb357b30b5a67c274331f83e9f5283a574071ef25ff0e5e2ff0be71ba79b3e', '2026-01-04 18:34:49', '2025-12-28 18:34:49', NULL),
+(127, 1, '85b949c91ab0c0a09f825cea068db0a6337f2bd40b4e5a2b8c747e5371bb3b25', '2026-01-04 18:35:40', '2025-12-28 18:35:40', NULL),
+(128, 1, 'da34f41fc65d686e3f0428fe5e75e506e7b3be4ed13b2cddfa8be553d5219c4e', '2026-01-04 18:38:01', '2025-12-28 18:38:01', NULL),
+(129, 3, '4147e5419ce3e10e865726287beb94b896d8ad59b7c5d3f2042c01378bc19872', '2026-01-04 18:38:28', '2025-12-28 18:38:28', NULL),
+(130, 3, 'c1050f97163059d0aa93938469b65e5951f4a0dec8a135e544272210ca39c271', '2026-01-04 18:39:34', '2025-12-28 18:39:34', NULL),
+(131, 1, '37c276138540b4660de3e16e7c12179da529300fc924add5dcd90408c0ffb68d', '2026-01-04 18:41:32', '2025-12-28 18:41:32', NULL),
+(132, 1, '06517ee31519c167ef4787bde2dc6dd1ec32304aefa1c1a48ed03bdcd2661e0d', '2026-01-04 18:45:51', '2025-12-28 18:45:51', NULL),
+(133, 3, '8aacfbe63e3ec533aa5f0455b2b6f3e4136a5420b45ef601bbe69e5a728bd808', '2026-01-04 18:46:07', '2025-12-28 18:46:07', NULL),
+(134, 1, '102fa4b1f86c6264096dea64c835f1b6bf1050c3b33e4621a7d0c39a8b6cdfed', '2026-01-04 18:47:58', '2025-12-28 18:47:58', NULL),
+(135, 1, '96076ce9163f5e1fdf33ff367d183e3dab843ebdcbc450953a50aed0bcf85ff7', '2026-01-04 19:02:54', '2025-12-28 19:02:54', NULL),
+(136, 1, 'b4779e25fe6b4f918db65c1bfcbd893acaa32116cb113c7345d123e7cb0a0a48', '2026-01-04 19:03:03', '2025-12-28 19:03:03', NULL),
+(137, 1, 'e862ac648e4e04fc79473cc06daa214caf7c58f6be4befc074a86925780aa28d', '2026-01-04 19:26:39', '2025-12-28 19:26:39', NULL),
+(138, 1, '1029bc229ce0b3fd2c93fe6f3397182d694a675123b8eb29e8c22bde89f35bfe', '2026-01-04 19:34:44', '2025-12-28 19:34:44', NULL),
+(139, 1, '926e6d8c012874f30bc7ae2dce6ebf13a790decd439fd2e807190aa96c3d6b36', '2026-01-04 19:35:02', '2025-12-28 19:35:02', NULL),
+(140, 2, '6d1c50cdfb8006cf516476325cdc20f55e8a75536f1497d43de5afab69ff60e8', '2026-01-04 19:55:15', '2025-12-28 19:55:15', NULL),
+(141, 4, '0f166cd1695e7c83b55188b9de6aec701e7d06a8c8364b88df6d5ceb5821acdc', '2026-01-04 19:56:30', '2025-12-28 19:56:30', NULL),
+(142, 2, 'c03b9299718cc6a6a6127aa6d130e1c06303ddb9937c7552a51adb48ae2a95cf', '2026-01-05 07:13:12', '2025-12-29 07:13:12', NULL),
+(143, 1, '20b2ae7d8ba8bd68d889b7c3430f17900e81371184f33a902af705f338f8b2c1', '2026-01-05 07:31:13', '2025-12-29 07:31:13', NULL),
+(144, 2, '502b23f69512ef99d92a834c42ac040f05e1ac34698a0b8346d68fffadfa4fbf', '2026-01-05 07:31:29', '2025-12-29 07:31:29', NULL),
+(145, 2, '4b9bc7e8a14a706d411fe2612d677e366e49923128d9bd0154ce296dca44c71a', '2026-01-05 07:44:49', '2025-12-29 07:44:49', NULL),
+(146, 2, '9c7f3a96654af9f7899a5e23339e8dbf820aee733c3c24567ee3bec88504734b', '2026-01-05 07:45:29', '2025-12-29 07:45:29', NULL),
+(147, 2, '9025a4c5098b509242510f90c920dd0c3215ad1cd2d3a72731edae1a6e3319f1', '2026-01-05 08:01:25', '2025-12-29 08:01:25', NULL),
+(148, 2, '5d67283bc8b74e1e9635801ffed47487451ca6d2fdaad33f3fed622f7ad80c6c', '2026-01-05 08:15:16', '2025-12-29 08:15:16', NULL),
+(149, 2, 'e582db943c3614207478e8976ab52a2aacb525c285800dc4bab0356398375cf1', '2026-01-05 08:25:28', '2025-12-29 08:25:28', NULL),
+(150, 2, 'd660d9037a8013631993741c3a56c77f495f6cbfa3bb023c8721467e045057e1', '2026-01-05 09:04:47', '2025-12-29 09:04:47', NULL),
+(151, 2, 'f6c5e0b12ae184f466646392ed43bdf19c169c1e8facbb7b64406e01eb02644b', '2026-01-05 09:19:54', '2025-12-29 09:19:54', NULL),
+(152, 2, '2e991d4c743609ee8583fce5ec7438ae00b7ad425188e20bcf989cf7d466eb15', '2026-01-05 09:57:32', '2025-12-29 09:57:32', NULL),
+(153, 2, 'ae1612e51b7575e8d57d1433adf30c7015b401672ba7a3b830cb20277fe0b5fb', '2026-01-05 10:11:08', '2025-12-29 10:11:08', NULL),
+(154, 2, '38ebf24cf25fec93d5189350669855c4cd7176eab65a79ecedebcc989d0d6ebd', '2026-01-05 10:17:29', '2025-12-29 10:17:29', NULL),
+(155, 2, '18434a5a077a793bb5fbf31313c5aeee7f3601f4561a88da484ce2c764b08af7', '2026-01-05 12:26:31', '2025-12-29 12:26:31', NULL),
+(156, 2, '2e031f1b1f8a38a8261ec2c7886433d2354129e0c719b305dd14380d4b6b399f', '2026-01-05 12:26:42', '2025-12-29 12:26:42', NULL),
+(157, 2, 'fc8bcceb5fb2151e37f106dd06430632670f0c89bb21eff487341867dd03898d', '2026-01-05 12:45:08', '2025-12-29 12:45:08', NULL),
+(158, 2, '18f2bdba66d4fd90c8e0c85a3c823bd3f2155f70b411334b34e83c082e135d67', '2026-01-05 16:30:27', '2025-12-29 16:30:27', NULL),
+(159, 2, 'c2443b1c2e10fe520d21a7d5abe266b6be48de68f7099f5d392caa994197b927', '2026-01-05 16:43:34', '2025-12-29 16:43:34', NULL),
+(160, 2, 'd0cd4cd9b073189e95ca4ac73039093095d1c27ec53bf79c7d92d382538cbc6a', '2026-01-05 18:29:14', '2025-12-29 18:29:14', NULL),
+(161, 2, '908d488ce569bc96d4a6ae0f4dd5c0b1c780989d1b2de93e3e90acac30b179d6', '2026-01-05 18:37:30', '2025-12-29 18:37:30', NULL),
+(162, 2, '2a92e98054b1e55fcf26bc73b8a54f6930d2c458dd7785d3f850b5d69ceb9606', '2026-01-05 19:03:02', '2025-12-29 19:03:02', NULL),
+(163, 2, 'eb06bfd711f1b35c17b4c413faf9e63ee94a94a2e2c6a6a7e7ec4e24f6db47ce', '2026-01-05 19:16:55', '2025-12-29 19:16:55', NULL),
+(164, 2, '4611fd124214683230a2a41d8c9ade627f4ec147d000bea081d1296589582bd7', '2026-01-06 06:01:30', '2025-12-30 06:01:30', NULL),
+(165, 2, '5dee2300e627107922c339acb337b5e732ab173f1f0d63bea808a27ae6deb3b1', '2026-01-06 07:18:07', '2025-12-30 07:18:07', NULL),
+(166, 2, 'b0b7e95b0948e72f2d295f9a8bb6741b69858f56ef28803ae1c1aa72c9362382', '2026-01-06 08:01:17', '2025-12-30 08:01:17', NULL),
+(167, 2, '16c3bfe68f36eeb3608a40c9f30cb3c0efbe25ee8a5ab32317fc9337b204fcf7', '2026-01-06 08:16:47', '2025-12-30 08:16:47', NULL),
+(168, 2, '4a0022339dfd077372027f46237a56a2c649b363a951605a7db0fccfb423f191', '2026-01-06 08:22:01', '2025-12-30 08:22:01', NULL),
+(169, 2, '859bb2a819b3650186013f2227311d2bda1a285acd9e729616c74c8b762a9274', '2026-01-06 08:49:57', '2025-12-30 08:49:57', NULL),
+(170, 2, '72b5e81773936154d08b6619a7e9b2f0f12db631e94a0ff394734caebc0d48f2', '2026-01-06 09:21:31', '2025-12-30 09:21:31', NULL),
+(171, 2, '99d69976d1f40aaa80272448cfb7172a43fb69d3061861947227c21e20af5d9e', '2026-01-06 09:46:04', '2025-12-30 09:46:04', NULL),
+(172, 2, 'a2c03c62944695a5a14eec6adbb4e3d435fff5fe74b104a198b83eb753201145', '2026-01-06 13:53:13', '2025-12-30 13:53:13', NULL),
+(173, 2, '21e5335c21374353ed56b8a722d8403bf0e2d7aa9bfbc814837820195a8784ad', '2026-01-06 14:42:23', '2025-12-30 14:42:23', NULL),
+(174, 2, '7f5bd97bd1a2b562bf6f489c006ac1c944b19bef2cf82ebbc4a5327573234492', '2026-01-06 15:46:21', '2025-12-30 15:46:21', NULL),
+(175, 2, 'a18131b6949b8232d8311964a9bc744e5cc175e80589dda5bec10d92c9b5744e', '2026-01-06 15:58:50', '2025-12-30 15:58:50', NULL),
+(176, 2, '8818904679d9cd9cf86140e9f4b1c877b9d4840b4de771fda42b419b884cd77f', '2026-01-06 16:13:44', '2025-12-30 16:13:44', NULL),
+(177, 2, '3a8eb9c314b498c30baf2731030e718f577ed5e61dd03477039ed27352efded7', '2026-01-06 17:12:14', '2025-12-30 17:12:14', NULL),
+(178, 2, 'fb3811137e65397105f69ff2db1690de9e0170e8c4bf256ba463a4a3b3581b65', '2026-01-07 09:07:13', '2025-12-31 09:07:13', NULL);
 
 -- --------------------------------------------------------
 
@@ -19138,7 +20213,7 @@ CREATE TABLE IF NOT EXISTS `roles` (
   UNIQUE KEY `uk_role_name` (`name`),
   UNIQUE KEY `name` (`name`),
   UNIQUE KEY `name_2` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=64 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User roles - now uses role_permissions junction table instead of JSON';
+) ENGINE=InnoDB AUTO_INCREMENT=71 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='User roles - now uses role_permissions junction table instead of JSON';
 
 --
 -- RELATIONSHIPS FOR TABLE `roles`:
@@ -19172,7 +20247,70 @@ INSERT IGNORE INTO `roles` (`id`, `name`, `description`, `created_at`, `updated_
 (32, 'Kitchen Staff', '[TRACKING ONLY] Kitchen worker - No system access. Managed by Cateress. For payroll and records only.', '2025-12-10 08:19:14', '2025-12-10 08:19:14'),
 (33, 'Security Staff', '[TRACKING ONLY] Security personnel - No system access. For payroll and records only.', '2025-12-10 08:19:14', '2025-12-10 08:19:14'),
 (34, 'Janitor', '[TRACKING ONLY] Maintenance and cleaning staff - No system access. For payroll and records only.', '2025-12-10 08:19:14', '2025-12-10 08:19:14'),
-(63, 'Deputy Head - Discipline', 'Deputy Headteacher (Discipline) - Student admissions, discipline management, timetabling, parent communication', '2025-12-12 16:12:14', '2025-12-12 16:12:14');
+(63, 'Deputy Head - Discipline', 'Deputy Headteacher (Discipline) - Student admissions, discipline management, timetabling, parent communication', '2025-12-12 16:12:14', '2025-12-12 16:12:14'),
+(64, 'Staff', 'Default staff role', '2025-12-31 05:54:22', '2025-12-31 05:54:22'),
+(65, 'TeacherTest', 'Temporary test teacher role', '2025-12-31 06:11:50', '2025-12-31 06:11:50'),
+(66, 'TeacherTest_1767163062', 'Temporary test teacher role', '2025-12-31 06:37:42', '2025-12-31 06:37:42'),
+(67, 'TeacherTest_1767164152', 'Temporary test teacher role', '2025-12-31 06:55:52', '2025-12-31 06:55:52'),
+(68, 'TeacherTest_1767164188', 'Temporary test teacher role', '2025-12-31 06:56:28', '2025-12-31 06:56:28'),
+(69, 'TeacherTest_1767165995', 'Temporary test teacher role', '2025-12-31 07:26:36', '2025-12-31 07:26:36'),
+(70, 'TeacherTest_1767166489', 'Temporary test teacher role', '2025-12-31 07:34:50', '2025-12-31 07:34:50');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `role_dashboards`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `role_dashboards`;
+CREATE TABLE IF NOT EXISTS `role_dashboards` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `role_id` int(10) UNSIGNED NOT NULL,
+  `dashboard_id` int(10) UNSIGNED NOT NULL,
+  `is_primary` tinyint(1) NOT NULL DEFAULT 0 COMMENT 'Primary dashboard for this role',
+  `display_order` int(11) NOT NULL DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_dashboard` (`role_id`,`dashboard_id`),
+  KEY `fk_role_dashboards_dashboard` (`dashboard_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `role_dashboards`:
+--   `dashboard_id`
+--       `dashboards` -> `id`
+--   `role_id`
+--       `roles` -> `id`
+--
+
+--
+-- Truncate table before insert `role_dashboards`
+--
+
+TRUNCATE TABLE `role_dashboards`;
+--
+-- Dumping data for table `role_dashboards`
+--
+
+INSERT IGNORE INTO `role_dashboards` (`id`, `role_id`, `dashboard_id`, `is_primary`, `display_order`, `created_at`) VALUES
+(17, 2, 1, 1, 0, '2025-12-28 17:16:59'),
+(18, 3, 2, 1, 0, '2025-12-28 17:16:59'),
+(19, 4, 3, 1, 0, '2025-12-28 17:16:59'),
+(20, 5, 4, 1, 0, '2025-12-28 17:16:59'),
+(21, 6, 5, 1, 0, '2025-12-28 17:16:59'),
+(22, 7, 6, 1, 0, '2025-12-28 17:16:59'),
+(23, 8, 7, 1, 0, '2025-12-28 17:16:59'),
+(24, 9, 8, 1, 0, '2025-12-28 17:16:59'),
+(25, 10, 9, 1, 0, '2025-12-28 17:16:59'),
+(26, 14, 10, 1, 0, '2025-12-28 17:16:59'),
+(27, 16, 11, 1, 0, '2025-12-28 17:16:59'),
+(28, 18, 12, 1, 0, '2025-12-28 17:16:59'),
+(29, 21, 13, 1, 0, '2025-12-28 17:16:59'),
+(30, 23, 14, 1, 0, '2025-12-28 17:16:59'),
+(31, 24, 15, 1, 0, '2025-12-28 17:16:59'),
+(32, 63, 5, 1, 0, '2025-12-28 17:16:59');
 
 -- --------------------------------------------------------
 
@@ -20518,9 +21656,9 @@ INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `create
 (79693, 2, 1303, '2025-12-12 16:06:12'),
 (79694, 2, 1304, '2025-12-12 16:06:12'),
 (79695, 2, 1305, '2025-12-12 16:06:12'),
-(79696, 2, 1306, '2025-12-12 16:06:12');
+(79696, 2, 1306, '2025-12-12 16:06:12'),
+(79697, 2, 1307, '2025-12-12 16:06:12');
 INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
-(79697, 2, 1307, '2025-12-12 16:06:12'),
 (79698, 2, 1308, '2025-12-12 16:06:12'),
 (79699, 2, 1309, '2025-12-12 16:06:12'),
 (79700, 2, 1310, '2025-12-12 16:06:12'),
@@ -21798,9 +22936,9 @@ INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `create
 (80972, 2, 2580, '2025-12-12 16:06:12'),
 (80973, 2, 2581, '2025-12-12 16:06:12'),
 (80974, 2, 2582, '2025-12-12 16:06:12'),
-(80975, 2, 2583, '2025-12-12 16:06:12');
+(80975, 2, 2583, '2025-12-12 16:06:12'),
+(80976, 2, 2584, '2025-12-12 16:06:12');
 INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
-(80976, 2, 2584, '2025-12-12 16:06:12'),
 (80977, 2, 2585, '2025-12-12 16:06:12'),
 (80978, 2, 2586, '2025-12-12 16:06:12'),
 (80979, 2, 2588, '2025-12-12 16:06:12'),
@@ -23078,9 +24216,9 @@ INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `create
 (82251, 2, 3809, '2025-12-12 16:06:12'),
 (82252, 2, 3819, '2025-12-12 16:06:12'),
 (82253, 2, 3844, '2025-12-12 16:06:12'),
-(82254, 2, 3845, '2025-12-12 16:06:12');
+(82254, 2, 3845, '2025-12-12 16:06:12'),
+(82255, 2, 3852, '2025-12-12 16:06:12');
 INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `created_at`) VALUES
-(82255, 2, 3852, '2025-12-12 16:06:12'),
 (82256, 2, 3853, '2025-12-12 16:06:12'),
 (82257, 2, 3855, '2025-12-12 16:06:12'),
 (82258, 2, 3856, '2025-12-12 16:06:12'),
@@ -23796,6 +24934,478 @@ INSERT IGNORE INTO `role_permissions` (`id`, `role_id`, `permission_id`, `create
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `role_routes`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `role_routes`;
+CREATE TABLE IF NOT EXISTS `role_routes` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `role_id` int(10) UNSIGNED NOT NULL,
+  `route_id` int(10) UNSIGNED NOT NULL,
+  `is_allowed` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Explicit allow (TRUE) or deny (FALSE)',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_route` (`role_id`,`route_id`),
+  KEY `fk_role_routes_route` (`route_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=229 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `role_routes`:
+--   `role_id`
+--       `roles` -> `id`
+--   `route_id`
+--       `routes` -> `id`
+--
+
+--
+-- Truncate table before insert `role_routes`
+--
+
+TRUNCATE TABLE `role_routes`;
+--
+-- Dumping data for table `role_routes`
+--
+
+INSERT IGNORE INTO `role_routes` (`id`, `role_id`, `route_id`, `is_allowed`, `created_at`) VALUES
+(1, 2, 5, 1, '2025-12-28 17:18:50'),
+(2, 2, 9, 1, '2025-12-28 17:18:50'),
+(3, 2, 4, 1, '2025-12-28 17:18:50'),
+(4, 2, 11, 1, '2025-12-28 17:18:50'),
+(5, 2, 12, 1, '2025-12-28 17:18:50'),
+(6, 2, 16, 1, '2025-12-28 17:18:50'),
+(7, 2, 3, 1, '2025-12-28 17:18:50'),
+(8, 2, 86, 1, '2025-12-28 17:18:50'),
+(9, 2, 10, 1, '2025-12-28 17:18:50'),
+(10, 2, 8, 1, '2025-12-28 17:18:50'),
+(11, 2, 15, 1, '2025-12-28 17:18:50'),
+(12, 2, 14, 1, '2025-12-28 17:18:50'),
+(13, 2, 13, 1, '2025-12-28 17:18:50'),
+(14, 2, 87, 1, '2025-12-28 17:18:50'),
+(15, 2, 7, 1, '2025-12-28 17:18:50'),
+(16, 2, 1, 1, '2025-12-28 17:18:50'),
+(17, 2, 2, 1, '2025-12-28 17:18:50'),
+(18, 2, 6, 1, '2025-12-28 17:18:50'),
+(32, 3, 62, 1, '2025-12-28 17:18:50'),
+(33, 3, 22, 1, '2025-12-28 17:18:50'),
+(34, 3, 82, 1, '2025-12-28 17:18:50'),
+(35, 3, 63, 1, '2025-12-28 17:18:50'),
+(36, 3, 60, 1, '2025-12-28 17:18:50'),
+(37, 3, 61, 1, '2025-12-28 17:18:50'),
+(38, 3, 86, 1, '2025-12-28 17:18:50'),
+(39, 3, 78, 1, '2025-12-28 17:18:50'),
+(40, 3, 53, 1, '2025-12-28 17:18:50'),
+(41, 3, 87, 1, '2025-12-28 17:18:50'),
+(42, 3, 83, 1, '2025-12-28 17:18:50'),
+(47, 4, 86, 1, '2025-12-28 17:18:50'),
+(48, 4, 42, 1, '2025-12-28 17:18:50'),
+(49, 4, 79, 1, '2025-12-28 17:18:50'),
+(50, 4, 43, 1, '2025-12-28 17:18:50'),
+(51, 4, 78, 1, '2025-12-28 17:18:50'),
+(52, 4, 53, 1, '2025-12-28 17:18:50'),
+(53, 4, 64, 1, '2025-12-28 17:18:50'),
+(54, 4, 36, 1, '2025-12-28 17:18:50'),
+(55, 4, 37, 1, '2025-12-28 17:18:50'),
+(56, 4, 44, 1, '2025-12-28 17:18:50'),
+(57, 4, 45, 1, '2025-12-28 17:18:50'),
+(58, 4, 13, 1, '2025-12-28 17:18:50'),
+(59, 4, 68, 1, '2025-12-28 17:18:50'),
+(60, 4, 87, 1, '2025-12-28 17:18:50'),
+(61, 4, 23, 1, '2025-12-28 17:18:50'),
+(62, 4, 66, 1, '2025-12-28 17:18:50'),
+(63, 4, 51, 1, '2025-12-28 17:18:50'),
+(78, 5, 49, 1, '2025-12-28 17:18:50'),
+(79, 5, 24, 1, '2025-12-28 17:18:50'),
+(80, 5, 86, 1, '2025-12-28 17:18:50'),
+(81, 5, 42, 1, '2025-12-28 17:18:50'),
+(82, 5, 46, 1, '2025-12-28 17:18:50'),
+(83, 5, 43, 1, '2025-12-28 17:18:50'),
+(84, 5, 78, 1, '2025-12-28 17:18:50'),
+(85, 5, 47, 1, '2025-12-28 17:18:50'),
+(86, 5, 64, 1, '2025-12-28 17:18:50'),
+(87, 5, 36, 1, '2025-12-28 17:18:50'),
+(88, 5, 37, 1, '2025-12-28 17:18:50'),
+(89, 5, 44, 1, '2025-12-28 17:18:50'),
+(90, 5, 45, 1, '2025-12-28 17:18:50'),
+(91, 5, 87, 1, '2025-12-28 17:18:50'),
+(92, 5, 67, 1, '2025-12-28 17:18:50'),
+(93, 5, 38, 1, '2025-12-28 17:18:50'),
+(94, 5, 51, 1, '2025-12-28 17:18:50'),
+(109, 6, 49, 1, '2025-12-28 17:18:50'),
+(110, 6, 25, 1, '2025-12-28 17:18:50'),
+(111, 6, 86, 1, '2025-12-28 17:18:50'),
+(112, 6, 42, 1, '2025-12-28 17:18:50'),
+(113, 6, 46, 1, '2025-12-28 17:18:50'),
+(114, 6, 43, 1, '2025-12-28 17:18:50'),
+(115, 6, 78, 1, '2025-12-28 17:18:50'),
+(116, 6, 36, 1, '2025-12-28 17:18:50'),
+(117, 6, 45, 1, '2025-12-28 17:18:50'),
+(118, 6, 87, 1, '2025-12-28 17:18:50'),
+(119, 6, 51, 1, '2025-12-28 17:18:50'),
+(124, 7, 26, 1, '2025-12-28 17:18:50'),
+(125, 7, 86, 1, '2025-12-28 17:18:50'),
+(126, 7, 46, 1, '2025-12-28 17:18:50'),
+(127, 7, 78, 1, '2025-12-28 17:18:50'),
+(128, 7, 47, 1, '2025-12-28 17:18:50'),
+(129, 7, 68, 1, '2025-12-28 17:18:50'),
+(130, 7, 87, 1, '2025-12-28 17:18:50'),
+(131, 7, 48, 1, '2025-12-28 17:18:50'),
+(132, 7, 50, 1, '2025-12-28 17:18:50'),
+(133, 7, 51, 1, '2025-12-28 17:18:50'),
+(139, 8, 86, 1, '2025-12-28 17:18:50'),
+(140, 8, 78, 1, '2025-12-28 17:18:50'),
+(141, 8, 47, 1, '2025-12-28 17:18:50'),
+(142, 8, 87, 1, '2025-12-28 17:18:50'),
+(143, 8, 48, 1, '2025-12-28 17:18:50'),
+(144, 8, 27, 1, '2025-12-28 17:18:50'),
+(145, 8, 50, 1, '2025-12-28 17:18:50'),
+(146, 8, 51, 1, '2025-12-28 17:18:50'),
+(154, 9, 86, 1, '2025-12-28 17:18:50'),
+(155, 9, 28, 1, '2025-12-28 17:18:50'),
+(156, 9, 78, 1, '2025-12-28 17:18:50'),
+(157, 9, 47, 1, '2025-12-28 17:18:50'),
+(158, 9, 87, 1, '2025-12-28 17:18:50'),
+(159, 9, 48, 1, '2025-12-28 17:18:50'),
+(161, 10, 60, 1, '2025-12-28 17:18:50'),
+(162, 10, 86, 1, '2025-12-28 17:18:50'),
+(163, 10, 78, 1, '2025-12-28 17:18:50'),
+(164, 10, 59, 1, '2025-12-28 17:18:50'),
+(165, 10, 54, 1, '2025-12-28 17:18:50'),
+(166, 10, 56, 1, '2025-12-28 17:18:50'),
+(167, 10, 57, 1, '2025-12-28 17:18:50'),
+(168, 10, 87, 1, '2025-12-28 17:18:50'),
+(169, 10, 58, 1, '2025-12-28 17:18:50'),
+(170, 10, 29, 1, '2025-12-28 17:18:50'),
+(171, 10, 55, 1, '2025-12-28 17:18:50'),
+(176, 14, 86, 1, '2025-12-28 17:18:50'),
+(177, 14, 78, 1, '2025-12-28 17:18:50'),
+(178, 14, 70, 1, '2025-12-28 17:18:50'),
+(179, 14, 72, 1, '2025-12-28 17:18:50'),
+(180, 14, 71, 1, '2025-12-28 17:18:50'),
+(181, 14, 87, 1, '2025-12-28 17:18:50'),
+(182, 14, 30, 1, '2025-12-28 17:18:50'),
+(183, 16, 31, 1, '2025-12-28 17:18:50'),
+(184, 16, 73, 1, '2025-12-28 17:18:50'),
+(185, 16, 86, 1, '2025-12-28 17:18:50'),
+(186, 16, 78, 1, '2025-12-28 17:18:50'),
+(187, 16, 87, 1, '2025-12-28 17:18:50'),
+(188, 16, 74, 1, '2025-12-28 17:18:50'),
+(190, 18, 86, 1, '2025-12-28 17:18:50'),
+(191, 18, 75, 1, '2025-12-28 17:18:50'),
+(192, 18, 78, 1, '2025-12-28 17:18:50'),
+(193, 18, 32, 1, '2025-12-28 17:18:50'),
+(194, 18, 87, 1, '2025-12-28 17:18:50'),
+(197, 21, 33, 1, '2025-12-28 17:18:50'),
+(198, 21, 86, 1, '2025-12-28 17:18:50'),
+(199, 21, 76, 1, '2025-12-28 17:18:50'),
+(200, 21, 78, 1, '2025-12-28 17:18:50'),
+(201, 21, 87, 1, '2025-12-28 17:18:50'),
+(204, 23, 34, 1, '2025-12-28 17:18:50'),
+(205, 23, 86, 1, '2025-12-28 17:18:50'),
+(206, 23, 79, 1, '2025-12-28 17:18:50'),
+(207, 23, 78, 1, '2025-12-28 17:18:50'),
+(208, 23, 87, 1, '2025-12-28 17:18:50'),
+(209, 23, 84, 1, '2025-12-28 17:18:50'),
+(210, 23, 85, 1, '2025-12-28 17:18:50'),
+(211, 24, 77, 1, '2025-12-28 17:18:50'),
+(212, 24, 86, 1, '2025-12-28 17:18:50'),
+(213, 24, 78, 1, '2025-12-28 17:18:50'),
+(214, 24, 87, 1, '2025-12-28 17:18:50'),
+(215, 24, 35, 1, '2025-12-28 17:18:50'),
+(216, 24, 40, 1, '2025-12-28 17:18:50'),
+(218, 63, 25, 1, '2025-12-28 17:18:50'),
+(219, 63, 86, 1, '2025-12-28 17:18:50'),
+(220, 63, 76, 1, '2025-12-28 17:18:50'),
+(221, 63, 79, 1, '2025-12-28 17:18:50'),
+(222, 63, 78, 1, '2025-12-28 17:18:50'),
+(223, 63, 36, 1, '2025-12-28 17:18:50'),
+(224, 63, 37, 1, '2025-12-28 17:18:50'),
+(225, 63, 68, 1, '2025-12-28 17:18:50'),
+(226, 63, 87, 1, '2025-12-28 17:18:50'),
+(227, 63, 39, 1, '2025-12-28 17:18:50'),
+(228, 63, 69, 1, '2025-12-28 17:18:50');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `role_sidebar_menus`
+--
+-- Creation: Dec 28, 2025 at 05:16 PM
+--
+
+DROP TABLE IF EXISTS `role_sidebar_menus`;
+CREATE TABLE IF NOT EXISTS `role_sidebar_menus` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `role_id` int(10) UNSIGNED NOT NULL,
+  `menu_item_id` int(10) UNSIGNED NOT NULL,
+  `is_default` tinyint(1) NOT NULL DEFAULT 1,
+  `custom_order` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_role_sidebar_menu` (`role_id`,`menu_item_id`),
+  KEY `fk_role_sidebar_menu` (`menu_item_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=276 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `role_sidebar_menus`:
+--   `menu_item_id`
+--       `sidebar_menu_items` -> `id`
+--   `role_id`
+--       `roles` -> `id`
+--
+
+--
+-- Truncate table before insert `role_sidebar_menus`
+--
+
+TRUNCATE TABLE `role_sidebar_menus`;
+--
+-- Dumping data for table `role_sidebar_menus`
+--
+
+INSERT IGNORE INTO `role_sidebar_menus` (`id`, `role_id`, `menu_item_id`, `is_default`, `custom_order`, `created_at`) VALUES
+(21, 3, 100, 1, 0, '2025-12-28 17:18:44'),
+(22, 3, 200, 1, 1, '2025-12-28 17:18:44'),
+(23, 3, 201, 1, 0, '2025-12-28 17:18:44'),
+(24, 3, 202, 1, 0, '2025-12-28 17:18:44'),
+(25, 3, 203, 1, 0, '2025-12-28 17:18:44'),
+(26, 3, 204, 1, 2, '2025-12-28 17:18:44'),
+(27, 3, 205, 1, 0, '2025-12-28 17:18:44'),
+(28, 3, 206, 1, 0, '2025-12-28 17:18:44'),
+(29, 3, 207, 1, 0, '2025-12-28 17:18:44'),
+(30, 3, 150, 1, 3, '2025-12-28 17:18:44'),
+(31, 3, 151, 1, 0, '2025-12-28 17:18:44'),
+(32, 4, 101, 1, 0, '2025-12-28 17:18:44'),
+(33, 4, 250, 1, 1, '2025-12-28 17:18:44'),
+(34, 4, 251, 1, 0, '2025-12-28 17:18:44'),
+(35, 4, 252, 1, 0, '2025-12-28 17:18:44'),
+(36, 4, 253, 1, 0, '2025-12-28 17:18:44'),
+(37, 4, 254, 1, 2, '2025-12-28 17:18:44'),
+(38, 4, 255, 1, 0, '2025-12-28 17:18:44'),
+(39, 4, 256, 1, 0, '2025-12-28 17:18:44'),
+(40, 4, 257, 1, 0, '2025-12-28 17:18:44'),
+(41, 4, 258, 1, 3, '2025-12-28 17:18:44'),
+(42, 4, 259, 1, 0, '2025-12-28 17:18:44'),
+(43, 4, 260, 1, 0, '2025-12-28 17:18:44'),
+(44, 4, 150, 1, 4, '2025-12-28 17:18:44'),
+(45, 4, 151, 1, 0, '2025-12-28 17:18:44'),
+(46, 4, 261, 1, 5, '2025-12-28 17:18:44'),
+(47, 4, 262, 1, 0, '2025-12-28 17:18:44'),
+(48, 5, 102, 1, 0, '2025-12-28 17:18:44'),
+(49, 5, 300, 1, 1, '2025-12-28 17:18:44'),
+(50, 5, 301, 1, 0, '2025-12-28 17:18:44'),
+(51, 5, 302, 1, 0, '2025-12-28 17:18:44'),
+(52, 5, 303, 1, 0, '2025-12-28 17:18:44'),
+(53, 5, 304, 1, 0, '2025-12-28 17:18:44'),
+(54, 5, 305, 1, 2, '2025-12-28 17:18:44'),
+(55, 5, 306, 1, 0, '2025-12-28 17:18:44'),
+(56, 5, 307, 1, 0, '2025-12-28 17:18:44'),
+(57, 5, 308, 1, 0, '2025-12-28 17:18:44'),
+(58, 5, 309, 1, 3, '2025-12-28 17:18:44'),
+(59, 5, 310, 1, 0, '2025-12-28 17:18:44'),
+(60, 5, 311, 1, 0, '2025-12-28 17:18:44'),
+(61, 5, 150, 1, 4, '2025-12-28 17:18:44'),
+(62, 5, 151, 1, 0, '2025-12-28 17:18:44'),
+(63, 6, 103, 1, 0, '2025-12-28 17:18:44'),
+(64, 6, 350, 1, 1, '2025-12-28 17:18:44'),
+(65, 6, 351, 1, 0, '2025-12-28 17:18:44'),
+(66, 6, 352, 1, 2, '2025-12-28 17:18:44'),
+(67, 6, 353, 1, 0, '2025-12-28 17:18:44'),
+(68, 6, 354, 1, 0, '2025-12-28 17:18:44'),
+(69, 6, 355, 1, 0, '2025-12-28 17:18:44'),
+(70, 6, 356, 1, 3, '2025-12-28 17:18:44'),
+(71, 6, 357, 1, 0, '2025-12-28 17:18:44'),
+(72, 6, 358, 1, 4, '2025-12-28 17:18:44'),
+(73, 6, 359, 1, 0, '2025-12-28 17:18:44'),
+(74, 6, 150, 1, 5, '2025-12-28 17:18:44'),
+(75, 6, 151, 1, 0, '2025-12-28 17:18:44'),
+(76, 7, 104, 1, 0, '2025-12-28 17:18:44'),
+(77, 7, 400, 1, 1, '2025-12-28 17:18:44'),
+(78, 7, 401, 1, 0, '2025-12-28 17:18:44'),
+(79, 7, 402, 1, 0, '2025-12-28 17:18:44'),
+(80, 7, 403, 1, 2, '2025-12-28 17:18:44'),
+(81, 7, 404, 1, 0, '2025-12-28 17:18:44'),
+(82, 7, 405, 1, 0, '2025-12-28 17:18:44'),
+(83, 7, 406, 1, 0, '2025-12-28 17:18:44'),
+(84, 7, 407, 1, 3, '2025-12-28 17:18:44'),
+(85, 7, 408, 1, 0, '2025-12-28 17:18:44'),
+(86, 7, 150, 1, 4, '2025-12-28 17:18:44'),
+(87, 7, 151, 1, 0, '2025-12-28 17:18:44'),
+(88, 8, 105, 1, 0, '2025-12-28 17:18:44'),
+(89, 8, 450, 1, 1, '2025-12-28 17:18:44'),
+(90, 8, 451, 1, 0, '2025-12-28 17:18:44'),
+(91, 8, 452, 1, 2, '2025-12-28 17:18:44'),
+(92, 8, 453, 1, 0, '2025-12-28 17:18:44'),
+(93, 8, 454, 1, 0, '2025-12-28 17:18:44'),
+(94, 8, 455, 1, 3, '2025-12-28 17:18:44'),
+(95, 8, 456, 1, 0, '2025-12-28 17:18:44'),
+(96, 8, 150, 1, 4, '2025-12-28 17:18:44'),
+(97, 8, 151, 1, 0, '2025-12-28 17:18:44'),
+(98, 9, 106, 1, 0, '2025-12-28 17:18:44'),
+(99, 9, 500, 1, 1, '2025-12-28 17:18:44'),
+(100, 9, 501, 1, 0, '2025-12-28 17:18:44'),
+(101, 9, 502, 1, 2, '2025-12-28 17:18:44'),
+(102, 9, 503, 1, 0, '2025-12-28 17:18:44'),
+(103, 9, 150, 1, 3, '2025-12-28 17:18:44'),
+(104, 9, 151, 1, 0, '2025-12-28 17:18:44'),
+(105, 10, 107, 1, 0, '2025-12-28 17:18:44'),
+(106, 10, 550, 1, 1, '2025-12-28 17:18:44'),
+(107, 10, 551, 1, 0, '2025-12-28 17:18:44'),
+(108, 10, 552, 1, 0, '2025-12-28 17:18:44'),
+(109, 10, 553, 1, 2, '2025-12-28 17:18:44'),
+(110, 10, 554, 1, 0, '2025-12-28 17:18:44'),
+(111, 10, 555, 1, 3, '2025-12-28 17:18:44'),
+(112, 10, 556, 1, 0, '2025-12-28 17:18:44'),
+(113, 10, 557, 1, 0, '2025-12-28 17:18:44'),
+(114, 10, 558, 1, 4, '2025-12-28 17:18:44'),
+(115, 10, 559, 1, 0, '2025-12-28 17:18:44'),
+(116, 10, 150, 1, 5, '2025-12-28 17:18:44'),
+(117, 10, 151, 1, 0, '2025-12-28 17:18:44'),
+(118, 14, 108, 1, 0, '2025-12-28 17:18:44'),
+(119, 14, 600, 1, 1, '2025-12-28 17:18:44'),
+(120, 14, 601, 1, 0, '2025-12-28 17:18:44'),
+(121, 14, 602, 1, 0, '2025-12-28 17:18:44'),
+(122, 14, 603, 1, 0, '2025-12-28 17:18:44'),
+(123, 14, 150, 1, 2, '2025-12-28 17:18:44'),
+(124, 14, 151, 1, 0, '2025-12-28 17:18:44'),
+(125, 16, 109, 1, 0, '2025-12-28 17:18:44'),
+(126, 16, 650, 1, 1, '2025-12-28 17:18:44'),
+(127, 16, 651, 1, 0, '2025-12-28 17:18:44'),
+(128, 16, 652, 1, 0, '2025-12-28 17:18:44'),
+(129, 16, 150, 1, 2, '2025-12-28 17:18:44'),
+(130, 16, 151, 1, 0, '2025-12-28 17:18:44'),
+(131, 18, 110, 1, 0, '2025-12-28 17:18:44'),
+(132, 18, 700, 1, 1, '2025-12-28 17:18:44'),
+(133, 18, 701, 1, 0, '2025-12-28 17:18:44'),
+(134, 18, 150, 1, 2, '2025-12-28 17:18:44'),
+(135, 18, 151, 1, 0, '2025-12-28 17:18:44'),
+(136, 21, 111, 1, 0, '2025-12-28 17:18:44'),
+(137, 21, 750, 1, 1, '2025-12-28 17:18:44'),
+(138, 21, 751, 1, 0, '2025-12-28 17:18:44'),
+(139, 21, 150, 1, 2, '2025-12-28 17:18:44'),
+(140, 21, 151, 1, 0, '2025-12-28 17:18:44'),
+(141, 23, 112, 1, 0, '2025-12-28 17:18:44'),
+(142, 23, 800, 1, 1, '2025-12-28 17:18:44'),
+(143, 23, 801, 1, 0, '2025-12-28 17:18:44'),
+(144, 23, 802, 1, 0, '2025-12-28 17:18:44'),
+(145, 23, 150, 1, 2, '2025-12-28 17:18:44'),
+(146, 23, 151, 1, 0, '2025-12-28 17:18:44'),
+(147, 24, 113, 1, 0, '2025-12-28 17:18:44'),
+(148, 24, 850, 1, 1, '2025-12-28 17:18:44'),
+(149, 24, 851, 1, 0, '2025-12-28 17:18:44'),
+(150, 24, 852, 1, 0, '2025-12-28 17:18:44'),
+(151, 24, 150, 1, 2, '2025-12-28 17:18:44'),
+(152, 24, 151, 1, 0, '2025-12-28 17:18:44'),
+(153, 63, 103, 1, 0, '2025-12-28 17:18:44'),
+(154, 63, 900, 1, 1, '2025-12-28 17:18:44'),
+(155, 63, 901, 1, 0, '2025-12-28 17:18:44'),
+(156, 63, 902, 1, 0, '2025-12-28 17:18:44'),
+(157, 63, 903, 1, 0, '2025-12-28 17:18:44'),
+(158, 63, 904, 1, 2, '2025-12-28 17:18:44'),
+(159, 63, 905, 1, 0, '2025-12-28 17:18:44'),
+(160, 63, 906, 1, 0, '2025-12-28 17:18:44'),
+(161, 63, 150, 1, 3, '2025-12-28 17:18:44'),
+(162, 63, 151, 1, 0, '2025-12-28 17:18:44'),
+(163, 2, 1001, 1, NULL, '2025-12-28 19:01:50'),
+(164, 2, 1002, 1, NULL, '2025-12-28 19:01:50'),
+(165, 2, 1003, 1, NULL, '2025-12-28 19:01:50'),
+(166, 2, 1004, 1, NULL, '2025-12-28 19:01:50'),
+(167, 2, 1005, 1, NULL, '2025-12-28 19:01:50'),
+(168, 2, 1006, 1, NULL, '2025-12-28 19:01:50'),
+(169, 2, 1007, 1, NULL, '2025-12-28 19:01:50'),
+(170, 2, 1008, 1, NULL, '2025-12-28 19:01:50'),
+(171, 2, 1009, 1, NULL, '2025-12-28 19:01:50'),
+(172, 2, 1010, 1, NULL, '2025-12-28 19:01:50'),
+(173, 2, 1011, 1, NULL, '2025-12-28 19:01:50'),
+(174, 2, 1012, 1, NULL, '2025-12-28 19:01:50'),
+(175, 2, 1013, 1, NULL, '2025-12-28 19:01:50'),
+(176, 2, 1014, 1, NULL, '2025-12-28 19:01:50'),
+(177, 2, 1015, 1, NULL, '2025-12-28 19:01:50'),
+(178, 2, 1016, 1, NULL, '2025-12-28 19:01:50'),
+(179, 2, 1017, 1, NULL, '2025-12-28 19:01:50'),
+(180, 2, 1018, 1, NULL, '2025-12-28 19:01:50'),
+(181, 2, 1019, 1, NULL, '2025-12-28 19:01:50'),
+(182, 2, 1020, 1, NULL, '2025-12-28 19:01:50'),
+(183, 2, 1021, 1, NULL, '2025-12-28 19:01:50'),
+(184, 2, 1022, 1, NULL, '2025-12-28 19:01:50'),
+(185, 2, 1023, 1, NULL, '2025-12-28 19:01:50'),
+(186, 2, 1024, 1, NULL, '2025-12-28 19:01:50'),
+(187, 2, 1025, 1, NULL, '2025-12-28 19:01:50'),
+(188, 2, 1026, 1, NULL, '2025-12-28 19:01:50'),
+(189, 2, 1027, 1, NULL, '2025-12-28 19:01:50'),
+(190, 2, 1028, 1, NULL, '2025-12-28 19:01:50'),
+(191, 2, 1029, 1, NULL, '2025-12-28 19:01:50'),
+(192, 2, 1030, 1, NULL, '2025-12-28 19:01:50'),
+(193, 2, 1031, 1, NULL, '2025-12-28 19:01:50'),
+(194, 2, 1032, 1, NULL, '2025-12-28 19:01:50'),
+(195, 2, 1033, 1, NULL, '2025-12-28 19:01:50'),
+(196, 2, 1034, 1, NULL, '2025-12-28 19:01:50'),
+(197, 2, 1035, 1, NULL, '2025-12-28 19:01:50'),
+(198, 2, 1036, 1, NULL, '2025-12-28 19:01:50'),
+(199, 2, 1037, 1, NULL, '2025-12-28 19:01:50'),
+(200, 2, 1038, 1, NULL, '2025-12-28 19:01:50'),
+(201, 2, 1039, 1, NULL, '2025-12-28 19:01:50'),
+(202, 2, 1040, 1, NULL, '2025-12-28 19:01:50'),
+(203, 2, 1041, 1, NULL, '2025-12-28 19:01:50'),
+(204, 2, 1042, 1, NULL, '2025-12-28 19:01:50'),
+(205, 2, 1043, 1, NULL, '2025-12-28 19:01:50'),
+(206, 2, 1044, 1, NULL, '2025-12-28 19:01:50'),
+(207, 2, 1045, 1, NULL, '2025-12-28 19:01:50'),
+(208, 2, 1046, 1, NULL, '2025-12-28 19:01:50'),
+(209, 2, 1047, 1, NULL, '2025-12-28 19:01:50'),
+(210, 2, 1048, 1, NULL, '2025-12-28 19:01:50'),
+(211, 2, 1049, 1, NULL, '2025-12-28 19:01:50'),
+(212, 2, 1050, 1, NULL, '2025-12-28 19:01:50'),
+(213, 2, 1051, 1, NULL, '2025-12-28 19:01:50'),
+(214, 3, 250, 1, 2, '2025-12-29 07:27:59'),
+(215, 3, 300, 1, 3, '2025-12-29 07:27:59'),
+(216, 3, 258, 1, 4, '2025-12-29 07:27:59'),
+(217, 3, 600, 1, 6, '2025-12-29 07:27:59'),
+(218, 3, 800, 1, 7, '2025-12-29 07:27:59'),
+(219, 3, 750, 1, 10, '2025-12-29 07:27:59'),
+(220, 3, 700, 1, 11, '2025-12-29 07:27:59'),
+(230, 3, 251, 1, NULL, '2025-12-29 07:28:27'),
+(231, 3, 252, 1, NULL, '2025-12-29 07:28:27'),
+(232, 3, 253, 1, NULL, '2025-12-29 07:28:27'),
+(233, 3, 259, 1, NULL, '2025-12-29 07:28:27'),
+(234, 3, 260, 1, NULL, '2025-12-29 07:28:27'),
+(235, 3, 301, 1, NULL, '2025-12-29 07:28:27'),
+(236, 3, 302, 1, NULL, '2025-12-29 07:28:27'),
+(237, 3, 303, 1, NULL, '2025-12-29 07:28:27'),
+(238, 3, 304, 1, NULL, '2025-12-29 07:28:27'),
+(239, 3, 601, 1, NULL, '2025-12-29 07:28:27'),
+(240, 3, 602, 1, NULL, '2025-12-29 07:28:27'),
+(241, 3, 603, 1, NULL, '2025-12-29 07:28:27'),
+(242, 3, 701, 1, NULL, '2025-12-29 07:28:27'),
+(243, 3, 751, 1, NULL, '2025-12-29 07:28:27'),
+(244, 3, 801, 1, NULL, '2025-12-29 07:28:27'),
+(245, 3, 802, 1, NULL, '2025-12-29 07:28:27'),
+(246, 3, 308, 1, NULL, '2025-12-29 07:28:27'),
+(247, 3, 311, 1, NULL, '2025-12-29 07:28:27'),
+(248, 3, 903, 1, NULL, '2025-12-29 07:28:27'),
+(258, 3, 555, 1, NULL, '2025-12-29 07:29:02'),
+(259, 3, 556, 1, NULL, '2025-12-29 07:29:02'),
+(260, 3, 557, 1, NULL, '2025-12-29 07:29:02'),
+(261, 3, 1052, 1, NULL, '2025-12-29 07:29:21'),
+(262, 3, 1053, 1, NULL, '2025-12-29 07:29:21'),
+(263, 3, 1054, 1, NULL, '2025-12-29 07:29:21'),
+(264, 3, 1055, 0, NULL, '2025-12-29 07:39:38'),
+(265, 3, 1056, 0, NULL, '2025-12-29 07:39:38'),
+(266, 3, 1057, 0, NULL, '2025-12-29 07:39:38'),
+(267, 3, 1058, 0, NULL, '2025-12-29 07:39:38'),
+(268, 3, 1059, 0, NULL, '2025-12-29 07:39:38'),
+(269, 3, 1060, 0, NULL, '2025-12-29 07:39:38'),
+(270, 3, 1061, 0, NULL, '2025-12-29 07:39:38'),
+(271, 3, 1062, 0, NULL, '2025-12-29 07:39:38'),
+(272, 3, 1063, 0, NULL, '2025-12-29 07:39:38'),
+(273, 3, 1064, 0, NULL, '2025-12-29 07:39:38'),
+(274, 3, 1065, 0, NULL, '2025-12-29 07:39:38'),
+(275, 3, 1066, 0, NULL, '2025-12-29 07:39:38');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `rooms`
 --
 -- Creation: Nov 09, 2025 at 11:15 PM
@@ -23828,6 +25438,312 @@ CREATE TABLE IF NOT EXISTS `rooms` (
 --
 
 TRUNCATE TABLE `rooms`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `routes`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `routes`;
+CREATE TABLE IF NOT EXISTS `routes` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT 'Unique route key e.g. manage_students',
+  `url` varchar(255) NOT NULL COMMENT 'URL pattern e.g. home.php?route=manage_students',
+  `domain` enum('SYSTEM','SCHOOL') NOT NULL DEFAULT 'SCHOOL' COMMENT 'Route domain classification',
+  `description` varchar(500) DEFAULT NULL COMMENT 'Human-readable description',
+  `controller` varchar(255) DEFAULT NULL COMMENT 'Controller class handling this route',
+  `action` varchar(100) DEFAULT NULL COMMENT 'Controller action/method',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`),
+  KEY `idx_routes_domain` (`domain`),
+  KEY `idx_routes_active` (`is_active`),
+  KEY `idx_routes_name` (`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=157 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `routes`:
+--
+
+--
+-- Truncate table before insert `routes`
+--
+
+TRUNCATE TABLE `routes`;
+--
+-- Dumping data for table `routes`
+--
+
+INSERT IGNORE INTO `routes` (`id`, `name`, `url`, `domain`, `description`, `controller`, `action`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'system_administrator_dashboard', 'home.php?route=system_administrator_dashboard', 'SYSTEM', 'System Administrator main dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(2, 'system_health', 'home.php?route=system_health', 'SYSTEM', 'System health monitoring', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(3, 'error_logs', 'home.php?route=error_logs', 'SYSTEM', 'Application error logs', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(4, 'authentication_logs', 'home.php?route=authentication_logs', 'SYSTEM', 'Authentication event logs', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(5, 'activity_audit_logs', 'home.php?route=activity_audit_logs', 'SYSTEM', 'User activity audit trail', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(6, 'system_settings', 'home.php?route=system_settings', 'SYSTEM', 'System-wide configuration settings', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(7, 'module_management', 'home.php?route=module_management', 'SYSTEM', 'Enable/disable system modules', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(8, 'maintenance_mode', 'home.php?route=maintenance_mode', 'SYSTEM', 'System maintenance mode control', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(9, 'api_explorer', 'home.php?route=api_explorer', 'SYSTEM', 'API testing and documentation', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(10, 'job_queue_monitor', 'home.php?route=job_queue_monitor', 'SYSTEM', 'Background job queue monitoring', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(11, 'cache_monitor', 'home.php?route=cache_monitor', 'SYSTEM', 'Cache status monitoring', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(12, 'db_health_monitor', 'home.php?route=db_health_monitor', 'SYSTEM', 'Database health monitoring', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(13, 'manage_users', 'home.php?route=manage_users', 'SYSTEM', 'User account management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(14, 'manage_roles', 'home.php?route=manage_roles', 'SYSTEM', 'Role definition management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(15, 'manage_permissions', 'home.php?route=manage_permissions', 'SYSTEM', 'Permission management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(16, 'delegated_permissions', 'home.php?route=delegated_permissions', 'SYSTEM', 'Manage delegated access', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(17, 'manage_routes', 'home.php?route=manage_routes', 'SYSTEM', 'Route registry management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(18, 'manage_menus', 'home.php?route=manage_menus', 'SYSTEM', 'Menu and navigation management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(19, 'manage_dashboards', 'home.php?route=manage_dashboards', 'SYSTEM', 'Dashboard configuration', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(20, 'manage_policies', 'home.php?route=manage_policies', 'SYSTEM', 'System policy management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(21, 'config_sync', 'home.php?route=config_sync', 'SYSTEM', 'Sync DB config to files', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(22, 'director_owner_dashboard', 'home.php?route=director_owner_dashboard', 'SCHOOL', 'Director/Owner main dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(23, 'school_administrative_officer_dashboard', 'home.php?route=school_administrative_officer_dashboard', 'SCHOOL', 'School Admin dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(24, 'headteacher_dashboard', 'home.php?route=headteacher_dashboard', 'SCHOOL', 'Headteacher main dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(25, 'deputy_headteacher_dashboard', 'home.php?route=deputy_headteacher_dashboard', 'SCHOOL', 'Deputy Head dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(26, 'class_teacher_dashboard', 'home.php?route=class_teacher_dashboard', 'SCHOOL', 'Class Teacher dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(27, 'subject_teacher_dashboard', 'home.php?route=subject_teacher_dashboard', 'SCHOOL', 'Subject Teacher dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(28, 'intern_student_teacher_dashboard', 'home.php?route=intern_student_teacher_dashboard', 'SCHOOL', 'Intern/Student Teacher dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(29, 'school_accountant_dashboard', 'home.php?route=school_accountant_dashboard', 'SCHOOL', 'Accountant dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(30, 'store_manager_dashboard', 'home.php?route=store_manager_dashboard', 'SCHOOL', 'Inventory Manager dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(31, 'catering_manager_cook_lead_dashboard', 'home.php?route=catering_manager_cook_lead_dashboard', 'SCHOOL', 'Cateress dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(32, 'matron_housemother_dashboard', 'home.php?route=matron_housemother_dashboard', 'SCHOOL', 'Boarding Master dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(33, 'hod_talent_development_dashboard', 'home.php?route=hod_talent_development_dashboard', 'SCHOOL', 'Talent Development dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(34, 'driver_dashboard', 'home.php?route=driver_dashboard', 'SCHOOL', 'Driver dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(35, 'school_counselor_chaplain_dashboard', 'home.php?route=school_counselor_chaplain_dashboard', 'SCHOOL', 'Chaplain/Counselor dashboard', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(36, 'manage_students', 'home.php?route=manage_students', 'SCHOOL', 'Student records management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(37, 'manage_students_admissions', 'home.php?route=manage_students_admissions', 'SCHOOL', 'Student admissions', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(38, 'student_performance', 'home.php?route=student_performance', 'SCHOOL', 'Student performance tracking', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(39, 'student_discipline', 'home.php?route=student_discipline', 'SCHOOL', 'Student discipline records', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(40, 'student_counseling', 'home.php?route=student_counseling', 'SCHOOL', 'Student counseling services', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(41, 'import_existing_students', 'home.php?route=import_existing_students', 'SCHOOL', 'Import existing student data', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(42, 'manage_academics', 'home.php?route=manage_academics', 'SCHOOL', 'Academic management hub', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(43, 'manage_classes', 'home.php?route=manage_classes', 'SCHOOL', 'Class management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(44, 'manage_subjects', 'home.php?route=manage_subjects', 'SCHOOL', 'Subject management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(45, 'manage_timetable', 'home.php?route=manage_timetable', 'SCHOOL', 'Timetable scheduling', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(46, 'manage_assessments', 'home.php?route=manage_assessments', 'SCHOOL', 'Assessment configuration', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(47, 'manage_lesson_plans', 'home.php?route=manage_lesson_plans', 'SCHOOL', 'Lesson plan management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(48, 'myclasses', 'home.php?route=myclasses', 'SCHOOL', 'View assigned classes', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(49, 'add_results', 'home.php?route=add_results', 'SCHOOL', 'Add examination results', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(50, 'submit_results', 'home.php?route=submit_results', 'SCHOOL', 'Submit class results', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(51, 'view_results', 'home.php?route=view_results', 'SCHOOL', 'View results', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(52, 'enter_results', 'home.php?route=enter_results', 'SCHOOL', 'Enter results for students', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(53, 'manage_finance', 'home.php?route=manage_finance', 'SCHOOL', 'Finance management hub', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(54, 'manage_fees', 'home.php?route=manage_fees', 'SCHOOL', 'Fee structure management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(55, 'student_fees', 'home.php?route=student_fees', 'SCHOOL', 'Student fee records', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(56, 'manage_payments', 'home.php?route=manage_payments', 'SCHOOL', 'Payment processing', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(57, 'manage_payrolls', 'home.php?route=manage_payrolls', 'SCHOOL', 'Payroll management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(58, 'payroll', 'home.php?route=payroll', 'SCHOOL', 'Staff payroll view', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(59, 'manage_expenses', 'home.php?route=manage_expenses', 'SCHOOL', 'Expense tracking', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(60, 'finance_reports', 'home.php?route=finance_reports', 'SCHOOL', 'Financial reports', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(61, 'financial_reports', 'home.php?route=financial_reports', 'SCHOOL', 'Detailed financial reports', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(62, 'budget_overview', 'home.php?route=budget_overview', 'SCHOOL', 'Budget overview', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(63, 'finance_approvals', 'home.php?route=finance_approvals', 'SCHOOL', 'Finance approval workflow', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(64, 'manage_staff', 'home.php?route=manage_staff', 'SCHOOL', 'Staff records management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(65, 'manage_non_teaching_staff', 'home.php?route=manage_non_teaching_staff', 'SCHOOL', 'Non-teaching staff', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(66, 'staff_attendance', 'home.php?route=staff_attendance', 'SCHOOL', 'Staff attendance tracking', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(67, 'staff_performance', 'home.php?route=staff_performance', 'SCHOOL', 'Staff performance tracking', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(68, 'mark_attendance', 'home.php?route=mark_attendance', 'SCHOOL', 'Mark student attendance', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(69, 'view_attendance', 'home.php?route=view_attendance', 'SCHOOL', 'View attendance records', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(70, 'manage_inventory', 'home.php?route=manage_inventory', 'SCHOOL', 'Inventory management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(71, 'manage_stock', 'home.php?route=manage_stock', 'SCHOOL', 'Stock management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(72, 'manage_requisitions', 'home.php?route=manage_requisitions', 'SCHOOL', 'Requisition processing', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(73, 'food_store', 'home.php?route=food_store', 'SCHOOL', 'Food store management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(74, 'menu_planning', 'home.php?route=menu_planning', 'SCHOOL', 'Meal menu planning', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(75, 'manage_boarding', 'home.php?route=manage_boarding', 'SCHOOL', 'Boarding house management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(76, 'manage_activities', 'home.php?route=manage_activities', 'SCHOOL', 'Extra-curricular activities', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(77, 'chapel_services', 'home.php?route=chapel_services', 'SCHOOL', 'Chapel service scheduling', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(78, 'manage_communications', 'home.php?route=manage_communications', 'SCHOOL', 'Internal messaging', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(79, 'manage_announcements', 'home.php?route=manage_announcements', 'SCHOOL', 'Announcements management', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(80, 'manage_email', 'home.php?route=manage_email', 'SCHOOL', 'Email communications', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(81, 'manage_sms', 'home.php?route=manage_sms', 'SCHOOL', 'SMS communications', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(82, 'enrollment_reports', 'home.php?route=enrollment_reports', 'SCHOOL', 'Enrollment statistics', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(83, 'performance_reports', 'home.php?route=performance_reports', 'SCHOOL', 'Performance reports', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(84, 'my_routes', 'home.php?route=my_routes', 'SCHOOL', 'Driver assigned routes', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(85, 'my_vehicle', 'home.php?route=my_vehicle', 'SCHOOL', 'Vehicle assignment', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(86, 'home', 'home.php', 'SCHOOL', 'Main application home', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(87, 'me', 'home.php?route=me', 'SCHOOL', 'User profile page', NULL, NULL, 1, '2025-12-28 17:15:08', '2025-12-28 17:15:08'),
+(88, 'system_uptime', 'home.php?route=system_uptime', 'SYSTEM', 'System Uptime Monitor', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(89, 'active_users', 'home.php?route=active_users', 'SYSTEM', 'Active Users Count', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(90, 'error_rate', 'home.php?route=error_rate', 'SYSTEM', 'Error Rate Monitor', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(91, 'queue_health', 'home.php?route=queue_health', 'SYSTEM', 'Queue Health Status', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(92, 'db_health', 'home.php?route=db_health', 'SYSTEM', 'Database Health Monitor', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(94, 'account_status', 'home.php?route=account_status', 'SYSTEM', 'Account Status Management', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(95, 'role_definitions', 'home.php?route=role_definitions', 'SYSTEM', 'Role Definitions', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(96, 'role_scope', 'home.php?route=role_scope', 'SYSTEM', 'Role Scope Configuration', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(97, 'permission_registry', 'home.php?route=permission_registry', 'SYSTEM', 'Permission Registry', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(98, 'temporary_roles', 'home.php?route=temporary_roles', 'SYSTEM', 'Temporary Roles', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(99, 'expiry_based_access', 'home.php?route=expiry_based_access', 'SYSTEM', 'Expiry-based Access', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(101, 'route_registry', 'home.php?route=route_registry', 'SYSTEM', 'Route Registry', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(102, 'route_domains', 'home.php?route=route_domains', 'SYSTEM', 'Route Domains', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(103, 'sidebar_menus', 'home.php?route=sidebar_menus', 'SYSTEM', 'Sidebar Menus Management', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(104, 'submenus_management', 'home.php?route=submenus_management', 'SYSTEM', 'Submenus Management', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(105, 'icons_ordering', 'home.php?route=icons_ordering', 'SYSTEM', 'Icons & Ordering', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(106, 'dashboard_registry', 'home.php?route=dashboard_registry', 'SYSTEM', 'Dashboard Registry', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(107, 'role_dashboard_mapping', 'home.php?route=role_dashboard_mapping', 'SYSTEM', 'Role Dashboard Mapping', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(108, 'domain_isolation_rules', 'home.php?route=domain_isolation_rules', 'SYSTEM', 'Domain Isolation Rules', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(109, 'readonly_enforcement', 'home.php?route=readonly_enforcement', 'SYSTEM', 'Read-Only Enforcement', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(110, 'time_bound_access', 'home.php?route=time_bound_access', 'SYSTEM', 'Time-bound Access', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(111, 'location_device_rules', 'home.php?route=location_device_rules', 'SYSTEM', 'Location/Device Rules', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(112, 'audit_requirements', 'home.php?route=audit_requirements', 'SYSTEM', 'Audit Requirements', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(113, 'retention_policies', 'home.php?route=retention_policies', 'SYSTEM', 'Retention Policies', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(114, 'authorization_logs', 'home.php?route=authorization_logs', 'SYSTEM', 'Authorization Logs', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(115, 'failed_login_attempts', 'home.php?route=failed_login_attempts', 'SYSTEM', 'Failed Login Attempts', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(116, 'active_sessions', 'home.php?route=active_sessions', 'SYSTEM', 'Active Sessions', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(117, 'force_logout', 'home.php?route=force_logout', 'SYSTEM', 'Force Logout', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(118, 'revoke_tokens', 'home.php?route=revoke_tokens', 'SYSTEM', 'Revoke Tokens', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(120, 'background_jobs', 'home.php?route=background_jobs', 'SYSTEM', 'Background Jobs', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(121, 'queue_monitor', 'home.php?route=queue_monitor', 'SYSTEM', 'Queue Monitor', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(122, 'api_metrics', 'home.php?route=api_metrics', 'SYSTEM', 'API Metrics', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(127, 'feature_flags', 'home.php?route=feature_flags', 'SYSTEM', 'Feature Flags', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(128, 'module_enablement', 'home.php?route=module_enablement', 'SYSTEM', 'Module Enablement', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(131, 'schema_registry', 'home.php?route=schema_registry', 'SYSTEM', 'Schema Registry', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(132, 'migrations', 'home.php?route=migrations', 'SYSTEM', 'Database Migrations', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(133, 'backups', 'home.php?route=backups', 'SYSTEM', 'Backups Management', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(134, 'data_retention_rules', 'home.php?route=data_retention_rules', 'SYSTEM', 'Data Retention Rules', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(135, 'anonymization_rules', 'home.php?route=anonymization_rules', 'SYSTEM', 'Anonymization Rules', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(136, 'webhook_registry', 'home.php?route=webhook_registry', 'SYSTEM', 'Webhook Registry', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(137, 'job_inspector', 'home.php?route=job_inspector', 'SYSTEM', 'Job Inspector', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(138, 'system_diagnostics', 'home.php?route=system_diagnostics', 'SYSTEM', 'System Diagnostics', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(140, 'permission_changes', 'home.php?route=permission_changes', 'SYSTEM', 'Permission Changes Log', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(141, 'policy_violations', 'home.php?route=policy_violations', 'SYSTEM', 'Policy Violations', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(142, 'security_incidents', 'home.php?route=security_incidents', 'SYSTEM', 'Security Incidents', NULL, NULL, 1, '2025-12-28 18:55:20', '2025-12-28 18:55:20'),
+(144, 'role_permission_matrix', 'home.php?route=role_permission_matrix', 'SYSTEM', 'Role-Permission Matrix Configuration', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(145, 'resource_based_permissions', 'home.php?route=resource_based_permissions', 'SYSTEM', 'Resource-Based Permissions', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(146, 'widget_registry', 'home.php?route=widget_registry', 'SYSTEM', 'Widget Registry', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(147, 'role_navigation_config', 'home.php?route=role_navigation_config', 'SYSTEM', 'Role Navigation Configuration', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(148, 'route_access_rules', 'home.php?route=route_access_rules', 'SYSTEM', 'Route Access Rules', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(149, 'permission_policies', 'home.php?route=permission_policies', 'SYSTEM', 'Permission Policies', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(150, 'token_management', 'home.php?route=token_management', 'SYSTEM', 'Token Management', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(151, 'ip_whitelist_blacklist', 'home.php?route=ip_whitelist_blacklist', 'SYSTEM', 'IP Whitelist/Blacklist', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(152, 'rate_limiting_status', 'home.php?route=rate_limiting_status', 'SYSTEM', 'Rate Limiting Status', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(153, 'data_retention', 'home.php?route=data_retention', 'SYSTEM', 'Data Retention Policies', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(154, 'data_purge_policies', 'home.php?route=data_purge_policies', 'SYSTEM', 'Data Purge Policies', NULL, NULL, 1, '2025-12-28 19:02:40', '2025-12-28 19:02:40'),
+(155, 'manage_transport', 'home.php?route=manage_transport', 'SCHOOL', 'Manage Transportation', NULL, NULL, 1, '2025-12-29 09:02:54', '2025-12-29 09:02:54'),
+(156, 'manage_fee_structure', '/pages/manage_fee_structure.php', 'SCHOOL', 'Fee Structure Management - Shows fee structures by level, year, term, and class', NULL, NULL, 1, '2025-12-29 10:09:49', '2025-12-29 10:09:49');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `route_permissions`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `route_permissions`;
+CREATE TABLE IF NOT EXISTS `route_permissions` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `route_id` int(10) UNSIGNED NOT NULL,
+  `permission_id` int(11) NOT NULL COMMENT 'Matches permissions.id (signed int)',
+  `access_type` enum('view','create','update','delete','approve','manage','all') NOT NULL DEFAULT 'view' COMMENT 'Type of access this permission grants',
+  `is_required` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'If TRUE, permission is mandatory; if FALSE, its optional (OR logic)',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_route_permission_access` (`route_id`,`permission_id`,`access_type`),
+  KEY `fk_route_permissions_permission` (`permission_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=80 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `route_permissions`:
+--   `permission_id`
+--       `permissions` -> `id`
+--   `route_id`
+--       `routes` -> `id`
+--
+
+--
+-- Truncate table before insert `route_permissions`
+--
+
+TRUNCATE TABLE `route_permissions`;
+--
+-- Dumping data for table `route_permissions`
+--
+
+INSERT IGNORE INTO `route_permissions` (`id`, `route_id`, `permission_id`, `access_type`, `is_required`, `created_at`) VALUES
+(1, 1, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(2, 2, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(3, 3, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(4, 4, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(5, 5, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(6, 6, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(7, 7, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(8, 8, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(9, 9, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(10, 10, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(11, 11, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(12, 12, 4457, 'view', 1, '2025-12-28 17:58:25'),
+(13, 13, 4458, 'view', 1, '2025-12-28 17:58:25'),
+(14, 14, 4458, 'view', 1, '2025-12-28 17:58:25'),
+(15, 15, 4458, 'view', 1, '2025-12-28 17:58:25'),
+(16, 16, 4458, 'view', 1, '2025-12-28 17:58:25'),
+(17, 22, 4459, 'view', 1, '2025-12-28 17:58:25'),
+(18, 22, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(19, 60, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(20, 62, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(21, 63, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(22, 61, 4459, 'view', 1, '2025-12-28 17:58:25'),
+(23, 82, 4459, 'view', 1, '2025-12-28 17:58:25'),
+(24, 36, 3898, 'view', 1, '2025-12-28 17:58:25'),
+(25, 37, 4461, 'view', 1, '2025-12-28 17:58:25'),
+(26, 68, 4462, 'view', 1, '2025-12-28 17:58:25'),
+(27, 69, 4462, 'view', 1, '2025-12-28 17:58:25'),
+(28, 42, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(29, 43, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(30, 45, 4464, 'view', 1, '2025-12-28 17:58:25'),
+(31, 51, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(32, 49, 4465, 'view', 1, '2025-12-28 17:58:25'),
+(33, 50, 4465, 'view', 1, '2025-12-28 17:58:25'),
+(34, 50, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(35, 38, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(36, 46, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(37, 47, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(38, 44, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(39, 48, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(40, 64, 3469, 'view', 1, '2025-12-28 17:58:25'),
+(41, 66, 4462, 'view', 1, '2025-12-28 17:58:25'),
+(42, 67, 3469, 'view', 1, '2025-12-28 17:58:25'),
+(43, 56, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(44, 58, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(45, 57, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(46, 54, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(47, 55, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(48, 59, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(49, 53, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(50, 70, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(51, 71, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(52, 72, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(53, 31, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(54, 74, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(55, 73, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(56, 32, 4467, 'view', 1, '2025-12-28 17:58:25'),
+(57, 75, 4467, 'view', 1, '2025-12-28 17:58:25'),
+(58, 33, 622, 'view', 1, '2025-12-28 17:58:25'),
+(59, 76, 622, 'view', 1, '2025-12-28 17:58:25'),
+(60, 34, 4468, 'view', 1, '2025-12-28 17:58:25'),
+(61, 84, 4468, 'view', 1, '2025-12-28 17:58:25'),
+(62, 85, 4468, 'view', 1, '2025-12-28 17:58:25'),
+(63, 35, 4469, 'view', 1, '2025-12-28 17:58:25'),
+(64, 77, 4469, 'view', 1, '2025-12-28 17:58:25'),
+(65, 40, 4469, 'view', 1, '2025-12-28 17:58:25'),
+(66, 26, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(67, 27, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(68, 28, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(69, 24, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(70, 25, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(71, 23, 4463, 'view', 1, '2025-12-28 17:58:25'),
+(72, 23, 3469, 'view', 1, '2025-12-28 17:58:25'),
+(73, 29, 4460, 'view', 1, '2025-12-28 17:58:25'),
+(74, 30, 4466, 'view', 1, '2025-12-28 17:58:25'),
+(75, 78, 4470, 'view', 1, '2025-12-28 17:58:25'),
+(76, 81, 4470, 'view', 1, '2025-12-28 17:58:25'),
+(77, 80, 4470, 'view', 1, '2025-12-28 17:58:25'),
+(78, 79, 4470, 'view', 1, '2025-12-28 17:58:25'),
+(79, 156, 4460, 'view', 1, '2025-12-29 10:10:23');
+
 -- --------------------------------------------------------
 
 --
@@ -24011,7 +25927,7 @@ CREATE TABLE IF NOT EXISTS `school_configuration` (
   KEY `idx_active` (`is_active`),
   KEY `fk_school_config_created_by` (`created_by`),
   KEY `fk_school_config_updated_by` (`updated_by`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `school_configuration`:
@@ -24029,7 +25945,9 @@ TRUNCATE TABLE `school_configuration`;
 --
 
 INSERT IGNORE INTO `school_configuration` (`id`, `school_name`, `school_code`, `logo_url`, `favicon_url`, `motto`, `vision`, `mission`, `core_values`, `about_us`, `email`, `phone`, `alternative_phone`, `address`, `city`, `state`, `country`, `postal_code`, `website`, `facebook_url`, `twitter_url`, `instagram_url`, `linkedin_url`, `youtube_url`, `established_year`, `principal_name`, `principal_message`, `academic_calendar_url`, `prospectus_url`, `student_handbook_url`, `timezone`, `currency`, `language`, `date_format`, `time_format`, `is_active`, `created_at`, `updated_at`, `created_by`, `updated_by`) VALUES
-(1, 'Kingsway Academy Test', 'KWA-TEST', NULL, NULL, 'Excellence in Education', NULL, NULL, NULL, NULL, 'info@kingswayacademy.test', '+254700000000', NULL, NULL, 'Nairobi', NULL, 'Kenya', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2025-12-22 20:19:08', '2025-12-22 20:19:08', NULL, NULL);
+(1, 'Kingsway Academy Test', 'KWA-TEST', NULL, NULL, 'Maintaining excellence in operations', NULL, NULL, NULL, NULL, 'info@kingswayacademy.test', '+254700000000', NULL, NULL, 'Nairobi', NULL, 'Kenya', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2025-12-22 20:19:08', '2025-12-25 12:40:28', NULL, NULL),
+(2, 'Kingsway Academy Test', 'KWA-TEST', NULL, NULL, 'Excellence in Education', NULL, NULL, NULL, NULL, 'info@kingswayacademy.test', '+254700000000', NULL, NULL, 'Nairobi', NULL, 'Kenya', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2025-12-25 12:46:54', '2025-12-25 12:46:54', NULL, NULL),
+(3, 'Kingsway Academy Test', 'KWA-TEST', NULL, NULL, 'Excellence in Education', NULL, NULL, NULL, NULL, 'info@kingswayacademy.test', '+254700000000', NULL, NULL, 'Nairobi', NULL, 'Kenya', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'Africa/Nairobi', 'KES', 'en', 'Y-m-d', 'H:i:s', 1, '2025-12-25 12:49:51', '2025-12-25 12:49:51', NULL, NULL);
 
 -- --------------------------------------------------------
 
@@ -24126,6 +26044,273 @@ DELIMITER ;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `sidebar_menu_configs`
+--
+-- Creation: Dec 28, 2025 at 05:16 PM
+--
+
+DROP TABLE IF EXISTS `sidebar_menu_configs`;
+CREATE TABLE IF NOT EXISTS `sidebar_menu_configs` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `menu_item_id` int(10) UNSIGNED NOT NULL,
+  `show_badge` tinyint(1) NOT NULL DEFAULT 0,
+  `badge_source` varchar(100) DEFAULT NULL,
+  `badge_color` varchar(20) DEFAULT 'danger',
+  `open_in_new_tab` tinyint(1) NOT NULL DEFAULT 0,
+  `requires_confirmation` tinyint(1) NOT NULL DEFAULT 0,
+  `confirmation_message` varchar(255) DEFAULT NULL,
+  `visibility_rule` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (json_valid(`visibility_rule`)),
+  `css_class` varchar(100) DEFAULT NULL,
+  `tooltip` varchar(255) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_sidebar_menu_config` (`menu_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `sidebar_menu_configs`:
+--   `menu_item_id`
+--       `sidebar_menu_items` -> `id`
+--
+
+--
+-- Truncate table before insert `sidebar_menu_configs`
+--
+
+TRUNCATE TABLE `sidebar_menu_configs`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `sidebar_menu_items`
+--
+-- Creation: Dec 28, 2025 at 05:18 PM
+--
+
+DROP TABLE IF EXISTS `sidebar_menu_items`;
+CREATE TABLE IF NOT EXISTS `sidebar_menu_items` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT 'Unique key e.g. manage_students',
+  `label` varchar(100) NOT NULL COMMENT 'Display label e.g. Students',
+  `icon` varchar(100) DEFAULT NULL COMMENT 'Icon class e.g. fas fa-user-graduate',
+  `url` varchar(255) DEFAULT NULL COMMENT 'Route name or URL for navigation',
+  `route_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Linked route (nullable for parent items)',
+  `parent_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Self-reference for subitems',
+  `menu_type` enum('sidebar','topbar','dropdown') NOT NULL DEFAULT 'sidebar',
+  `display_order` int(11) NOT NULL DEFAULT 0 COMMENT 'Ordering within same parent',
+  `domain` enum('SYSTEM','SCHOOL','SHARED') NOT NULL DEFAULT 'SCHOOL',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_sidebar_menu_name` (`name`),
+  KEY `idx_sidebar_parent` (`parent_id`),
+  KEY `idx_sidebar_route` (`route_id`),
+  KEY `idx_sidebar_order` (`parent_id`,`display_order`),
+  KEY `idx_sidebar_domain` (`domain`)
+) ENGINE=InnoDB AUTO_INCREMENT=1067 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `sidebar_menu_items`:
+--   `parent_id`
+--       `sidebar_menu_items` -> `id`
+--   `route_id`
+--       `routes` -> `id`
+--
+
+--
+-- Truncate table before insert `sidebar_menu_items`
+--
+
+TRUNCATE TABLE `sidebar_menu_items`;
+--
+-- Dumping data for table `sidebar_menu_items`
+--
+
+INSERT IGNORE INTO `sidebar_menu_items` (`id`, `name`, `label`, `icon`, `url`, `route_id`, `parent_id`, `menu_type`, `display_order`, `domain`, `is_active`, `created_at`, `updated_at`) VALUES
+(100, 'director_dashboard', 'Dashboard', 'fas fa-tachometer-alt', 'director_owner_dashboard', 22, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(101, 'school_admin_dashboard', 'Dashboard', 'fas fa-tachometer-alt', 'school_administrative_officer_dashboard', 23, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(102, 'headteacher_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'headteacher_dashboard', 24, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(103, 'deputy_head_dashboard', 'Dashboard', 'fas fa-tachometer-alt', 'deputy_headteacher_dashboard', 25, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(104, 'class_teacher_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'class_teacher_dashboard', 26, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(105, 'subject_teacher_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'subject_teacher_dashboard', 27, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(106, 'intern_teacher_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'intern_student_teacher_dashboard', 28, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(107, 'accountant_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'school_accountant_dashboard', 29, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(108, 'inventory_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'store_manager_dashboard', 30, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(109, 'cateress_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'catering_manager_cook_lead_dashboard', 31, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(110, 'boarding_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'matron_housemother_dashboard', 32, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(111, 'talent_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'hod_talent_development_dashboard', 33, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(112, 'driver_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'driver_dashboard', 34, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(113, 'chaplain_dashboard_menu', 'Dashboard', 'fas fa-tachometer-alt', 'school_counselor_chaplain_dashboard', 35, NULL, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 08:24:40'),
+(150, 'communications_group', 'Communications', 'fas fa-comments', 'manage_communications', 78, NULL, 'sidebar', 99, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(151, 'communications_messages', 'Messages', NULL, 'manage_communications', 78, 150, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(200, 'director_finance', 'Finance', 'fas fa-coins', 'manage_finance', 53, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:42'),
+(201, 'director_finance_reports', 'Financial Reports', NULL, 'finance_reports', 60, 200, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(202, 'director_budget_overview', 'Budget Overview', NULL, 'budget_overview', 62, 200, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(203, 'director_finance_approvals', 'Approvals', NULL, 'finance_approvals', 63, 200, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(204, 'director_reports', 'Reports', 'fas fa-chart-line', 'financial_reports', 61, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(205, 'director_financial_reports', 'Financial', NULL, 'financial_reports', 61, 204, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(206, 'director_enrollment_reports', 'Enrollment', NULL, 'enrollment_reports', 82, 204, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(207, 'director_performance_reports', 'Performance', NULL, 'performance_reports', 83, 204, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(250, 'school_admin_students', 'Students', 'fas fa-user-graduate', 'manage_students', 36, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(251, 'school_admin_all_students', 'All Students', NULL, 'manage_students', 36, 250, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(252, 'school_admin_admissions', 'Admissions', NULL, 'manage_students_admissions', 37, 250, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(253, 'school_admin_attendance', 'Attendance', NULL, 'mark_attendance', 68, 250, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(254, 'school_admin_academic', 'Academic', 'fas fa-graduation-cap', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(255, 'school_admin_classes', 'Classes', NULL, 'manage_classes', 43, 254, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(256, 'school_admin_timetable', 'Timetable', NULL, 'manage_timetable', 45, 254, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(257, 'school_admin_results', 'Results', NULL, 'view_results', 51, 254, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(258, 'school_admin_staff', 'Staff', 'fas fa-chalkboard-teacher', 'manage_staff', 64, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(259, 'school_admin_all_staff', 'All Staff', NULL, 'manage_staff', 64, 258, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(260, 'school_admin_staff_attendance', 'Attendance', NULL, 'staff_attendance', 66, 258, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(261, 'school_admin_users', 'Users', 'fas fa-users-cog', NULL, NULL, NULL, 'sidebar', 5, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(262, 'school_admin_manage_users', 'Manage Users', NULL, 'manage_users', 13, 261, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:35:26'),
+(300, 'headteacher_academic', 'Academic', 'fas fa-graduation-cap', 'manage_academics', 42, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(301, 'headteacher_manage_academics', 'Manage Academics', NULL, 'manage_academics', 42, 300, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(302, 'headteacher_classes', 'Classes', NULL, 'manage_classes', 43, 300, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(303, 'headteacher_timetable', 'Timetable', NULL, 'manage_timetable', 45, 300, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(304, 'headteacher_results', 'Results', NULL, 'view_results', 51, 300, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(305, 'headteacher_students', 'Students', 'fas fa-user-graduate', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(306, 'headteacher_all_students', 'All Students', NULL, 'manage_students', 36, 305, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(307, 'headteacher_admissions', 'Admissions', NULL, 'manage_students_admissions', 37, 305, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(308, 'headteacher_performance', 'Performance', NULL, 'student_performance', 38, 305, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(309, 'headteacher_staff', 'Staff', 'fas fa-chalkboard-teacher', NULL, NULL, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(310, 'headteacher_all_staff', 'All Staff', NULL, 'manage_staff', 64, 309, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(311, 'headteacher_staff_performance', 'Performance', NULL, 'staff_performance', 67, 309, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(350, 'deputy_timetable', 'Timetable', 'fas fa-calendar-alt', NULL, 45, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(351, 'deputy_manage_timetable', 'Manage Timetable', NULL, 'manage_timetable', 45, 350, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(352, 'deputy_assessments', 'Assessments', 'fas fa-file-alt', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(353, 'deputy_manage_assessments', 'Manage Assessments', NULL, 'manage_assessments', 46, 352, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(354, 'deputy_add_results', 'Add Results', NULL, 'add_results', 49, 352, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(355, 'deputy_view_results', 'View Results', NULL, 'view_results', 51, 352, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(356, 'deputy_students', 'Students', 'fas fa-user-graduate', NULL, NULL, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(357, 'deputy_manage_students', 'Manage Students', NULL, 'manage_students', 36, 356, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(358, 'deputy_classes', 'Classes', 'fas fa-door-open', NULL, 43, NULL, 'sidebar', 4, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(359, 'deputy_manage_classes', 'Manage Classes', NULL, 'manage_classes', 43, 358, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(400, 'class_teacher_myclasses', 'My Classes', 'fas fa-door-open', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(401, 'class_teacher_classes', 'My Classes', NULL, 'myclasses', 48, 400, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(402, 'class_teacher_attendance', 'Class Attendance', NULL, 'mark_attendance', 68, 400, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(403, 'class_teacher_assessments', 'Assessments', 'fas fa-file-alt', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(404, 'class_teacher_manage_assessments', 'Manage Assessments', NULL, 'manage_assessments', 46, 403, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(405, 'class_teacher_enter_results', 'Enter Results', NULL, 'submit_results', 50, 403, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:42'),
+(406, 'class_teacher_view_results', 'View Results', NULL, 'view_results', 51, 403, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(407, 'class_teacher_lesson_plans', 'Lesson Plans', 'fas fa-book-open', NULL, NULL, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(408, 'class_teacher_manage_plans', 'Manage Lesson Plans', NULL, 'manage_lesson_plans', 47, 407, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(450, 'subject_teacher_teaching', 'My Teaching', 'fas fa-chalkboard-teacher', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(451, 'subject_teacher_classes', 'My Classes', NULL, 'myclasses', 48, 450, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(452, 'subject_teacher_assessments', 'Assessments', 'fas fa-file-alt', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(453, 'subject_teacher_enter_results', 'Enter Results', NULL, 'submit_results', 50, 452, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:42'),
+(454, 'subject_teacher_view_results', 'View Results', NULL, 'view_results', 51, 452, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(455, 'subject_teacher_lesson_plans', 'Lesson Plans', 'fas fa-book-open', NULL, NULL, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(456, 'subject_teacher_my_plans', 'My Plans', NULL, 'manage_lesson_plans', 47, 455, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(500, 'intern_teacher_classes', 'My Classes', 'fas fa-chalkboard-teacher', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(501, 'intern_teacher_view_classes', 'View Classes', NULL, 'myclasses', 48, 500, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(502, 'intern_teacher_lesson_plans', 'Lesson Plans', 'fas fa-book-open', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(503, 'intern_teacher_view_plans', 'View Plans', NULL, 'manage_lesson_plans', 47, 502, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(550, 'accountant_fees', 'Fees', 'fas fa-receipt', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(551, 'accountant_fee_structure', 'Fee Structure', NULL, 'manage_fees', 54, 550, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(552, 'accountant_student_fees', 'Student Fees', NULL, 'student_fees', 55, 550, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(553, 'accountant_payments', 'Payments', 'fas fa-money-bill-wave', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(554, 'accountant_manage_payments', 'Manage Payments', NULL, 'manage_payments', 56, 553, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(555, 'accountant_payroll', 'Payroll', 'fas fa-wallet', 'manage_payrolls', 57, NULL, 'sidebar', 3, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(556, 'accountant_staff_payroll', 'Staff Payroll', NULL, 'payroll', 58, 555, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(557, 'accountant_manage_payroll', 'Manage Payroll', NULL, 'manage_payrolls', 57, 555, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(558, 'accountant_reports', 'Reports', 'fas fa-chart-line', NULL, NULL, NULL, 'sidebar', 4, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(559, 'accountant_finance_reports', 'Financial Reports', NULL, 'finance_reports', 60, 558, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(600, 'inventory_group', 'Inventory', 'fas fa-boxes', 'manage_inventory', 70, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(601, 'inventory_manage', 'Manage Inventory', NULL, 'manage_inventory', 70, 600, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(602, 'inventory_stock', 'Stock Management', NULL, 'manage_stock', 71, 600, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(603, 'inventory_requisitions', 'Requisitions', NULL, 'manage_requisitions', 72, 600, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(650, 'cateress_food', 'Menu & Food', 'fas fa-utensils', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(651, 'cateress_menu_planning', 'Menu Planning', NULL, 'menu_planning', 74, 650, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(652, 'cateress_food_store', 'Food Store', NULL, 'food_store', 73, 650, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(700, 'boarding_group', 'Boarding', 'fas fa-bed', 'manage_boarding', 75, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(701, 'boarding_manage', 'Manage Boarding', NULL, 'manage_boarding', 75, 700, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(750, 'talent_activities', 'Activities', 'fas fa-running', 'manage_activities', 76, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(751, 'talent_manage_activities', 'Manage Activities', NULL, 'manage_activities', 76, 750, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(800, 'driver_transport', 'Transport', 'fas fa-bus', 'manage_transport', 155, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:58'),
+(801, 'driver_my_routes', 'My Routes', NULL, 'my_routes', 84, 800, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(802, 'driver_my_vehicle', 'My Vehicle', NULL, 'my_vehicle', 85, 800, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(850, 'chaplain_counseling', 'Counseling', 'fas fa-hands-helping', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(851, 'chaplain_student_counseling', 'Student Counseling', NULL, 'student_counseling', 40, 850, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(852, 'chaplain_chapel_services', 'Chapel Services', NULL, 'chapel_services', 77, 850, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(900, 'discipline_students', 'Students', 'fas fa-user-graduate', NULL, NULL, NULL, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(901, 'discipline_all_students', 'All Students', NULL, 'manage_students', 36, 900, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(902, 'discipline_admissions', 'Admissions', NULL, 'manage_students_admissions', 37, 900, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 18:39:09'),
+(903, 'discipline_discipline', 'Discipline', NULL, 'student_discipline', 39, 900, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(904, 'discipline_attendance', 'Attendance', 'fas fa-clipboard-check', NULL, NULL, NULL, 'sidebar', 2, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-28 17:18:44'),
+(905, 'discipline_mark_attendance', 'Mark Attendance', NULL, 'mark_attendance', 68, 904, 'sidebar', 0, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:31'),
+(906, 'discipline_view_attendance', 'View Attendance', NULL, 'view_attendance', 69, 904, 'sidebar', 1, 'SCHOOL', 1, '2025-12-28 17:18:44', '2025-12-29 09:02:42'),
+(1001, 'sys_dashboard', 'Dashboard', 'fas fa-tachometer-alt', NULL, 1, NULL, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1002, 'sys_identity_access', 'Identity & Access', 'fas fa-shield-alt', NULL, NULL, NULL, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1003, 'sys_navigation_ui', 'Navigation & UI', 'fas fa-sitemap', NULL, NULL, NULL, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1004, 'sys_policy_governance', 'Policy & Governance', 'fas fa-gavel', NULL, NULL, NULL, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1005, 'sys_security_center', 'Security Center', 'fas fa-lock', NULL, NULL, NULL, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1006, 'sys_monitoring', 'Monitoring', 'fas fa-heartbeat', NULL, NULL, NULL, 'sidebar', 5, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1007, 'sys_configuration', 'Configuration', 'fas fa-cogs', NULL, NULL, NULL, 'sidebar', 6, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1008, 'sys_data_governance', 'Data Governance', 'fas fa-database', NULL, NULL, NULL, 'sidebar', 7, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1009, 'sys_developer_tools', 'Developer Tools', 'fas fa-code', NULL, NULL, NULL, 'sidebar', 8, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1010, 'sys_audit_forensics', 'Audit & Forensics', 'fas fa-search', NULL, NULL, NULL, 'sidebar', 9, 'SYSTEM', 1, '2025-12-28 18:59:33', '2025-12-28 18:59:33'),
+(1011, 'sys_user_accounts', 'User Accounts', 'fas fa-users', NULL, 13, 1002, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 18:59:47', '2025-12-28 18:59:47'),
+(1012, 'sys_account_status', 'Account Status', 'fas fa-user-check', NULL, 94, 1002, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 18:59:47', '2025-12-28 18:59:47'),
+(1013, 'sys_role_definitions', 'Role Definitions', 'fas fa-user-tag', NULL, 95, 1002, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 18:59:47', '2025-12-28 18:59:47'),
+(1014, 'sys_role_permissions', 'Role-Permission Matrix', 'fas fa-key', NULL, 144, 1002, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 18:59:47', '2025-12-28 19:02:40'),
+(1015, 'sys_resource_permissions', 'Resource Permissions', 'fas fa-cube', NULL, 145, 1002, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 18:59:47', '2025-12-28 19:02:40'),
+(1016, 'sys_route_registry', 'Route Registry', 'fas fa-route', NULL, 101, 1003, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 18:59:59', '2025-12-28 18:59:59'),
+(1017, 'sys_sidebar_menus', 'Sidebar Menus', 'fas fa-bars', NULL, 103, 1003, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 18:59:59', '2025-12-28 18:59:59'),
+(1018, 'sys_dashboard_registry', 'Dashboard Registry', 'fas fa-th-large', NULL, 106, 1003, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 18:59:59', '2025-12-28 18:59:59'),
+(1019, 'sys_widget_registry', 'Widget Registry', 'fas fa-puzzle-piece', NULL, 146, 1003, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 18:59:59', '2025-12-28 19:02:40'),
+(1020, 'sys_role_navigation', 'Role Navigation', 'fas fa-project-diagram', NULL, 147, 1003, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 18:59:59', '2025-12-28 19:02:40'),
+(1021, 'sys_domain_isolation', 'Domain Isolation', 'fas fa-network-wired', NULL, 108, 1004, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:00:12', '2025-12-28 19:00:12'),
+(1022, 'sys_time_bound_access', 'Time-Bound Access', 'fas fa-clock', NULL, 110, 1004, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:00:12', '2025-12-28 19:00:12'),
+(1023, 'sys_route_access_rules', 'Route Access Rules', 'fas fa-shield-alt', NULL, 148, 1004, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:00:12', '2025-12-28 19:02:40'),
+(1024, 'sys_permission_policies', 'Permission Policies', 'fas fa-scroll', NULL, 149, 1004, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:00:12', '2025-12-28 19:02:40'),
+(1025, 'sys_auth_logs', 'Authentication Logs', 'fas fa-sign-in-alt', NULL, 4, 1005, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:00:25', '2025-12-28 19:00:25'),
+(1026, 'sys_failed_logins', 'Failed Logins', 'fas fa-exclamation-triangle', NULL, 115, 1005, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:00:25', '2025-12-28 19:00:25'),
+(1027, 'sys_active_sessions', 'Active Sessions', 'fas fa-desktop', NULL, 116, 1005, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:00:25', '2025-12-28 19:00:25'),
+(1028, 'sys_token_management', 'Token Management', 'fas fa-ticket-alt', NULL, 150, 1005, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:00:25', '2025-12-28 19:02:40'),
+(1029, 'sys_ip_management', 'IP Whitelist/Blacklist', 'fas fa-ban', NULL, 151, 1005, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 19:00:25', '2025-12-28 19:02:40'),
+(1030, 'sys_system_health', 'System Health', 'fas fa-heartbeat', NULL, 2, 1006, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:00:37', '2025-12-28 19:00:37'),
+(1031, 'sys_error_logs', 'Error Logs', 'fas fa-exclamation-circle', NULL, 3, 1006, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:00:37', '2025-12-28 19:00:37'),
+(1032, 'sys_background_jobs', 'Background Jobs', 'fas fa-tasks', NULL, 120, 1006, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:00:37', '2025-12-28 19:00:37'),
+(1033, 'sys_api_metrics', 'API Metrics', 'fas fa-chart-line', NULL, 122, 1006, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:00:37', '2025-12-28 19:00:37'),
+(1034, 'sys_rate_limiting', 'Rate Limiting', 'fas fa-tachometer-alt', NULL, 152, 1006, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 19:00:37', '2025-12-28 19:02:40'),
+(1035, 'sys_system_settings', 'System Settings', 'fas fa-sliders-h', NULL, 6, 1007, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:00:46', '2025-12-28 19:00:46'),
+(1036, 'sys_feature_flags', 'Feature Flags', 'fas fa-flag', NULL, 127, 1007, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:00:46', '2025-12-28 19:00:46'),
+(1037, 'sys_module_enablement', 'Module Enablement', 'fas fa-puzzle-piece', NULL, 128, 1007, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:00:46', '2025-12-28 19:00:46'),
+(1038, 'sys_maintenance_mode', 'Maintenance Mode', 'fas fa-tools', NULL, 8, 1007, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:00:46', '2025-12-28 19:00:46'),
+(1039, 'sys_schema_registry', 'Schema Registry', 'fas fa-database', NULL, 131, 1008, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:01:00', '2025-12-28 19:01:00'),
+(1040, 'sys_migrations', 'Migrations', 'fas fa-exchange-alt', NULL, 132, 1008, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:01:00', '2025-12-28 19:01:00'),
+(1041, 'sys_backups', 'Backups', 'fas fa-hdd', NULL, 133, 1008, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:01:00', '2025-12-28 19:01:00'),
+(1042, 'sys_data_retention', 'Data Retention', 'fas fa-archive', NULL, 153, 1008, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:01:00', '2025-12-28 19:02:40'),
+(1043, 'sys_data_purge', 'Data Purge Policies', 'fas fa-trash-alt', NULL, 154, 1008, 'sidebar', 4, 'SYSTEM', 1, '2025-12-28 19:01:00', '2025-12-28 19:02:40'),
+(1044, 'sys_api_explorer', 'API Explorer', 'fas fa-flask', NULL, 9, 1009, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:01:09', '2025-12-28 19:01:09'),
+(1045, 'sys_webhook_registry', 'Webhook Registry', 'fas fa-plug', NULL, 136, 1009, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:01:09', '2025-12-28 19:01:09'),
+(1046, 'sys_job_inspector', 'Job Inspector', 'fas fa-search', NULL, 137, 1009, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:01:09', '2025-12-28 19:01:09'),
+(1047, 'sys_diagnostics', 'System Diagnostics', 'fas fa-stethoscope', NULL, 138, 1009, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:01:09', '2025-12-28 19:01:09'),
+(1048, 'sys_activity_logs', 'Activity Logs', 'fas fa-history', NULL, 5, 1010, 'sidebar', 0, 'SYSTEM', 1, '2025-12-28 19:01:19', '2025-12-28 19:01:19'),
+(1049, 'sys_permission_changes', 'Permission Changes', 'fas fa-user-shield', NULL, 140, 1010, 'sidebar', 1, 'SYSTEM', 1, '2025-12-28 19:01:19', '2025-12-28 19:01:19'),
+(1050, 'sys_policy_violations', 'Policy Violations', 'fas fa-exclamation-triangle', NULL, 141, 1010, 'sidebar', 2, 'SYSTEM', 1, '2025-12-28 19:01:19', '2025-12-28 19:01:19'),
+(1051, 'sys_security_incidents', 'Security Incidents', 'fas fa-fire', NULL, 142, 1010, 'sidebar', 3, 'SYSTEM', 1, '2025-12-28 19:01:19', '2025-12-28 19:01:19'),
+(1052, 'announcements', 'Announcements', NULL, 'manage_announcements', 79, 150, 'sidebar', 2, 'SCHOOL', 1, '2025-12-29 07:29:14', '2025-12-29 09:02:31'),
+(1053, 'sms', 'SMS Messages', NULL, 'manage_sms', 81, 150, 'sidebar', 3, 'SCHOOL', 1, '2025-12-29 07:29:14', '2025-12-29 09:02:31'),
+(1054, 'emails', 'Emails', NULL, 'manage_email', 80, 150, 'sidebar', 4, 'SCHOOL', 1, '2025-12-29 07:29:14', '2025-12-29 09:02:31'),
+(1055, 'student_fees', 'Student Fees', NULL, 'manage_fees', 54, 200, 'sidebar', 4, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1056, 'fee_structure', 'Fee Structure', NULL, 'manage_fee_structure', 54, 200, 'sidebar', 5, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 10:15:33'),
+(1057, 'payment_reports', 'Payment Reports', NULL, 'manage_payments', 56, 200, 'sidebar', 6, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1058, 'mpesa_reports', 'M-Pesa Reports', NULL, 'finance_reports', 60, 200, 'sidebar', 7, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1059, 'bank_reports', 'Bank Reports', NULL, 'finance_reports', 60, 200, 'sidebar', 8, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1060, 'uniform_sales', 'Uniform Sales', NULL, 'manage_inventory', 70, 600, 'sidebar', 4, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1061, 'transport_fees', 'Transportation Fees', NULL, 'manage_transport', 155, 800, 'sidebar', 3, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:58'),
+(1062, 'student_discipline', 'Discipline', NULL, 'student_discipline', 39, 250, 'sidebar', 6, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1063, 'student_counseling', 'Counseling', NULL, 'student_counseling', 40, 250, 'sidebar', 7, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1064, 'student_performance', 'Performance', NULL, 'student_performance', 38, 250, 'sidebar', 8, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1065, 'payroll_processing', 'Payroll Processing', NULL, 'manage_payrolls', 57, 555, 'sidebar', 2, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31'),
+(1066, 'salary_slips', 'Salary Slips', NULL, 'manage_payrolls', 57, 555, 'sidebar', 3, 'SCHOOL', 1, '2025-12-29 07:39:34', '2025-12-29 09:02:31');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `sms_communications`
 --
 -- Creation: Nov 09, 2025 at 11:15 PM
@@ -24215,7 +26400,7 @@ DELIMITER ;
 --
 -- Table structure for table `staff`
 --
--- Creation: Dec 03, 2025 at 08:32 PM
+-- Creation: Dec 30, 2025 at 06:12 PM
 --
 
 DROP TABLE IF EXISTS `staff`;
@@ -24246,6 +26431,7 @@ CREATE TABLE IF NOT EXISTS `staff` (
   `status` enum('active','inactive','on_leave') NOT NULL DEFAULT 'active',
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `date_of_birth` date DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_staff_no` (`staff_no`),
   KEY `idx_department` (`department_id`),
@@ -24254,7 +26440,7 @@ CREATE TABLE IF NOT EXISTS `staff` (
   KEY `idx_staff_type` (`staff_type_id`),
   KEY `idx_staff_category` (`staff_category_id`),
   KEY `idx_supervisor` (`supervisor_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=58 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=59 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `staff`:
@@ -24277,56 +26463,70 @@ TRUNCATE TABLE `staff`;
 -- Dumping data for table `staff`
 --
 
-INSERT IGNORE INTO `staff` (`id`, `staff_type_id`, `staff_category_id`, `staff_no`, `first_name`, `last_name`, `department_id`, `supervisor_id`, `user_id`, `position`, `employment_date`, `contract_type`, `nssf_no`, `kra_pin`, `nhif_no`, `bank_account`, `salary`, `gender`, `marital_status`, `tsc_no`, `address`, `profile_pic_url`, `documents_folder`, `status`, `created_at`, `updated_at`) VALUES
-(22, 3, 14, 'KWPS001', 'John', 'Director', 4, NULL, 22, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:25', '2025-12-21 17:09:25'),
-(24, 3, 15, 'KWPS002', 'Robert', 'Headteacher', 4, NULL, 24, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
-(25, 3, 16, 'KWPS003', 'Margaret', 'DeputyAcad', 4, NULL, 25, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
-(26, 1, 4, 'KWPS004', 'Michael', 'ClassTeacher', 1, NULL, 26, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
-(27, 1, 6, 'KWPS005', 'Patricia', 'SubjectTeacher', 1, NULL, 27, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26'),
-(28, 1, 8, 'KWPS006', 'David', 'InternTeacher', 1, NULL, 28, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27'),
-(29, 3, 18, 'KWPS007', 'Jennifer', 'Accountant', 4, NULL, 29, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27'),
-(31, 2, 13, 'KWPS008', 'Susan', 'Cateress', 3, NULL, 31, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27'),
-(32, 3, NULL, 'KWPS009', 'Thomas', 'BoardingMaster', 4, NULL, 32, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:28', '2025-12-21 17:09:28'),
-(33, 2, 7, 'KWPS010', 'Linda', 'TalentDev', 7, NULL, 33, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:28', '2025-12-21 17:09:28'),
-(34, 2, 9, 'KWPS011', 'Daniel', 'Driver', 2, NULL, 34, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29'),
-(35, 2, 21, 'KWPS012', 'Elizabeth', 'Chaplain', 6, NULL, 35, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29'),
-(36, 2, 13, 'KWPS013', 'James', 'KitchenStaff', 3, NULL, 36, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29'),
-(37, 3, 12, 'KWPS014', 'Joseph', 'SecurityStaff', 4, NULL, 37, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30'),
-(38, 3, 10, 'KWPS015', 'Mary', 'Janitor', 4, NULL, 38, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30'),
-(39, 3, 16, 'KWPS016', 'William', 'DeputyDisc', 4, NULL, 39, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30'),
-(40, 3, 14, 'KWPS017', 'John', 'Director', 4, NULL, 2, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:19', '2025-12-21 17:12:19'),
-(42, 3, 15, 'KWPS018', 'Robert', 'Headteacher', 4, NULL, 4, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20'),
-(43, 3, 16, 'KWPS019', 'Margaret', 'DeputyAcad', 4, NULL, 5, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20'),
-(44, 1, 4, 'KWPS020', 'Michael', 'ClassTeacher', 1, NULL, 6, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20'),
-(45, 1, 6, 'KWPS021', 'Patricia', 'SubjectTeacher', 1, NULL, 7, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20'),
-(46, 1, 8, 'KWPS022', 'David', 'InternTeacher', 1, NULL, 8, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21'),
-(47, 3, 18, 'KWPS023', 'Jennifer', 'Accountant', 4, NULL, 9, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21'),
-(49, 2, 13, 'KWPS024', 'Susan', 'Cateress', 3, NULL, 11, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21'),
-(50, 3, NULL, 'KWPS025', 'Thomas', 'BoardingMaster', 4, NULL, 12, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21'),
-(51, 2, 7, 'KWPS026', 'Linda', 'TalentDev', 7, NULL, 13, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21'),
-(52, 2, 9, 'KWPS027', 'Daniel', 'Driver', 2, NULL, 14, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22'),
-(53, 2, 21, 'KWPS028', 'Elizabeth', 'Chaplain', 6, NULL, 15, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22'),
-(54, 2, 13, 'KWPS029', 'James', 'KitchenStaff', 3, NULL, 16, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22'),
-(55, 3, 12, 'KWPS030', 'Joseph', 'SecurityStaff', 4, NULL, 17, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22'),
-(56, 3, 10, 'KWPS031', 'Mary', 'Janitor', 4, NULL, 18, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22'),
-(57, 3, 16, 'KWPS032', 'William', 'DeputyDisc', 4, NULL, 19, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22');
+INSERT IGNORE INTO `staff` (`id`, `staff_type_id`, `staff_category_id`, `staff_no`, `first_name`, `last_name`, `department_id`, `supervisor_id`, `user_id`, `position`, `employment_date`, `contract_type`, `nssf_no`, `kra_pin`, `nhif_no`, `bank_account`, `salary`, `gender`, `marital_status`, `tsc_no`, `address`, `profile_pic_url`, `documents_folder`, `status`, `created_at`, `updated_at`, `date_of_birth`) VALUES
+(22, 3, 14, 'KWPS001', 'John', 'Director', 4, NULL, 22, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:25', '2025-12-21 17:09:25', NULL),
+(24, 3, 15, 'KWPS002', 'Robert', 'Headteacher', 4, NULL, 24, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26', NULL),
+(25, 3, 16, 'KWPS003', 'Margaret', 'DeputyAcad', 4, NULL, 25, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26', NULL),
+(26, 1, 4, 'KWPS004', 'Michael', 'ClassTeacher', 1, NULL, 26, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26', NULL),
+(27, 1, 6, 'KWPS005', 'Patricia', 'SubjectTeacher', 1, NULL, 27, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:26', '2025-12-21 17:09:26', NULL),
+(28, 1, 8, 'KWPS006', 'David', 'InternTeacher', 1, NULL, 28, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27', NULL),
+(29, 3, 18, 'KWPS007', 'Jennifer', 'Accountant', 4, NULL, 29, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27', NULL),
+(31, 2, 13, 'KWPS008', 'Susan', 'Cateress', 3, NULL, 31, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:27', '2025-12-21 17:09:27', NULL),
+(32, 3, NULL, 'KWPS009', 'Thomas', 'BoardingMaster', 4, NULL, 32, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:28', '2025-12-21 17:09:28', NULL),
+(33, 2, 7, 'KWPS010', 'Linda', 'TalentDev', 7, NULL, 33, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:28', '2025-12-21 17:09:28', NULL),
+(34, 2, 9, 'KWPS011', 'Daniel', 'Driver', 2, NULL, 34, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29', NULL),
+(35, 2, 21, 'KWPS012', 'Elizabeth', 'Chaplain', 6, NULL, 35, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29', NULL),
+(36, 2, 13, 'KWPS013', 'James', 'KitchenStaff', 3, NULL, 36, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:29', '2025-12-21 17:09:29', NULL),
+(37, 3, 12, 'KWPS014', 'Joseph', 'SecurityStaff', 4, NULL, 37, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30', NULL),
+(38, 3, 10, 'KWPS015', 'Mary', 'Janitor', 4, NULL, 38, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30', NULL),
+(39, 3, 16, 'KWPS016', 'William', 'DeputyDisc', 4, NULL, 39, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:09:30', '2025-12-21 17:09:30', NULL),
+(40, 3, 14, 'KWPS017', 'John', 'Director', 4, NULL, 2, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:19', '2025-12-21 17:12:19', NULL),
+(42, 3, 15, 'KWPS018', 'Robert', 'Headteacher', 4, NULL, 4, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20', NULL),
+(43, 3, 16, 'KWPS019', 'Margaret', 'DeputyAcad', 4, NULL, 5, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20', NULL),
+(44, 1, 4, 'KWPS020', 'Michael', 'ClassTeacher', 1, NULL, 6, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20', NULL),
+(45, 1, 6, 'KWPS021', 'Patricia', 'SubjectTeacher', 1, NULL, 7, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:20', '2025-12-21 17:12:20', NULL),
+(46, 1, 8, 'KWPS022', 'David', 'InternTeacher', 1, NULL, 8, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21', NULL),
+(47, 3, 18, 'KWPS023', 'Jennifer', 'Accountant', 4, NULL, 9, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21', NULL),
+(49, 2, 13, 'KWPS024', 'Susan', 'Cateress', 3, NULL, 11, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21', NULL),
+(50, 3, NULL, 'KWPS025', 'Thomas', 'BoardingMaster', 4, NULL, 12, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21', NULL),
+(51, 2, 7, 'KWPS026', 'Linda', 'TalentDev', 7, NULL, 13, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:21', '2025-12-21 17:12:21', NULL),
+(52, 2, 9, 'KWPS027', 'Daniel', 'Driver', 2, NULL, 14, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(53, 2, 21, 'KWPS028', 'Elizabeth', 'Chaplain', 6, NULL, 15, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(54, 2, 13, 'KWPS029', 'James', 'KitchenStaff', 3, NULL, 16, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(55, 3, 12, 'KWPS030', 'Joseph', 'SecurityStaff', 4, NULL, 17, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(56, 3, 10, 'KWPS031', 'Mary', 'Janitor', 4, NULL, 18, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(57, 3, 16, 'KWPS032', 'William', 'DeputyDisc', 4, NULL, 19, 'Staff', '2025-12-21', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-21 17:12:22', '2025-12-21 17:12:22', NULL),
+(58, 2, NULL, 'KWPS033', 'Teacher', 'Test', 1, NULL, 23, 'Teacher', '2025-01-01', 'permanent', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'active', '2025-12-31 06:21:58', '2025-12-31 06:21:58', NULL);
 
 -- --------------------------------------------------------
 
 --
 -- Table structure for table `staff_allowances`
 --
--- Creation: Nov 09, 2025 at 11:16 PM
+-- Creation: Jan 05, 2026 at 01:09 PM
+-- Last update: Jan 05, 2026 at 01:09 PM
 --
 
 DROP TABLE IF EXISTS `staff_allowances`;
 CREATE TABLE IF NOT EXISTS `staff_allowances` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `staff_id` int(10) UNSIGNED NOT NULL,
+  `name` varchar(100) DEFAULT NULL,
+  `description` text DEFAULT NULL,
+  `allowance_type` enum('housing','transport','medical','hardship','responsibility','overtime','bonus','other') NOT NULL DEFAULT 'other',
   `amount` decimal(10,2) NOT NULL,
+  `is_taxable` tinyint(1) NOT NULL DEFAULT 1,
+  `is_recurring` tinyint(1) NOT NULL DEFAULT 1,
   `effective_date` date NOT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `status` enum('active','paused','completed','cancelled') NOT NULL DEFAULT 'active',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
-  KEY `staff_id` (`staff_id`)
+  KEY `staff_id` (`staff_id`),
+  KEY `idx_allowance_type` (`allowance_type`),
+  KEY `idx_allowance_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -24436,6 +26636,142 @@ INSERT IGNORE INTO `staff_categories` (`id`, `staff_type_id`, `category_name`, `
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `staff_children`
+--
+-- Creation: Jan 05, 2026 at 01:08 PM
+--
+
+DROP TABLE IF EXISTS `staff_children`;
+CREATE TABLE IF NOT EXISTS `staff_children` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `staff_id` int(10) UNSIGNED NOT NULL COMMENT 'Reference to staff member (parent)',
+  `student_id` int(10) UNSIGNED NOT NULL COMMENT 'Reference to student (child)',
+  `relationship` enum('father','mother','guardian','spouse') NOT NULL DEFAULT 'father',
+  `fee_deduction_enabled` tinyint(1) NOT NULL DEFAULT 1 COMMENT 'Whether to deduct school fees from salary',
+  `fee_deduction_percentage` decimal(5,2) NOT NULL DEFAULT 100.00 COMMENT 'Percentage of fees to deduct (0-100)',
+  `notes` text DEFAULT NULL COMMENT 'Additional notes about the arrangement',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_staff_student` (`staff_id`,`student_id`),
+  KEY `idx_staff` (`staff_id`),
+  KEY `idx_student` (`student_id`),
+  KEY `idx_deduction_enabled` (`fee_deduction_enabled`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `staff_children`:
+--   `staff_id`
+--       `staff` -> `id`
+--   `student_id`
+--       `students` -> `id`
+--
+
+--
+-- Truncate table before insert `staff_children`
+--
+
+TRUNCATE TABLE `staff_children`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `staff_child_fee_config`
+--
+-- Creation: Jan 05, 2026 at 01:09 PM
+-- Last update: Jan 05, 2026 at 01:09 PM
+--
+
+DROP TABLE IF EXISTS `staff_child_fee_config`;
+CREATE TABLE IF NOT EXISTS `staff_child_fee_config` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `config_key` varchar(100) NOT NULL,
+  `config_value` text NOT NULL,
+  `description` text DEFAULT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_config_key` (`config_key`)
+) ENGINE=InnoDB AUTO_INCREMENT=13 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `staff_child_fee_config`:
+--
+
+--
+-- Truncate table before insert `staff_child_fee_config`
+--
+
+TRUNCATE TABLE `staff_child_fee_config`;
+--
+-- Dumping data for table `staff_child_fee_config`
+--
+
+INSERT IGNORE INTO `staff_child_fee_config` (`id`, `config_key`, `config_value`, `description`, `is_active`, `created_at`, `updated_at`) VALUES
+(1, 'first_child_discount_percentage', '50', 'Discount percentage for first child of staff', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(2, 'second_child_discount_percentage', '40', 'Discount percentage for second child of staff', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(3, 'third_child_discount_percentage', '30', 'Discount percentage for third and subsequent children', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(4, 'max_monthly_deduction_percentage', '30', 'Maximum percentage of gross salary that can be deducted for child fees', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(5, 'allow_installment_deduction', '1', 'Allow spreading fee deduction over multiple months', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53'),
+(6, 'deduction_priority', 'statutory,loan,child_fees,other', 'Order of deduction priority from salary', 1, '2026-01-05 13:09:53', '2026-01-05 13:09:53');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `staff_child_fee_deductions`
+--
+-- Creation: Jan 05, 2026 at 01:09 PM
+--
+
+DROP TABLE IF EXISTS `staff_child_fee_deductions`;
+CREATE TABLE IF NOT EXISTS `staff_child_fee_deductions` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `staff_child_id` int(10) UNSIGNED NOT NULL COMMENT 'Reference to staff_children',
+  `staff_id` int(10) UNSIGNED NOT NULL,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `payslip_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Reference to payslip if processed',
+  `payroll_month` int(11) NOT NULL,
+  `payroll_year` int(11) NOT NULL,
+  `term_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Academic term',
+  `fee_invoice_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Reference to student fee invoice',
+  `gross_fee_amount` decimal(12,2) NOT NULL COMMENT 'Total fees before any discounts',
+  `staff_discount_percentage` decimal(5,2) NOT NULL DEFAULT 0.00 COMMENT 'Staff child discount %',
+  `staff_discount_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `sponsor_waiver_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `deductible_amount` decimal(12,2) NOT NULL COMMENT 'Final amount to deduct from salary',
+  `deducted_amount` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Actual amount deducted',
+  `balance` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT 'Remaining balance if not fully deducted',
+  `status` enum('pending','partial','deducted','waived','cancelled') NOT NULL DEFAULT 'pending',
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_child_period` (`staff_child_id`,`payroll_month`,`payroll_year`),
+  KEY `idx_staff` (`staff_id`),
+  KEY `idx_student` (`student_id`),
+  KEY `idx_payslip` (`payslip_id`),
+  KEY `idx_period` (`payroll_month`,`payroll_year`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `staff_child_fee_deductions`:
+--   `staff_id`
+--       `staff` -> `id`
+--   `staff_child_id`
+--       `staff_children` -> `id`
+--   `student_id`
+--       `students` -> `id`
+--
+
+--
+-- Truncate table before insert `staff_child_fee_deductions`
+--
+
+TRUNCATE TABLE `staff_child_fee_deductions`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `staff_class_assignments`
 --
 -- Creation: Nov 11, 2025 at 02:04 PM
@@ -24540,18 +26876,33 @@ TRUNCATE TABLE `staff_contracts`;
 --
 -- Table structure for table `staff_deductions`
 --
--- Creation: Nov 11, 2025 at 02:41 PM
+-- Creation: Jan 05, 2026 at 01:09 PM
+-- Last update: Jan 05, 2026 at 01:09 PM
 --
 
 DROP TABLE IF EXISTS `staff_deductions`;
 CREATE TABLE IF NOT EXISTS `staff_deductions` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `staff_id` int(10) UNSIGNED NOT NULL,
+  `deduction_type_id` int(10) UNSIGNED DEFAULT NULL,
+  `name` varchar(100) DEFAULT NULL,
+  `description` text DEFAULT NULL,
   `amount` decimal(10,2) NOT NULL,
+  `is_recurring` tinyint(1) NOT NULL DEFAULT 1,
   `effective_date` date NOT NULL,
+  `start_date` date DEFAULT NULL,
+  `end_date` date DEFAULT NULL,
+  `status` enum('active','paused','completed','cancelled') NOT NULL DEFAULT 'active',
+  `related_student_id` int(10) UNSIGNED DEFAULT NULL COMMENT 'Student ID if this is a child fees deduction',
+  `reference_no` varchar(100) DEFAULT NULL COMMENT 'Reference for loan/advance/fee invoice',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   KEY `staff_id` (`staff_id`),
-  KEY `idx_staff_deductions_effective` (`staff_id`,`effective_date`)
+  KEY `idx_staff_deductions_effective` (`staff_id`,`effective_date`),
+  KEY `idx_deduction_type` (`deduction_type_id`),
+  KEY `idx_status` (`status`),
+  KEY `idx_related_student` (`related_student_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
@@ -25098,7 +27449,7 @@ TRUNCATE TABLE `storage_locations`;
 --
 -- Table structure for table `students`
 --
--- Creation: Nov 11, 2025 at 08:48 AM
+-- Creation: Jan 05, 2026 at 12:44 PM
 --
 
 DROP TABLE IF EXISTS `students`;
@@ -25112,9 +27463,8 @@ CREATE TABLE IF NOT EXISTS `students` (
   `gender` enum('male','female','other') NOT NULL,
   `stream_id` int(10) UNSIGNED NOT NULL,
   `student_type_id` int(10) UNSIGNED DEFAULT 1 COMMENT 'Day/Boarding/Weekly boarder - links to student_types',
-  `user_id` int(10) UNSIGNED DEFAULT NULL,
   `admission_date` date NOT NULL,
-  `assessment_number` varchar(50) DEFAULT NULL COMMENT 'National assessment number (UPI/NEMIS)',
+  `assessment_number` varchar(50) DEFAULT NULL COMMENT 'National assessment identifier (formerly UPI/NEMIS)',
   `assessment_status` enum('not_assigned','pending','assigned','verified','transferred') NOT NULL DEFAULT 'not_assigned' COMMENT 'Assessment number status',
   `status` enum('active','inactive','graduated','transferred','suspended') NOT NULL DEFAULT 'active',
   `photo_url` varchar(255) DEFAULT NULL,
@@ -25128,23 +27478,20 @@ CREATE TABLE IF NOT EXISTS `students` (
   `blood_group` varchar(10) DEFAULT NULL COMMENT 'Blood group (A+, B+, O+, AB+, A-, B-, O-, AB-)',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_admission_no` (`admission_no`),
-  UNIQUE KEY `uk_assessment_number` (`assessment_number`),
+  UNIQUE KEY `idx_assessment_number` (`assessment_number`),
   KEY `idx_stream` (`stream_id`),
   KEY `idx_student_type` (`student_type_id`),
-  KEY `idx_user` (`user_id`),
   KEY `idx_status` (`status`),
-  KEY `idx_assessment_status` (`assessment_status`),
+  KEY `idx_upi_status` (`assessment_status`),
   KEY `idx_sponsored` (`is_sponsored`),
   KEY `idx_sponsor_type` (`sponsor_type`),
   KEY `idx_qr_code` (`qr_code_path`)
-) ENGINE=InnoDB AUTO_INCREMENT=104 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=110 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `students`:
 --   `stream_id`
 --       `class_streams` -> `id`
---   `user_id`
---       `users` -> `id`
 --
 
 --
@@ -25156,23 +27503,19 @@ TRUNCATE TABLE `students`;
 -- Dumping data for table `students`
 --
 
-INSERT IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `user_id`, `admission_date`, `nemis_number`, `upi`, `upi_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
-(101, 'ADM101', 'John', NULL, 'Doe', '2012-01-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
-(102, 'ADM102', 'Jane', NULL, 'Smith', '2012-02-01', 'female', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
-(103, 'ADM103', 'Ali', NULL, 'Omondi', '2012-03-01', 'male', 1, 1, NULL, '2020-01-01', NULL, NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL);
+INSERT IGNORE INTO `students` (`id`, `admission_no`, `first_name`, `middle_name`, `last_name`, `date_of_birth`, `gender`, `stream_id`, `student_type_id`, `admission_date`, `assessment_number`, `assessment_status`, `status`, `photo_url`, `qr_code_path`, `is_sponsored`, `sponsor_name`, `sponsor_type`, `sponsor_waiver_percentage`, `created_at`, `updated_at`, `blood_group`) VALUES
+(101, 'ADM101', 'John', NULL, 'Doe', '2012-01-01', 'male', 1, 1, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
+(102, 'ADM102', 'Jane', NULL, 'Smith', '2012-02-01', 'female', 1, 1, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
+(103, 'ADM103', 'Ali', NULL, 'Omondi', '2012-03-01', 'male', 1, 1, '2020-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-11-29 12:09:56', '2025-11-29 12:09:56', NULL),
+(104, 'PG_86631', 'Playgroup_Stu_1', NULL, 'Demo', '2021-01-01', 'male', 4, 1, '2025-12-31', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-12-31 05:24:23', '2025-12-31 05:24:23', NULL),
+(105, 'PG_86632', 'Playgroup_Stu_2', NULL, 'Demo', '2021-01-01', 'female', 4, 1, '2025-12-31', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-12-31 05:24:23', '2025-12-31 05:24:23', NULL),
+(106, 'S2025-TEST-001', 'Student', NULL, 'Seed', '2015-01-02', 'male', 1, 1, '2025-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-12-31 07:01:32', '2025-12-31 07:01:32', NULL),
+(108, 'S2025-176716484086', 'Student', NULL, 'Seed', '2015-01-02', 'male', 1, 1, '2025-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, 0.00, '2025-12-31 07:07:21', '2025-12-31 07:07:21', NULL),
+(109, 'S2025-176716538875', 'Student', NULL, 'Seed', '2015-01-02', 'male', 1, NULL, '2025-01-01', NULL, 'not_assigned', 'active', NULL, NULL, 0, NULL, NULL, NULL, '2025-12-31 07:16:29', '2025-12-31 07:16:29', NULL);
 
 --
 -- Triggers `students`
 --
-DROP TRIGGER IF EXISTS `trg_auto_link_parent`;
-DELIMITER $$
-CREATE TRIGGER `trg_auto_link_parent` AFTER INSERT ON `students` FOR EACH ROW BEGIN IF NEW.user_id IS NOT NULL THEN
-INSERT IGNORE INTO student_parents (student_id, parent_id)
-VALUES (NEW.id, NEW.user_id);
-END IF;
-END
-$$
-DELIMITER ;
 DROP TRIGGER IF EXISTS `trg_emit_student_status_event`;
 DELIMITER $$
 CREATE TRIGGER `trg_emit_student_status_event` AFTER UPDATE ON `students` FOR EACH ROW BEGIN IF NEW.status != OLD.status THEN
@@ -25593,7 +27936,8 @@ DELIMITER ;
 --
 -- Table structure for table `student_parents`
 --
--- Creation: Nov 09, 2025 at 11:16 PM
+-- Creation: Jan 05, 2026 at 02:23 PM
+-- Last update: Jan 05, 2026 at 02:23 PM
 --
 
 DROP TABLE IF EXISTS `student_parents`;
@@ -25601,10 +27945,16 @@ CREATE TABLE IF NOT EXISTS `student_parents` (
   `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
   `student_id` int(10) UNSIGNED NOT NULL,
   `parent_id` int(10) UNSIGNED NOT NULL,
+  `relationship` enum('father','mother','guardian','step_father','step_mother','grandparent','uncle','aunt','sibling','other') NOT NULL DEFAULT 'guardian',
+  `is_primary_contact` tinyint(1) NOT NULL DEFAULT 0,
+  `is_emergency_contact` tinyint(1) NOT NULL DEFAULT 0,
+  `financial_responsibility` decimal(5,2) DEFAULT 100.00 COMMENT 'Percentage of fees this parent is responsible for',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_student_parent` (`student_id`,`parent_id`),
   KEY `parent_id` (`parent_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `student_parents`:
@@ -25619,6 +27969,15 @@ CREATE TABLE IF NOT EXISTS `student_parents` (
 --
 
 TRUNCATE TABLE `student_parents`;
+--
+-- Dumping data for table `student_parents`
+--
+
+INSERT IGNORE INTO `student_parents` (`id`, `student_id`, `parent_id`, `relationship`, `is_primary_contact`, `is_emergency_contact`, `financial_responsibility`, `created_at`, `updated_at`) VALUES
+(1, 106, 4, 'guardian', 0, 0, 100.00, '2026-01-05 14:23:29', '2026-01-05 14:23:29'),
+(2, 108, 5, 'guardian', 0, 0, 100.00, '2026-01-05 14:23:29', '2026-01-05 14:23:29'),
+(3, 109, 6, 'guardian', 0, 0, 100.00, '2026-01-05 14:23:29', '2026-01-05 14:23:29');
+
 -- --------------------------------------------------------
 
 --
@@ -25870,6 +28229,42 @@ INSERT IGNORE INTO `student_types` (`id`, `code`, `name`, `description`, `status
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `student_uniforms`
+--
+-- Creation: Dec 28, 2025 at 01:33 PM
+--
+
+DROP TABLE IF EXISTS `student_uniforms`;
+CREATE TABLE IF NOT EXISTS `student_uniforms` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `uniform_size` varchar(20) DEFAULT NULL COMMENT 'XS, S, M, L, XL, XXL',
+  `shirt_size` varchar(20) DEFAULT NULL,
+  `trousers_size` varchar(20) DEFAULT NULL,
+  `skirt_size` varchar(20) DEFAULT NULL,
+  `sweater_size` varchar(20) DEFAULT NULL,
+  `shoes_size` varchar(10) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `last_updated` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  `updated_by` int(10) UNSIGNED DEFAULT NULL COMMENT 'Staff ID',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_student` (`student_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `student_uniforms`:
+--   `student_id`
+--       `students` -> `id`
+--
+
+--
+-- Truncate table before insert `student_uniforms`
+--
+
+TRUNCATE TABLE `student_uniforms`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `suppliers`
 --
 -- Creation: Nov 09, 2025 at 11:15 PM
@@ -25916,7 +28311,7 @@ CREATE TABLE IF NOT EXISTS `system_events` (
   PRIMARY KEY (`id`),
   KEY `event_type` (`event_type`),
   KEY `created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=66 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=81 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `system_events`:
@@ -25987,7 +28382,73 @@ INSERT IGNORE INTO `system_events` (`id`, `event_type`, `event_data`, `created_a
 (62, 'payment_received', '{\"payment_id\": 1058, \"student_id\": 101, \"parent_id\": 0, \"amount\": 4500.00, \"method\": \"bank_transfer\", \"reference\": \"BANK-2025-12-14-001\", \"receipt\": null}', '2025-12-16 22:15:42'),
 (63, 'payment_received', '{\"payment_id\": 1059, \"student_id\": 102, \"parent_id\": 0, \"amount\": 3000.00, \"method\": \"bank_transfer\", \"reference\": \"COOP-2025-12-14-001\", \"receipt\": null}', '2025-12-16 22:15:42'),
 (64, 'payment_received', '{\"payment_id\": 1060, \"student_id\": 103, \"parent_id\": 0, \"amount\": 2500.00, \"method\": \"bank_transfer\", \"reference\": \"EQUITY-2025-12-14-001\", \"receipt\": null}', '2025-12-16 22:15:42'),
-(65, 'payment_received', '{\"payment_id\": 1061, \"student_id\": 101, \"parent_id\": 0, \"amount\": 6000.00, \"method\": \"bank_transfer\", \"reference\": \"ABSA-2025-12-14-001\", \"receipt\": null}', '2025-12-16 22:15:43');
+(65, 'payment_received', '{\"payment_id\": 1061, \"student_id\": 101, \"parent_id\": 0, \"amount\": 6000.00, \"method\": \"bank_transfer\", \"reference\": \"ABSA-2025-12-14-001\", \"receipt\": null}', '2025-12-16 22:15:43'),
+(69, 'announcement_created', '{\"announcement_id\": 16, \"title\": \"School Reopens January 10th\", \"audience\": \"all\"}', '2025-12-29 13:07:16'),
+(70, 'announcement_created', '{\"announcement_id\": 17, \"title\": \"Boarding Parents Meeting\", \"audience\": \"parents\"}', '2025-12-29 13:07:16'),
+(71, 'announcement_created', '{\"announcement_id\": 18, \"title\": \"Fee Payment Reminder\", \"audience\": \"all\"}', '2025-12-29 13:07:16'),
+(72, 'announcement_created', '{\"announcement_id\": 19, \"title\": \"Maintenance Notice\", \"audience\": \"all\"}', '2025-12-29 13:07:16'),
+(73, 'announcement_created', '{\"announcement_id\": 20, \"title\": \"COVID-19 Protocols\", \"audience\": \"all\"}', '2025-12-29 13:07:16'),
+(74, 'class_created', '{\"class_id\":\"5\",\"class_name\":\"Playgroup\",\"academic_year\":\"2026\"}', '2025-12-30 18:52:15'),
+(75, 'class_created', '{\"class_id\":\"6\",\"class_name\":\"Grade 1\",\"academic_year\":\"2026\"}', '2025-12-30 18:54:30'),
+(76, 'class_created', '{\"class_id\":\"7\",\"class_name\":\"Grade 2\",\"academic_year\":\"2026\"}', '2025-12-30 18:55:47'),
+(77, 'class_created', '{\"class_id\":\"8\",\"class_name\":\"Grade 4\",\"academic_year\":\"2026\"}', '2025-12-30 18:56:03'),
+(78, 'class_created', '{\"class_id\":\"9\",\"class_name\":\"Grade 5\",\"academic_year\":\"2026\"}', '2025-12-31 05:26:49'),
+(79, 'class_created', '{\"class_id\":\"10\",\"class_name\":\"Grade 7\",\"academic_year\":\"2026\"}', '2025-12-31 05:26:54'),
+(80, 'class_created', '{\"class_id\":\"11\",\"class_name\":\"Grade 8\",\"academic_year\":\"2026\"}', '2025-12-31 05:26:57');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `system_policies`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `system_policies`;
+CREATE TABLE IF NOT EXISTS `system_policies` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` varchar(100) NOT NULL COMMENT 'Policy identifier',
+  `display_name` varchar(150) NOT NULL COMMENT 'Human-readable name',
+  `rule_type` enum('deny','allow','restrict','require','audit') NOT NULL DEFAULT 'deny',
+  `priority` int(11) NOT NULL DEFAULT 0 COMMENT 'Higher = evaluated first',
+  `rule_expression` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Policy rule in JSON DSL' CHECK (json_valid(`rule_expression`)),
+  `description` varchar(500) DEFAULT NULL,
+  `applies_to` enum('role','user','route','domain','global') NOT NULL DEFAULT 'global',
+  `target_ids` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT 'Array of role_ids, user_ids, etc.' CHECK (json_valid(`target_ids`)),
+  `effective_from` timestamp NULL DEFAULT NULL COMMENT 'When policy becomes active',
+  `effective_until` timestamp NULL DEFAULT NULL COMMENT 'When policy expires',
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_by` int(10) UNSIGNED DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `name` (`name`),
+  KEY `idx_policies_type` (`rule_type`),
+  KEY `idx_policies_priority` (`priority`),
+  KEY `idx_policies_active` (`is_active`),
+  KEY `idx_policies_effective` (`effective_from`,`effective_until`),
+  KEY `fk_policies_creator` (`created_by`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `system_policies`:
+--   `created_by`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `system_policies`
+--
+
+TRUNCATE TABLE `system_policies`;
+--
+-- Dumping data for table `system_policies`
+--
+
+INSERT IGNORE INTO `system_policies` (`id`, `name`, `display_name`, `rule_type`, `priority`, `rule_expression`, `description`, `applies_to`, `target_ids`, `effective_from`, `effective_until`, `is_active`, `created_by`, `created_at`, `updated_at`) VALUES
+(1, 'system_admin_no_school_access', 'System Admin - No School Operations', 'deny', 100, '{\"condition\": \"AND\", \"rules\": [{\"field\": \"role_id\", \"operator\": \"=\", \"value\": 2}, {\"field\": \"route.domain\", \"operator\": \"=\", \"value\": \"SCHOOL\"}]}', 'System Administrator (Role 2) is forbidden from accessing any SCHOOL domain routes', 'role', '[2]', NULL, NULL, 1, NULL, '2025-12-28 17:14:52', '2025-12-28 17:14:52'),
+(2, 'school_roles_no_system_access', 'School Roles - No System Administration', 'deny', 99, '{\"condition\": \"AND\", \"rules\": [{\"field\": \"role_id\", \"operator\": \"NOT IN\", \"value\": [2]}, {\"field\": \"route.domain\", \"operator\": \"=\", \"value\": \"SYSTEM\"}]}', 'All non-System Admin roles are forbidden from accessing SYSTEM domain routes', 'domain', NULL, NULL, NULL, 1, NULL, '2025-12-28 17:14:52', '2025-12-28 17:14:52'),
+(3, 'delegated_permissions_readonly', 'Delegated Permissions - Read Only', 'restrict', 80, '{\"condition\": \"AND\", \"rules\": [{\"field\": \"permission.is_delegated\", \"operator\": \"=\", \"value\": true}, {\"field\": \"access_type\", \"operator\": \"IN\", \"value\": [\"create\", \"update\", \"delete\"]}]}', 'Delegated permissions are restricted to view-only access', 'global', NULL, NULL, NULL, 1, NULL, '2025-12-28 17:14:52', '2025-12-28 17:14:52');
 
 -- --------------------------------------------------------
 
@@ -26121,7 +28582,7 @@ CREATE TABLE IF NOT EXISTS `term_consolidations` (
   `best_subject_grade` varchar(4) DEFAULT NULL,
   `worst_subject_id` int(10) UNSIGNED DEFAULT NULL,
   `worst_subject_grade` varchar(4) DEFAULT NULL,
-  `consolidated_at` datetime NULL DEFAULT NULL,
+  `consolidated_at` timestamp NULL DEFAULT NULL,
   `consolidated_by` int(10) UNSIGNED DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
@@ -26178,7 +28639,7 @@ CREATE TABLE IF NOT EXISTS `term_subject_scores` (
   `overall_grade` varchar(4) DEFAULT NULL,
   `overall_points` decimal(3,1) DEFAULT 0.0,
   `assessment_count` int(11) DEFAULT 0,
-  `calculated_at` datetime NULL DEFAULT NULL,
+  `calculated_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -26391,6 +28852,209 @@ TRUNCATE TABLE `transport_vehicle_routes`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `uniform_sales`
+--
+-- Creation: Dec 28, 2025 at 01:33 PM
+--
+
+DROP TABLE IF EXISTS `uniform_sales`;
+CREATE TABLE IF NOT EXISTS `uniform_sales` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `item_id` int(10) UNSIGNED NOT NULL,
+  `size` varchar(20) NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 1,
+  `unit_price` decimal(10,2) NOT NULL,
+  `total_amount` decimal(10,2) NOT NULL,
+  `payment_status` enum('paid','pending','partial') NOT NULL DEFAULT 'pending',
+  `sale_date` date NOT NULL,
+  `received_date` date DEFAULT NULL,
+  `sold_by` int(10) UNSIGNED DEFAULT NULL COMMENT 'Staff ID of person who made the sale',
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_student` (`student_id`),
+  KEY `idx_item` (`item_id`),
+  KEY `idx_sale_date` (`sale_date`),
+  KEY `idx_payment_status` (`payment_status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `uniform_sales`:
+--   `item_id`
+--       `inventory_items` -> `id`
+--   `student_id`
+--       `students` -> `id`
+--
+
+--
+-- Truncate table before insert `uniform_sales`
+--
+
+TRUNCATE TABLE `uniform_sales`;
+--
+-- Triggers `uniform_sales`
+--
+DROP TRIGGER IF EXISTS `trg_uniform_sale_insert`;
+DELIMITER $$
+CREATE TRIGGER `trg_uniform_sale_insert` AFTER INSERT ON `uniform_sales` FOR EACH ROW BEGIN
+  DECLARE v_month_year DATE;
+  SET v_month_year = DATE_FORMAT(NEW.sale_date, '%Y-%m-01');
+  
+  INSERT INTO `uniform_sales_summary` 
+    (`month_year`, `item_id`, `total_sales_count`, `total_sales_amount`, `total_paid`, `total_pending`, `total_partial`)
+  VALUES
+    (v_month_year, NEW.item_id, 1, NEW.total_amount, 
+     IF(NEW.payment_status = 'paid', NEW.total_amount, 0),
+     IF(NEW.payment_status = 'pending', NEW.total_amount, 0),
+     IF(NEW.payment_status = 'partial', NEW.total_amount, 0))
+  ON DUPLICATE KEY UPDATE
+    `total_sales_count` = `total_sales_count` + 1,
+    `total_sales_amount` = `total_sales_amount` + VALUES(`total_sales_amount`),
+    `total_paid` = `total_paid` + VALUES(`total_paid`),
+    `total_pending` = `total_pending` + VALUES(`total_pending`),
+    `total_partial` = `total_partial` + VALUES(`total_partial`);
+END
+$$
+DELIMITER ;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `uniform_sales_summary`
+--
+-- Creation: Dec 28, 2025 at 01:33 PM
+--
+
+DROP TABLE IF EXISTS `uniform_sales_summary`;
+CREATE TABLE IF NOT EXISTS `uniform_sales_summary` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `month_year` date NOT NULL,
+  `item_id` int(10) UNSIGNED DEFAULT NULL,
+  `total_sales_count` int(11) NOT NULL DEFAULT 0,
+  `total_sales_amount` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_paid` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_pending` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `total_partial` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_month_item` (`month_year`,`item_id`),
+  KEY `idx_month` (`month_year`),
+  KEY `fk_uniform_sales_summary_item` (`item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `uniform_sales_summary`:
+--   `item_id`
+--       `inventory_items` -> `id`
+--
+
+--
+-- Truncate table before insert `uniform_sales_summary`
+--
+
+TRUNCATE TABLE `uniform_sales_summary`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `uniform_sizes`
+--
+-- Creation: Dec 28, 2025 at 01:33 PM
+--
+
+DROP TABLE IF EXISTS `uniform_sizes`;
+CREATE TABLE IF NOT EXISTS `uniform_sizes` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `item_id` int(10) UNSIGNED NOT NULL,
+  `size` varchar(20) NOT NULL COMMENT 'XS, S, M, L, XL, XXL',
+  `quantity_available` int(11) NOT NULL DEFAULT 0,
+  `quantity_reserved` int(11) NOT NULL DEFAULT 0,
+  `quantity_sold` int(11) NOT NULL DEFAULT 0,
+  `unit_price` decimal(10,2) NOT NULL,
+  `last_restocked` datetime DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_item_size` (`item_id`,`size`),
+  KEY `idx_item_id` (`item_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=55 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `uniform_sizes`:
+--   `item_id`
+--       `inventory_items` -> `id`
+--
+
+--
+-- Truncate table before insert `uniform_sizes`
+--
+
+TRUNCATE TABLE `uniform_sizes`;
+--
+-- Dumping data for table `uniform_sizes`
+--
+
+INSERT IGNORE INTO `uniform_sizes` (`id`, `item_id`, `size`, `quantity_available`, `quantity_reserved`, `quantity_sold`, `unit_price`, `last_restocked`, `created_at`, `updated_at`) VALUES
+(1, 11, 'XS', 15, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(2, 12, 'XS', 15, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(3, 13, 'XS', 15, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(4, 14, 'XS', 15, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(5, 15, 'XS', 15, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(6, 16, 'XS', 15, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(7, 17, 'XS', 15, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(8, 18, 'XS', 15, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(9, 19, 'XS', 15, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(10, 11, 'S', 20, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(11, 12, 'S', 20, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(12, 13, 'S', 20, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(13, 14, 'S', 20, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(14, 15, 'S', 20, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(15, 16, 'S', 20, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(16, 17, 'S', 20, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(17, 18, 'S', 20, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(18, 19, 'S', 20, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(19, 11, 'M', 35, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(20, 12, 'M', 35, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(21, 13, 'M', 35, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(22, 14, 'M', 35, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(23, 15, 'M', 35, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(24, 16, 'M', 35, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(25, 17, 'M', 35, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(26, 18, 'M', 35, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(27, 19, 'M', 35, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(28, 11, 'L', 30, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(29, 12, 'L', 30, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(30, 13, 'L', 30, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(31, 14, 'L', 30, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(32, 15, 'L', 30, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(33, 16, 'L', 30, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(34, 17, 'L', 30, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(35, 18, 'L', 30, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(36, 19, 'L', 30, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(37, 11, 'XL', 25, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(38, 12, 'XL', 25, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(39, 13, 'XL', 25, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(40, 14, 'XL', 25, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(41, 15, 'XL', 25, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(42, 16, 'XL', 25, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(43, 17, 'XL', 25, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(44, 18, 'XL', 25, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(45, 19, 'XL', 25, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(46, 11, 'XXL', 15, 0, 0, 1200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(47, 12, 'XXL', 15, 0, 0, 400.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(48, 13, 'XXL', 15, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(49, 14, 'XXL', 15, 0, 0, 2000.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(50, 15, 'XXL', 15, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(51, 16, 'XXL', 15, 0, 0, 1800.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(52, 17, 'XXL', 15, 0, 0, 2200.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(53, 18, 'XXL', 15, 0, 0, 1500.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08'),
+(54, 19, 'XXL', 15, 0, 0, 1600.00, '2025-12-28 16:33:08', '2025-12-28 13:33:08', '2025-12-28 13:33:08');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `unit_topics`
 --
 -- Creation: Nov 09, 2025 at 11:16 PM
@@ -26448,8 +29112,8 @@ CREATE TABLE IF NOT EXISTS `users` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   `failed_login_attempts` int(11) DEFAULT 0 COMMENT 'Count of consecutive failed logins',
-  `account_locked_until` datetime NULL DEFAULT NULL COMMENT 'Account locked until this time',
-  `password_expires_at` datetime NULL DEFAULT NULL COMMENT 'When password expires (if policy enabled)',
+  `account_locked_until` timestamp NULL DEFAULT NULL COMMENT 'Account locked until this time',
+  `password_expires_at` timestamp NULL DEFAULT NULL COMMENT 'When password expires (if policy enabled)',
   `force_password_change` tinyint(1) DEFAULT 0 COMMENT 'Force password change on next login',
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_username` (`username`),
@@ -26462,7 +29126,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   KEY `idx_users_username` (`username`),
   KEY `idx_users_status` (`status`),
   KEY `idx_users_role` (`role_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=30 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `users`:
@@ -26498,7 +29162,15 @@ INSERT IGNORE INTO `users` (`id`, `username`, `email`, `first_name`, `last_name`
 (16, 'test_kitchenstaff', 'james@yahoo.com', 'James', 'KitchenStaff', '$2y$10$/iwxGkv0DCZjqJ7v3qCRYuqh6XltnoxfImz3w2xvMxSkvVDBcGW1u', 32, 'active', NULL, NULL, '2025-12-21 17:12:22', '2025-12-21 17:12:22', 0, NULL, NULL, 0),
 (17, 'test_securitystaff', 'joseph@outlook.com', 'Joseph', 'SecurityStaff', '$2y$10$vhyV8q3ykTcbtf8qMWdtQe5Ddxj4v18N.3ExI.kp4iliJ/o/wWtDu', 33, 'active', NULL, NULL, '2025-12-21 17:12:22', '2025-12-21 17:12:22', 0, NULL, NULL, 0),
 (18, 'test_janitor', 'mary@gmail.com', 'Mary', 'Janitor', '$2y$10$ZIGLelUl7iUZ7tfJxp48O.TBf0pID1XqsHyEdjMMKBhYJbrxhzwGq', 34, 'active', NULL, NULL, '2025-12-21 17:12:22', '2025-12-21 17:12:22', 0, NULL, NULL, 0),
-(19, 'test_deputy_disc', 'william@outlook.com', 'William', 'DeputyDisc', '$2y$10$IfipCkQlKc00Nzv4dS4Dh.Y5JE0g0FsFIinEHzAdOm5POO4cRqv3m', 63, 'active', NULL, NULL, '2025-12-21 17:12:22', '2025-12-21 17:12:22', 0, NULL, NULL, 0);
+(19, 'test_deputy_disc', 'william@outlook.com', 'William', 'DeputyDisc', '$2y$10$IfipCkQlKc00Nzv4dS4Dh.Y5JE0g0FsFIinEHzAdOm5POO4cRqv3m', 63, 'active', NULL, NULL, '2025-12-21 17:12:22', '2025-12-21 17:12:22', 0, NULL, NULL, 0),
+(21, 'tuser_api', 'tuser_api@example.com', 'T', 'User', 'x', 65, 'active', NULL, NULL, '2025-12-31 06:12:13', '2025-12-31 06:12:13', 0, NULL, NULL, 0),
+(22, 'teacher_test', 'teacher_test+seed@example.com', 'Teacher', 'Test', '$2y$10$euaRz11IxOMycb8DBa7YMOltgG3zwwe/U9LAGyxiQhh8odAIPd/yG', 65, 'active', NULL, NULL, '2025-12-31 06:21:09', '2025-12-31 06:21:09', 0, NULL, NULL, 0),
+(23, 'teacher_test2', 'teacher_test2+seed@example.com', 'Teacher', 'Test', '$2y$10$FduJUcRL2uwl8KwJPUUFLOUI9UKmFVPxv69CxNfHYCBNl2Psx9lkW', 65, 'active', NULL, NULL, '2025-12-31 06:21:58', '2025-12-31 06:21:58', 0, NULL, NULL, 0),
+(24, 'teacher_test_176716306297', 'teacher_test_176716306297@example.com', 'Teacher', 'Test', '$2y$10$WvMMSZ.jtzsWcXuHCul2TODU1ERTtUueU5r3TDCrq2dCUPgqLQfcW', 66, 'active', NULL, NULL, '2025-12-31 06:37:43', '2025-12-31 06:37:43', 0, NULL, NULL, 0),
+(25, 'teacher_test_176716415245', 'teacher_test_176716415245@example.com', 'Teacher', 'Test', '$2y$10$h2DvfTG976iJwGFK7ljjf.fQ6SKIBIW.WQmcqEJUqLY/mYbFU5RxG', 67, 'active', NULL, NULL, '2025-12-31 06:55:52', '2025-12-31 06:55:52', 0, NULL, NULL, 0),
+(26, 'teacher_test_176716418856', 'teacher_test_176716418856@example.com', 'Teacher', 'Test', '$2y$10$eZnx4w48vUEWumOsGn/RHecWk82NEoM.4t1AG3P2X7V9Cc8eSinlC', 68, 'active', NULL, NULL, '2025-12-31 06:56:28', '2025-12-31 06:56:28', 0, NULL, NULL, 0),
+(27, 'teacher_test_176716599626', 'teacher_test_176716599626@example.com', 'Teacher', 'Test', '$2y$10$oYFsY7MPWTqb6FTMTScPL.cuSGjyq8ke8AXJJF5cCB1sKFGw4QRom', 69, 'active', NULL, NULL, '2025-12-31 07:26:37', '2025-12-31 07:26:37', 0, NULL, NULL, 0),
+(29, 'teacher_payok_176716649133', 'teacher_payok_176716649133@example.com', 'Teacher', 'PayOK', '$2y$10$KLzTGGfhawW4MCzUgvkB9ur5B8u5f5zie7gklWAPC0zjgozhgLvLS', 70, 'active', NULL, NULL, '2025-12-31 07:34:51', '2025-12-31 07:34:51', 0, NULL, NULL, 0);
 
 --
 -- Triggers `users`
@@ -26686,7 +29358,7 @@ CREATE TABLE IF NOT EXISTS `user_permissions` (
   `permission_type` enum('grant','deny','override') NOT NULL DEFAULT 'grant',
   `reason` varchar(255) DEFAULT NULL,
   `granted_by` int(10) UNSIGNED DEFAULT NULL,
-  `expires_at` datetime NULL DEFAULT NULL,
+  `expires_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
   `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
   PRIMARY KEY (`id`),
@@ -26730,7 +29402,7 @@ CREATE TABLE IF NOT EXISTS `user_roles` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_user_role` (`user_id`,`role_id`),
   KEY `role_id` (`role_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `user_roles`:
@@ -26772,8 +29444,54 @@ INSERT IGNORE INTO `user_roles` (`id`, `user_id`, `role_id`, `created_at`) VALUE
 (16, 16, 32, '2025-12-21 17:12:22'),
 (17, 17, 33, '2025-12-21 17:12:22'),
 (18, 18, 34, '2025-12-21 17:12:22'),
-(19, 19, 63, '2025-12-21 17:12:22');
+(19, 19, 63, '2025-12-21 17:12:22'),
+(20, 22, 65, '2025-12-31 06:21:09'),
+(21, 23, 65, '2025-12-31 06:21:58'),
+(22, 24, 66, '2025-12-31 06:37:43'),
+(23, 25, 67, '2025-12-31 06:55:52'),
+(24, 26, 68, '2025-12-31 06:56:28'),
+(25, 27, 69, '2025-12-31 07:26:37'),
+(27, 29, 70, '2025-12-31 07:34:51');
 
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_routes`
+--
+-- Creation: Dec 28, 2025 at 05:14 PM
+--
+
+DROP TABLE IF EXISTS `user_routes`;
+CREATE TABLE IF NOT EXISTS `user_routes` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) UNSIGNED NOT NULL,
+  `route_id` int(10) UNSIGNED NOT NULL,
+  `is_allowed` tinyint(1) NOT NULL DEFAULT 1,
+  `granted_by` int(10) UNSIGNED DEFAULT NULL COMMENT 'User who granted this override',
+  `reason` varchar(255) DEFAULT NULL COMMENT 'Reason for override',
+  `expires_at` timestamp NULL DEFAULT NULL COMMENT 'When override expires',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_route` (`user_id`,`route_id`),
+  KEY `fk_user_routes_route` (`route_id`),
+  KEY `fk_user_routes_grantor` (`granted_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `user_routes`:
+--   `granted_by`
+--       `users` -> `id`
+--   `route_id`
+--       `routes` -> `id`
+--   `user_id`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `user_routes`
+--
+
+TRUNCATE TABLE `user_routes`;
 -- --------------------------------------------------------
 
 --
@@ -26811,6 +29529,40 @@ CREATE TABLE IF NOT EXISTS `user_sessions` (
 --
 
 TRUNCATE TABLE `user_sessions`;
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `user_sidebar_overrides`
+--
+-- Creation: Dec 28, 2025 at 05:16 PM
+--
+
+DROP TABLE IF EXISTS `user_sidebar_overrides`;
+CREATE TABLE IF NOT EXISTS `user_sidebar_overrides` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) UNSIGNED NOT NULL,
+  `menu_item_id` int(10) UNSIGNED NOT NULL,
+  `override_type` enum('show','hide','order') NOT NULL,
+  `custom_order` int(11) DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_sidebar_override` (`user_id`,`menu_item_id`,`override_type`),
+  KEY `fk_user_sidebar_menu` (`menu_item_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `user_sidebar_overrides`:
+--   `menu_item_id`
+--       `sidebar_menu_items` -> `id`
+--   `user_id`
+--       `users` -> `id`
+--
+
+--
+-- Truncate table before insert `user_sidebar_overrides`
+--
+
+TRUNCATE TABLE `user_sidebar_overrides`;
 -- --------------------------------------------------------
 
 --
@@ -27125,6 +29877,42 @@ CREATE TABLE IF NOT EXISTS `vw_failed_attempts_by_ip` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `vw_family_groups`
+-- (See below for the actual view)
+--
+DROP VIEW IF EXISTS `vw_family_groups`;
+CREATE TABLE IF NOT EXISTS `vw_family_groups` (
+`parent_id` int(10) unsigned
+,`parent_full_name` varchar(152)
+,`parent_id_number` varchar(30)
+,`parent_phone_primary` varchar(20)
+,`parent_phone_secondary` varchar(20)
+,`parent_email` varchar(100)
+,`parent_gender` enum('male','female','other')
+,`parent_occupation` varchar(100)
+,`parent_address` text
+,`parent_status` enum('active','inactive')
+,`student_id` int(10) unsigned
+,`admission_no` varchar(20)
+,`student_full_name` varchar(152)
+,`student_dob` date
+,`student_gender` enum('male','female','other')
+,`student_status` enum('active','inactive','graduated','transferred','suspended')
+,`student_photo` varchar(255)
+,`class_name` varchar(50)
+,`stream_name` varchar(50)
+,`class_stream` varchar(103)
+,`relationship` enum('father','mother','guardian','step_father','step_mother','grandparent','uncle','aunt','sibling','other')
+,`is_primary_contact` tinyint(1)
+,`is_emergency_contact` tinyint(1)
+,`financial_responsibility` decimal(5,2)
+,`current_fee_balance` decimal(32,2)
+,`sibling_count` bigint(22)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Stand-in structure for view `vw_fee_carryover_summary`
 -- (See below for the actual view)
 --
@@ -27414,7 +30202,7 @@ CREATE TABLE IF NOT EXISTS `vw_lesson_plan_summary` (
   `approved_by` int(10) UNSIGNED DEFAULT NULL,
   `approved_at` datetime DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
-  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT '0000-00-00 00:00:00',
   `teacher_name` varchar(101) DEFAULT NULL,
   `learning_area_name` varchar(100) DEFAULT NULL,
   `class_name` varchar(50) DEFAULT NULL,
@@ -27525,6 +30313,31 @@ CREATE TABLE IF NOT EXISTS `vw_parent_payment_activity` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `vw_parent_summary`
+-- (See below for the actual view)
+--
+DROP VIEW IF EXISTS `vw_parent_summary`;
+CREATE TABLE IF NOT EXISTS `vw_parent_summary` (
+`parent_id` int(10) unsigned
+,`parent_full_name` varchar(152)
+,`id_number` varchar(30)
+,`phone_1` varchar(20)
+,`phone_2` varchar(20)
+,`email` varchar(100)
+,`gender` enum('male','female','other')
+,`occupation` varchar(100)
+,`address` text
+,`status` enum('active','inactive')
+,`created_at` timestamp
+,`total_children` bigint(21)
+,`active_children` bigint(21)
+,`children_names` mediumtext
+,`total_fee_balance` decimal(32,2)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Stand-in structure for view `vw_payment_tracking`
 -- (See below for the actual view)
 --
@@ -27542,6 +30355,57 @@ CREATE TABLE IF NOT EXISTS `vw_payment_tracking` (
 ,`status` varchar(9)
 ,`checkout_request_id` varchar(100)
 ,`created_at` timestamp
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `vw_payslip_detailed`
+-- (See below for the actual view)
+--
+DROP VIEW IF EXISTS `vw_payslip_detailed`;
+CREATE TABLE IF NOT EXISTS `vw_payslip_detailed` (
+`payslip_id` int(10) unsigned
+,`staff_id` int(10) unsigned
+,`staff_no` varchar(20)
+,`staff_name` varchar(101)
+,`position` varchar(100)
+,`department_name` varchar(100)
+,`bank_account` varchar(50)
+,`nssf_no` varchar(30)
+,`nhif_no` varchar(30)
+,`kra_pin` varchar(30)
+,`payroll_month` int(11)
+,`payroll_year` int(11)
+,`payroll_period` varchar(14)
+,`basic_salary` decimal(12,2)
+,`allowances_total` decimal(12,2)
+,`gross_salary` decimal(12,2)
+,`paye_tax` decimal(12,2)
+,`nssf_contribution` decimal(12,2)
+,`nhif_contribution` decimal(12,2)
+,`housing_levy` decimal(12,2)
+,`loan_deduction` decimal(12,2)
+,`child_fees_deduction` decimal(12,2)
+,`sacco_deduction` decimal(12,2)
+,`salary_advance_deduction` decimal(12,2)
+,`other_deductions_total` decimal(12,2)
+,`total_deductions` decimal(20,2)
+,`net_salary` decimal(12,2)
+,`payment_method` enum('bank','cash','check','mobile_money')
+,`payment_date` date
+,`payment_status` enum('pending','processing','paid','failed')
+,`payment_reference` varchar(100)
+,`paid_at` datetime
+,`payslip_status` enum('draft','approved','paid','cancelled')
+,`allowances_breakdown` longtext
+,`deductions_breakdown` longtext
+,`child_fees_breakdown` longtext
+,`notes` text
+,`signed_by_name` varchar(101)
+,`created_at` timestamp
+,`updated_at` timestamp
+,`children_count` bigint(21)
 );
 
 -- --------------------------------------------------------
@@ -27714,6 +30578,34 @@ CREATE TABLE IF NOT EXISTS `vw_staff_assignments_detailed` (
 ,`subject_name` varchar(100)
 ,`academic_year` varchar(100)
 ,`total_assignments` bigint(21)
+);
+
+-- --------------------------------------------------------
+
+--
+-- Stand-in structure for view `vw_staff_children_fees`
+-- (See below for the actual view)
+--
+DROP VIEW IF EXISTS `vw_staff_children_fees`;
+CREATE TABLE IF NOT EXISTS `vw_staff_children_fees` (
+`staff_child_id` int(10) unsigned
+,`staff_id` int(10) unsigned
+,`staff_no` varchar(20)
+,`staff_name` varchar(101)
+,`staff_salary` decimal(12,2)
+,`student_id` int(10) unsigned
+,`admission_no` varchar(20)
+,`student_name` varchar(101)
+,`student_dob` date
+,`class_name` varchar(50)
+,`stream_name` varchar(50)
+,`relationship` enum('father','mother','guardian','spouse')
+,`fee_deduction_enabled` tinyint(1)
+,`fee_deduction_percentage` decimal(5,2)
+,`is_sponsored` tinyint(1)
+,`sponsor_waiver_percentage` decimal(5,2)
+,`total_children` bigint(21)
+,`created_at` timestamp
 );
 
 -- --------------------------------------------------------
@@ -27979,6 +30871,33 @@ CREATE TABLE IF NOT EXISTS `vw_student_payment_status_enhanced` (
 -- --------------------------------------------------------
 
 --
+-- Stand-in structure for view `vw_uniform_sales_analytics`
+-- (See below for the actual view)
+--
+DROP VIEW IF EXISTS `vw_uniform_sales_analytics`;
+CREATE TABLE IF NOT EXISTS `vw_uniform_sales_analytics` (
+`sale_id` int(10) unsigned
+,`student_id` int(10) unsigned
+,`student_name` varchar(101)
+,`admission_number` varchar(20)
+,`uniform_item` varchar(255)
+,`item_code` varchar(50)
+,`size` varchar(20)
+,`quantity` int(11)
+,`unit_price` decimal(10,2)
+,`total_amount` decimal(10,2)
+,`payment_status` enum('paid','pending','partial')
+,`sale_date` date
+,`received_date` date
+,`days_since_sale` int(7)
+,`payment_status_label` varchar(16)
+,`sold_by_first_name` varchar(50)
+,`sold_by_last_name` varchar(50)
+);
+
+-- --------------------------------------------------------
+
+--
 -- Stand-in structure for view `vw_unread_announcements`
 -- (See below for the actual view)
 --
@@ -28129,30 +31048,12 @@ CREATE TABLE IF NOT EXISTS `v_active_users` (
 ,`total_permissions` bigint(21)
 );
 
---
--- Stand-in structure for view `v_role_permission_summary`
--- (See below for the actual view)
---
-DROP VIEW IF EXISTS `v_role_permission_summary`;
-CREATE TABLE IF NOT EXISTS `v_role_permission_summary` (
-`id` int(10) unsigned
-,`name` varchar(50)
-,`total_perms` bigint(21)
-,`comms` decimal(22,0)
-,`academic` decimal(22,0)
-,`finance` decimal(22,0)
-,`students` decimal(22,0)
-,`staff` decimal(22,0)
-);
+-- --------------------------------------------------------
 
 -- --------------------------------------------------------
 
 --
--- Stand-in structure for view `v_user_permissions_effective`
--- (See below for the actual view)
---
-DROP VIEW IF EXISTS `v_user_permissions_effective`;
-
+-- --------------------------------------------------------
 
 -- --------------------------------------------------------
 
@@ -28167,7 +31068,7 @@ CREATE TABLE IF NOT EXISTS `v_user_security` (
 ,`email` varchar(100)
 ,`status` enum('active','inactive','suspended','pending')
 ,`failed_login_attempts` int(11)
-,`account_locked_until` datetime
+,`account_locked_until` timestamp
 ,`last_login` datetime
 ,`last_password_change` datetime
 ,`password_age_days` int(7)
@@ -28412,7 +31313,7 @@ CREATE TABLE IF NOT EXISTS `workflow_instances` (
   `status` enum('pending','in_progress','completed','cancelled','error') NOT NULL DEFAULT 'pending',
   `started_by` int(10) UNSIGNED NOT NULL,
   `started_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `completed_at` datetime NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
   `data_json` longtext DEFAULT NULL COMMENT 'Instance-specific data' CHECK (json_valid(`data_json`)),
   PRIMARY KEY (`id`),
   KEY `idx_workflow_ref` (`workflow_id`,`reference_type`,`reference_id`),
@@ -28479,7 +31380,7 @@ CREATE TABLE IF NOT EXISTS `workflow_notifications` (
   `message` text NOT NULL,
   `is_read` tinyint(1) NOT NULL DEFAULT 0,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-  `read_at` datetime NULL DEFAULT NULL,
+  `read_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_workflow_notify` (`instance_id`,`notification_type`),
   KEY `idx_user_notifications` (`user_id`,`is_read`)
@@ -28693,956 +31594,490 @@ INSERT IGNORE INTO `workflow_stage_history` (`id`, `instance_id`, `stage_code`, 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_active_allocations` exported as a table
+-- Structure for view `vw_active_allocations`
 --
 DROP TABLE IF EXISTS `vw_active_allocations`;
-CREATE TABLE IF NOT EXISTS `vw_active_allocations`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `allocation_number` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `item_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `item_code` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `category` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `allocated_quantity` int(11) NOT NULL,
-    `returned_quantity` int(11) DEFAULT '0',
-    `outstanding_quantity` bigint(12) DEFAULT NULL,
-    `department` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `allocated_to_event` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `status` enum('allocated','issued','partially_returned','fully_returned','expired','cancelled') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'allocated',
-    `allocation_date` date NOT NULL,
-    `expected_return_date` date DEFAULT NULL,
-    `allocated_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `allocated_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_active_allocations`;
+CREATE OR REPLACE VIEW `vw_active_allocations`  AS SELECT `a`.`id` AS `id`, `a`.`allocation_number` AS `allocation_number`, `i`.`name` AS `item_name`, `i`.`code` AS `item_code`, `ic`.`name` AS `category`, `a`.`allocated_quantity` AS `allocated_quantity`, `a`.`returned_quantity` AS `returned_quantity`, `a`.`allocated_quantity`- `a`.`returned_quantity` AS `outstanding_quantity`, `d`.`name` AS `department`, `a`.`allocated_to_event` AS `allocated_to_event`, `c`.`name` AS `class_name`, `a`.`status` AS `status`, `a`.`allocation_date` AS `allocation_date`, `a`.`expected_return_date` AS `expected_return_date`, `s`.`first_name` AS `allocated_by_first`, `s`.`last_name` AS `allocated_by_last`, `a`.`created_at` AS `created_at` FROM (((((`inventory_allocations` `a` left join `inventory_items` `i` on(`a`.`item_id` = `i`.`id`)) left join `inventory_categories` `ic` on(`i`.`category_id` = `ic`.`id`)) left join `inventory_departments` `d` on(`a`.`allocated_to_department_id` = `d`.`id`)) left join `classes` `c` on(`a`.`allocated_to_class_id` = `c`.`id`)) left join `staff` `s` on(`a`.`allocated_by` = `s`.`id`)) WHERE `a`.`status` in ('allocated','issued','partially_returned') ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_arrears_summary` exported as a table
+-- Structure for view `vw_arrears_summary`
 --
 DROP TABLE IF EXISTS `vw_arrears_summary`;
-CREATE TABLE IF NOT EXISTS `vw_arrears_summary`(
-    `level` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `level_code` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
-    `students_in_arrears` bigint(21) NOT NULL DEFAULT '0',
-    `total_arrears_amount` decimal(32,2) DEFAULT NULL,
-    `average_arrears` decimal(14,6) DEFAULT NULL,
-    `overdue_students` bigint(21) NOT NULL DEFAULT '0',
-    `overdue_more_than_30_days` bigint(21) NOT NULL DEFAULT '0',
-    `overdue_more_than_60_days` bigint(21) NOT NULL DEFAULT '0',
-    `settlement_plans_active` bigint(21) NOT NULL DEFAULT '0',
-    `amount_on_settlement_plans` decimal(32,2) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_arrears_summary`;
+CREATE OR REPLACE VIEW `vw_arrears_summary`  AS SELECT `sl`.`name` AS `level`, `sl`.`code` AS `level_code`, count(distinct `sa`.`student_id`) AS `students_in_arrears`, sum(`sa`.`total_arrears`) AS `total_arrears_amount`, avg(`sa`.`total_arrears`) AS `average_arrears`, count(distinct case when `sa`.`arrears_status` = 'overdue' then `sa`.`student_id` end) AS `overdue_students`, count(distinct case when `sa`.`days_overdue` > 30 then `sa`.`student_id` end) AS `overdue_more_than_30_days`, count(distinct case when `sa`.`days_overdue` > 60 then `sa`.`student_id` end) AS `overdue_more_than_60_days`, count(distinct case when `asp`.`status` = 'active' then `asp`.`id` end) AS `settlement_plans_active`, sum(case when `asp`.`status` = 'active' then `asp`.`total_amount` else 0 end) AS `amount_on_settlement_plans` FROM (((((`student_arrears` `sa` join `students` `s` on(`sa`.`student_id` = `s`.`id`)) join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) join `school_levels` `sl` on(`c`.`level_id` = `sl`.`id`)) left join `arrears_settlement_plans` `asp` on(`sa`.`id` = `asp`.`arrears_id`)) WHERE `sa`.`academic_year` = year(curdate()) GROUP BY `sl`.`id` ORDER BY `sl`.`name` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_class_rosters` exported as a table
+-- Structure for view `vw_class_rosters`
 --
 DROP TABLE IF EXISTS `vw_class_rosters`;
-CREATE TABLE IF NOT EXISTS `vw_class_rosters`(
-    `assignment_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `year_code` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '2024/2025, 2025/2026',
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `stream_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `class_stream` varchar(103) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `teacher_id` int(10) unsigned DEFAULT NULL COMMENT 'Class teacher',
-    `teacher_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `room_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `capacity` int(11) DEFAULT '40',
-    `current_enrollment` int(11) DEFAULT '0',
-    `available_slots` bigint(12) DEFAULT NULL,
-    `occupancy_rate` decimal(16,2) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_class_rosters`;
+CREATE OR REPLACE VIEW `vw_class_rosters`  AS SELECT `cya`.`id` AS `assignment_id`, `ay`.`year_code` AS `year_code`, `c`.`name` AS `class_name`, `cs`.`stream_name` AS `stream_name`, concat(`c`.`name`,' - ',`cs`.`stream_name`) AS `class_stream`, `cya`.`teacher_id` AS `teacher_id`, concat(`st`.`first_name`,' ',`st`.`last_name`) AS `teacher_name`, `cya`.`room_number` AS `room_number`, `cya`.`capacity` AS `capacity`, `cya`.`current_enrollment` AS `current_enrollment`, `cya`.`capacity`- `cya`.`current_enrollment` AS `available_slots`, round(`cya`.`current_enrollment` / `cya`.`capacity` * 100,2) AS `occupancy_rate` FROM ((((`class_year_assignments` `cya` join `academic_years` `ay` on(`cya`.`academic_year_id` = `ay`.`id`)) join `classes` `c` on(`cya`.`class_id` = `c`.`id`)) join `class_streams` `cs` on(`cya`.`stream_id` = `cs`.`id`)) left join `staff` `st` on(`cya`.`teacher_id` = `st`.`id`)) WHERE `ay`.`is_current` = 1 AND `cya`.`status` = 'active' ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_collection_rate_by_class` exported as a table
+-- Structure for view `vw_collection_rate_by_class`
 --
 DROP TABLE IF EXISTS `vw_collection_rate_by_class`;
-CREATE TABLE IF NOT EXISTS `vw_collection_rate_by_class`(
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `level_code` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
-    `academic_term` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `total_students` bigint(21) NOT NULL DEFAULT '0',
-    `total_fees_due` decimal(32,2) DEFAULT NULL,
-    `total_fees_paid` decimal(32,2) DEFAULT NULL,
-    `total_fees_waived` decimal(32,2) DEFAULT NULL,
-    `collection_rate_percent` decimal(38,2) DEFAULT NULL,
-    `students_paid_in_full` bigint(21) NOT NULL DEFAULT '0',
-    `students_partial_payment` bigint(21) NOT NULL DEFAULT '0',
-    `students_no_payment` bigint(21) NOT NULL DEFAULT '0',
-    `average_payment_per_student` decimal(11,2) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_collection_rate_by_class`;
+CREATE OR REPLACE VIEW `vw_collection_rate_by_class`  AS SELECT `sl`.`name` AS `level_name`, `sl`.`code` AS `level_code`, `at`.`name` AS `academic_term`, count(distinct `sfo`.`student_id`) AS `total_students`, sum(`sfo`.`amount_due`) AS `total_fees_due`, sum(`sfo`.`amount_paid`) AS `total_fees_paid`, sum(`sfo`.`amount_waived`) AS `total_fees_waived`, round(sum(`sfo`.`amount_paid`) / sum(`sfo`.`amount_due`) * 100,2) AS `collection_rate_percent`, count(distinct case when `sfo`.`status` = 'paid' then `sfo`.`student_id` end) AS `students_paid_in_full`, count(distinct case when `sfo`.`status` = 'partial' then `sfo`.`student_id` end) AS `students_partial_payment`, count(distinct case when `sfo`.`status` = 'pending' then `sfo`.`student_id` end) AS `students_no_payment`, round(avg(`sfo`.`amount_paid`),2) AS `average_payment_per_student` FROM (((((`student_fee_obligations` `sfo` join `students` `s` on(`sfo`.`student_id` = `s`.`id`)) join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) join `school_levels` `sl` on(`c`.`level_id` = `sl`.`id`)) join `academic_terms` `at` on(`sfo`.`term_id` = `at`.`id`)) GROUP BY `sl`.`id`, `at`.`id` ORDER BY `sl`.`name` ASC, `at`.`term_number` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_currently_blocked_ips` exported as a table
+-- Structure for view `vw_currently_blocked_ips`
 --
 DROP TABLE IF EXISTS `vw_currently_blocked_ips`;
-CREATE TABLE IF NOT EXISTS `vw_currently_blocked_ips`(
-    `ip_address` varchar(45) COLLATE utf8mb4_general_ci NOT NULL COMMENT 'IPv4 or IPv6 address',
-    `reason` varchar(255) COLLATE utf8mb4_general_ci NOT NULL COMMENT 'Why this IP was blocked',
-    `blocked_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `expires_at` datetime DEFAULT NULL COMMENT 'NULL = permanent block',
-    `block_status` varchar(40) COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_currently_blocked_ips`;
+CREATE OR REPLACE VIEW `vw_currently_blocked_ips`  AS SELECT `blocked_ips`.`ip_address` AS `ip_address`, `blocked_ips`.`reason` AS `reason`, `blocked_ips`.`created_at` AS `blocked_at`, `blocked_ips`.`expires_at` AS `expires_at`, CASE WHEN `blocked_ips`.`expires_at` is null THEN 'Permanent' WHEN `blocked_ips`.`expires_at` > current_timestamp() THEN concat('Expires in ',timestampdiff(MINUTE,current_timestamp(),`blocked_ips`.`expires_at`),' minutes') ELSE 'Expired' END AS `block_status` FROM `blocked_ips` WHERE `blocked_ips`.`expires_at` is null OR `blocked_ips`.`expires_at` > current_timestamp() ORDER BY `blocked_ips`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_current_enrollments` exported as a table
+-- Structure for view `vw_current_enrollments`
 --
 DROP TABLE IF EXISTS `vw_current_enrollments`;
-CREATE TABLE IF NOT EXISTS `vw_current_enrollments`(
-    `enrollment_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `student_id` int(10) unsigned NOT NULL,
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(152) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `gender` enum('male','female','other') COLLATE utf8mb4_general_ci NOT NULL,
-    `student_status` enum('active','inactive','graduated','transferred','suspended') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
-    `academic_year_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `year_code` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '2024/2025, 2025/2026',
-    `is_current` tinyint(1) DEFAULT '0',
-    `class_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `stream_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `stream_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `class_stream` varchar(103) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `teacher_id` int(10) unsigned DEFAULT NULL COMMENT 'Class teacher',
-    `teacher_first_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `teacher_last_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `room_number` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `enrollment_status` enum('pending','active','completed','withdrawn','transferred','graduated') COLLATE utf8mb4_unicode_ci DEFAULT 'active',
-    `year_average` decimal(5,2) DEFAULT NULL,
-    `overall_grade` varchar(4) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `class_rank` int(11) DEFAULT NULL,
-    `attendance_percentage` decimal(5,2) DEFAULT NULL,
-    `promotion_status` enum('pending','promoted','retained','transferred','graduated','withdrawn') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `enrollment_date` date NOT NULL
-);
+
+DROP VIEW IF EXISTS `vw_current_enrollments`;
+CREATE OR REPLACE VIEW `vw_current_enrollments`  AS SELECT `e`.`id` AS `enrollment_id`, `e`.`student_id` AS `student_id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',ifnull(`s`.`middle_name`,''),' ',`s`.`last_name`) AS `student_name`, `s`.`gender` AS `gender`, `s`.`status` AS `student_status`, `ay`.`id` AS `academic_year_id`, `ay`.`year_code` AS `year_code`, `ay`.`is_current` AS `is_current`, `c`.`id` AS `class_id`, `c`.`name` AS `class_name`, `cs`.`id` AS `stream_id`, `cs`.`stream_name` AS `stream_name`, concat(`c`.`name`,' - ',`cs`.`stream_name`) AS `class_stream`, `cya`.`teacher_id` AS `teacher_id`, `st`.`first_name` AS `teacher_first_name`, `st`.`last_name` AS `teacher_last_name`, `cya`.`room_number` AS `room_number`, `e`.`enrollment_status` AS `enrollment_status`, `e`.`year_average` AS `year_average`, `e`.`overall_grade` AS `overall_grade`, `e`.`class_rank` AS `class_rank`, `e`.`attendance_percentage` AS `attendance_percentage`, `e`.`promotion_status` AS `promotion_status`, `e`.`enrollment_date` AS `enrollment_date` FROM ((((((`class_enrollments` `e` join `students` `s` on(`e`.`student_id` = `s`.`id`)) join `academic_years` `ay` on(`e`.`academic_year_id` = `ay`.`id`)) join `classes` `c` on(`e`.`class_id` = `c`.`id`)) join `class_streams` `cs` on(`e`.`stream_id` = `cs`.`id`)) left join `class_year_assignments` `cya` on(`e`.`class_assignment_id` = `cya`.`id`)) left join `staff` `st` on(`cya`.`teacher_id` = `st`.`id`)) WHERE `e`.`enrollment_status` = 'active' ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_current_staff_assignments` exported as a table
+-- Structure for view `vw_current_staff_assignments`
 --
 DROP TABLE IF EXISTS `vw_current_staff_assignments`;
-CREATE TABLE IF NOT EXISTS `vw_current_staff_assignments`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_id` int(10) unsigned NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_category` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `class_id` int(10) unsigned NOT NULL,
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `stream_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `role` enum('class_teacher','subject_teacher','assistant_teacher','head_of_department') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'subject_teacher',
-    `subject_name` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Academic Year 2024/2025',
-    `year_status` enum('planning','registration','active','closing','archived') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'planning',
-    `start_date` date NOT NULL,
-    `end_date` date DEFAULT NULL,
-    `status` enum('active','completed','transferred','terminated') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active'
-);
+
+DROP VIEW IF EXISTS `vw_current_staff_assignments`;
+CREATE OR REPLACE VIEW `vw_current_staff_assignments`  AS SELECT `sca`.`id` AS `id`, `sca`.`staff_id` AS `staff_id`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`staff_no` AS `staff_no`, `sc`.`category_name` AS `staff_category`, `sca`.`class_id` AS `class_id`, `c`.`name` AS `class_name`, `cs`.`stream_name` AS `stream_name`, `sca`.`role` AS `role`, `la`.`name` AS `subject_name`, `ay`.`year_name` AS `academic_year`, `ay`.`status` AS `year_status`, `sca`.`start_date` AS `start_date`, `sca`.`end_date` AS `end_date`, `sca`.`status` AS `status` FROM ((((((`staff_class_assignments` `sca` join `staff` `s` on(`sca`.`staff_id` = `s`.`id`)) left join `staff_categories` `sc` on(`s`.`staff_category_id` = `sc`.`id`)) join `classes` `c` on(`sca`.`class_id` = `c`.`id`)) left join `class_streams` `cs` on(`sca`.`stream_id` = `cs`.`id`)) left join `learning_areas` `la` on(`sca`.`subject_id` = `la`.`id`)) join `academic_years` `ay` on(`sca`.`academic_year_id` = `ay`.`id`)) WHERE `sca`.`status` = 'active' AND `ay`.`status` = 'active' ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_failed_attempts_by_ip` exported as a table
+-- Structure for view `vw_failed_attempts_by_ip`
 --
 DROP TABLE IF EXISTS `vw_failed_attempts_by_ip`;
-CREATE TABLE IF NOT EXISTS `vw_failed_attempts_by_ip`(
-    `ip_address` varchar(45) COLLATE utf8mb4_general_ci NOT NULL,
-    `attempt_count` bigint(21) NOT NULL DEFAULT '0',
-    `last_attempt` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `failure_reasons` mediumtext COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_failed_attempts_by_ip`;
+CREATE OR REPLACE VIEW `vw_failed_attempts_by_ip`  AS SELECT `failed_auth_attempts`.`ip_address` AS `ip_address`, count(0) AS `attempt_count`, max(`failed_auth_attempts`.`created_at`) AS `last_attempt`, group_concat(distinct `failed_auth_attempts`.`reason` separator ',') AS `failure_reasons` FROM `failed_auth_attempts` WHERE `failed_auth_attempts`.`created_at` >= current_timestamp() - interval 1 hour GROUP BY `failed_auth_attempts`.`ip_address` HAVING `attempt_count` >= 3 ORDER BY count(0) DESC, max(`failed_auth_attempts`.`created_at`) DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_carryover_summary` exported as a table
+-- Structure for view `vw_family_groups`
+--
+DROP TABLE IF EXISTS `vw_family_groups`;
+
+DROP VIEW IF EXISTS `vw_family_groups`;
+CREATE OR REPLACE VIEW `vw_family_groups`  AS SELECT `p`.`id` AS `parent_id`, concat(`p`.`first_name`,coalesce(concat(' ',`p`.`middle_name`),''),' ',`p`.`last_name`) AS `parent_full_name`, `p`.`id_number` AS `parent_id_number`, `p`.`phone_1` AS `parent_phone_primary`, `p`.`phone_2` AS `parent_phone_secondary`, `p`.`email` AS `parent_email`, `p`.`gender` AS `parent_gender`, `p`.`occupation` AS `parent_occupation`, `p`.`address` AS `parent_address`, `p`.`status` AS `parent_status`, `s`.`id` AS `student_id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,coalesce(concat(' ',`s`.`middle_name`),''),' ',`s`.`last_name`) AS `student_full_name`, `s`.`date_of_birth` AS `student_dob`, `s`.`gender` AS `student_gender`, `s`.`status` AS `student_status`, `s`.`photo_url` AS `student_photo`, `c`.`name` AS `class_name`, `cs`.`stream_name` AS `stream_name`, concat(`c`.`name`,' - ',`cs`.`stream_name`) AS `class_stream`, `sp`.`relationship` AS `relationship`, `sp`.`is_primary_contact` AS `is_primary_contact`, `sp`.`is_emergency_contact` AS `is_emergency_contact`, `sp`.`financial_responsibility` AS `financial_responsibility`, coalesce((select sum(`sfb`.`balance`) from `student_fee_balances` `sfb` where `sfb`.`student_id` = `s`.`id`),0) AS `current_fee_balance`, (select count(0) - 1 from `student_parents` `sp2` where `sp2`.`parent_id` = `p`.`id`) AS `sibling_count` FROM ((((`parents` `p` join `student_parents` `sp` on(`p`.`id` = `sp`.`parent_id`)) join `students` `s` on(`sp`.`student_id` = `s`.`id`)) left join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) left join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) WHERE `p`.`status` = 'active' ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vw_fee_carryover_summary`
 --
 DROP TABLE IF EXISTS `vw_fee_carryover_summary`;
-CREATE TABLE IF NOT EXISTS `vw_fee_carryover_summary`(
-    `student_id` int(10) unsigned NOT NULL,
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` int(11) NOT NULL COMMENT 'Academic year (e.g., 2024)',
-    `term_id` int(10) unsigned DEFAULT NULL COMMENT 'Term ID for term-level carryover, NULL for year-level',
-    `period_type` varchar(15) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `previous_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance carried forward from previous period (positive = debt)',
-    `surplus_amount` decimal(12,2) DEFAULT '0.00' COMMENT 'Surplus from previous period (positive = credit)',
-    `action_taken` enum('fresh_bill','add_to_current','deduct_from_current','manual_adjustment') COLLATE utf8mb4_general_ci DEFAULT 'fresh_bill' COMMENT 'Action taken during carryover',
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_fee_carryover_summary`;
+CREATE OR REPLACE VIEW `vw_fee_carryover_summary`  AS SELECT `sfc`.`student_id` AS `student_id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `cs`.`stream_name` AS `class_name`, `sfc`.`academic_year` AS `academic_year`, `sfc`.`term_id` AS `term_id`, CASE WHEN `sfc`.`term_id` is null THEN 'Academic Year' ELSE concat('Term ',`sfc`.`term_id`) END AS `period_type`, `sfc`.`previous_balance` AS `previous_balance`, `sfc`.`surplus_amount` AS `surplus_amount`, `sfc`.`action_taken` AS `action_taken`, `sfc`.`created_at` AS `created_at`, `sfc`.`notes` AS `notes` FROM ((`student_fee_carryover` `sfc` join `students` `s` on(`sfc`.`student_id` = `s`.`id`)) left join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) ORDER BY `sfc`.`academic_year` DESC, `sfc`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_collection_by_year` exported as a table
+-- Structure for view `vw_fee_collection_by_year`
 --
 DROP TABLE IF EXISTS `vw_fee_collection_by_year`;
-CREATE TABLE IF NOT EXISTS `vw_fee_collection_by_year`(
-    `academic_year` year(4) NOT NULL,
-    `total_students` bigint(21) NOT NULL DEFAULT '0',
-    `total_fees_due` decimal(32,2) DEFAULT NULL,
-    `total_collected` decimal(32,2) DEFAULT NULL,
-    `total_outstanding` decimal(32,2) DEFAULT NULL,
-    `collection_rate_percent` decimal(38,2) DEFAULT NULL,
-    `students_paid_full` decimal(22,0) DEFAULT NULL,
-    `students_partial` decimal(22,0) DEFAULT NULL,
-    `students_arrears` decimal(22,0) DEFAULT NULL,
-    `students_pending` decimal(22,0) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_fee_collection_by_year`;
+CREATE OR REPLACE VIEW `vw_fee_collection_by_year`  AS SELECT `sfo`.`academic_year` AS `academic_year`, count(distinct `sfo`.`student_id`) AS `total_students`, sum(`sfo`.`amount_due`) AS `total_fees_due`, sum(`sfo`.`amount_paid`) AS `total_collected`, sum(`sfo`.`balance`) AS `total_outstanding`, round(sum(`sfo`.`amount_paid`) / nullif(sum(`sfo`.`amount_due`),0) * 100,2) AS `collection_rate_percent`, sum(case when `sfo`.`status` = 'paid' then 1 else 0 end) AS `students_paid_full`, sum(case when `sfo`.`status` = 'partial' then 1 else 0 end) AS `students_partial`, sum(case when `sfo`.`status` = 'arrears' then 1 else 0 end) AS `students_arrears`, sum(case when `sfo`.`status` = 'pending' then 1 else 0 end) AS `students_pending` FROM `student_fee_obligations` AS `sfo` GROUP BY `sfo`.`academic_year` ORDER BY `sfo`.`academic_year` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_schedule_by_class` exported as a table
+-- Structure for view `vw_fee_schedule_by_class`
 --
 DROP TABLE IF EXISTS `vw_fee_schedule_by_class`;
-CREATE TABLE IF NOT EXISTS `vw_fee_schedule_by_class`(
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `level_code` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
-    `academic_term` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_type` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_type_name` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `fee_name` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `fee_category` enum('tuition','boarding','activity','infrastructure','other') COLLATE utf8mb4_general_ci NOT NULL,
-    `amount_due` decimal(10,2) NOT NULL,
-    `due_date` date DEFAULT NULL,
-    `number_of_students` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_fee_schedule_by_class`;
+CREATE OR REPLACE VIEW `vw_fee_schedule_by_class`  AS SELECT `sl`.`name` AS `level_name`, `sl`.`code` AS `level_code`, `at`.`name` AS `academic_term`, `st`.`code` AS `student_type`, `st`.`name` AS `student_type_name`, `ft`.`name` AS `fee_name`, `ft`.`category` AS `fee_category`, `fsd`.`amount` AS `amount_due`, `fsd`.`due_date` AS `due_date`, count(distinct `s`.`id`) AS `number_of_students` FROM (((((((`fee_structures_detailed` `fsd` join `school_levels` `sl` on(`fsd`.`level_id` = `sl`.`id`)) join `academic_terms` `at` on(`fsd`.`term_id` = `at`.`id`)) join `student_types` `st` on(`fsd`.`student_type_id` = `st`.`id`)) join `fee_types` `ft` on(`fsd`.`fee_type_id` = `ft`.`id`)) left join `classes` `c` on(`c`.`level_id` = `sl`.`id`)) left join `class_streams` `cs` on(`cs`.`class_id` = `c`.`id`)) left join `students` `s` on(`s`.`stream_id` = `cs`.`id` and `s`.`student_type_id` = `st`.`id`)) WHERE `fsd`.`academic_year` = year(curdate()) GROUP BY `sl`.`id`, `at`.`id`, `st`.`id`, `ft`.`id`, `fsd`.`id` ORDER BY `sl`.`name` ASC, `at`.`term_number` ASC, `st`.`name` ASC, `ft`.`name` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_structure_annual_summary` exported as a table
+-- Structure for view `vw_fee_structure_annual_summary`
 --
 DROP TABLE IF EXISTS `vw_fee_structure_annual_summary`;
-CREATE TABLE IF NOT EXISTS `vw_fee_structure_annual_summary`(
-    `academic_year` year(4) NOT NULL,
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `level_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `fee_type` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `fee_type_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `fee_category` enum('tuition','boarding','activity','infrastructure','other') COLLATE utf8mb4_general_ci NOT NULL,
-    `term1_amount` decimal(32,2) DEFAULT NULL,
-    `term2_amount` decimal(32,2) DEFAULT NULL,
-    `term3_amount` decimal(32,2) DEFAULT NULL,
-    `annual_total` decimal(32,2) DEFAULT NULL,
-    `status` enum('draft','pending_review','reviewed','approved','active','archived') COLLATE utf8mb4_general_ci DEFAULT 'draft',
-    `is_auto_rollover` tinyint(1) DEFAULT '0',
-    `reviewed_by` int(10) unsigned DEFAULT NULL,
-    `reviewer_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `reviewed_at` datetime DEFAULT NULL,
-    `approved_by` int(10) unsigned DEFAULT NULL,
-    `approver_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `approved_at` datetime DEFAULT NULL,
-    `activated_at` datetime DEFAULT NULL,
-    `copied_from_id` int(10) unsigned DEFAULT NULL,
-    `copied_from_year` year(4) DEFAULT NULL,
-    `structure_count` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_fee_structure_annual_summary`;
+CREATE OR REPLACE VIEW `vw_fee_structure_annual_summary`  AS SELECT `fsd`.`academic_year` AS `academic_year`, `sl`.`name` AS `level_name`, `sl`.`id` AS `level_id`, `ft`.`name` AS `fee_type`, `ft`.`id` AS `fee_type_id`, `ft`.`category` AS `fee_category`, sum(case when `at`.`term_number` = 1 then `fsd`.`amount` else 0 end) AS `term1_amount`, sum(case when `at`.`term_number` = 2 then `fsd`.`amount` else 0 end) AS `term2_amount`, sum(case when `at`.`term_number` = 3 then `fsd`.`amount` else 0 end) AS `term3_amount`, sum(`fsd`.`amount`) AS `annual_total`, `fsd`.`status` AS `status`, `fsd`.`is_auto_rollover` AS `is_auto_rollover`, `fsd`.`reviewed_by` AS `reviewed_by`, `u_reviewer`.`username` AS `reviewer_name`, `fsd`.`reviewed_at` AS `reviewed_at`, `fsd`.`approved_by` AS `approved_by`, `u_approver`.`username` AS `approver_name`, `fsd`.`approved_at` AS `approved_at`, `fsd`.`activated_at` AS `activated_at`, `fsd`.`copied_from_id` AS `copied_from_id`, `prev_fsd`.`academic_year` AS `copied_from_year`, count(distinct `fsd`.`id`) AS `structure_count` FROM ((((((`fee_structures_detailed` `fsd` join `school_levels` `sl` on(`fsd`.`level_id` = `sl`.`id`)) join `fee_types` `ft` on(`fsd`.`fee_type_id` = `ft`.`id`)) join `academic_terms` `at` on(`fsd`.`term_id` = `at`.`id`)) left join `users` `u_reviewer` on(`fsd`.`reviewed_by` = `u_reviewer`.`id`)) left join `users` `u_approver` on(`fsd`.`approved_by` = `u_approver`.`id`)) left join `fee_structures_detailed` `prev_fsd` on(`fsd`.`copied_from_id` = `prev_fsd`.`id`)) GROUP BY `fsd`.`academic_year`, `fsd`.`level_id`, `fsd`.`fee_type_id`, `fsd`.`status`, `fsd`.`is_auto_rollover`, `fsd`.`reviewed_by`, `fsd`.`reviewed_at`, `fsd`.`approved_by`, `fsd`.`approved_at`, `fsd`.`copied_from_id` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_transition_audit` exported as a table
+-- Structure for view `vw_fee_transition_audit`
 --
 DROP TABLE IF EXISTS `vw_fee_transition_audit`;
-CREATE TABLE IF NOT EXISTS `vw_fee_transition_audit`(
-    `student_id` int(10) unsigned NOT NULL,
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `from_academic_year` int(11) NOT NULL,
-    `to_academic_year` int(11) NOT NULL,
-    `transition_type` varchar(34) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `balance_action` enum('fresh_bill','add_to_current','deduct_from_current','manual_adjustment') COLLATE utf8mb4_general_ci NOT NULL,
-    `amount_transferred` decimal(12,2) DEFAULT '0.00' COMMENT 'Amount transferred/adjusted',
-    `previous_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance before adjustment',
-    `new_balance` decimal(12,2) DEFAULT '0.00' COMMENT 'Balance after adjustment',
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_fee_transition_audit`;
+CREATE OR REPLACE VIEW `vw_fee_transition_audit`  AS SELECT `fth`.`student_id` AS `student_id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `fth`.`from_academic_year` AS `from_academic_year`, `fth`.`to_academic_year` AS `to_academic_year`, CASE WHEN `fth`.`from_term_id` is null THEN 'Year' ELSE concat('Term ',`fth`.`from_term_id`,' to Term ',`fth`.`to_term_id`) END AS `transition_type`, `fth`.`balance_action` AS `balance_action`, `fth`.`amount_transferred` AS `amount_transferred`, `fth`.`previous_balance` AS `previous_balance`, `fth`.`new_balance` AS `new_balance`, `fth`.`created_at` AS `created_at`, `fth`.`notes` AS `notes` FROM (`fee_transition_history` `fth` join `students` `s` on(`fth`.`student_id` = `s`.`id`)) ORDER BY `fth`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_fee_type_collection` exported as a table
+-- Structure for view `vw_fee_type_collection`
 --
 DROP TABLE IF EXISTS `vw_fee_type_collection`;
-CREATE TABLE IF NOT EXISTS `vw_fee_type_collection`(
-    `fee_type` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `fee_code` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `fee_category` enum('tuition','boarding','activity','infrastructure','other') COLLATE utf8mb4_general_ci NOT NULL,
-    `is_mandatory` tinyint(1) NOT NULL DEFAULT '1',
-    `total_due` decimal(32,2) DEFAULT NULL,
-    `total_collected` decimal(32,2) DEFAULT NULL,
-    `total_outstanding` decimal(32,2) DEFAULT NULL,
-    `students_affected` bigint(21) NOT NULL DEFAULT '0',
-    `collection_rate_percent` decimal(38,2) DEFAULT NULL,
-    `students_paid` bigint(21) NOT NULL DEFAULT '0',
-    `students_partial` bigint(21) NOT NULL DEFAULT '0',
-    `students_pending` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_fee_type_collection`;
+CREATE OR REPLACE VIEW `vw_fee_type_collection`  AS SELECT `ft`.`name` AS `fee_type`, `ft`.`code` AS `fee_code`, `ft`.`category` AS `fee_category`, `ft`.`is_mandatory` AS `is_mandatory`, sum(`sfo`.`amount_due`) AS `total_due`, sum(`sfo`.`amount_paid`) AS `total_collected`, sum(`sfo`.`balance`) AS `total_outstanding`, count(distinct `sfo`.`student_id`) AS `students_affected`, round(sum(`sfo`.`amount_paid`) / sum(`sfo`.`amount_due`) * 100,2) AS `collection_rate_percent`, count(distinct case when `sfo`.`status` = 'paid' then `sfo`.`student_id` end) AS `students_paid`, count(distinct case when `sfo`.`status` = 'partial' then `sfo`.`student_id` end) AS `students_partial`, count(distinct case when `sfo`.`status` = 'pending' then `sfo`.`student_id` end) AS `students_pending` FROM ((`student_fee_obligations` `sfo` join `fee_structures_detailed` `fsd` on(`sfo`.`fee_structure_detail_id` = `fsd`.`id`)) join `fee_types` `ft` on(`fsd`.`fee_type_id` = `ft`.`id`)) WHERE `sfo`.`academic_year` = year(curdate()) GROUP BY `ft`.`id` ORDER BY sum(`sfo`.`amount_due`) DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_food_consumption_summary` exported as a table
+-- Structure for view `vw_food_consumption_summary`
 --
 DROP TABLE IF EXISTS `vw_food_consumption_summary`;
-CREATE TABLE IF NOT EXISTS `vw_food_consumption_summary`(
-    `consumption_date` date NOT NULL,
-    `food_item` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `code` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `category` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `unit` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `total_quantity_planned` decimal(32,2) DEFAULT NULL,
-    `total_quantity_used` decimal(32,2) DEFAULT NULL,
-    `total_waste` decimal(32,2) DEFAULT NULL,
-    `total_cost_used` decimal(32,2) DEFAULT NULL,
-    `consumption_records` bigint(21) NOT NULL DEFAULT '0',
-    `recorded_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `recorded_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_food_consumption_summary`;
+CREATE OR REPLACE VIEW `vw_food_consumption_summary`  AS SELECT `fc`.`consumption_date` AS `consumption_date`, `i`.`name` AS `food_item`, `i`.`code` AS `code`, `ic`.`name` AS `category`, `fc`.`unit` AS `unit`, sum(`fc`.`quantity_planned`) AS `total_quantity_planned`, sum(`fc`.`quantity_used`) AS `total_quantity_used`, sum(`fc`.`waste_quantity`) AS `total_waste`, sum(`fc`.`total_cost`) AS `total_cost_used`, count(distinct `fc`.`id`) AS `consumption_records`, `s`.`first_name` AS `recorded_by_first`, `s`.`last_name` AS `recorded_by_last` FROM (((`food_consumption_records` `fc` left join `inventory_items` `i` on(`fc`.`inventory_item_id` = `i`.`id`)) left join `inventory_categories` `ic` on(`i`.`category_id` = `ic`.`id`)) left join `staff` `s` on(`fc`.`recorded_by` = `s`.`id`)) GROUP BY `fc`.`consumption_date`, `fc`.`inventory_item_id` ORDER BY `fc`.`consumption_date` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_internal_conversations` exported as a table
+-- Structure for view `vw_internal_conversations`
 --
 DROP TABLE IF EXISTS `vw_internal_conversations`;
-CREATE TABLE IF NOT EXISTS `vw_internal_conversations`(
-    `conversation_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `conversation_type` enum('one_on_one','group','department','broadcast') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'one_on_one',
-    `created_by` int(10) unsigned NOT NULL,
-    `first_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `last_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `total_messages` bigint(21) NOT NULL DEFAULT '0',
-    `last_message_date` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `high_priority_messages` bigint(21) NOT NULL DEFAULT '0',
-    `participant_count` bigint(21) NOT NULL DEFAULT '0',
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_internal_conversations`;
+CREATE OR REPLACE VIEW `vw_internal_conversations`  AS SELECT `c`.`id` AS `conversation_id`, `c`.`title` AS `title`, `c`.`conversation_type` AS `conversation_type`, `c`.`created_by` AS `created_by`, `u`.`first_name` AS `first_name`, `u`.`last_name` AS `last_name`, count(distinct `im`.`id`) AS `total_messages`, max(`im`.`created_at`) AS `last_message_date`, count(distinct case when `im`.`priority` = 'high' then `im`.`id` end) AS `high_priority_messages`, count(`cp`.`id`) AS `participant_count`, `c`.`created_at` AS `created_at`, `c`.`updated_at` AS `updated_at` FROM (((`internal_conversations` `c` left join `users` `u` on(`c`.`created_by` = `u`.`id`)) left join `internal_messages` `im` on(`c`.`id` = `im`.`conversation_id`)) left join `conversation_participants` `cp` on(`c`.`id` = `cp`.`conversation_id`)) GROUP BY `c`.`id` ORDER BY max(`im`.`created_at`) DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_inventory_health` exported as a table
+-- Structure for view `vw_inventory_health`
 --
 DROP TABLE IF EXISTS `vw_inventory_health`;
-CREATE TABLE IF NOT EXISTS `vw_inventory_health`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `name` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
-    `code` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `category` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `current_quantity` int(11) NOT NULL DEFAULT '0',
-    `minimum_quantity` int(11) NOT NULL DEFAULT '0',
-    `reorder_level` int(11) NOT NULL DEFAULT '0',
-    `stock_status` varchar(12) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `expiry_status` varchar(13) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `expiry_date` date DEFAULT NULL,
-    `location` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `unit_cost` decimal(10,2) NOT NULL,
-    `inventory_value` decimal(20,2) NOT NULL DEFAULT '0.00',
-    `status` enum('active','inactive','out_of_stock') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
-    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_inventory_health`;
+CREATE OR REPLACE VIEW `vw_inventory_health`  AS SELECT `i`.`id` AS `id`, `i`.`name` AS `name`, `i`.`code` AS `code`, `ic`.`name` AS `category`, `i`.`current_quantity` AS `current_quantity`, `i`.`minimum_quantity` AS `minimum_quantity`, `i`.`reorder_level` AS `reorder_level`, CASE WHEN `i`.`current_quantity` = 0 THEN 'OUT OF STOCK' WHEN `i`.`current_quantity` <= `i`.`reorder_level` THEN 'REORDER' WHEN `i`.`current_quantity` <= `i`.`minimum_quantity` THEN 'LOW STOCK' ELSE 'ADEQUATE' END AS `stock_status`, CASE WHEN `i`.`expiry_date` is not null AND `i`.`expiry_date` < curdate() THEN 'EXPIRED' WHEN `i`.`expiry_date` is not null AND `i`.`expiry_date` <= curdate() + interval 30 day THEN 'EXPIRING SOON' ELSE 'OK' END AS `expiry_status`, `i`.`expiry_date` AS `expiry_date`, `i`.`location` AS `location`, `i`.`unit_cost` AS `unit_cost`, `i`.`current_quantity`* `i`.`unit_cost` AS `inventory_value`, `i`.`status` AS `status`, `i`.`updated_at` AS `updated_at` FROM (`inventory_items` `i` left join `inventory_categories` `ic` on(`i`.`category_id` = `ic`.`id`)) ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_maintenance_schedule` exported as a table
+-- Structure for view `vw_maintenance_schedule`
 --
 DROP TABLE IF EXISTS `vw_maintenance_schedule`;
-CREATE TABLE IF NOT EXISTS `vw_maintenance_schedule`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `serial_number` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `equipment_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `brand` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `model` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `maintenance_type` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `status` enum('pending','scheduled','in_progress','completed','cancelled','overdue') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'pending',
-    `last_maintenance_date` date DEFAULT NULL,
-    `next_maintenance_date` date NOT NULL,
-    `days_until_due` int(7) DEFAULT NULL,
-    `urgency` varchar(8) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_maintenance_schedule`;
+CREATE OR REPLACE VIEW `vw_maintenance_schedule`  AS SELECT `em`.`id` AS `id`, `i`.`serial_number` AS `serial_number`, `ii`.`name` AS `equipment_name`, `ii`.`brand` AS `brand`, `ii`.`model` AS `model`, `emt`.`name` AS `maintenance_type`, `em`.`status` AS `status`, `em`.`last_maintenance_date` AS `last_maintenance_date`, `em`.`next_maintenance_date` AS `next_maintenance_date`, to_days(`em`.`next_maintenance_date`) - to_days(curdate()) AS `days_until_due`, CASE WHEN to_days(`em`.`next_maintenance_date`) - to_days(curdate()) <= 0 THEN 'OVERDUE' WHEN to_days(`em`.`next_maintenance_date`) - to_days(curdate()) <= 7 THEN 'DUE SOON' ELSE 'OK' END AS `urgency`, `em`.`notes` AS `notes`, `em`.`created_at` AS `created_at` FROM (((`equipment_maintenance` `em` left join `item_serials` `i` on(`em`.`equipment_id` = `i`.`id`)) left join `inventory_items` `ii` on(`i`.`item_id` = `ii`.`id`)) left join `equipment_maintenance_types` `emt` on(`em`.`maintenance_type_id` = `emt`.`id`)) ORDER BY `em`.`next_maintenance_date` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_outstanding_by_class` exported as a table
+-- Structure for view `vw_outstanding_by_class`
 --
 DROP TABLE IF EXISTS `vw_outstanding_by_class`;
-CREATE TABLE IF NOT EXISTS `vw_outstanding_by_class`(
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `level_code` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,
-    `academic_term` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `students_with_arrears` bigint(21) NOT NULL DEFAULT '0',
-    `total_arrears` decimal(32,2) DEFAULT NULL,
-    `average_arrears_per_student` decimal(14,6) DEFAULT NULL,
-    `minimum_arrears` decimal(10,2) DEFAULT NULL,
-    `maximum_arrears` decimal(10,2) DEFAULT NULL,
-    `students_overdue_30_days` bigint(21) NOT NULL DEFAULT '0',
-    `students_overdue_60_days` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_outstanding_by_class`;
+CREATE OR REPLACE VIEW `vw_outstanding_by_class`  AS SELECT `sl`.`name` AS `level_name`, `sl`.`code` AS `level_code`, `at`.`name` AS `academic_term`, count(distinct `sfo`.`student_id`) AS `students_with_arrears`, sum(`sfo`.`balance`) AS `total_arrears`, avg(`sfo`.`balance`) AS `average_arrears_per_student`, min(`sfo`.`balance`) AS `minimum_arrears`, max(`sfo`.`balance`) AS `maximum_arrears`, count(distinct case when `sa`.`days_overdue` > 30 then `sa`.`student_id` end) AS `students_overdue_30_days`, count(distinct case when `sa`.`days_overdue` > 60 then `sa`.`student_id` end) AS `students_overdue_60_days` FROM ((((((`student_fee_obligations` `sfo` join `students` `s` on(`sfo`.`student_id` = `s`.`id`)) join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) join `school_levels` `sl` on(`c`.`level_id` = `sl`.`id`)) join `academic_terms` `at` on(`sfo`.`term_id` = `at`.`id`)) left join `student_arrears` `sa` on(`sfo`.`student_id` = `sa`.`student_id` and `sfo`.`academic_year` = `sa`.`academic_year`)) WHERE `sfo`.`status` in ('pending','partial','arrears') GROUP BY `sl`.`id`, `at`.`id` ORDER BY `sl`.`name` ASC, `at`.`term_number` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_parent_payment_activity` exported as a table
+-- Structure for view `vw_parent_payment_activity`
 --
 DROP TABLE IF EXISTS `vw_parent_payment_activity`;
-CREATE TABLE IF NOT EXISTS `vw_parent_payment_activity`(
-    `parent_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `parent_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `contact_number` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `total_payments` bigint(21) NOT NULL DEFAULT '0',
-    `total_amount_paid` decimal(32,2) DEFAULT NULL,
-    `number_of_children` bigint(21) NOT NULL DEFAULT '0',
-    `children` mediumtext COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `last_payment_date` datetime DEFAULT NULL,
-    `payments_this_year` bigint(21) NOT NULL DEFAULT '0',
-    `average_payment` decimal(14,6) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_parent_payment_activity`;
+CREATE OR REPLACE VIEW `vw_parent_payment_activity`  AS SELECT `p`.`id` AS `parent_id`, concat(`p`.`first_name`,' ',`p`.`last_name`) AS `parent_name`, `p`.`phone_1` AS `contact_number`, count(distinct `pt`.`id`) AS `total_payments`, sum(`pt`.`amount_paid`) AS `total_amount_paid`, count(distinct `pt`.`student_id`) AS `number_of_children`, group_concat(distinct concat(`s`.`first_name`,' ',`s`.`last_name`) separator ', ') AS `children`, max(`pt`.`payment_date`) AS `last_payment_date`, count(distinct case when year(`pt`.`payment_date`) = year(curdate()) then `pt`.`id` end) AS `payments_this_year`, avg(`pt`.`amount_paid`) AS `average_payment` FROM ((`parents` `p` left join `payment_transactions` `pt` on(`p`.`id` = `pt`.`parent_id`)) left join `students` `s` on(`pt`.`student_id` = `s`.`id`)) GROUP BY `p`.`id` ORDER BY sum(`pt`.`amount_paid`) DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_payment_tracking` exported as a table
+-- Structure for view `vw_parent_summary`
+--
+DROP TABLE IF EXISTS `vw_parent_summary`;
+
+DROP VIEW IF EXISTS `vw_parent_summary`;
+CREATE OR REPLACE VIEW `vw_parent_summary`  AS SELECT `p`.`id` AS `parent_id`, concat(`p`.`first_name`,coalesce(concat(' ',`p`.`middle_name`),''),' ',`p`.`last_name`) AS `parent_full_name`, `p`.`id_number` AS `id_number`, `p`.`phone_1` AS `phone_1`, `p`.`phone_2` AS `phone_2`, `p`.`email` AS `email`, `p`.`gender` AS `gender`, `p`.`occupation` AS `occupation`, `p`.`address` AS `address`, `p`.`status` AS `status`, `p`.`created_at` AS `created_at`, count(distinct `sp`.`student_id`) AS `total_children`, count(distinct case when `s`.`status` = 'active' then `s`.`id` end) AS `active_children`, group_concat(distinct concat(`s`.`first_name`,' ',`s`.`last_name`,' (',coalesce(`c`.`name`,'N/A'),')') order by `s`.`first_name` ASC separator ', ') AS `children_names`, coalesce((select sum(`sfb`.`balance`) from (`student_fee_balances` `sfb` join `student_parents` `sp2` on(`sfb`.`student_id` = `sp2`.`student_id`)) where `sp2`.`parent_id` = `p`.`id`),0) AS `total_fee_balance` FROM ((((`parents` `p` left join `student_parents` `sp` on(`p`.`id` = `sp`.`parent_id`)) left join `students` `s` on(`sp`.`student_id` = `s`.`id`)) left join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) left join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) GROUP BY `p`.`id`, `p`.`first_name`, `p`.`middle_name`, `p`.`last_name`, `p`.`id_number`, `p`.`phone_1`, `p`.`phone_2`, `p`.`email`, `p`.`gender`, `p`.`occupation`, `p`.`address`, `p`.`status`, `p`.`created_at` ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vw_payment_tracking`
 --
 DROP TABLE IF EXISTS `vw_payment_tracking`;
-CREATE TABLE IF NOT EXISTS `vw_payment_tracking`(
-    `payment_source` varchar(5) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `source_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `reference_code` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `student_id` int(10) unsigned DEFAULT NULL,
-    `admission_number` varchar(20) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `amount` decimal(10,2) NOT NULL DEFAULT '0.00',
-    `transaction_date` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `contact` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `status` varchar(9) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `checkout_request_id` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_payment_tracking`;
+CREATE OR REPLACE VIEW `vw_payment_tracking`  AS SELECT 'mpesa' AS `payment_source`, `mt`.`id` AS `source_id`, `mt`.`mpesa_code` AS `reference_code`, `mt`.`student_id` AS `student_id`, `s`.`admission_no` AS `admission_number`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `mt`.`amount` AS `amount`, `mt`.`transaction_date` AS `transaction_date`, `mt`.`phone_number` AS `contact`, `mt`.`status` AS `status`, `mt`.`checkout_request_id` AS `checkout_request_id`, `mt`.`created_at` AS `created_at` FROM (`mpesa_transactions` `mt` join `students` `s` on(`mt`.`student_id` = `s`.`id`))union all select 'bank' AS `payment_source`,`bt`.`id` AS `source_id`,`bt`.`transaction_ref` AS `reference_code`,`bt`.`student_id` AS `student_id`,`s`.`admission_no` AS `admission_number`,concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`,`bt`.`amount` AS `amount`,`bt`.`transaction_date` AS `transaction_date`,`bt`.`account_number` AS `contact`,`bt`.`status` AS `status`,NULL AS `checkout_request_id`,`bt`.`created_at` AS `created_at` from (`bank_transactions` `bt` join `students` `s` on(`bt`.`student_id` = `s`.`id`)) union all select 'cash' AS `payment_source`,`pt`.`id` AS `source_id`,`pt`.`reference_no` AS `reference_code`,`pt`.`student_id` AS `student_id`,`s`.`admission_no` AS `admission_number`,concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`,`pt`.`amount_paid` AS `amount`,`pt`.`payment_date` AS `transaction_date`,NULL AS `contact`,`pt`.`status` AS `status`,NULL AS `checkout_request_id`,`pt`.`created_at` AS `created_at` from (`payment_transactions` `pt` join `students` `s` on(`pt`.`student_id` = `s`.`id`)) where `pt`.`payment_method` = 'cash'  ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_pending_fee_structure_reviews` exported as a table
+-- Structure for view `vw_payslip_detailed`
+--
+DROP TABLE IF EXISTS `vw_payslip_detailed`;
+
+DROP VIEW IF EXISTS `vw_payslip_detailed`;
+CREATE OR REPLACE VIEW `vw_payslip_detailed`  AS SELECT `p`.`id` AS `payslip_id`, `p`.`staff_id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`position` AS `position`, `d`.`name` AS `department_name`, `s`.`bank_account` AS `bank_account`, `s`.`nssf_no` AS `nssf_no`, `s`.`nhif_no` AS `nhif_no`, `s`.`kra_pin` AS `kra_pin`, `p`.`payroll_month` AS `payroll_month`, `p`.`payroll_year` AS `payroll_year`, concat(`p`.`payroll_year`,'-',lpad(`p`.`payroll_month`,2,'0')) AS `payroll_period`, `p`.`basic_salary` AS `basic_salary`, `p`.`allowances_total` AS `allowances_total`, `p`.`gross_salary` AS `gross_salary`, `p`.`paye_tax` AS `paye_tax`, `p`.`nssf_contribution` AS `nssf_contribution`, `p`.`nhif_contribution` AS `nhif_contribution`, `p`.`housing_levy` AS `housing_levy`, `p`.`loan_deduction` AS `loan_deduction`, `p`.`child_fees_deduction` AS `child_fees_deduction`, `p`.`sacco_deduction` AS `sacco_deduction`, `p`.`salary_advance_deduction` AS `salary_advance_deduction`, `p`.`other_deductions_total` AS `other_deductions_total`, `p`.`paye_tax`+ `p`.`nssf_contribution` + `p`.`nhif_contribution` + `p`.`housing_levy` + `p`.`loan_deduction` + `p`.`child_fees_deduction` + `p`.`sacco_deduction` + `p`.`salary_advance_deduction` + `p`.`other_deductions_total` AS `total_deductions`, `p`.`net_salary` AS `net_salary`, `p`.`payment_method` AS `payment_method`, `p`.`payment_date` AS `payment_date`, `p`.`payment_status` AS `payment_status`, `p`.`payment_reference` AS `payment_reference`, `p`.`paid_at` AS `paid_at`, `p`.`payslip_status` AS `payslip_status`, `p`.`allowances_breakdown` AS `allowances_breakdown`, `p`.`deductions_breakdown` AS `deductions_breakdown`, `p`.`child_fees_breakdown` AS `child_fees_breakdown`, `p`.`notes` AS `notes`, concat(`signer`.`first_name`,' ',`signer`.`last_name`) AS `signed_by_name`, `p`.`created_at` AS `created_at`, `p`.`updated_at` AS `updated_at`, (select count(0) from `staff_children` where `staff_children`.`staff_id` = `p`.`staff_id` and `staff_children`.`fee_deduction_enabled` = 1) AS `children_count` FROM (((`payslips` `p` join `staff` `s` on(`p`.`staff_id` = `s`.`id`)) left join `departments` `d` on(`s`.`department_id` = `d`.`id`)) left join `users` `signer` on(`p`.`signed_by` = `signer`.`id`)) ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vw_pending_fee_structure_reviews`
 --
 DROP TABLE IF EXISTS `vw_pending_fee_structure_reviews`;
-CREATE TABLE IF NOT EXISTS `vw_pending_fee_structure_reviews`(
-    `academic_year` year(4) NOT NULL,
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `pending_structures` bigint(21) NOT NULL DEFAULT '0',
-    `oldest_pending_date` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `days_pending` int(7) DEFAULT NULL,
-    `start_date` date NOT NULL,
-    `days_until_start` int(7) DEFAULT NULL,
-    `priority` varchar(6) COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_pending_fee_structure_reviews`;
+CREATE OR REPLACE VIEW `vw_pending_fee_structure_reviews`  AS SELECT `fsd`.`academic_year` AS `academic_year`, `sl`.`name` AS `level_name`, count(distinct `fsd`.`id`) AS `pending_structures`, min(`fsd`.`created_at`) AS `oldest_pending_date`, to_days(curdate()) - to_days(min(`fsd`.`created_at`)) AS `days_pending`, `ay`.`start_date` AS `start_date`, to_days(`ay`.`start_date`) - to_days(curdate()) AS `days_until_start`, CASE WHEN to_days(`ay`.`start_date`) - to_days(curdate()) <= 7 THEN 'URGENT' WHEN to_days(`ay`.`start_date`) - to_days(curdate()) <= 30 THEN 'HIGH' ELSE 'NORMAL' END AS `priority` FROM ((`fee_structures_detailed` `fsd` join `school_levels` `sl` on(`fsd`.`level_id` = `sl`.`id`)) join `academic_years` `ay` on(`fsd`.`academic_year` = `ay`.`year_code`)) WHERE `fsd`.`status` in ('draft','pending_review') GROUP BY `fsd`.`academic_year`, `sl`.`name`, `ay`.`start_date` ORDER BY to_days(`ay`.`start_date`) - to_days(curdate()) ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_pending_requisitions` exported as a table
+-- Structure for view `vw_pending_requisitions`
 --
 DROP TABLE IF EXISTS `vw_pending_requisitions`;
-CREATE TABLE IF NOT EXISTS `vw_pending_requisitions`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `requisition_number` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `department` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `status` enum('draft','submitted','pending_approval','approved','rejected','partially_fulfilled','fulfilled','cancelled') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
-    `priority` enum('low','normal','high','urgent') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'normal',
-    `requisition_date` date NOT NULL,
-    `required_date` date NOT NULL,
-    `item_count` bigint(21) NOT NULL DEFAULT '0',
-    `total_quantity_requested` decimal(32,0) DEFAULT NULL,
-    `created_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `approved_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `approved_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_pending_requisitions`;
+CREATE OR REPLACE VIEW `vw_pending_requisitions`  AS SELECT `r`.`id` AS `id`, `r`.`requisition_number` AS `requisition_number`, `d`.`name` AS `department`, `r`.`status` AS `status`, `r`.`priority` AS `priority`, `r`.`requisition_date` AS `requisition_date`, `r`.`required_date` AS `required_date`, count(`ri`.`id`) AS `item_count`, sum(`ri`.`requested_quantity`) AS `total_quantity_requested`, `s1`.`first_name` AS `created_by_first`, `s1`.`last_name` AS `created_by_last`, `s2`.`first_name` AS `approved_by_first`, `s2`.`last_name` AS `approved_by_last`, `r`.`created_at` AS `created_at` FROM ((((`inventory_requisitions` `r` left join `inventory_departments` `d` on(`r`.`department_id` = `d`.`id`)) left join `requisition_items` `ri` on(`r`.`id` = `ri`.`requisition_id`)) left join `staff` `s1` on(`r`.`created_by` = `s1`.`id`)) left join `staff` `s2` on(`r`.`approved_by` = `s2`.`id`)) WHERE `r`.`status` in ('draft','submitted','pending_approval','approved') GROUP BY `r`.`id` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_pending_sms` exported as a table
+-- Structure for view `vw_pending_sms`
 --
 DROP TABLE IF EXISTS `vw_pending_sms`;
-CREATE TABLE IF NOT EXISTS `vw_pending_sms`(
-    `sms_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `parent_id` int(10) unsigned DEFAULT NULL,
-    `parent_name` varchar(101) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `recipient_phone` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `message_body` text COLLATE utf8mb4_general_ci NOT NULL,
-    `sms_type` enum('academic','fees','attendance','event','emergency','general','report_card') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'general',
-    `status` enum('pending','queued','sent','delivered','failed') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'pending',
-    `template_name` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `sent_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `sent_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `sent_at` datetime DEFAULT NULL,
-    `delivered_at` datetime DEFAULT NULL,
-    `hours_pending` bigint(21) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_pending_sms`;
+CREATE OR REPLACE VIEW `vw_pending_sms`  AS SELECT `s`.`id` AS `sms_id`, `s`.`parent_id` AS `parent_id`, concat(`p`.`first_name`,' ',`p`.`last_name`) AS `parent_name`, `s`.`recipient_phone` AS `recipient_phone`, `s`.`message_body` AS `message_body`, `s`.`sms_type` AS `sms_type`, `s`.`status` AS `status`, `ct`.`name` AS `template_name`, `u`.`first_name` AS `sent_by_first`, `u`.`last_name` AS `sent_by_last`, `s`.`created_at` AS `created_at`, `s`.`sent_at` AS `sent_at`, `s`.`delivered_at` AS `delivered_at`, timestampdiff(HOUR,`s`.`created_at`,current_timestamp()) AS `hours_pending` FROM (((`sms_communications` `s` left join `parents` `p` on(`s`.`parent_id` = `p`.`id`)) left join `communication_templates` `ct` on(`s`.`template_id` = `ct`.`id`)) left join `users` `u` on(`s`.`sent_by` = `u`.`id`)) WHERE `s`.`status` in ('pending','queued') ORDER BY `s`.`created_at` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_requisition_fulfillment` exported as a table
+-- Structure for view `vw_requisition_fulfillment`
 --
 DROP TABLE IF EXISTS `vw_requisition_fulfillment`;
-CREATE TABLE IF NOT EXISTS `vw_requisition_fulfillment`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `requisition_number` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `department` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `item_id` int(10) unsigned DEFAULT '0',
-    `item_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `requested_quantity` int(11) DEFAULT NULL,
-    `unit` varchar(20) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `approved_quantity` int(11) DEFAULT NULL,
-    `fulfilled_quantity` int(11) DEFAULT '0',
-    `pending_quantity` bigint(12) DEFAULT NULL,
-    `unit_cost` decimal(10,2) DEFAULT NULL,
-    `total_cost` decimal(20,2) DEFAULT NULL,
-    `status` enum('draft','submitted','pending_approval','approved','rejected','partially_fulfilled','fulfilled','cancelled') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
-    `priority` enum('low','normal','high','urgent') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'normal',
-    `required_date` date NOT NULL,
-    `days_remaining` int(7) DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
+
+DROP VIEW IF EXISTS `vw_requisition_fulfillment`;
+CREATE OR REPLACE VIEW `vw_requisition_fulfillment`  AS SELECT `r`.`id` AS `id`, `r`.`requisition_number` AS `requisition_number`, `d`.`name` AS `department`, `ri`.`id` AS `item_id`, `i`.`name` AS `item_name`, `ri`.`requested_quantity` AS `requested_quantity`, `ri`.`unit` AS `unit`, `ri`.`approved_quantity` AS `approved_quantity`, `ri`.`fulfilled_quantity` AS `fulfilled_quantity`, `ri`.`requested_quantity`- coalesce(`ri`.`fulfilled_quantity`,0) AS `pending_quantity`, `ri`.`unit_cost` AS `unit_cost`, `ri`.`requested_quantity`* `ri`.`unit_cost` AS `total_cost`, `r`.`status` AS `status`, `r`.`priority` AS `priority`, `r`.`required_date` AS `required_date`, to_days(`r`.`required_date`) - to_days(curdate()) AS `days_remaining`, `r`.`created_at` AS `created_at` FROM (((`inventory_requisitions` `r` left join `inventory_departments` `d` on(`r`.`department_id` = `d`.`id`)) left join `requisition_items` `ri` on(`r`.`id` = `ri`.`requisition_id`)) left join `inventory_items` `i` on(`ri`.`item_id` = `i`.`id`)) ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_sent_emails` exported as a table
+-- Structure for view `vw_sent_emails`
 --
 DROP TABLE IF EXISTS `vw_sent_emails`;
-CREATE TABLE IF NOT EXISTS `vw_sent_emails`(
-    `email_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `institution_id` int(10) unsigned DEFAULT NULL,
-    `institution_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `contact_person_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `recipient_email` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
-    `subject` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
-    `email_type` enum('inquiry','report','application','information','request','other') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'information',
-    `status` enum('draft','queued','sent','delivered','failed','bounced') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
-    `attempts` bigint(21) NOT NULL DEFAULT '0',
-    `last_attempt` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `sent_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `sent_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `delivery_status_text` varchar(22) COLLATE utf8mb4_general_ci NOT NULL DEFAULT ''
-);
+
+DROP VIEW IF EXISTS `vw_sent_emails`;
+CREATE OR REPLACE VIEW `vw_sent_emails`  AS SELECT `e`.`id` AS `email_id`, `e`.`institution_id` AS `institution_id`, `ei`.`name` AS `institution_name`, `ei`.`contact_person_name` AS `contact_person_name`, `e`.`recipient_email` AS `recipient_email`, `e`.`subject` AS `subject`, `e`.`email_type` AS `email_type`, `e`.`status` AS `status`, count(`e`.`id`) AS `attempts`, max(`e`.`updated_at`) AS `last_attempt`, `u`.`first_name` AS `sent_by_first`, `u`.`last_name` AS `sent_by_last`, `e`.`created_at` AS `created_at`, CASE WHEN `e`.`status` = 'sent' THEN 'Successfully Delivered' WHEN `e`.`status` = 'failed' THEN 'Delivery Failed' WHEN `e`.`status` = 'pending' THEN 'Awaiting Delivery' WHEN `e`.`status` = 'bounced' THEN 'Bounced Back' ELSE 'Unknown' END AS `delivery_status_text` FROM ((`external_emails` `e` left join `external_institutions` `ei` on(`e`.`institution_id` = `ei`.`id`)) left join `users` `u` on(`e`.`sent_by` = `u`.`id`)) GROUP BY `e`.`id` ORDER BY `e`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_sponsored_students_status` exported as a table
+-- Structure for view `vw_sponsored_students_status`
 --
 DROP TABLE IF EXISTS `vw_sponsored_students_status`;
-CREATE TABLE IF NOT EXISTS `vw_sponsored_students_status`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `student_type` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `is_sponsored` tinyint(1) DEFAULT '0' COMMENT 'Flag indicating if student is sponsored',
-    `sponsor_name` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT 'Name of the sponsor/sponsoring organization',
-    `sponsor_type` enum('partial','full','conditional') COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT 'Type of sponsorship: partial (pays some fees), full (pays all fees), conditional (pays certain fee types only)',
-    `sponsor_waiver_percentage` decimal(5,2) DEFAULT '0.00' COMMENT 'Percentage of fees sponsored (0-100)',
-    `total_fees_due` decimal(32,2) DEFAULT NULL,
-    `total_paid` decimal(32,2) DEFAULT NULL,
-    `current_balance` decimal(32,2) DEFAULT NULL,
-    `total_waived` decimal(34,2) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_sponsored_students_status`;
+CREATE OR REPLACE VIEW `vw_sponsored_students_status`  AS SELECT `s`.`id` AS `id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `st`.`name` AS `student_type`, `cs`.`stream_name` AS `class_name`, `s`.`is_sponsored` AS `is_sponsored`, `s`.`sponsor_name` AS `sponsor_name`, `s`.`sponsor_type` AS `sponsor_type`, `s`.`sponsor_waiver_percentage` AS `sponsor_waiver_percentage`, coalesce(sum(`sfo`.`amount_due`),0) AS `total_fees_due`, coalesce(sum(`sfo`.`amount_paid`),0) AS `total_paid`, coalesce(sum(`sfo`.`balance`),0) AS `current_balance`, coalesce(sum(`sfo`.`sponsored_waiver_amount`),0) AS `total_waived` FROM (((`students` `s` left join `student_types` `st` on(`s`.`student_type_id` = `st`.`id`)) left join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) left join `student_fee_obligations` `sfo` on(`s`.`id` = `sfo`.`student_id`)) WHERE `s`.`is_sponsored` = 1 GROUP BY `s`.`id`, `st`.`id`, `cs`.`id` ORDER BY `s`.`admission_no` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_assignments_detailed` exported as a table
+-- Structure for view `vw_staff_assignments_detailed`
 --
 DROP TABLE IF EXISTS `vw_staff_assignments_detailed`;
-CREATE TABLE IF NOT EXISTS `vw_staff_assignments_detailed`(
-    `id` int(10) unsigned DEFAULT '0',
-    `staff_id` int(10) unsigned DEFAULT NULL,
-    `class_stream_id` int(10) unsigned DEFAULT NULL,
-    `class_id` int(10) unsigned DEFAULT NULL,
-    `stream_id` int(10) unsigned DEFAULT NULL,
-    `academic_year_id` int(10) unsigned DEFAULT NULL,
-    `role` enum('class_teacher','subject_teacher','assistant_teacher','head_of_department') COLLATE utf8mb4_general_ci DEFAULT 'subject_teacher',
-    `subject_id` int(10) unsigned DEFAULT NULL COMMENT 'Learning area/subject taught',
-    `start_date` date DEFAULT NULL,
-    `end_date` date DEFAULT NULL,
-    `status` enum('active','completed','transferred','terminated') COLLATE utf8mb4_general_ci DEFAULT 'active',
-    `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `created_by` int(10) unsigned DEFAULT NULL,
-    `updated_at` timestamp DEFAULT CURRENT_TIMESTAMP,
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `stream_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `subject_name` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Academic Year 2024/2025',
-    `total_assignments` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_staff_assignments_detailed`;
+CREATE OR REPLACE VIEW `vw_staff_assignments_detailed`  AS SELECT `sca`.`id` AS `id`, `sca`.`staff_id` AS `staff_id`, `sca`.`class_stream_id` AS `class_stream_id`, `sca`.`class_id` AS `class_id`, `sca`.`stream_id` AS `stream_id`, `sca`.`academic_year_id` AS `academic_year_id`, `sca`.`role` AS `role`, `sca`.`subject_id` AS `subject_id`, `sca`.`start_date` AS `start_date`, `sca`.`end_date` AS `end_date`, `sca`.`status` AS `status`, `sca`.`notes` AS `notes`, `sca`.`created_at` AS `created_at`, `sca`.`created_by` AS `created_by`, `sca`.`updated_at` AS `updated_at`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `cs`.`stream_name` AS `stream_name`, `c`.`name` AS `class_name`, `la`.`name` AS `subject_name`, `ay`.`year_name` AS `academic_year`, count(0) over ( partition by `sca`.`staff_id`,`sca`.`academic_year_id`) AS `total_assignments` FROM (((((`staff_class_assignments` `sca` join `staff` `s` on(`sca`.`staff_id` = `s`.`id`)) left join `class_streams` `cs` on(`sca`.`stream_id` = `cs`.`id`)) left join `classes` `c` on(`sca`.`class_id` = `c`.`id`)) left join `learning_areas` `la` on(`sca`.`subject_id` = `la`.`id`)) join `academic_years` `ay` on(`sca`.`academic_year_id` = `ay`.`id`)) ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_leave_balance` exported as a table
+-- Structure for view `vw_staff_children_fees`
+--
+DROP TABLE IF EXISTS `vw_staff_children_fees`;
+
+DROP VIEW IF EXISTS `vw_staff_children_fees`;
+CREATE OR REPLACE VIEW `vw_staff_children_fees`  AS SELECT `sc`.`id` AS `staff_child_id`, `sc`.`staff_id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`salary` AS `staff_salary`, `sc`.`student_id` AS `student_id`, `st`.`admission_no` AS `admission_no`, concat(`st`.`first_name`,' ',`st`.`last_name`) AS `student_name`, `st`.`date_of_birth` AS `student_dob`, `c`.`name` AS `class_name`, `cs`.`stream_name` AS `stream_name`, `sc`.`relationship` AS `relationship`, `sc`.`fee_deduction_enabled` AS `fee_deduction_enabled`, `sc`.`fee_deduction_percentage` AS `fee_deduction_percentage`, `st`.`is_sponsored` AS `is_sponsored`, `st`.`sponsor_waiver_percentage` AS `sponsor_waiver_percentage`, (select count(0) from `staff_children` where `staff_children`.`staff_id` = `sc`.`staff_id`) AS `total_children`, `sc`.`created_at` AS `created_at` FROM ((((`staff_children` `sc` join `staff` `s` on(`sc`.`staff_id` = `s`.`id`)) join `students` `st` on(`sc`.`student_id` = `st`.`id`)) left join `class_streams` `cs` on(`st`.`stream_id` = `cs`.`id`)) left join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) WHERE `s`.`status` = 'active' AND `st`.`status` = 'active' ;
+
+-- --------------------------------------------------------
+--
+-- Structure for view `vw_staff_leave_balance`
 --
 DROP TABLE IF EXISTS `vw_staff_leave_balance`;
-CREATE TABLE IF NOT EXISTS `vw_staff_leave_balance`(
-    `staff_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `leave_type` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `leave_name` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `annual_entitlement` int(11) DEFAULT NULL COMMENT 'Annual entitlement (NULL = unlimited)',
-    `days_taken_this_year` decimal(32,0) DEFAULT NULL,
-    `days_remaining` decimal(33,0) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_leave_balance`;
+CREATE OR REPLACE VIEW `vw_staff_leave_balance`  AS SELECT `s`.`id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `lt`.`code` AS `leave_type`, `lt`.`name` AS `leave_name`, `lt`.`days_allowed` AS `annual_entitlement`, coalesce(sum(case when `sl`.`status` = 'approved' and year(`sl`.`start_date`) = year(curdate()) then `sl`.`days_requested` else 0 end),0) AS `days_taken_this_year`, CASE WHEN `lt`.`days_allowed` is null THEN NULL ELSE `lt`.`days_allowed`- coalesce(sum(case when `sl`.`status` = 'approved' and year(`sl`.`start_date`) = year(curdate()) then `sl`.`days_requested` else 0 end),0) END AS `days_remaining` FROM ((`staff` `s` join `leave_types` `lt`) left join `staff_leaves` `sl` on(`s`.`id` = `sl`.`staff_id` and `sl`.`leave_type_id` = `lt`.`id`)) WHERE `s`.`status` = 'active' AND `lt`.`status` = 'active' GROUP BY `s`.`id`, `s`.`staff_no`, `s`.`first_name`, `s`.`last_name`, `lt`.`id`, `lt`.`code`, `lt`.`name`, `lt`.`days_allowed` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_leave_balances` exported as a table
+-- Structure for view `vw_staff_leave_balances`
 --
 DROP TABLE IF EXISTS `vw_staff_leave_balances`;
-CREATE TABLE IF NOT EXISTS `vw_staff_leave_balances`(
-    `staff_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `leave_type_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `leave_type_name` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `entitled_days` int(11) DEFAULT NULL COMMENT 'Annual entitlement (NULL = unlimited)',
-    `used_days` decimal(32,0) DEFAULT NULL,
-    `pending_days` decimal(32,0) DEFAULT NULL,
-    `available_days` decimal(33,0) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_leave_balances`;
+CREATE OR REPLACE VIEW `vw_staff_leave_balances`  AS SELECT `s`.`id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `lt`.`id` AS `leave_type_id`, `lt`.`name` AS `leave_type_name`, `lt`.`days_allowed` AS `entitled_days`, coalesce(sum(case when `sl`.`status` in ('approved','taken') and year(`sl`.`start_date`) = year(curdate()) then `sl`.`days_requested` else 0 end),0) AS `used_days`, coalesce(sum(case when `sl`.`status` = 'pending' then `sl`.`days_requested` else 0 end),0) AS `pending_days`, `lt`.`days_allowed`- coalesce(sum(case when `sl`.`status` in ('approved','taken') and year(`sl`.`start_date`) = year(curdate()) then `sl`.`days_requested` else 0 end),0) AS `available_days` FROM ((`staff` `s` join `leave_types` `lt`) left join `staff_leaves` `sl` on(`s`.`id` = `sl`.`staff_id` and `sl`.`leave_type_id` = `lt`.`id`)) WHERE `s`.`status` = 'active' AND `lt`.`status` = 'active' GROUP BY `s`.`id`, `s`.`staff_no`, `s`.`first_name`, `s`.`last_name`, `lt`.`id`, `lt`.`name`, `lt`.`days_allowed` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_loan_details` exported as a table
+-- Structure for view `vw_staff_loan_details`
 --
 DROP TABLE IF EXISTS `vw_staff_loan_details`;
-CREATE TABLE IF NOT EXISTS `vw_staff_loan_details`(
-    `loan_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_id` int(10) unsigned NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `staff_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `loan_type` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `principal_amount` decimal(12,2) NOT NULL,
-    `loan_date` date NOT NULL,
-    `agreed_monthly_deduction` decimal(10,2) NOT NULL,
-    `balance_remaining` decimal(12,2) NOT NULL,
-    `total_paid` decimal(13,2) NOT NULL DEFAULT '0.00',
-    `payment_progress_percent` decimal(19,2) DEFAULT NULL,
-    `months_remaining` bigint(14) DEFAULT NULL,
-    `status` enum('active','paid_off','defaulted','suspended') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'active',
-    `status_description` varchar(30) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `loan_created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `last_updated` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `payments_made_count` bigint(21) DEFAULT NULL,
-    `total_deducted` decimal(34,2) DEFAULT NULL,
-    `expected_completion_date` date DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_loan_details`;
+CREATE OR REPLACE VIEW `vw_staff_loan_details`  AS SELECT `sl`.`id` AS `loan_id`, `sl`.`staff_id` AS `staff_id`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`staff_no` AS `staff_number`, `sl`.`loan_type` AS `loan_type`, `sl`.`principal_amount` AS `principal_amount`, `sl`.`loan_date` AS `loan_date`, `sl`.`agreed_monthly_deduction` AS `agreed_monthly_deduction`, `sl`.`balance_remaining` AS `balance_remaining`, `sl`.`principal_amount`- `sl`.`balance_remaining` AS `total_paid`, round((`sl`.`principal_amount` - `sl`.`balance_remaining`) / `sl`.`principal_amount` * 100,2) AS `payment_progress_percent`, CASE WHEN `sl`.`balance_remaining` = 0 THEN 0 ELSE ceiling(`sl`.`balance_remaining` / `sl`.`agreed_monthly_deduction`) END AS `months_remaining`, `sl`.`status` AS `status`, CASE `sl`.`status` WHEN 'active' THEN 'Active - On Schedule' WHEN 'paid_off' THEN 'Fully Paid' WHEN 'defaulted' THEN 'Defaulted - Payment Issues' WHEN 'suspended' THEN 'Suspended - Temporarily Paused' END AS `status_description`, `sl`.`created_at` AS `loan_created_at`, `sl`.`updated_at` AS `last_updated`, (select count(0) from `payslips` where `payslips`.`staff_id` = `sl`.`staff_id` and `payslips`.`loan_deduction` > 0 and `payslips`.`created_at` >= `sl`.`loan_date`) AS `payments_made_count`, (select sum(`payslips`.`loan_deduction`) from `payslips` where `payslips`.`staff_id` = `sl`.`staff_id` and `payslips`.`created_at` >= `sl`.`loan_date`) AS `total_deducted`, CASE WHEN `sl`.`status` = 'active' AND `sl`.`agreed_monthly_deduction` > 0 THEN curdate() + interval ceiling(`sl`.`balance_remaining` / `sl`.`agreed_monthly_deduction`) month ELSE NULL END AS `expected_completion_date` FROM (`staff_loans` `sl` join `staff` `s` on(`sl`.`staff_id` = `s`.`id`)) ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_onboarding_progress` exported as a table
+-- Structure for view `vw_staff_onboarding_progress`
 --
 DROP TABLE IF EXISTS `vw_staff_onboarding_progress`;
-CREATE TABLE IF NOT EXISTS `vw_staff_onboarding_progress`(
-    `onboarding_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `position` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `department` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `status` enum('pending','in_progress','completed','extended','terminated') COLLATE utf8mb4_general_ci DEFAULT 'pending',
-    `start_date` date NOT NULL,
-    `expected_end_date` date DEFAULT NULL,
-    `completion_date` date DEFAULT NULL,
-    `mentor_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `total_tasks` bigint(21) NOT NULL DEFAULT '0',
-    `completed_tasks` decimal(22,0) DEFAULT NULL,
-    `inprogress_tasks` decimal(22,0) DEFAULT NULL,
-    `pending_tasks` decimal(22,0) DEFAULT NULL,
-    `skipped_tasks` decimal(22,0) DEFAULT NULL,
-    `overdue_tasks` decimal(22,0) DEFAULT NULL,
-    `progress_percent` int(11) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_staff_onboarding_progress`;
+CREATE OR REPLACE VIEW `vw_staff_onboarding_progress`  AS SELECT `so`.`id` AS `onboarding_id`, `s`.`id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`position` AS `position`, `d`.`name` AS `department`, `so`.`status` AS `status`, `so`.`start_date` AS `start_date`, `so`.`expected_end_date` AS `expected_end_date`, `so`.`completion_date` AS `completion_date`, concat(`m`.`first_name`,' ',`m`.`last_name`) AS `mentor_name`, count(`ot`.`id`) AS `total_tasks`, sum(case when `ot`.`status` = 'completed' then 1 else 0 end) AS `completed_tasks`, sum(case when `ot`.`status` = 'in_progress' then 1 else 0 end) AS `inprogress_tasks`, sum(case when `ot`.`status` = 'pending' then 1 else 0 end) AS `pending_tasks`, sum(case when `ot`.`status` = 'skipped' then 1 else 0 end) AS `skipped_tasks`, sum(case when `ot`.`status` = 'pending' and `ot`.`due_date` < curdate() then 1 else 0 end) AS `overdue_tasks`, ifnull(`so`.`progress_percent`,0) AS `progress_percent` FROM ((((`staff_onboarding` `so` join `staff` `s` on(`so`.`staff_id` = `s`.`id`)) left join `departments` `d` on(`s`.`department_id` = `d`.`id`)) left join `staff` `m` on(`so`.`mentor_id` = `m`.`id`)) left join `onboarding_tasks` `ot` on(`so`.`id` = `ot`.`onboarding_id`)) GROUP BY `so`.`id`, `s`.`id`, `s`.`staff_no`, `s`.`first_name`, `s`.`last_name`, `s`.`position`, `d`.`name`, `so`.`status`, `so`.`start_date`, `so`.`expected_end_date`, `so`.`completion_date`, `m`.`first_name`, `m`.`last_name`, `so`.`progress_percent` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_payroll_summary` exported as a table
+-- Structure for view `vw_staff_payroll_summary`
 --
 DROP TABLE IF EXISTS `vw_staff_payroll_summary`;
-CREATE TABLE IF NOT EXISTS `vw_staff_payroll_summary`(
-    `payslip_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_id` int(10) unsigned NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `staff_number` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `payroll_month` int(11) NOT NULL,
-    `payroll_year` int(11) NOT NULL,
-    `period_display` varchar(69) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `basic_salary` decimal(12,2) NOT NULL,
-    `allowances_total` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `gross_salary` decimal(12,2) NOT NULL,
-    `paye_tax` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `nssf_contribution` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `nhif_contribution` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `loan_deduction` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `other_deductions_total` decimal(12,2) NOT NULL DEFAULT '0.00',
-    `total_deductions` decimal(16,2) NOT NULL DEFAULT '0.00',
-    `net_salary` decimal(12,2) NOT NULL,
-    `payment_method` enum('bank','cash','check','mobile_money') COLLATE utf8mb4_general_ci DEFAULT 'bank',
-    `payment_date` date DEFAULT NULL,
-    `payslip_status` enum('draft','approved','paid','cancelled') COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'draft',
-    `approved_by_name` varchar(101) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `notes` text COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `ytd_gross` decimal(34,2) DEFAULT NULL,
-    `ytd_paye` decimal(34,2) DEFAULT NULL,
-    `ytd_nssf` decimal(34,2) DEFAULT NULL,
-    `ytd_nhif` decimal(34,2) DEFAULT NULL,
-    `ytd_net` decimal(34,2) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_payroll_summary`;
+CREATE OR REPLACE VIEW `vw_staff_payroll_summary`  AS SELECT `ps`.`id` AS `payslip_id`, `ps`.`staff_id` AS `staff_id`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`staff_no` AS `staff_number`, `ps`.`payroll_month` AS `payroll_month`, `ps`.`payroll_year` AS `payroll_year`, date_format(concat(`ps`.`payroll_year`,'-',lpad(`ps`.`payroll_month`,2,'0'),'-01'),'%M %Y') AS `period_display`, `ps`.`basic_salary` AS `basic_salary`, `ps`.`allowances_total` AS `allowances_total`, `ps`.`gross_salary` AS `gross_salary`, `ps`.`paye_tax` AS `paye_tax`, `ps`.`nssf_contribution` AS `nssf_contribution`, `ps`.`nhif_contribution` AS `nhif_contribution`, `ps`.`loan_deduction` AS `loan_deduction`, `ps`.`other_deductions_total` AS `other_deductions_total`, `ps`.`paye_tax`+ `ps`.`nssf_contribution` + `ps`.`nhif_contribution` + `ps`.`loan_deduction` + `ps`.`other_deductions_total` AS `total_deductions`, `ps`.`net_salary` AS `net_salary`, `ps`.`payment_method` AS `payment_method`, `ps`.`payment_date` AS `payment_date`, `ps`.`payslip_status` AS `payslip_status`, concat(`approver`.`first_name`,' ',`approver`.`last_name`) AS `approved_by_name`, `ps`.`notes` AS `notes`, `ps`.`created_at` AS `created_at`, `ps`.`updated_at` AS `updated_at`, (select sum(`payslips`.`gross_salary`) from `payslips` where `payslips`.`staff_id` = `ps`.`staff_id` and `payslips`.`payroll_year` = `ps`.`payroll_year` and (`payslips`.`payroll_month` <= `ps`.`payroll_month` or `payslips`.`payroll_year` < `ps`.`payroll_year`)) AS `ytd_gross`, (select sum(`payslips`.`paye_tax`) from `payslips` where `payslips`.`staff_id` = `ps`.`staff_id` and `payslips`.`payroll_year` = `ps`.`payroll_year` and (`payslips`.`payroll_month` <= `ps`.`payroll_month` or `payslips`.`payroll_year` < `ps`.`payroll_year`)) AS `ytd_paye`, (select sum(`payslips`.`nssf_contribution`) from `payslips` where `payslips`.`staff_id` = `ps`.`staff_id` and `payslips`.`payroll_year` = `ps`.`payroll_year` and (`payslips`.`payroll_month` <= `ps`.`payroll_month` or `payslips`.`payroll_year` < `ps`.`payroll_year`)) AS `ytd_nssf`, (select sum(`payslips`.`nhif_contribution`) from `payslips` where `payslips`.`staff_id` = `ps`.`staff_id` and `payslips`.`payroll_year` = `ps`.`payroll_year` and (`payslips`.`payroll_month` <= `ps`.`payroll_month` or `payslips`.`payroll_year` < `ps`.`payroll_year`)) AS `ytd_nhif`, (select sum(`payslips`.`net_salary`) from `payslips` where `payslips`.`staff_id` = `ps`.`staff_id` and `payslips`.`payroll_year` = `ps`.`payroll_year` and (`payslips`.`payroll_month` <= `ps`.`payroll_month` or `payslips`.`payroll_year` < `ps`.`payroll_year`)) AS `ytd_net` FROM ((`payslips` `ps` join `staff` `s` on(`ps`.`staff_id` = `s`.`id`)) left join `users` `approver` on(`ps`.`signed_by` = `approver`.`id`)) ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_staff_performance_summary` exported as a table
+-- Structure for view `vw_staff_performance_summary`
 --
 DROP TABLE IF EXISTS `vw_staff_performance_summary`;
-CREATE TABLE IF NOT EXISTS `vw_staff_performance_summary`(
-    `review_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `position` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `department` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Academic Year 2024/2025',
-    `review_period` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `review_type` enum('probation','annual','mid_year','special') COLLATE utf8mb4_general_ci DEFAULT 'annual',
-    `status` enum('draft','submitted','approved','completed') COLLATE utf8mb4_general_ci DEFAULT 'draft',
-    `overall_score` decimal(5,2) DEFAULT NULL COMMENT 'Percentage score',
-    `performance_grade` char(1) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `total_kpis` bigint(21) NOT NULL DEFAULT '0',
-    `completed_kpis` decimal(22,0) DEFAULT NULL,
-    `completion_percent` decimal(26,0) DEFAULT NULL,
-    `review_date` date NOT NULL,
-    `completion_date` datetime DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_performance_summary`;
+CREATE OR REPLACE VIEW `vw_staff_performance_summary`  AS SELECT `spr`.`id` AS `review_id`, `s`.`id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `s`.`position` AS `position`, `d`.`name` AS `department`, `ay`.`year_name` AS `academic_year`, `spr`.`review_period` AS `review_period`, `spr`.`review_type` AS `review_type`, `spr`.`status` AS `status`, `spr`.`overall_score` AS `overall_score`, `spr`.`performance_grade` AS `performance_grade`, count(`prk`.`id`) AS `total_kpis`, sum(case when `prk`.`status` = 'completed' then 1 else 0 end) AS `completed_kpis`, CASE WHEN count(`prk`.`id`) > 0 THEN round(sum(case when `prk`.`status` = 'completed' then 1 else 0 end) / count(`prk`.`id`) * 100,0) ELSE 0 END AS `completion_percent`, `spr`.`review_date` AS `review_date`, `spr`.`completion_date` AS `completion_date` FROM ((((`staff_performance_reviews` `spr` join `staff` `s` on(`spr`.`staff_id` = `s`.`id`)) left join `departments` `d` on(`s`.`department_id` = `d`.`id`)) join `academic_years` `ay` on(`spr`.`academic_year_id` = `ay`.`id`)) left join `performance_review_kpis` `prk` on(`spr`.`id` = `prk`.`review_id`)) GROUP BY `spr`.`id`, `s`.`id`, `s`.`staff_no`, `s`.`first_name`, `s`.`last_name`, `s`.`position`, `d`.`name`, `ay`.`year_name`, `spr`.`review_period`, `spr`.`review_type`, `spr`.`status`, `spr`.`overall_score`, `spr`.`performance_grade`, `spr`.`review_date`, `spr`.`completion_date` ;
 
 -- --------------------------------------------------------
-
 --
--- Structure for view `vw_staff_workload` exported as a table
+-- Structure for view `vw_staff_workload`
 --
 DROP TABLE IF EXISTS `vw_staff_workload`;
-CREATE TABLE IF NOT EXISTS `vw_staff_workload`(
-    `staff_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `staff_no` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `staff_name` varchar(101) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
-    `category_name` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'Academic Year 2024/2025',
-    `classes_assigned` bigint(21) NOT NULL DEFAULT '0',
-    `class_teacher_count` bigint(21) NOT NULL DEFAULT '0',
-    `subject_teacher_count` bigint(21) NOT NULL DEFAULT '0',
-    `classes` mediumtext COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_staff_workload`;
+CREATE OR REPLACE VIEW `vw_staff_workload`  AS SELECT `s`.`id` AS `staff_id`, `s`.`staff_no` AS `staff_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `staff_name`, `sc`.`category_name` AS `category_name`, `ay`.`year_name` AS `academic_year`, count(distinct `sca`.`class_id`) AS `classes_assigned`, count(case when `sca`.`role` = 'class_teacher' then 1 end) AS `class_teacher_count`, count(case when `sca`.`role` = 'subject_teacher' then 1 end) AS `subject_teacher_count`, group_concat(distinct `c`.`name` order by `c`.`name` ASC separator ',') AS `classes` FROM ((((`staff` `s` left join `staff_categories` `sc` on(`s`.`staff_category_id` = `sc`.`id`)) left join `staff_class_assignments` `sca` on(`s`.`id` = `sca`.`staff_id` and `sca`.`status` = 'active')) left join `classes` `c` on(`sca`.`class_id` = `c`.`id`)) left join `academic_years` `ay` on(`sca`.`academic_year_id` = `ay`.`id` and `ay`.`status` = 'active')) WHERE `s`.`status` = 'active' GROUP BY `s`.`id`, `s`.`staff_no`, `s`.`first_name`, `s`.`last_name`, `sc`.`category_name`, `ay`.`year_name` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_student_payment_history_multi_year` exported as a table
+-- Structure for view `vw_student_payment_history_multi_year`
 --
 DROP TABLE IF EXISTS `vw_student_payment_history_multi_year`;
-CREATE TABLE IF NOT EXISTS `vw_student_payment_history_multi_year`(
-    `student_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `first_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `last_name` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `academic_year` year(4) DEFAULT NULL,
-    `term_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `term_number` tinyint(4) DEFAULT NULL,
-    `payment_count` bigint(21) NOT NULL DEFAULT '0',
-    `total_paid` decimal(32,2) DEFAULT NULL,
-    `first_payment_date` datetime DEFAULT NULL,
-    `last_payment_date` datetime DEFAULT NULL,
-    `cash_total` decimal(32,2) DEFAULT NULL,
-    `mpesa_total` decimal(32,2) DEFAULT NULL,
-    `bank_total` decimal(32,2) DEFAULT NULL,
-    `amount_due` decimal(10,2) DEFAULT NULL,
-    `balance` decimal(10,2) DEFAULT NULL,
-    `fee_status` enum('pending','partial','paid','arrears') COLLATE utf8mb4_general_ci DEFAULT 'pending'
-);
+
+DROP VIEW IF EXISTS `vw_student_payment_history_multi_year`;
+CREATE OR REPLACE VIEW `vw_student_payment_history_multi_year`  AS SELECT `s`.`id` AS `student_id`, `s`.`first_name` AS `first_name`, `s`.`last_name` AS `last_name`, `s`.`admission_no` AS `admission_no`, `pt`.`academic_year` AS `academic_year`, `at`.`name` AS `term_name`, `at`.`term_number` AS `term_number`, count(`pt`.`id`) AS `payment_count`, sum(`pt`.`amount_paid`) AS `total_paid`, min(`pt`.`payment_date`) AS `first_payment_date`, max(`pt`.`payment_date`) AS `last_payment_date`, sum(case when `pt`.`payment_method` = 'cash' then `pt`.`amount_paid` else 0 end) AS `cash_total`, sum(case when `pt`.`payment_method` = 'mpesa' then `pt`.`amount_paid` else 0 end) AS `mpesa_total`, sum(case when `pt`.`payment_method` = 'bank_transfer' then `pt`.`amount_paid` else 0 end) AS `bank_total`, `sfo`.`amount_due` AS `amount_due`, `sfo`.`balance` AS `balance`, `sfo`.`status` AS `fee_status` FROM (((`students` `s` left join `payment_transactions` `pt` on(`s`.`id` = `pt`.`student_id`)) left join `academic_terms` `at` on(`pt`.`term_id` = `at`.`id`)) left join `student_fee_obligations` `sfo` on(`s`.`id` = `sfo`.`student_id` and `sfo`.`academic_year` = `pt`.`academic_year` and `sfo`.`term_id` = `pt`.`term_id`)) WHERE `pt`.`status` = 'confirmed' GROUP BY `s`.`id`, `pt`.`academic_year`, `at`.`term_number`, `sfo`.`amount_due`, `sfo`.`balance`, `sfo`.`status` ORDER BY `s`.`admission_no` ASC, `pt`.`academic_year` DESC, `at`.`term_number` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_student_payment_status` exported as a table
+-- Structure for view `vw_student_payment_status`
 --
 DROP TABLE IF EXISTS `vw_student_payment_status`;
-CREATE TABLE IF NOT EXISTS `vw_student_payment_status`(
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `level` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_type` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
-    `academic_term` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `total_fees_due` decimal(32,2) DEFAULT NULL,
-    `total_fees_paid` decimal(32,2) DEFAULT NULL,
-    `total_fees_waived` decimal(32,2) DEFAULT NULL,
-    `balance_outstanding` decimal(32,2) DEFAULT NULL,
-    `payment_percentage` decimal(38,2) DEFAULT NULL,
-    `payment_status` varchar(7) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `last_payment_date` datetime DEFAULT NULL,
-    `number_of_payments` bigint(21) NOT NULL DEFAULT '0',
-    `waivers_applied` bigint(21) NOT NULL DEFAULT '0',
-    `arrears_status` varchar(26) COLLATE utf8mb4_general_ci DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `vw_student_payment_status`;
+CREATE OR REPLACE VIEW `vw_student_payment_status`  AS SELECT `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `sl`.`name` AS `level`, `st`.`name` AS `student_type`, `at`.`name` AS `academic_term`, sum(`sfo`.`amount_due`) AS `total_fees_due`, sum(`sfo`.`amount_paid`) AS `total_fees_paid`, sum(`sfo`.`amount_waived`) AS `total_fees_waived`, sum(`sfo`.`balance`) AS `balance_outstanding`, round(sum(`sfo`.`amount_paid`) / sum(`sfo`.`amount_due`) * 100,2) AS `payment_percentage`, CASE WHEN sum(`sfo`.`balance`) = 0 THEN 'PAID' WHEN sum(`sfo`.`amount_paid`) > 0 THEN 'PARTIAL' ELSE 'PENDING' END AS `payment_status`, max(`pt`.`payment_date`) AS `last_payment_date`, coalesce(count(distinct `pt`.`id`),0) AS `number_of_payments`, coalesce(count(distinct case when `dw`.`discount_type` = 'full_waiver' then `dw`.`id` end),0) AS `waivers_applied`, CASE WHEN `sa`.`arrears_status` = 'overdue' THEN concat('OVERDUE (',`sa`.`days_overdue`,' days)') WHEN `sa`.`arrears_status` = 'current' THEN 'ARREARS' ELSE 'OK' END AS `arrears_status` FROM (((((((((`students` `s` join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) join `classes` `c` on(`cs`.`class_id` = `c`.`id`)) join `school_levels` `sl` on(`c`.`level_id` = `sl`.`id`)) join `student_types` `st` on(`s`.`student_type_id` = `st`.`id`)) left join `student_fee_obligations` `sfo` on(`s`.`id` = `sfo`.`student_id` and `sfo`.`academic_year` = year(curdate()))) left join `academic_terms` `at` on(`sfo`.`term_id` = `at`.`id`)) left join `payment_transactions` `pt` on(`s`.`id` = `pt`.`student_id`)) left join `fee_discounts_waivers` `dw` on(`s`.`id` = `dw`.`student_id`)) left join `student_arrears` `sa` on(`s`.`id` = `sa`.`student_id` and `sa`.`academic_year` = year(curdate()))) WHERE `s`.`status` = 'active' GROUP BY `s`.`id`, `sl`.`id`, `at`.`id` ORDER BY `s`.`admission_no` ASC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_student_payment_status_enhanced` exported as a table
+-- Structure for view `vw_student_payment_status_enhanced`
 --
 DROP TABLE IF EXISTS `vw_student_payment_status_enhanced`;
-CREATE TABLE IF NOT EXISTS `vw_student_payment_status_enhanced`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `admission_no` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
-    `student_name` varchar(101) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',
-    `student_type` varchar(100) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `class_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `level_name` varchar(50) COLLATE utf8mb4_general_ci DEFAULT NULL,
-    `academic_year` int(4) DEFAULT NULL,
-    `term_number` int(4) DEFAULT NULL,
-    `total_due` decimal(32,2) DEFAULT NULL,
-    `total_paid` decimal(32,2) DEFAULT NULL,
-    `total_waived` decimal(32,2) DEFAULT NULL,
-    `current_balance` decimal(32,2) DEFAULT NULL,
-    `year_balance` decimal(12,2) DEFAULT NULL,
-    `term_balance` decimal(12,2) DEFAULT NULL,
-    `previous_year_balance` decimal(12,2) DEFAULT NULL,
-    `previous_term_balance` decimal(12,2) DEFAULT NULL,
-    `payment_status` enum('pending','partial','paid','arrears','waived') COLLATE utf8mb4_general_ci DEFAULT 'pending' COMMENT 'Detailed payment status',
-    `is_sponsored` tinyint(1) DEFAULT '0' COMMENT 'Flag indicating if student is sponsored',
-    `sponsor_waiver_percentage` decimal(5,2) DEFAULT '0.00' COMMENT 'Percentage of fees sponsored (0-100)'
-);
+
+DROP VIEW IF EXISTS `vw_student_payment_status_enhanced`;
+CREATE OR REPLACE VIEW `vw_student_payment_status_enhanced`  AS SELECT `s`.`id` AS `id`, `s`.`admission_no` AS `admission_no`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `st`.`name` AS `student_type`, `cs`.`stream_name` AS `class_name`, `cl`.`name` AS `level_name`, year(`sfo`.`created_at`) AS `academic_year`, coalesce(`t`.`term_number`,1) AS `term_number`, coalesce(sum(`sfo`.`amount_due`),0) AS `total_due`, coalesce(sum(`sfo`.`amount_paid`),0) AS `total_paid`, coalesce(sum(`sfo`.`amount_waived`),0) AS `total_waived`, coalesce(sum(`sfo`.`balance`),0) AS `current_balance`, coalesce(max(`sfo`.`year_balance`),0) AS `year_balance`, coalesce(max(`sfo`.`term_balance`),0) AS `term_balance`, coalesce(max(`sfo`.`previous_year_balance`),0) AS `previous_year_balance`, coalesce(max(`sfo`.`previous_term_balance`),0) AS `previous_term_balance`, `sfo`.`payment_status` AS `payment_status`, `s`.`is_sponsored` AS `is_sponsored`, `s`.`sponsor_waiver_percentage` AS `sponsor_waiver_percentage` FROM (((((`students` `s` left join `student_types` `st` on(`s`.`student_type_id` = `st`.`id`)) left join `class_streams` `cs` on(`s`.`stream_id` = `cs`.`id`)) left join `classes` `cl` on(`cs`.`class_id` = `cl`.`id`)) left join `student_fee_obligations` `sfo` on(`s`.`id` = `sfo`.`student_id`)) left join `academic_terms` `t` on(`sfo`.`term_id` = `t`.`id`)) GROUP BY `s`.`id`, `sfo`.`academic_year`, `sfo`.`term_id`, `sfo`.`payment_status` ORDER BY `s`.`admission_no` ASC, year(`sfo`.`created_at`) DESC, coalesce(`t`.`term_number`,1) DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `vw_unread_announcements` exported as a table
+-- Structure for view `vw_uniform_sales_analytics`
+--
+DROP TABLE IF EXISTS `vw_uniform_sales_analytics`;
+
+DROP VIEW IF EXISTS `vw_uniform_sales_analytics`;
+CREATE OR REPLACE VIEW `vw_uniform_sales_analytics`  AS SELECT `us`.`id` AS `sale_id`, `s`.`id` AS `student_id`, concat(`s`.`first_name`,' ',`s`.`last_name`) AS `student_name`, `s`.`admission_no` AS `admission_number`, `ii`.`name` AS `uniform_item`, `ii`.`code` AS `item_code`, `us`.`size` AS `size`, `us`.`quantity` AS `quantity`, `us`.`unit_price` AS `unit_price`, `us`.`total_amount` AS `total_amount`, `us`.`payment_status` AS `payment_status`, `us`.`sale_date` AS `sale_date`, `us`.`received_date` AS `received_date`, to_days(curdate()) - to_days(`us`.`sale_date`) AS `days_since_sale`, CASE WHEN `us`.`payment_status` = 'paid' THEN 'Paid' WHEN `us`.`payment_status` = 'pending' THEN 'Awaiting Payment' WHEN `us`.`payment_status` = 'partial' THEN 'Partially Paid' ELSE 'Unknown' END AS `payment_status_label`, `u`.`first_name` AS `sold_by_first_name`, `u`.`last_name` AS `sold_by_last_name` FROM (((`uniform_sales` `us` join `students` `s` on(`us`.`student_id` = `s`.`id`)) join `inventory_items` `ii` on(`us`.`item_id` = `ii`.`id`)) left join `users` `u` on(`us`.`sold_by` = `u`.`id`)) ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `vw_unread_announcements`
 --
 DROP TABLE IF EXISTS `vw_unread_announcements`;
-CREATE TABLE IF NOT EXISTS `vw_unread_announcements`(
-    `announcement_id` int(10) unsigned NOT NULL DEFAULT '0',
-    `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `content` longtext COLLATE utf8mb4_unicode_ci NOT NULL,
-    `priority` enum('low','normal','high','critical') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'normal',
-    `target_audience` enum('all','staff','students','parents','specific') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'all',
-    `published_by_first` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `published_by_last` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `status` enum('draft','scheduled','published','archived','expired') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `total_views` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `vw_unread_announcements`;
+CREATE OR REPLACE VIEW `vw_unread_announcements`  AS SELECT `a`.`id` AS `announcement_id`, `a`.`title` AS `title`, `a`.`content` AS `content`, `a`.`priority` AS `priority`, `a`.`target_audience` AS `target_audience`, `u`.`first_name` AS `published_by_first`, `u`.`last_name` AS `published_by_last`, `a`.`status` AS `status`, `a`.`created_at` AS `created_at`, `a`.`updated_at` AS `updated_at`, count(`av`.`id`) AS `total_views` FROM (((`announcements_bulletin` `a` left join `staff` `st` on(`a`.`published_by` = `st`.`id`)) left join `users` `u` on(`st`.`user_id` = `u`.`id`)) left join `announcement_views` `av` on(`a`.`id` = `av`.`announcement_id`)) WHERE `a`.`status` = 'published' GROUP BY `a`.`id` ORDER BY `a`.`created_at` DESC ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `v_active_users` exported as a table
+-- Structure for view `v_active_users`
 --
 DROP TABLE IF EXISTS `v_active_users`;
-CREATE TABLE IF NOT EXISTS `v_active_users`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `username` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `email` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `first_name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `last_name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `status` enum('active','inactive','suspended','pending') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-    `role_id` int(10) unsigned NOT NULL,
-    `role_name` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-    `last_login` datetime DEFAULT NULL,
-    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `total_roles` bigint(21) NOT NULL DEFAULT '0',
-    `total_permissions` bigint(21) NOT NULL DEFAULT '0'
-);
 
--- --------------------------------------------------------
-
-
+DROP VIEW IF EXISTS `v_active_users`;
+CREATE OR REPLACE VIEW `v_active_users`  AS SELECT `u`.`id` AS `id`, `u`.`username` AS `username`, `u`.`email` AS `email`, `u`.`first_name` AS `first_name`, `u`.`last_name` AS `last_name`, `u`.`status` AS `status`, `u`.`role_id` AS `role_id`, `r`.`name` AS `role_name`, `u`.`last_login` AS `last_login`, `u`.`created_at` AS `created_at`, count(distinct `ur`.`role_id`) AS `total_roles`, count(distinct `up`.`permission_id`) AS `total_permissions` FROM (((`users` `u` left join `roles` `r` on(`u`.`role_id` = `r`.`id`)) left join `user_roles` `ur` on(`u`.`id` = `ur`.`user_id`)) left join `user_permissions` `up` on(`u`.`id` = `up`.`user_id`)) WHERE `u`.`status` = 'active' GROUP BY `u`.`id` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `v_role_permission_summary` exported as a table
+-- Structure for view `v_delegatable_actions`
+--
+DROP TABLE IF EXISTS `v_delegatable_actions`;
+
+DROP VIEW IF EXISTS `v_delegatable_actions`;
+CREATE OR REPLACE VIEW `v_delegatable_actions`  AS SELECT `r`.`id` AS `role_id`, `r`.`name` AS `role_name`, `fp`.`form_code` AS `form_code`, `fp`.`form_name` AS `form_name`, `rfp`.`action_type` AS `action_type` FROM ((`roles` `r` join `role_form_permissions` `rfp` on(`r`.`id` = `rfp`.`role_id`)) join `form_permissions` `fp` on(`rfp`.`form_permission_id` = `fp`.`id`)) WHERE `rfp`.`can_delegate` = 1 ;
+
+-- --------------------------------------------------------
+
+--
+-- Structure for view `v_role_permission_summary`
 --
 DROP TABLE IF EXISTS `v_role_permission_summary`;
-CREATE TABLE IF NOT EXISTS `v_role_permission_summary`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `name` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `total_perms` bigint(21) NOT NULL DEFAULT '0',
-    `comms` decimal(22,0) DEFAULT NULL,
-    `academic` decimal(22,0) DEFAULT NULL,
-    `finance` decimal(22,0) DEFAULT NULL,
-    `students` decimal(22,0) DEFAULT NULL,
-    `staff` decimal(22,0) DEFAULT NULL
-);
+
+DROP VIEW IF EXISTS `v_role_permission_summary`;
+CREATE OR REPLACE VIEW `v_role_permission_summary`  AS SELECT `r`.`id` AS `id`, `r`.`name` AS `name`, count(distinct `rp`.`permission_id`) AS `total_perms`, sum(case when `p`.`entity` like 'communication%' then 1 else 0 end) AS `comms`, sum(case when `p`.`entity` like 'academic%' then 1 else 0 end) AS `academic`, sum(case when `p`.`entity` like 'finance%' then 1 else 0 end) AS `finance`, sum(case when `p`.`entity` like 'student%' then 1 else 0 end) AS `students`, sum(case when `p`.`entity` like 'staff%' then 1 else 0 end) AS `staff` FROM ((`roles` `r` left join `role_permissions` `rp` on(`r`.`id` = `rp`.`role_id`)) left join `permissions` `p` on(`rp`.`permission_id` = `p`.`id`)) GROUP BY `r`.`id`, `r`.`name` ;
 
 -- --------------------------------------------------------
 
 --
--- Structure for view `v_user_permissions_effective` exported as a table
+-- Structure for view `v_user_permissions_effective`
 --
 DROP TABLE IF EXISTS `v_user_permissions_effective`;
 
+DROP VIEW IF EXISTS `v_user_permissions_effective`;
+CREATE OR REPLACE VIEW `v_user_permissions_effective`  AS SELECT DISTINCT `ur`.`user_id` AS `user_id`, `rp`.`permission_id` AS `permission_id`, `p`.`code` AS `permission_code`, `p`.`entity` AS `entity`, `p`.`action` AS `action`, 'role' AS `source` FROM ((`user_roles` `ur` join `role_permissions` `rp` on(`ur`.`role_id` = `rp`.`role_id`)) join `permissions` `p` on(`rp`.`permission_id` = `p`.`id`))union all select `up`.`user_id` AS `user_id`,`up`.`permission_id` AS `permission_id`,`p`.`code` AS `permission_code`,`p`.`entity` AS `entity`,`p`.`action` AS `action`,`up`.`permission_type` AS `source` from (`user_permissions` `up` join `permissions` `p` on(`up`.`permission_id` = `p`.`id`)) where `up`.`permission_type` in ('grant','override') and (`up`.`expires_at` is null or `up`.`expires_at` > current_timestamp())  ;
+
 -- --------------------------------------------------------
 
 --
--- Structure for view `v_user_security` exported as a table
+-- Structure for view `v_user_security`
 --
 DROP TABLE IF EXISTS `v_user_security`;
-CREATE TABLE IF NOT EXISTS `v_user_security`(
-    `id` int(10) unsigned NOT NULL DEFAULT '0',
-    `username` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `email` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-    `status` enum('active','inactive','suspended','pending') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
-    `failed_login_attempts` int(11) DEFAULT '0' COMMENT 'Count of consecutive failed logins',
-    `account_locked_until` datetime DEFAULT NULL COMMENT 'Account locked until this time',
-    `last_login` datetime DEFAULT NULL,
-    `last_password_change` datetime DEFAULT NULL,
-    `password_age_days` int(7) DEFAULT NULL,
-    `total_login_attempts_24h` bigint(21) NOT NULL DEFAULT '0'
-);
+
+DROP VIEW IF EXISTS `v_user_security`;
+CREATE OR REPLACE VIEW `v_user_security`  AS SELECT `u`.`id` AS `id`, `u`.`username` AS `username`, `u`.`email` AS `email`, `u`.`status` AS `status`, `u`.`failed_login_attempts` AS `failed_login_attempts`, `u`.`account_locked_until` AS `account_locked_until`, `u`.`last_login` AS `last_login`, `u`.`password_changed_at` AS `last_password_change`, to_days(current_timestamp()) - to_days(`u`.`password_changed_at`) AS `password_age_days`, count(distinct `la`.`id`) AS `total_login_attempts_24h` FROM (`users` `u` left join `login_attempts` `la` on(`u`.`id` = `la`.`user_id` and `la`.`created_at` > current_timestamp() - interval 24 hour)) GROUP BY `u`.`id` ;
 
 --
 -- Indexes for dumped tables
@@ -29934,6 +32369,12 @@ ALTER TABLE `conduct_tracking`
   ADD CONSTRAINT `fk_ct_term` FOREIGN KEY (`term_id`) REFERENCES `academic_terms` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `config_sync_log`
+--
+ALTER TABLE `config_sync_log`
+  ADD CONSTRAINT `fk_sync_log_user` FOREIGN KEY (`synced_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
 -- Constraints for table `conversation_participants`
 --
 ALTER TABLE `conversation_participants`
@@ -29958,6 +32399,12 @@ ALTER TABLE `curriculum_units`
 ALTER TABLE `daily_meal_allocations`
   ADD CONSTRAINT `daily_meal_allocations_ibfk_1` FOREIGN KEY (`class_id`) REFERENCES `classes` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `daily_meal_allocations_ibfk_2` FOREIGN KEY (`created_by`) REFERENCES `staff` (`id`);
+
+--
+-- Constraints for table `dashboards`
+--
+ALTER TABLE `dashboards`
+  ADD CONSTRAINT `fk_dashboards_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `departments`
@@ -30318,6 +32765,12 @@ ALTER TABLE `payslips`
   ADD CONSTRAINT `fk_payslip_staff` FOREIGN KEY (`staff_id`) REFERENCES `staff` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `payslip_items`
+--
+ALTER TABLE `payslip_items`
+  ADD CONSTRAINT `fk_payslip_items_payslip` FOREIGN KEY (`payslip_id`) REFERENCES `payslips` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `performance_ratings`
 --
 ALTER TABLE `performance_ratings`
@@ -30386,11 +32839,39 @@ ALTER TABLE `requisition_items`
   ADD CONSTRAINT `requisition_items_ibfk_2` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`id`);
 
 --
+-- Constraints for table `role_dashboards`
+--
+ALTER TABLE `role_dashboards`
+  ADD CONSTRAINT `fk_role_dashboards_dashboard` FOREIGN KEY (`dashboard_id`) REFERENCES `dashboards` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_role_dashboards_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `role_permissions`
 --
 ALTER TABLE `role_permissions`
   ADD CONSTRAINT `fk_role_permissions_permission_id` FOREIGN KEY (`permission_id`) REFERENCES `permissions` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
   ADD CONSTRAINT `fk_role_permissions_role_id` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+
+--
+-- Constraints for table `role_routes`
+--
+ALTER TABLE `role_routes`
+  ADD CONSTRAINT `fk_role_routes_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_role_routes_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `role_sidebar_menus`
+--
+ALTER TABLE `role_sidebar_menus`
+  ADD CONSTRAINT `fk_role_sidebar_menu` FOREIGN KEY (`menu_item_id`) REFERENCES `sidebar_menu_items` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_role_sidebar_role` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `route_permissions`
+--
+ALTER TABLE `route_permissions`
+  ADD CONSTRAINT `fk_route_permissions_permission` FOREIGN KEY (`permission_id`) REFERENCES `permissions` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_route_permissions_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `route_schedules`
@@ -30422,6 +32903,19 @@ ALTER TABLE `school_configuration`
 ALTER TABLE `school_transactions`
   ADD CONSTRAINT `school_transactions_ibfk_1` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `school_transactions_ibfk_2` FOREIGN KEY (`financial_period_id`) REFERENCES `financial_periods` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `sidebar_menu_configs`
+--
+ALTER TABLE `sidebar_menu_configs`
+  ADD CONSTRAINT `fk_sidebar_menu_configs` FOREIGN KEY (`menu_item_id`) REFERENCES `sidebar_menu_items` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `sidebar_menu_items`
+--
+ALTER TABLE `sidebar_menu_items`
+  ADD CONSTRAINT `fk_sidebar_menu_parent` FOREIGN KEY (`parent_id`) REFERENCES `sidebar_menu_items` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_sidebar_menu_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `sms_communications`
@@ -30458,6 +32952,21 @@ ALTER TABLE `staff_attendance`
 --
 ALTER TABLE `staff_categories`
   ADD CONSTRAINT `fk_staff_category_type` FOREIGN KEY (`staff_type_id`) REFERENCES `staff_types` (`id`);
+
+--
+-- Constraints for table `staff_children`
+--
+ALTER TABLE `staff_children`
+  ADD CONSTRAINT `fk_staff_children_staff` FOREIGN KEY (`staff_id`) REFERENCES `staff` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_staff_children_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `staff_child_fee_deductions`
+--
+ALTER TABLE `staff_child_fee_deductions`
+  ADD CONSTRAINT `fk_child_fee_staff` FOREIGN KEY (`staff_id`) REFERENCES `staff` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_child_fee_staff_child` FOREIGN KEY (`staff_child_id`) REFERENCES `staff_children` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_child_fee_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `staff_class_assignments`
@@ -30548,8 +33057,7 @@ ALTER TABLE `storage_locations`
 -- Constraints for table `students`
 --
 ALTER TABLE `students`
-  ADD CONSTRAINT `students_ibfk_1` FOREIGN KEY (`stream_id`) REFERENCES `class_streams` (`id`) ON UPDATE CASCADE,
-  ADD CONSTRAINT `students_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+  ADD CONSTRAINT `students_ibfk_1` FOREIGN KEY (`stream_id`) REFERENCES `class_streams` (`id`) ON UPDATE CASCADE;
 
 --
 -- Constraints for table `student_activities`
@@ -30625,6 +33133,18 @@ ALTER TABLE `student_suspensions`
   ADD CONSTRAINT `student_suspensions_ibfk_2` FOREIGN KEY (`suspended_by`) REFERENCES `users` (`id`);
 
 --
+-- Constraints for table `student_uniforms`
+--
+ALTER TABLE `student_uniforms`
+  ADD CONSTRAINT `fk_student_uniforms_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `system_policies`
+--
+ALTER TABLE `system_policies`
+  ADD CONSTRAINT `fk_policies_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
 -- Constraints for table `tax_withholding_history`
 --
 ALTER TABLE `tax_withholding_history`
@@ -30666,6 +33186,25 @@ ALTER TABLE `transport_vehicle_routes`
   ADD CONSTRAINT `transport_vehicle_routes_ibfk_2` FOREIGN KEY (`route_id`) REFERENCES `transport_routes` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
+-- Constraints for table `uniform_sales`
+--
+ALTER TABLE `uniform_sales`
+  ADD CONSTRAINT `fk_uniform_sales_item` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`id`),
+  ADD CONSTRAINT `fk_uniform_sales_student` FOREIGN KEY (`student_id`) REFERENCES `students` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `uniform_sales_summary`
+--
+ALTER TABLE `uniform_sales_summary`
+  ADD CONSTRAINT `fk_uniform_sales_summary_item` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `uniform_sizes`
+--
+ALTER TABLE `uniform_sizes`
+  ADD CONSTRAINT `fk_uniform_sizes_item` FOREIGN KEY (`item_id`) REFERENCES `inventory_items` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `unit_topics`
 --
 ALTER TABLE `unit_topics`
@@ -30695,10 +33234,25 @@ ALTER TABLE `user_roles`
   ADD CONSTRAINT `user_roles_ibfk_2` FOREIGN KEY (`role_id`) REFERENCES `roles` (`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 --
+-- Constraints for table `user_routes`
+--
+ALTER TABLE `user_routes`
+  ADD CONSTRAINT `fk_user_routes_grantor` FOREIGN KEY (`granted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `fk_user_routes_route` FOREIGN KEY (`route_id`) REFERENCES `routes` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_user_routes_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `user_sessions`
 --
 ALTER TABLE `user_sessions`
   ADD CONSTRAINT `fk_session_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `user_sidebar_overrides`
+--
+ALTER TABLE `user_sidebar_overrides`
+  ADD CONSTRAINT `fk_user_sidebar_menu` FOREIGN KEY (`menu_item_id`) REFERENCES `sidebar_menu_items` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_user_sidebar_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `vehicle_fuel_logs`
@@ -30740,5173 +33294,6 @@ ALTER TABLE `workflow_stage_history`
   ADD CONSTRAINT `fk_workflow_history_instance` FOREIGN KEY (`instance_id`) REFERENCES `workflow_instances` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fk_workflow_processor` FOREIGN KEY (`processed_by`) REFERENCES `users` (`id`);
 
-
---
--- Metadata
---
-USE `phpmyadmin`;
-
---
--- Metadata for table academic_terms
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table academic_years
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table academic_year_archives
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table account_unlock_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activities
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activity_categories
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activity_participants
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activity_resources
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activity_schedule
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table activity_staff_participants
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table admission_applications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table admission_documents
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table albums
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table alumni
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table announcements_bulletin
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table announcement_views
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table annual_scores
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table api_tokens
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table arrears_settlement_plans
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_benchmarks
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_results
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_rubrics
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_tools
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table assessment_type_classifications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table audit_logs
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table audit_trail
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table auth_sessions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table bank_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table blocked_devices
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table blocked_ips
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table classes
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table class_enrollments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table class_promotion_queue
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table class_schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table class_streams
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table class_year_assignments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_attachments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_groups
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_logs
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_recipients
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_templates
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table communication_workflow_instances
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table conduct_tracking
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table contact_directory
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table conversation_participants
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table core_competencies
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table core_values
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table csl_activities
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table curriculum_units
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table daily_meal_allocations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table deduction_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table departments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Dumping data for table `pma__table_uiprefs`
---
-
-INSERT IGNORE INTO `pma__table_uiprefs` (`username`, `db_name`, `table_name`, `prefs`, `last_update`) VALUES
-('root', 'KingsWayAcademy', 'departments', '{\"sorted_col\":\"`code` ASC\"}', '2025-12-06 09:57:41');
-
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table department_accounts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table department_budget_proposals
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table department_fund_requests
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table drivers
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table equipment_maintenance
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table equipment_maintenance_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table exam_schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table expenses
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table external_emails
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table external_inbound_messages
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table external_institutions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table failed_auth_attempts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_discounts_waivers
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_reminders
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_structures
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_structures_detailed
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_structure_change_log
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_structure_rollover_log
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_structure_rollover_schedule
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_transition_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table fee_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table financial_periods
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table financial_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table food_consumption_records
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table form_permissions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table forum_posts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table forum_threads
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table grade_rules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table grading_comments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table grading_scales
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table group_members
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table ieps
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table internal_conversations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table internal_messages
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_adjustments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_allocations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_categories
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_counts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_count_items
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_departments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_items
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_requisitions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table inventory_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table item_batches
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table item_serials
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table kpi_achievements
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table kpi_definitions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table kpi_targets
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learner_competencies
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learner_csl_participation
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learner_pci_awareness
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learner_values_acquisition
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learning_areas
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table learning_outcomes
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table leave_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table lesson_plans
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table login_attempts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table maintenance_logs
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table meal_plans
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table media_files
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table menu_items
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table menu_item_ingredients
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table message_read_status
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table message_templates
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table mpesa_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table notifications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table onboarding_tasks
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table parents
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table parent_communication_preferences
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table parent_portal_messages
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table password_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table password_resets
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payment_allocations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payment_allocations_detailed
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payment_reconciliations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payment_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payment_webhooks_log
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payroll_configurations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table payslips
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table pcis
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table performance_levels_cbc
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table performance_ratings
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table performance_review_kpis
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table permissions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table permission_delegations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table portfolios
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table portfolio_artifacts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table promotion_batches
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table purchase_orders
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table record_permissions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table refresh_tokens
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table requisition_items
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table roles
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table role_permissions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table rooms
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table route_schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table route_stops
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table schedule_changes
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table school_configuration
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table school_levels
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table school_transactions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table sms_communications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_allowances
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_attendance
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_categories
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_class_assignments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_contracts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_deductions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_experience
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_kpi_templates
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_leaves
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_loans
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_onboarding
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_payroll
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_performance_reviews
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_qualifications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table staff_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table storage_locations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table students
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_activities
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_arrears
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_attendance
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_discipline
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_fee_balances
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_fee_carryover
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_fee_obligations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_parents
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_payment_history_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_promotions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_registrations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_suspensions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table student_types
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table suppliers
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table system_events
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table tax_brackets
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table tax_withholding_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table template_categories
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table term_consolidations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table term_subject_scores
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table transport_payments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table transport_routes
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table transport_stops
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table transport_vehicles
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table transport_vehicle_routes
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table unit_topics
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table users
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table user_login_attempts
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table user_permissions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table user_roles
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table user_sessions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vehicle_fuel_logs
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vehicle_maintenance
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_active_allocations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_active_students_per_class
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_all_school_payments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_arrears_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_class_rosters
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_collection_rate_by_class
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_currently_blocked_ips
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_current_enrollments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_current_staff_assignments
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_failed_attempts_by_ip
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_carryover_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_collection_by_year
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_schedule_by_class
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_structure_annual_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_transition_audit
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_fee_type_collection
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_financial_period_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_food_consumption_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_internal_conversations
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_inventory_health
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_inventory_low_stock
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_lesson_plan_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_maintenance_schedule
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_outstanding_by_class
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_outstanding_fees
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_parent_payment_activity
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_payment_tracking
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_pending_fee_structure_reviews
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_pending_requisitions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_pending_sms
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_requisition_fulfillment
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_sent_emails
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_sponsored_students_status
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_assignments_detailed
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_leave_balance
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_leave_balances
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_loan_details
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_onboarding_progress
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_payroll_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_performance_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_staff_workload
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_student_payment_history_multi_year
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_student_payment_status
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_student_payment_status_enhanced
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_unread_announcements
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_upcoming_activities
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_upcoming_class_schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_upcoming_exam_schedules
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table vw_user_recent_communications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table v_active_users
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table v_delegatable_actions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table v_role_permission_summary
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table v_user_permissions_effective
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table v_user_security
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_definitions
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_instances
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_notifications
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_stages
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for table workflow_stage_history
---
-
---
--- Truncate table before insert `pma__column_info`
---
-
-TRUNCATE TABLE `pma__column_info`;
---
--- Truncate table before insert `pma__table_uiprefs`
---
-
-TRUNCATE TABLE `pma__table_uiprefs`;
---
--- Truncate table before insert `pma__tracking`
---
-
-TRUNCATE TABLE `pma__tracking`;
---
--- Metadata for database KingsWayAcademy
---
-
---
--- Truncate table before insert `pma__bookmark`
---
-
-TRUNCATE TABLE `pma__bookmark`;
---
--- Truncate table before insert `pma__relation`
---
-
-TRUNCATE TABLE `pma__relation`;
---
--- Truncate table before insert `pma__savedsearches`
---
-
-TRUNCATE TABLE `pma__savedsearches`;
---
--- Truncate table before insert `pma__central_columns`
---
-
-TRUNCATE TABLE `pma__central_columns`;
 DELIMITER $$
 --
 -- Events
@@ -35948,6 +33335,3 @@ COMMIT;
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
 /*!40101 SET CHARACTER_SET_RESULTS=@OLD_CHARACTER_SET_RESULTS */;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
-
-
-

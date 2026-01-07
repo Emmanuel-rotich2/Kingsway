@@ -185,9 +185,17 @@
                     </div>
                     <div class="row">
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Date of Birth <span class="text-danger">*</span></label>
-                            <input type="date" id="dateOfBirth" class="form-control" required>
-                        </div>
+    <label class="form-label">
+        Date of Birth <span class="text-danger">*</span>
+    </label>
+    <input 
+        type="date" 
+        id="dateOfBirth" 
+        class="form-control" 
+        min="2009-01-01"
+        required
+    >
+</div>
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Gender <span class="text-danger">*</span></label>
                             <select id="gender" class="form-select" required>
@@ -197,9 +205,12 @@
                             </select>
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">National ID / Birth Cert</label>
-                            <input type="text" id="nationalId" class="form-control">
-                        </div>
+    <label class="form-label">National ID / Birth Cert</label>
+    <input type="file" id="nationalId" class="form-control" 
+           accept="image/*,application/pdf" required>
+    <small class="text-muted">Upload a scanned copy of your ID or Birth Certificate</small>
+</div>
+
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Blood Group</label>
                             <select id="bloodGroup" class="form-select">
@@ -219,10 +230,23 @@
                     <!-- Academic Information -->
                     <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-mortarboard"></i> Academic Information</h6>
                     <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Admission Number <span class="text-danger">*</span></label>
-                            <input type="text" id="admissionNumber" class="form-control" required>
-                        </div>
+                        <?php
+// Generate unique admission number (example: ADM20260001)
+function generateAdmissionNumber($prefix = 'ADM') {
+    $year = date('Y'); // current year
+    // Generate a random 4-digit number
+    $randomNumber = str_pad(rand(1, 9999), 4, '0', STR_PAD_LEFT);
+    return $prefix . $year . $randomNumber;
+}
+
+$admissionNumber = generateAdmissionNumber();
+?>
+<div class="col-md-3 mb-3">
+    <label class="form-label">Admission Number <span class="text-danger">*</span></label>
+    <input type="text" id="admissionNumber" class="form-control" 
+           value="<?php echo $admissionNumber; ?>" readonly required>
+</div>
+
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Class <span class="text-danger">*</span></label>
                             <select id="studentClass" class="form-select" required onchange="studentsManagementController.loadStreamsForClass(this.value)">
@@ -352,7 +376,7 @@
                         </div>
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Phone</label>
-                            <input type="tel" id="studentPhone" class="form-control">
+                            <input type="tel" id="studentPhone" class="form-control" required placeholder="+254...">
                         </div>
                     </div>
                     <div class="row">
