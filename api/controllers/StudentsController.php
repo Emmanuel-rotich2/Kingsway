@@ -393,4 +393,102 @@ class StudentsController extends BaseController
 
         return $this->success($result);
     }
+
+    /* =====================================================
+     * NESTED ROUTING HELPERS
+     * ===================================================== */
+
+    /**
+     * Route nested GET requests to appropriate methods
+     */
+    private function routeNestedGet($resource, $id, $data, $segments)
+    {
+        $resourceCamel = $this->toCamelCase($resource);
+        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
+
+        $methodName = 'get' . ucfirst($resourceCamel);
+        if ($action) {
+            $methodName .= ucfirst($action);
+        }
+
+        if (method_exists($this, $methodName)) {
+            if ($id !== null) {
+                $data['id'] = $id;
+            }
+            return $this->$methodName($id, $data, $segments);
+        }
+
+        return $this->notFound("Method '{$methodName}' not found");
+    }
+
+    /**
+     * Route nested POST requests to appropriate methods
+     */
+    private function routeNestedPost($resource, $id, $data, $segments)
+    {
+        $resourceCamel = $this->toCamelCase($resource);
+        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
+
+        $methodName = 'post' . ucfirst($resourceCamel);
+        if ($action) {
+            $methodName .= ucfirst($action);
+        }
+
+        if (method_exists($this, $methodName)) {
+            if ($id !== null) {
+                $data['id'] = $id;
+            }
+            return $this->$methodName($id, $data, $segments);
+        }
+
+        return $this->notFound("Method '{$methodName}' not found");
+    }
+
+    /**
+     * Route nested PUT requests to appropriate methods
+     */
+    private function routeNestedPut($resource, $id, $data, $segments)
+    {
+        $resourceCamel = $this->toCamelCase($resource);
+        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
+
+        $methodName = 'put' . ucfirst($resourceCamel);
+        if ($action) {
+            $methodName .= ucfirst($action);
+        }
+
+        if (method_exists($this, $methodName)) {
+            return $this->$methodName($id, $data, $segments);
+        }
+
+        return $this->notFound("Method '{$methodName}' not found");
+    }
+
+    /**
+     * Route nested DELETE requests to appropriate methods
+     */
+    private function routeNestedDelete($resource, $id, $data, $segments)
+    {
+        $resourceCamel = $this->toCamelCase($resource);
+        $action = !empty($segments) ? $this->toCamelCase(implode('-', $segments)) : null;
+
+        $methodName = 'delete' . ucfirst($resourceCamel);
+        if ($action) {
+            $methodName .= ucfirst($action);
+        }
+
+        if (method_exists($this, $methodName)) {
+            return $this->$methodName($id, $data, $segments);
+        }
+
+        return $this->notFound("Method '{$methodName}' not found");
+    }
+
+    /**
+     * Convert kebab-case to camelCase
+     */
+    private function toCamelCase($string)
+    {
+        return lcfirst(str_replace('-', '', ucwords($string, '-')));
+    }
 }
