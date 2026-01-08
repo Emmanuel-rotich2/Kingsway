@@ -5,6 +5,14 @@
  * 
  * HTML structure only - all logic in js/pages/communications.js (communicationsController)
  * 
+ * Role-based access:
+ * - Secretary: Send messages to parents, view sent messages
+ * - Headteacher: All communications, school-wide announcements
+ * - Class Teacher: Send to own class parents only
+ * - Accountant: Send fee reminders
+ * - Admin: Full access, manage templates
+ * - Director: View all, approve campaigns
+ * 
  * Embedded in app_layout.php
  */
 
@@ -15,16 +23,29 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-envelope-fill"></i> Communications Management</h4>
             <div class="btn-group">
+                <!-- New Message - Most staff can send -->
                 <button class="btn btn-light btn-sm" onclick="communicationsController.showComposeModal()"
-                    data-permission="communications_create">
+                    data-permission="communications_create"
+                    data-role="secretary,headteacher,class_teacher,accountant,bursar,admin">
                     <i class="bi bi-plus-circle"></i> New Message
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="communicationsController.showTemplatesModal()">
+                <!-- Templates - Admin and Secretary -->
+                <button class="btn btn-outline-light btn-sm" onclick="communicationsController.showTemplatesModal()"
+                    data-permission="communications_templates"
+                    data-role="secretary,headteacher,admin">
                     <i class="bi bi-file-text"></i> Templates
                 </button>
+                <!-- Campaigns - Leadership only -->
                 <button class="btn btn-outline-light btn-sm" onclick="communicationsController.showCampaignModal()"
-                    data-permission="communications_create">
+                    data-permission="communications_campaign"
+                    data-role="headteacher,admin,director">
                     <i class="bi bi-megaphone"></i> Campaign
+                </button>
+                <!-- Bulk Export - Admin only -->
+                <button class="btn btn-outline-light btn-sm" onclick="communicationsController.exportMessages()"
+                    data-permission="communications_export"
+                    data-role="admin,director">
+                    <i class="bi bi-download"></i> Export
                 </button>
             </div>
         </div>
@@ -62,6 +83,34 @@
                     <div class="card-body text-center">
                         <h6 class="text-muted mb-2">Failed</h6>
                         <h3 class="text-danger mb-0" id="failedCount">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Cost Stats - Finance and Admin only -->
+        <div class="row mb-4" data-role="accountant,bursar,director,admin">
+            <div class="col-md-4">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">SMS Credits Used</h6>
+                        <h3 class="text-primary mb-0" id="smsCreditsUsed">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Credits Remaining</h6>
+                        <h3 class="text-success mb-0" id="creditsRemaining">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">This Month Cost</h6>
+                        <h3 class="text-dark mb-0" id="monthCost">KES 0</h3>
                     </div>
                 </div>
             </div>

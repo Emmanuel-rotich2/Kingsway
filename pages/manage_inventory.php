@@ -3,6 +3,14 @@
  * Manage Inventory Page
  * HTML structure only - logic will be in js/pages/inventory.js
  * Embedded in app_layout.php
+ * 
+ * Role-based access:
+ * - Inventory Manager/Store Manager: Full access (create, edit, issue, restock)
+ * - Cateress/Cook: View and issue food items only
+ * - Director: View all, approve large requisitions
+ * - Admin: Full access
+ * - Librarian: View/issue library supplies
+ * - Lab Technician: View/issue lab supplies
  */
 ?>
 
@@ -11,10 +19,27 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="fas fa-boxes"></i> Inventory Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addItemBtn" data-permission="inventory_create">
+                <!-- Add Item - Inventory Manager only -->
+                <button class="btn btn-light btn-sm" id="addItemBtn" 
+                        data-permission="inventory_create"
+                        data-role="inventory_manager,store_manager,admin">
                     <i class="bi bi-plus-circle"></i> Add Item
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="exportInventoryBtn">
+                <!-- Restock - Inventory Manager only -->
+                <button class="btn btn-outline-light btn-sm" id="restockBtn"
+                        data-permission="inventory_restock"
+                        data-role="inventory_manager,store_manager,admin">
+                    <i class="bi bi-box-arrow-in-down"></i> Restock
+                </button>
+                <!-- Issue Stock - Multiple roles -->
+                <button class="btn btn-outline-light btn-sm" id="issueStockBtn"
+                        data-permission="inventory_issue"
+                        data-role="inventory_manager,store_manager,cateress,cook,librarian,lab_technician">
+                    <i class="bi bi-box-arrow-right"></i> Issue Stock
+                </button>
+                <!-- Export - All with view permission -->
+                <button class="btn btn-outline-light btn-sm" id="exportInventoryBtn"
+                        data-permission="inventory_view">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -22,8 +47,8 @@
     </div>
 
     <div class="card-body">
-        <!-- Inventory Stats -->
-        <div class="row mb-4">
+        <!-- Inventory Stats - Visible to all with view permission -->
+        <div class="row mb-4" data-permission="inventory_view">
             <div class="col-md-3">
                 <div class="card border-primary">
                     <div class="card-body text-center">
@@ -58,6 +83,34 @@
             </div>
         </div>
 
+        <!-- Value Stats - Inventory Manager and Director only -->
+        <div class="row mb-4" data-role="inventory_manager,store_manager,director,admin" data-permission="inventory_value">
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Total Stock Value</h6>
+                        <h3 class="text-info mb-0" id="totalStockValue">KES 0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Pending Requisitions</h6>
+                        <h3 class="text-primary mb-0" id="pendingRequisitions">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-warning">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Expiring Soon</h6>
+                        <h3 class="text-warning mb-0" id="expiringSoon">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Filters -->
         <div class="row mb-3">
             <div class="col-md-3">
@@ -85,13 +138,14 @@
                     <option value="out_of_stock">Out of Stock</option>
                 </select>
             </div>
+            <!-- Location filter - role-based preselection -->
             <div class="col-md-2">
                 <select class="form-select" id="locationFilter">
                     <option value="">All Locations</option>
                     <option value="main_store">Main Store</option>
-                    <option value="library">Library</option>
-                    <option value="lab">Laboratory</option>
-                    <option value="kitchen">Kitchen</option>
+                    <option value="library" data-role="librarian">Library</option>
+                    <option value="lab" data-role="lab_technician">Laboratory</option>
+                    <option value="kitchen" data-role="cateress,cook">Kitchen</option>
                     <option value="office">Office</option>
                 </select>
             </div>

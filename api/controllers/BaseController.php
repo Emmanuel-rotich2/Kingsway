@@ -372,7 +372,7 @@ abstract class BaseController
 
     protected function getUserId()
     {
-        return $this->user['id'] ?? null;
+        return $this->user['user_id'] ?? $this->user['id'] ?? null;
     }
 
     protected function getDb()

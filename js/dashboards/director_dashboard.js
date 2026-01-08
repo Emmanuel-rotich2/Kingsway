@@ -55,7 +55,12 @@ const directorDashboardController = {
         }),
         window.API?.dashboard?.getAttendanceTrends?.().catch((e) => {
           console.error("getAttendanceTrends error", e);
-          return { data: [] };
+          return {
+            data: [],
+            summary: { students: {}, staff: {} },
+            absent_students: [],
+            absent_staff: [],
+          };
         }),
         window.API?.dashboard?.getDirectorRisks?.().catch((e) => {
           console.error("getDirectorRisks error", e);
@@ -98,12 +103,12 @@ const directorDashboardController = {
           : performanceMatrixRaw.data
           ? performanceMatrixRaw.data
           : performanceMatrixRaw;
-      const attendanceTrends =
-        attendanceTrendsRaw && attendanceTrendsRaw.data
-          ? attendanceTrendsRaw
-          : attendanceTrendsRaw.data
-          ? attendanceTrendsRaw.data
-          : attendanceTrendsRaw;
+      // attendanceTrends: handleApiResponse already unwraps response.data
+      // So attendanceTrendsRaw is {data: [...], absent_students: [], absent_staff: [], summary: {...}}
+      // Use it directly - do NOT access .data or we lose summary/absent_students/absent_staff
+      console.log("[Dashboard] attendanceTrendsRaw:", attendanceTrendsRaw);
+      const attendanceTrends = attendanceTrendsRaw || {};
+      console.log("[Dashboard] attendanceTrends parsed:", attendanceTrends);
       const operationalRisks =
         operationalRisksRaw && operationalRisksRaw.data
           ? operationalRisksRaw
@@ -420,20 +425,29 @@ const directorDashboardController = {
       "Staff by Department"
     );
 
-    // Age Distribution
-    const ageDistData = directorSummary?.kpis?.age_distribution || [];
-    if (!Array.isArray(ageDistData) || !ageDistData.length) {
+    // Age Distribution - Students and Staff combined
+    const combinedAgeSummary = directorSummary?.kpis?.combined_age_summary;
+    const studentAgeData = directorSummary?.kpis?.age_distribution || [];
+    const staffAgeData = directorSummary?.kpis?.staff_age_distribution || [];
+
+    const hasStudentAgeData =
+      Array.isArray(studentAgeData) && studentAgeData.length > 0;
+    const hasStaffAgeData =
+      Array.isArray(staffAgeData) && staffAgeData.length > 0;
+
+    if (!hasStudentAgeData && !hasStaffAgeData) {
       // Provide a more helpful message when DOB/age data is missing
       this.showCanvasMessage(
         "age_distribution_chart",
-        "No age distribution data available — ensure students have Date of Birth (DOB) entered"
+        "No age distribution data available — ensure students and staff have Date of Birth (DOB) entered"
       );
     } else {
       this.clearCanvasMessage("age_distribution_chart");
-      this.renderBarChart(
+      this.renderAgeDistributionChart(
         "age_distribution_chart",
-        ageDistData,
-        "Age Distribution"
+        studentAgeData,
+        staffAgeData,
+        combinedAgeSummary
       );
     }
 
@@ -471,10 +485,19 @@ const directorDashboardController = {
     if (document.getElementById("pending_approvals_table")) {
       new DataTable("pending_approvals_table", {
         columns: [
-          { field: "id", label: "ID" },
           { field: "type", label: "Type" },
-          { field: "description", label: "Description", maxLength: 120 },
+          { field: "description", label: "Description", maxLength: 80 },
           { field: "amount", label: "Amount", type: "currency" },
+          {
+            field: "priority",
+            label: "Priority",
+            type: "badge",
+            badgeMap: {
+              high: "danger",
+              medium: "warning",
+              low: "info",
+            },
+          },
           {
             field: "status",
             label: "Status",
@@ -486,53 +509,76 @@ const directorDashboardController = {
               rejected: "danger",
             },
           },
-          { field: "priority", label: "Priority" },
-          { field: "submitted_by", label: "Submitted By" },
-          { field: "submitted_at", label: "Submitted At", type: "date" },
-          { field: "due_by", label: "Due By", type: "date" },
+          { field: "submitted_at", label: "Submitted", type: "date" },
         ],
         apiEndpoint: "system/pending-approvals",
-        // The system endpoint returns { pending: [...] } — use dataField to select it
         dataField: "pending",
-        pageSize: 8,
-        formatters: {
-          submitted_by: (v, row) =>
-            row.first_name || row.last_name
-              ? `${row.first_name || ""} ${row.last_name || ""}`.trim()
-              : row.submitted_by || "-",
-        },
+        pageSize: 10,
       });
     }
 
-    // Admissions Queue Table (DataTable) — use director risks admissions_queue if available
+    // Admissions Queue Table (DataTable)
     if (document.getElementById("admissions_queue_table")) {
       new DataTable("admissions_queue_table", {
         columns: [
-          { field: "id", label: "ID" },
           { field: "student_name", label: "Applicant" },
-          { field: "form", label: "Form" },
-          { field: "status", label: "Status" },
-          { field: "admission_date", label: "Submitted At", type: "date" },
+          { field: "class_applied", label: "Class" },
+          { field: "parent_name", label: "Parent/Guardian" },
+          { field: "contact", label: "Contact" },
+          {
+            field: "status",
+            label: "Status",
+            type: "badge",
+            badgeMap: {
+              submitted: "primary",
+              documents_pending: "warning",
+              documents_verified: "info",
+              placement_offered: "success",
+              fees_pending: "secondary",
+              enrolled: "success",
+              rejected: "danger",
+            },
+          },
+          { field: "days_pending", label: "Days Pending" },
         ],
         apiEndpoint: "dashboard/director/risks",
         dataField: "admissions_queue",
-        pageSize: 8,
+        pageSize: 10,
       });
     }
 
-    // Discipline Summary Table (DataTable)
+    // Discipline Cases Table (DataTable)
     if (document.getElementById("discipline_summary_table")) {
       new DataTable("discipline_summary_table", {
         columns: [
-          { field: "id", label: "ID" },
-          { field: "student", label: "Student" },
-          { field: "violation", label: "Violation" },
-          { field: "date", label: "Date", type: "date" },
-          { field: "status", label: "Status" },
+          { field: "student_name", label: "Student" },
+          { field: "class_name", label: "Class" },
+          { field: "violation", label: "Violation", maxLength: 50 },
+          {
+            field: "severity",
+            label: "Severity",
+            type: "badge",
+            badgeMap: {
+              high: "danger",
+              medium: "warning",
+              low: "info",
+            },
+          },
+          {
+            field: "status",
+            label: "Status",
+            type: "badge",
+            badgeMap: {
+              pending: "warning",
+              escalated: "danger",
+              resolved: "success",
+            },
+          },
+          { field: "incident_date", label: "Date", type: "date" },
         ],
         apiEndpoint: "dashboard/director/risks",
         dataField: "discipline_summary",
-        pageSize: 8,
+        pageSize: 10,
       });
     }
 
@@ -541,12 +587,17 @@ const directorDashboardController = {
       new DataTable("audit_logs_table", {
         columns: [
           { field: "action", label: "Action" },
-          { field: "user_id", label: "User" },
-          { field: "created_at", label: "Created At", type: "datetime" },
+          { field: "entity", label: "Entity" },
+          { field: "user_name", label: "User" },
+          { field: "ip_address", label: "IP Address" },
+          { field: "created_at", label: "Timestamp", type: "datetime" },
         ],
         apiEndpoint: "dashboard/director/risks",
         dataField: "audit_logs",
         pageSize: 10,
+        formatters: {
+          user_name: (v, row) => v || `User #${row.user_id}`,
+        },
       });
     }
 
@@ -560,6 +611,54 @@ const directorDashboardController = {
   },
 
   populateAttendance: function (attendanceTrends) {
+    console.log("[populateAttendance] Input:", attendanceTrends);
+
+    // Populate Attendance Summary Cards
+    const summary = attendanceTrends?.summary || {};
+    const studentSummary = summary.students || {};
+    const staffSummary = summary.staff || {};
+
+    console.log("[populateAttendance] Summary:", summary);
+    console.log("[populateAttendance] Students:", studentSummary);
+    console.log("[populateAttendance] Staff:", staffSummary);
+
+    // Update summary stats (combine students + staff for totals)
+    const totalMarked =
+      (studentSummary.total_marked || 0) + (staffSummary.total_marked || 0);
+    const totalPresent =
+      (studentSummary.present || 0) + (staffSummary.present || 0);
+    const totalAbsent =
+      (studentSummary.absent || 0) + (staffSummary.absent || 0);
+    const totalLate = (studentSummary.late || 0) + (staffSummary.late || 0);
+
+    console.log("[populateAttendance] Totals:", {
+      totalMarked,
+      totalPresent,
+      totalAbsent,
+      totalLate,
+    });
+
+    const setTextContent = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) {
+        el.textContent = value;
+        console.log(`[populateAttendance] Set ${id} = ${value}`);
+      } else {
+        console.warn(`[populateAttendance] Element not found: ${id}`);
+      }
+    };
+
+    setTextContent("attendance_total_marked", totalMarked);
+    setTextContent("attendance_present_count", totalPresent);
+    setTextContent("attendance_absent_count", totalAbsent);
+    setTextContent("attendance_late_count", totalLate);
+
+    // Update badges
+    const absentStudents = attendanceTrends?.absent_students || [];
+    const absentStaff = attendanceTrends?.absent_staff || [];
+    setTextContent("students_absent_badge", absentStudents.length);
+    setTextContent("staff_absent_badge", absentStaff.length);
+
     // Attendance Trends Line Chart
     this.renderLineChart(
       "attendance_trends_chart",
@@ -569,53 +668,235 @@ const directorDashboardController = {
       "Attendance %"
     );
 
-    // Chronic Absenteeism Bar Chart
-    this.renderBarChart(
+    // Chronic Absenteeism Bar Chart - show absent counts by date
+    this.renderAbsenteeismChart(
       "chronic_absenteeism_chart",
-      attendanceTrends?.data || [],
-      "Chronic Absenteeism"
+      attendanceTrends?.data || []
     );
 
-    // Students Absent Today Table (use absent_students from trends if available)
-    this.populateTable(
-      "students_absent_today_table",
-      attendanceTrends?.absent_students || []
-    );
+    // Students Absent Today Table
+    this.populateTable("students_absent_today_table", absentStudents);
 
-    // Staff Absent Today Table (use absent_staff from trends if available)
-    this.populateTable(
-      "staff_absent_today_table",
-      attendanceTrends?.absent_staff || []
-    );
+    // Staff Absent Today Table
+    this.populateTable("staff_absent_today_table", absentStaff);
   },
 
-  populateCommunications: function (announcements) {
+  /**
+   * Render Chronic Absenteeism bar chart showing absent counts by date
+   */
+  renderAbsenteeismChart: function (canvasId, data) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    if (!Array.isArray(data) || !data.length) {
+      this.showCanvasMessage(canvasId, "No absenteeism data available");
+      return;
+    }
+
+    this.clearCanvasMessage(canvasId);
+
+    // Show last 14 days for better visibility
+    const recentData = data.slice(-14);
+
+    new Chart(canvas, {
+      type: "bar",
+      data: {
+        labels: recentData.map((d) => {
+          const date = new Date(d.date);
+          return date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          });
+        }),
+        datasets: [
+          {
+            label: "Absent",
+            data: recentData.map((d) => parseInt(d.absent_count || 0)),
+            backgroundColor: "rgba(220, 53, 69, 0.7)",
+            borderColor: "rgba(220, 53, 69, 1)",
+            borderWidth: 1,
+          },
+          {
+            label: "Late",
+            data: recentData.map((d) => parseInt(d.late_count || 0)),
+            backgroundColor: "rgba(255, 193, 7, 0.7)",
+            borderColor: "rgba(255, 193, 7, 1)",
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          title: { display: false },
+          legend: { position: "top" },
+        },
+        scales: {
+          x: { stacked: false },
+          y: {
+            beginAtZero: true,
+            ticks: { stepSize: 1 },
+          },
+        },
+      },
+    });
+  },
+
+  populateCommunications: function (communicationsData) {
+    // Get announcements and expiring notices from the structured response
+    const announcements =
+      communicationsData?.announcements ||
+      communicationsData?.data?.announcements ||
+      [];
+    const expiringNotices =
+      communicationsData?.expiring_notices ||
+      communicationsData?.data?.expiring_notices ||
+      [];
+
+    // Update badge counts
+    const setTextContent = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = value;
+    };
+    setTextContent("announcements_count", announcements.length);
+    setTextContent("expiring_count", expiringNotices.length);
+
+    // Priority colors and icons
+    const priorityConfig = {
+      critical: { bg: "danger", icon: "exclamation-triangle" },
+      high: { bg: "warning", icon: "exclamation-circle" },
+      normal: { bg: "info", icon: "info-circle" },
+      low: { bg: "secondary", icon: "check-circle" },
+    };
+
+    const typeIcons = {
+      general: "bullhorn",
+      academic: "graduation-cap",
+      administrative: "file-alt",
+      event: "calendar-alt",
+      emergency: "exclamation-triangle",
+      maintenance: "tools",
+    };
+
     // Announcements Feed
     const feedEl = document.getElementById("announcements_feed");
     if (feedEl) {
-      const announcementsHtml =
-        (announcements?.data || [])
-          .map(
-            (ann) => `
-                <div class="alert alert-info mb-2">
-                    <h6 class="alert-heading">${ann.title}</h6>
-                    <p class="mb-0">${ann.content}</p>
-                    <small class="text-muted">${new Date(
-                      ann.published_at
-                    ).toLocaleDateString()}</small>
+      if (!announcements.length) {
+        feedEl.innerHTML = `
+          <div class="text-center py-4">
+            <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+            <p class="text-muted mb-0">No announcements at this time</p>
+          </div>
+        `;
+      } else {
+        const announcementsHtml = announcements
+          .map((ann) => {
+            const config =
+              priorityConfig[ann.priority] || priorityConfig.normal;
+            const typeIcon = typeIcons[ann.announcement_type] || "bullhorn";
+            const publishDate = new Date(ann.published_at).toLocaleDateString(
+              "en-US",
+              {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              }
+            );
+
+            return `
+            <div class="border-start border-4 border-${
+              config.bg
+            } bg-light rounded mb-3 p-3">
+              <div class="d-flex justify-content-between align-items-start mb-2">
+                <div class="d-flex align-items-center">
+                  <i class="fas fa-${typeIcon} text-${config.bg} me-2"></i>
+                  <h6 class="mb-0 fw-bold">${this.escapeHtml(ann.title)}</h6>
                 </div>
-            `
-          )
-          .join("") || '<p class="text-muted text-center">No announcements</p>';
-      feedEl.innerHTML = announcementsHtml;
+                <span class="badge bg-${
+                  config.bg
+                } text-uppercase" style="font-size: 0.65rem;">${
+              ann.priority
+            }</span>
+              </div>
+              <p class="mb-2 text-muted small">${this.escapeHtml(
+                ann.content?.substring(0, 150) || ""
+              )}${ann.content?.length > 150 ? "..." : ""}</p>
+              <div class="d-flex justify-content-between align-items-center">
+                <small class="text-muted"><i class="fas fa-calendar-alt me-1"></i>${publishDate}</small>
+                <span class="badge bg-light text-dark border"><i class="fas fa-tag me-1"></i>${
+                  ann.announcement_type
+                }</span>
+              </div>
+            </div>
+          `;
+          })
+          .join("");
+        feedEl.innerHTML = announcementsHtml;
+      }
     }
 
     // Expiring Notices
     const noticesEl = document.getElementById("expiring_notices");
     if (noticesEl) {
-      noticesEl.innerHTML =
-        '<p class="text-muted text-center">No expiring notices</p>';
+      if (!expiringNotices.length) {
+        noticesEl.innerHTML = `
+          <div class="text-center py-4">
+            <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+            <p class="text-muted mb-0">No notices expiring soon</p>
+          </div>
+        `;
+      } else {
+        const noticesHtml = expiringNotices
+          .map((notice) => {
+            const daysLeft = parseInt(notice.days_remaining);
+            let urgencyClass = "success";
+            let urgencyIcon = "clock";
+            if (daysLeft <= 1) {
+              urgencyClass = "danger";
+              urgencyIcon = "exclamation-triangle";
+            } else if (daysLeft <= 3) {
+              urgencyClass = "warning";
+              urgencyIcon = "exclamation-circle";
+            }
+
+            const expiryDate = new Date(notice.expires_at).toLocaleDateString(
+              "en-US",
+              {
+                month: "short",
+                day: "numeric",
+              }
+            );
+
+            return `
+            <div class="d-flex align-items-center p-2 border-bottom">
+              <div class="rounded-circle bg-${urgencyClass} bg-opacity-10 p-2 me-3">
+                <i class="fas fa-${urgencyIcon} text-${urgencyClass}"></i>
+              </div>
+              <div class="flex-grow-1">
+                <p class="mb-0 fw-semibold small">${this.escapeHtml(
+                  notice.title
+                )}</p>
+                <small class="text-muted">Expires: ${expiryDate}</small>
+              </div>
+              <span class="badge bg-${urgencyClass}">${daysLeft}d</span>
+            </div>
+          `;
+          })
+          .join("");
+        noticesEl.innerHTML = noticesHtml;
+      }
     }
+  },
+
+  /**
+   * Escape HTML to prevent XSS
+   */
+  escapeHtml: function (text) {
+    if (!text) return "";
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
   },
 
   // Chart rendering helpers
@@ -687,6 +968,175 @@ const directorDashboardController = {
         plugins: { title: { display: true, text: title } },
       },
     });
+  },
+
+  /**
+   * Render Age Distribution Chart (Students and Staff)
+   * Shows student age distribution (school-age buckets) and staff age distribution (adult buckets)
+   */
+  renderAgeDistributionChart: function (
+    canvasId,
+    studentData,
+    staffData,
+    summary
+  ) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+
+    this.clearCanvasMessage(canvasId);
+
+    const hasStudents = Array.isArray(studentData) && studentData.length > 0;
+    const hasStaff = Array.isArray(staffData) && staffData.length > 0;
+
+    // If we have both, show a combined stacked visualization
+    // If only students, show student age distribution
+    // If only staff, show staff age distribution
+
+    if (hasStudents && hasStaff) {
+      // Combined view - show both in one chart
+      // Students on left side, staff on right side
+      const allLabels = [
+        ...studentData.map((d) => `Students: ${d.age_range}`),
+        ...staffData.map((d) => `Staff: ${d.age_range}`),
+      ];
+      const allData = [
+        ...studentData.map((d) => d.count || 0),
+        ...staffData.map((d) => d.count || 0),
+      ];
+      const backgroundColors = [
+        ...studentData.map(() => "rgba(54, 162, 235, 0.8)"), // Blue for students
+        ...staffData.map(() => "rgba(255, 159, 64, 0.8)"), // Orange for staff
+      ];
+      const borderColors = [
+        ...studentData.map(() => "rgba(54, 162, 235, 1)"),
+        ...staffData.map(() => "rgba(255, 159, 64, 1)"),
+      ];
+
+      new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: allLabels,
+          datasets: [
+            {
+              label: "Count",
+              data: allData,
+              backgroundColor: backgroundColors,
+              borderColor: borderColors,
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: `Age Distribution (Students: ${
+                summary?.students?.total || 0
+              }, Staff: ${summary?.staff?.total || 0})`,
+            },
+            legend: {
+              display: true,
+              labels: {
+                generateLabels: function () {
+                  return [
+                    {
+                      text: "Students",
+                      fillStyle: "rgba(54, 162, 235, 0.8)",
+                      strokeStyle: "rgba(54, 162, 235, 1)",
+                    },
+                    {
+                      text: "Staff",
+                      fillStyle: "rgba(255, 159, 64, 0.8)",
+                      strokeStyle: "rgba(255, 159, 64, 1)",
+                    },
+                  ];
+                },
+              },
+            },
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1 },
+            },
+          },
+        },
+      });
+    } else if (hasStudents) {
+      // Only students
+      new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: studentData.map((d) => d.age_range),
+          datasets: [
+            {
+              label: "Students",
+              data: studentData.map((d) => d.count || 0),
+              backgroundColor: "rgba(54, 162, 235, 0.8)",
+              borderColor: "rgba(54, 162, 235, 1)",
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: `Student Age Distribution (Total: ${
+                summary?.students?.total ||
+                studentData.reduce((sum, d) => sum + (d.count || 0), 0)
+              })`,
+            },
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1 },
+            },
+          },
+        },
+      });
+    } else if (hasStaff) {
+      // Only staff
+      new Chart(canvas, {
+        type: "bar",
+        data: {
+          labels: staffData.map((d) => d.age_range),
+          datasets: [
+            {
+              label: "Staff",
+              data: staffData.map((d) => d.count || 0),
+              backgroundColor: "rgba(255, 159, 64, 0.8)",
+              borderColor: "rgba(255, 159, 64, 1)",
+              borderWidth: 1,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            title: {
+              display: true,
+              text: `Staff Age Distribution (Total: ${
+                summary?.staff?.total ||
+                staffData.reduce((sum, d) => sum + (d.count || 0), 0)
+              })`,
+            },
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              ticks: { stepSize: 1 },
+            },
+          },
+        },
+      });
+    }
   },
 
   renderPieChart: function (canvasId, data) {

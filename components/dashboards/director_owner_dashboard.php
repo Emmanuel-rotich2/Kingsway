@@ -391,111 +391,86 @@
     <!-- F. OPERATIONS & COMPLIANCE -->
     <div class="row mb-4">
         <div class="col-12">
-            <h4 class="mb-3">Operations & Compliance</h4>
-            <div class="row g-4">
-                <div class="col-lg-6">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Pending Approvals</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="pending_approvals_table">
-                                    <thead>
-                                        <tr>
-                                            <th>Type</th>
-                                            <th>Description</th>
-                                            <th>Priority</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="4" class="text-center">Loading...</td></tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded-circle bg-primary bg-opacity-10 p-2 me-3">
+                    <i class="fas fa-cogs text-primary fa-lg"></i>
                 </div>
-                <div class="col-lg-6">
+                <h4 class="mb-0">Operations & Compliance</h4>
+            </div>
+            
+            <!-- Pending Approvals -->
+            <div class="row mb-4">
+                <div class="col-12">
                     <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Admissions Queue</h6>
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h6 class="mb-0 "><i class="fas fa-hourglass-half me-2"></i>Pending Approvals</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="admissions_queue_table">
-                                    <thead>
-                                        <tr>
-                                            <th>Applicant</th>
-                                            <th>Class</th>
-                                            <th>Status</th>
-                                            <th>Days Pending</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="4" class="text-center">Loading...</td></tr>
-                                    </tbody>
-                                </table>
+                        <div class="card-body p-0" id="pending_approvals_table">
+                            <div class="text-center py-4">
+                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="row mt-4 g-4">
-                <div class="col-lg-4">
+
+            <!-- Admissions Queue -->
+            <div class="row mb-4">
+                <div class="col-12">
                     <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Discipline Summary</h6>
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                            <h6 class="mb-0 "><i class="fas fa-user-graduate me-2"></i>Admissions Queue</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="discipline_summary_table">
-                                    <thead>
-                                        <tr>
-                                            <th>Incident Type</th>
-                                            <th>Count</th>
-                                            <th>This Month</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="3" class="text-center">Loading...</td></tr>
-                                    </tbody>
-                                </table>
+                        <div class="card-body p-0" id="admissions_queue_table">
+                            <div class="text-center py-4">
+                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-4">
+            </div>
+
+            <!-- Discipline Cases -->
+            <div class="row mb-4">
+                <div class="col-12">
                     <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Audit Logs</h6>
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);">
+                            <h6 class="mb-0 "><i class="fas fa-exclamation-triangle me-2"></i>Discipline Cases</h6>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="audit_logs_table">
-                                    <thead>
-                                        <tr>
-                                            <th>Action</th>
-                                            <th>User</th>
-                                            <th>Timestamp</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr><td colspan="3" class="text-center">Loading...</td></tr>
-                                    </tbody>
-                                </table>
+                        <div class="card-body p-0" id="discipline_summary_table">
+                            <div class="text-center py-4">
+                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
                             </div>
                         </div>
                     </div>
                 </div>
-                <div class="col-lg-4">
-                    <div class="card border-0 shadow-sm h-100">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Approval Status</h6>
+            </div>
+
+            <!-- Audit Logs -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);">
+                            <h6 class="mb-0 "><i class="fas fa-history me-2"></i>Recent Audit Logs</h6>
                         </div>
-                        <div class="card-body">
-                            <canvas id="approval_status_chart" height="200"></canvas>
+                        <div class="card-body p-0" id="audit_logs_table">
+                            <div class="text-center py-4">
+                                <i class="fas fa-spinner fa-spin me-2"></i>Loading...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Approval Status Chart -->
+            <div class="row">
+                <div class="col-lg-6 col-md-8 mx-auto">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-gradient" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <h6 class="mb-0 "><i class="fas fa-chart-pie me-2"></i>Approval Status Overview</h6>
+                        </div>
+                        <div class="card-body d-flex align-items-center justify-content-center">
+                            <canvas id="approval_status_chart" height="250"></canvas>
                         </div>
                     </div>
                 </div>
@@ -506,12 +481,67 @@
     <!-- G. ATTENDANCE & DISCIPLINE -->
     <div class="row mb-4">
         <div class="col-12">
-            <h4 class="mb-3">Attendance & Discipline</h4>
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded-circle bg-success bg-opacity-10 p-2 me-3">
+                    <i class="fas fa-user-check text-success fa-lg"></i>
+                </div>
+                <h4 class="mb-0">Attendance & Discipline</h4>
+            </div>
+            
+            <!-- Attendance Summary Cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-3 col-sm-6">
+                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <div class="card-body text-white text-center py-3">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <i class="fas fa-users fa-2x opacity-75"></i>
+                            </div>
+                            <h3 class="mb-1" id="attendance_total_marked"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <small class="opacity-75">Marked Today</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                        <div class="card-body text-white text-center py-3">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <i class="fas fa-check-circle fa-2x opacity-75"></i>
+                            </div>
+                            <h3 class="mb-1" id="attendance_present_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <small class="opacity-75">Present Today</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                        <div class="card-body text-white text-center py-3">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <i class="fas fa-times-circle fa-2x opacity-75"></i>
+                            </div>
+                            <h3 class="mb-1" id="attendance_absent_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <small class="opacity-75">Absent Today</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card border-0 shadow-sm" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
+                        <div class="card-body text-white text-center py-3">
+                            <div class="d-flex align-items-center justify-content-center mb-2">
+                                <i class="fas fa-clock fa-2x opacity-75"></i>
+                            </div>
+                            <h3 class="mb-1" id="attendance_late_count"><i class="fas fa-spinner fa-spin"></i></h3>
+                            <small class="opacity-75">Late Today</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
             <div class="row g-4">
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Attendance Trends (30 days)</h6>
+                        <div class="card-header bg-gradient " style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h6 class="mb-0"><i class="fas fa-chart-line me-2"></i>Attendance Trends (30 days)</h6>
                         </div>
                         <div class="card-body">
                             <canvas id="attendance_trends_chart" height="250"></canvas>
@@ -520,8 +550,8 @@
                 </div>
                 <div class="col-lg-6">
                     <div class="card border-0 shadow-sm h-100">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Chronic Absenteeism</h6>
+                        <div class="card-header bg-gradient " style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                            <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Chronic Absenteeism by Date</h6>
                         </div>
                         <div class="card-body">
                             <canvas id="chronic_absenteeism_chart" height="250"></canvas>
@@ -529,16 +559,19 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Absent Lists Row -->
             <div class="row mt-4 g-4">
                 <div class="col-lg-6">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Students Absent Today</h6>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-gradient  d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
+                            <h6 class="mb-0"><i class="fas fa-user-times me-2"></i>Students Absent Today</h6>
+                            <span class="badge bg-white text-dark" id="students_absent_badge">0</span>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="students_absent_today_table">
-                                    <thead>
+                        <div class="card-body p-0">
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-hover mb-0" id="students_absent_today_table">
+                                    <thead class="table-light position-sticky top-0">
                                         <tr>
                                             <th>Name</th>
                                             <th>Class</th>
@@ -546,7 +579,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr><td colspan="3" class="text-center">Loading...</td></tr>
+                                        <tr><td colspan="3" class="text-center py-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -554,14 +587,15 @@
                     </div>
                 </div>
                 <div class="col-lg-6">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Staff Absent Today</h6>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-gradient  d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                            <h6 class="mb-0"><i class="fas fa-user-tie me-2"></i>Staff Absent Today</h6>
+                            <span class="badge bg-white text-dark" id="staff_absent_badge">0</span>
                         </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-sm" id="staff_absent_today_table">
-                                    <thead>
+                        <div class="card-body p-0">
+                            <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                                <table class="table table-sm table-hover mb-0" id="staff_absent_today_table">
+                                    <thead class="table-light position-sticky top-0">
                                         <tr>
                                             <th>Name</th>
                                             <th>Department</th>
@@ -569,7 +603,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr><td colspan="3" class="text-center">Loading...</td></tr>
+                                        <tr><td colspan="3" class="text-center py-3"><i class="fas fa-spinner fa-spin me-2"></i>Loading...</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -583,28 +617,41 @@
     <!-- H. COMMUNICATIONS & ANNOUNCEMENTS -->
     <div class="row mb-4">
         <div class="col-12">
-            <h4 class="mb-3">Communications & Announcements</h4>
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded-circle bg-primary bg-opacity-10 p-2 me-3">
+                    <i class="fas fa-bullhorn text-primary fa-lg"></i>
+                </div>
+                <h4 class="mb-0">Communications & Announcements</h4>
+            </div>
             <div class="row g-4">
                 <div class="col-lg-8">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Announcements Feed</h6>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-gradient text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h6 class="mb-0 bg-white text-dark"><i class="fas fa-newspaper me-2"></i>Announcements Feed</h6>
+                            <span class="badge bg-white text-dark" id="announcements_count">0</span>
                         </div>
-                        <div class="card-body" style="max-height: 400px; overflow-y: auto;">
-                            <div id="announcements_feed">
-                                <p class="text-muted text-center">Loading announcements...</p>
+                        <div class="card-body p-0" style="max-height: 400px; overflow-y: auto;">
+                            <div id="announcements_feed" class="p-3">
+                                <div class="text-center py-4">
+                                    <i class="fas fa-spinner fa-spin fa-2x text-muted mb-2"></i>
+                                    <p class="text-muted mb-0">Loading announcements...</p>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="col-lg-4">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-header bg-light border-bottom">
-                            <h6 class="mb-0">Expiring Notices</h6>
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-gradient text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(135deg, #f5af19 0%, #f12711 100%);">
+                            <h6 class="mb-0 bg-white text-dark"><i class="fas fa-clock me-2"></i>Expiring Soon</h6>
+                            <span class="badge bg-white text-dark" id="expiring_count">0</span>
                         </div>
-                        <div class="card-body">
-                            <div id="expiring_notices">
-                                <p class="text-muted text-center">Loading...</p>
+                        <div class="card-body p-0">
+                            <div id="expiring_notices" class="p-3">
+                                <div class="text-center py-4">
+                                    <i class="fas fa-spinner fa-spin text-muted"></i>
+                                    <p class="text-muted mb-0 mt-2">Loading...</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -613,79 +660,141 @@
         </div>
     </div>
 
-    <!-- I. QUICK LINKS (CEO TOOLBOX) -->
+    <!-- I. QUICK LINKS (TOOLBOX) -->
     <div class="row">
         <div class="col-12">
-            <h4 class="mb-3">CEO Toolbox</h4>
+            <div class="d-flex align-items-center mb-3">
+                <div class="rounded-circle bg-dark bg-opacity-10 p-2 me-3">
+                    <i class="fas fa-toolbox text-dark fa-lg"></i>
+                </div>
+                <h4 class="mb-0">Toolbox</h4>
+            </div>
             <div class="row g-3">
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-file-earmark-spreadsheet fs-2 text-primary mb-2"></i>
-                            <h6 class="mb-0">Financial Reports</h6>
+                    <a href="#" data-route="financial_reports" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-primary bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-file-earmark-spreadsheet fs-2 text-primary"></i>
+                            </div>
+                            <h6 class="mb-1">Financial Reports</h6>
+                            <small class="text-muted">Revenue, expenses & budgets</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-graph-up fs-2 text-success mb-2"></i>
-                            <h6 class="mb-0">Academic Reports</h6>
+                    <a href="#" data-route="performance_reports" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-success bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-graph-up fs-2 text-success"></i>
+                            </div>
+                            <h6 class="mb-1">Academic Reports</h6>
+                            <small class="text-muted">Student performance analytics</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-people fs-2 text-info mb-2"></i>
-                            <h6 class="mb-0">HR Reports</h6>
+                    <a href="#" data-route="manage_staff" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-info bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-people fs-2 text-info"></i>
+                            </div>
+                            <h6 class="mb-1">HR & Staff</h6>
+                            <small class="text-muted">Staff records & payroll</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-person-plus fs-2 text-warning mb-2"></i>
-                            <h6 class="mb-0">Admissions Panel</h6>
+                    <a href="#" data-route="manage_admissions" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-warning bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-person-plus fs-2 text-warning"></i>
+                            </div>
+                            <h6 class="mb-1">Admissions Panel</h6>
+                            <small class="text-muted">New applications & enrollment</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-cash fs-2 text-danger mb-2"></i>
-                            <h6 class="mb-0">Fee Structure</h6>
+                    <a href="#" data-route="manage_fee_structure" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-danger bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-cash fs-2 text-danger"></i>
+                            </div>
+                            <h6 class="mb-1">Fee Structure</h6>
+                            <small class="text-muted">Configure fees & charges</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-terminal fs-2 text-secondary mb-2"></i>
-                            <h6 class="mb-0">System Logs</h6>
+                    <a href="#" data-route="manage_users" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-secondary bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-terminal fs-2 text-secondary"></i>
+                            </div>
+                            <h6 class="mb-1">System Logs</h6>
+                            <small class="text-muted">Audit trails & activities</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-gear fs-2 text-dark mb-2"></i>
-                            <h6 class="mb-0">User Management</h6>
+                    <a href="#" data-route="manage_users" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-dark bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-gear fs-2 text-dark"></i>
+                            </div>
+                            <h6 class="mb-1">User Management</h6>
+                            <small class="text-muted">Users, roles & permissions</small>
                         </div>
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" class="card border-0 shadow-sm text-decoration-none h-100">
-                        <div class="card-body text-center">
-                            <i class="bi-shield-check fs-2 text-success mb-2"></i>
-                            <h6 class="mb-0">Security Center</h6>
+                    <a href="#" data-route="system_settings" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                        <div class="card-body text-center py-4">
+                            <div class="rounded-circle bg-success bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
+                                <i class="bi-shield-check fs-2 text-success"></i>
+                            </div>
+                            <h6 class="mb-1">Security Center</h6>
+                            <small class="text-muted">Security & access settings</small>
                         </div>
                     </a>
                 </div>
             </div>
         </div>
     </div>
+
+    <style>
+    .toolbox-card {
+        transition: all 0.3s ease;
+        cursor: pointer;
+    }
+    .toolbox-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    }
+    .toolbox-card:hover h6 {
+        color: var(--bs-primary);
+    }
+    </style>
+
+    <script>
+    // CEO Toolbox Navigation Handler (follows sidebar pattern)
+    document.addEventListener('DOMContentLoaded', function() {
+        const toolboxCards = document.querySelectorAll('.toolbox-card[data-route]');
+        
+        toolboxCards.forEach(card => {
+            card.addEventListener('click', function(e) {
+                e.preventDefault();
+                const route = this.getAttribute('data-route');
+                
+                if (route && route !== '#') {
+                    // Navigate using the same pattern as sidebar
+                    window.location.href = `/Kingsway/home.php?route=${route}`;
+                }
+            });
+        });
+    });
+    </script>
 </div>
 
-<!-- Director Dashboard Controller Script -->
-<script src="js/dashboards/director_dashboard.js"></script>
+<!-- Director Dashboard Controller Script (with cache-busting) -->
+<script src="js/dashboards/director_dashboard.js?v=<?php echo time(); ?>"></script>

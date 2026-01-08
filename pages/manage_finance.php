@@ -3,6 +3,13 @@
  * Manage Finance Page
  * HTML structure only - logic will be in js/pages/finance.js
  * Embedded in app_layout.php
+ * 
+ * Role-based access:
+ * - Accountant/Bursar: Full access to transactions, create, edit
+ * - Director: View all, approve transactions
+ * - Admin: Full access
+ * - Headteacher: View-only for budget oversight
+ * - Other staff: No access (page not shown in sidebar)
  */
 ?>
 
@@ -11,19 +18,30 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="fas fa-coins"></i> Finance Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addTransactionBtn" data-permission="finance_create">
+                <!-- Add Transaction - Accountant, Bursar only -->
+                <button class="btn btn-light btn-sm" id="addTransactionBtn" 
+                        data-permission="finance_create"
+                        data-role="accountant,bursar,admin">
                     <i class="bi bi-plus-circle"></i> Add Transaction
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="exportFinanceBtn">
+                <!-- Export - All finance viewers -->
+                <button class="btn btn-outline-light btn-sm" id="exportFinanceBtn"
+                        data-permission="finance_view">
                     <i class="bi bi-download"></i> Export Report
+                </button>
+                <!-- Approve Pending - Director only -->
+                <button class="btn btn-outline-light btn-sm" id="approveTransactionsBtn"
+                        data-permission="finance_approve"
+                        data-role="director,admin">
+                    <i class="bi bi-check-circle"></i> Approve Pending
                 </button>
             </div>
         </div>
     </div>
 
     <div class="card-body">
-        <!-- Finance Overview Cards -->
-        <div class="row mb-4">
+        <!-- Finance Overview Cards - Visible to all with finance_view permission -->
+        <div class="row mb-4" data-permission="finance_view">
             <div class="col-md-3">
                 <div class="card border-success">
                     <div class="card-body text-center">
@@ -51,8 +69,36 @@
             <div class="col-md-3">
                 <div class="card border-warning">
                     <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Pending</h6>
+                        <h6 class="text-muted mb-2">Pending Approval</h6>
                         <h3 class="text-warning mb-0" id="pendingTransactions">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Extended Financial Stats - Director only -->
+        <div class="row mb-4" data-role="director,admin" data-permission="finance_approve">
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Monthly Budget</h6>
+                        <h3 class="text-info mb-0" id="monthlyBudget">KES 0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Budget Utilized</h6>
+                        <h3 class="text-primary mb-0" id="budgetUtilized">0%</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Cash at Bank</h6>
+                        <h3 class="text-success mb-0" id="cashAtBank">KES 0</h3>
                     </div>
                 </div>
             </div>
@@ -76,13 +122,25 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <input type="date" class="form-control" id="dateFromFilter">
+                <input type="date" class="form-control" id="dateFromFilter" placeholder="From Date">
             </div>
             <div class="col-md-2">
-                <input type="date" class="form-control" id="dateToFilter">
+                <input type="date" class="form-control" id="dateToFilter" placeholder="To Date">
             </div>
             <div class="col-md-1">
                 <button class="btn btn-secondary w-100" id="clearFiltersBtn">Clear</button>
+            </div>
+        </div>
+
+        <!-- Pending Approval Filter - Director only -->
+        <div class="row mb-3" data-role="director,admin" data-permission="finance_approve">
+            <div class="col-md-3">
+                <select class="form-select" id="approvalStatusFilter">
+                    <option value="">All Approval Status</option>
+                    <option value="pending">Pending Approval</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                </select>
             </div>
         </div>
 
