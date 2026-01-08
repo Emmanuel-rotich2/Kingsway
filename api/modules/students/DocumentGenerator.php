@@ -47,7 +47,7 @@ class DocumentGenerator extends BaseAPI
             $stmt = $this->db->prepare("
                 SELECT 
                     st.*,
-                    s.first_name, s.last_name, s.admission_no, s.date_of_birth, s.assessment_number,
+                    s.first_name, s.last_name, s.admission_no, s.date_of_birth, s.assessment_number, s.nemis_number,
                     s.admission_date,
                     cc.name as current_class_name,
                     cs.name as current_stream_name,
@@ -326,6 +326,7 @@ class DocumentGenerator extends BaseAPI
         $currentStream = htmlspecialchars($data['current_stream_name'] ?? '');
         $dob = htmlspecialchars($data['date_of_birth'] ?? '');
         $assessmentNo = htmlspecialchars($data['assessment_number'] ?? '');
+        $nemisNo = htmlspecialchars($data['nemis_number'] ?? '');
         $reason = htmlspecialchars($data['transfer_reason'] ?? '');
         $conduct = htmlspecialchars($data['conduct_rating'] ?? '');
         $remarks = htmlspecialchars($data['final_remarks'] ?? '');
@@ -343,7 +344,9 @@ class DocumentGenerator extends BaseAPI
 
             <p>Date of Birth: <strong>{$dob}</strong></p>
 
-            <p>Assessment Number: <strong>{$assessmentNo}</strong></p>
+            <p>KNEC Assessment Number: <strong>{$assessmentNo}</strong></p>
+
+            <p>NEMIS Number: <strong>{$nemisNo}</strong></p>
 
             <p>Reason for Leaving: <strong>{$reason}</strong></p>
 

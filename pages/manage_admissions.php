@@ -31,7 +31,10 @@ $pageScripts = ['js/pages/admissions.js'];
         <p class="text-muted mb-0">Manage new student admission workflow</p>
     </div>
     <div class="btn-group">
-        <button class="btn btn-primary" data-action="new-application">
+        <!-- New Application - Registrar, Secretary, Admin -->
+        <button class="btn btn-primary" data-action="new-application" 
+                data-permission="admissions_create"
+                data-role="registrar,secretary,school_administrator,admin,director">
             <i class="bi bi-plus-lg me-1"></i> New Application
         </button>
         <button class="btn btn-outline-secondary" data-action="refresh">
@@ -40,9 +43,10 @@ $pageScripts = ['js/pages/admissions.js'];
     </div>
 </div>
 
-<!-- Summary Cards -->
+<!-- Summary Cards - Visibility based on role responsibilities -->
 <div class="row mb-4" id="admissionSummaryCards">
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Documents Pending - Registrar, Deputy Head -->
+    <div class="col-md-2 col-6 mb-3" data-role="registrar,deputy_head_academic,headteacher,admin">
         <div class="card border-0 bg-warning bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-file-earmark-text display-6 text-warning"></i>
@@ -51,7 +55,8 @@ $pageScripts = ['js/pages/admissions.js'];
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Interview Pending - Headteacher, Deputy Head -->
+    <div class="col-md-2 col-6 mb-3" data-role="headteacher,deputy_head_academic,admin,director">
         <div class="card border-0 bg-info bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-calendar-event display-6 text-info"></i>
@@ -60,7 +65,8 @@ $pageScripts = ['js/pages/admissions.js'];
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Placement Pending - Headteacher, Director -->
+    <div class="col-md-2 col-6 mb-3" data-role="headteacher,director,admin">
         <div class="card border-0 bg-primary bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-check-circle display-6 text-primary"></i>
@@ -69,7 +75,8 @@ $pageScripts = ['js/pages/admissions.js'];
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Payment Pending - Accountant, Bursar, Director -->
+    <div class="col-md-2 col-6 mb-3" data-role="accountant,bursar,director,admin">
         <div class="card border-0 bg-success bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-cash-stack display-6 text-success"></i>
@@ -78,7 +85,8 @@ $pageScripts = ['js/pages/admissions.js'];
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Enrollment Pending - Registrar, Headteacher -->
+    <div class="col-md-2 col-6 mb-3" data-role="registrar,headteacher,admin">
         <div class="card border-0 bg-dark bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-person-check display-6 text-dark"></i>
@@ -87,7 +95,8 @@ $pageScripts = ['js/pages/admissions.js'];
             </div>
         </div>
     </div>
-    <div class="col-md-2 col-6 mb-3">
+    <!-- Total Pending - All with admissions view -->
+    <div class="col-md-2 col-6 mb-3" data-permission="admissions_view">
         <div class="card border-0 bg-secondary bg-opacity-10 h-100">
             <div class="card-body text-center">
                 <i class="bi bi-graph-up display-6 text-secondary"></i>

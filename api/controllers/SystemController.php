@@ -509,11 +509,11 @@ class SystemController extends BaseController
                 LIMIT 50
             ";
 
-            // Get current user from request (would be set by auth middleware)
-            $userId = $_REQUEST['user']['id'] ?? null;
+            // Get current user from auth middleware (stored in $this->user by BaseController)
+            $userId = $this->getUserId();
 
             if (!$userId) {
-                return $this->badRequest('User context not available');
+                return $this->badRequest('Authentication required - please log in again');
             }
 
             $result = $db->query($query, [$userId]);

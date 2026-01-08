@@ -8,7 +8,7 @@
 
 // This page no longer processes direct form submissions
 // All result submission is now done via REST API from enter_results.php
-header('Location: /Kingsway/pages/enter_results.php');
+header('Location: /Kingsway/home.php?route=enter_results');
 exit;
 ?>
 

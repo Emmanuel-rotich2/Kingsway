@@ -408,6 +408,384 @@ class UniformSalesManager extends BaseAPI
     }
 
     /**
+     * List all uniform sales with filters
+     * @param array $params Filter parameters
+     * @return array Response
+     */
+    public function listAllUniformSales($params = [])
+    {
+        try {
+            $page = $params['page'] ?? 1;
+            $limit = $params['limit'] ?? 20;
+            $offset = ($page - 1) * $limit;
+            $student_id = $params['student_id'] ?? null;
+            $item_id = $params['item_id'] ?? null;
+            $payment_status = $params['payment_status'] ?? null;
+            $date_from = $params['date_from'] ?? null;
+            $date_to = $params['date_to'] ?? null;
+
+            $where = ["1=1"];
+            $bindings = [];
+
+            if ($student_id) {
+                $where[] = "us.student_id = ?";
+                $bindings[] = $student_id;
+            }
+            if ($item_id) {
+                $where[] = "us.item_id = ?";
+                $bindings[] = $item_id;
+            }
+            if ($payment_status) {
+                $where[] = "us.payment_status = ?";
+                $bindings[] = $payment_status;
+            }
+            if ($date_from) {
+                $where[] = "us.sale_date >= ?";
+                $bindings[] = $date_from;
+            }
+            if ($date_to) {
+                $where[] = "us.sale_date <= ?";
+                $bindings[] = $date_to;
+            }
+
+            $whereClause = implode(" AND ", $where);
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) as total FROM uniform_sales us WHERE {$whereClause}";
+            $countStmt = $this->db->query($countSql, $bindings);
+            $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+            // Get sales with pagination
+            $sql = "
+                SELECT 
+                    us.id,
+                    us.student_id,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    s.admission_number,
+                    us.item_id,
+                    ii.name as item_name,
+                    ii.code as item_code,
+                    us.size,
+                    us.quantity,
+                    us.unit_price,
+                    us.total_amount,
+                    us.payment_status,
+                    us.sale_date,
+                    us.received_date,
+                    us.notes,
+                    CONCAT(st.first_name, ' ', st.last_name) as sold_by_name
+                FROM uniform_sales us
+                JOIN students s ON us.student_id = s.id
+                JOIN inventory_items ii ON us.item_id = ii.id
+                LEFT JOIN staff st ON us.sold_by = st.id
+                WHERE {$whereClause}
+                ORDER BY us.sale_date DESC, us.id DESC
+                LIMIT {$limit} OFFSET {$offset}
+            ";
+
+            $result = $this->db->query($sql, $bindings);
+            $sales = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+            return $this->formatSuccess([
+                'sales' => $sales,
+                'pagination' => [
+                    'total' => (int) $total,
+                    'page' => (int) $page,
+                    'limit' => (int) $limit,
+                    'total_pages' => ceil($total / $limit)
+                ]
+            ], 'Uniform sales retrieved');
+        } catch (Exception $e) {
+            return $this->formatError('Failed to retrieve uniform sales: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Restock a uniform size
+     * @param array $data Restock data
+     * @return array Response
+     */
+    public function restockUniformSize($data = [])
+    {
+        try {
+            $item_id = $data['item_id'] ?? null;
+            $size = $data['size'] ?? null;
+            $quantity = $data['quantity'] ?? 0;
+            $unit_price = $data['unit_price'] ?? null;
+            $notes = $data['notes'] ?? '';
+
+            if (!$item_id || !$size || $quantity <= 0) {
+                return $this->formatError('Item ID, size, and positive quantity are required', 400);
+            }
+
+            $this->db->beginTransaction();
+
+            try {
+                // Update uniform size stock
+                $updateSql = "
+                    UPDATE uniform_sizes 
+                    SET quantity_available = quantity_available + ?,
+                        last_restocked = NOW(),
+                        updated_at = NOW()
+                        " . ($unit_price ? ", unit_price = ?" : "") . "
+                    WHERE item_id = ? AND size = ?
+                ";
+
+                $params = [$quantity];
+                if ($unit_price) {
+                    $params[] = $unit_price;
+                }
+                $params[] = $item_id;
+                $params[] = $size;
+
+                $this->db->query($updateSql, $params);
+
+                // Update main inventory item quantity
+                $updateItemSql = "
+                    UPDATE inventory_items
+                    SET current_quantity = current_quantity + ?,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ";
+                $this->db->query($updateItemSql, [$quantity, $item_id]);
+
+                // Record inventory transaction
+                $transactionSql = "
+                    INSERT INTO inventory_transactions 
+                        (item_id, transaction_type, quantity, transaction_date, created_at, 
+                         reference_type, notes, unit_cost, total_cost)
+                    VALUES (?, 'in', ?, CURDATE(), NOW(), 'restock', ?, ?, ?)
+                ";
+                $totalCost = $quantity * ($unit_price ?? 0);
+                $this->db->query($transactionSql, [$item_id, $quantity, $notes, $unit_price ?? 0, $totalCost]);
+
+                $this->db->commit();
+
+                return $this->formatSuccess([
+                    'item_id' => $item_id,
+                    'size' => $size,
+                    'quantity_added' => $quantity
+                ], 'Uniform size restocked successfully');
+            } catch (Exception $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        } catch (Exception $e) {
+            return $this->formatError('Failed to restock uniform: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get low stock uniform items
+     * @return array Response
+     */
+    public function getLowStockUniforms()
+    {
+        try {
+            $sql = "
+                SELECT 
+                    us.id,
+                    us.item_id,
+                    ii.name as item_name,
+                    ii.code as item_code,
+                    us.size,
+                    us.quantity_available,
+                    us.quantity_sold,
+                    us.unit_price,
+                    ii.reorder_level,
+                    CASE 
+                        WHEN us.quantity_available = 0 THEN 'out_of_stock'
+                        WHEN us.quantity_available <= 10 THEN 'critical'
+                        WHEN us.quantity_available <= 20 THEN 'low'
+                        ELSE 'adequate'
+                    END as stock_status
+                FROM uniform_sizes us
+                JOIN inventory_items ii ON us.item_id = ii.id
+                WHERE us.quantity_available <= 20
+                ORDER BY us.quantity_available ASC, ii.name ASC, 
+                         FIELD(us.size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
+            ";
+
+            $result = $this->db->query($sql, []);
+            $items = $result->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+            $summary = [
+                'out_of_stock' => 0,
+                'critical' => 0,
+                'low' => 0
+            ];
+
+            foreach ($items as $item) {
+                if (isset($summary[$item['stock_status']])) {
+                    $summary[$item['stock_status']]++;
+                }
+            }
+
+            return $this->formatSuccess([
+                'items' => $items,
+                'summary' => $summary
+            ], 'Low stock uniforms retrieved');
+        } catch (Exception $e) {
+            return $this->formatError('Failed to retrieve low stock uniforms: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get uniform sales report
+     * @param array $params Report parameters
+     * @return array Response
+     */
+    public function getUniformSalesReport($params = [])
+    {
+        try {
+            $date_from = $params['date_from'] ?? date('Y-m-01');
+            $date_to = $params['date_to'] ?? date('Y-m-d');
+            $group_by = $params['group_by'] ?? 'item'; // item, date, student
+
+            // Sales by item
+            $byItemSql = "
+                SELECT 
+                    ii.id as item_id,
+                    ii.name as item_name,
+                    ii.code as item_code,
+                    SUM(us.quantity) as total_quantity,
+                    SUM(us.total_amount) as total_amount,
+                    SUM(CASE WHEN us.payment_status = 'paid' THEN us.total_amount ELSE 0 END) as paid_amount,
+                    SUM(CASE WHEN us.payment_status != 'paid' THEN us.total_amount ELSE 0 END) as pending_amount,
+                    COUNT(*) as sale_count
+                FROM uniform_sales us
+                JOIN inventory_items ii ON us.item_id = ii.id
+                WHERE us.sale_date BETWEEN ? AND ?
+                GROUP BY us.item_id
+                ORDER BY total_amount DESC
+            ";
+
+            $byItemStmt = $this->db->query($byItemSql, [$date_from, $date_to]);
+            $byItem = $byItemStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+            // Sales by date
+            $byDateSql = "
+                SELECT 
+                    us.sale_date,
+                    COUNT(*) as sale_count,
+                    SUM(us.quantity) as total_quantity,
+                    SUM(us.total_amount) as total_amount
+                FROM uniform_sales us
+                WHERE us.sale_date BETWEEN ? AND ?
+                GROUP BY us.sale_date
+                ORDER BY us.sale_date DESC
+            ";
+
+            $byDateStmt = $this->db->query($byDateSql, [$date_from, $date_to]);
+            $byDate = $byDateStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+            // Sales by size
+            $bySizeSql = "
+                SELECT 
+                    us.size,
+                    COUNT(*) as sale_count,
+                    SUM(us.quantity) as total_quantity,
+                    SUM(us.total_amount) as total_amount
+                FROM uniform_sales us
+                WHERE us.sale_date BETWEEN ? AND ?
+                GROUP BY us.size
+                ORDER BY FIELD(us.size, 'XS', 'S', 'M', 'L', 'XL', 'XXL')
+            ";
+
+            $bySizeStmt = $this->db->query($bySizeSql, [$date_from, $date_to]);
+            $bySize = $bySizeStmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
+
+            // Overall summary
+            $summarySql = "
+                SELECT 
+                    COUNT(*) as total_sales,
+                    SUM(quantity) as total_items,
+                    SUM(total_amount) as total_revenue,
+                    SUM(CASE WHEN payment_status = 'paid' THEN total_amount ELSE 0 END) as total_paid,
+                    SUM(CASE WHEN payment_status = 'pending' THEN total_amount ELSE 0 END) as total_pending,
+                    SUM(CASE WHEN payment_status = 'partial' THEN total_amount ELSE 0 END) as total_partial,
+                    COUNT(DISTINCT student_id) as unique_students
+                FROM uniform_sales
+                WHERE sale_date BETWEEN ? AND ?
+            ";
+
+            $summaryStmt = $this->db->query($summarySql, [$date_from, $date_to]);
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess([
+                'period' => [
+                    'from' => $date_from,
+                    'to' => $date_to
+                ],
+                'summary' => $summary,
+                'by_item' => $byItem,
+                'by_date' => $byDate,
+                'by_size' => $bySize
+            ], 'Uniform sales report generated');
+        } catch (Exception $e) {
+            return $this->formatError('Failed to generate sales report: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Delete a uniform sale
+     * @param int $sale_id
+     * @return array Response
+     */
+    public function deleteUniformSale($sale_id)
+    {
+        try {
+            // Get sale details first
+            $saleSql = "SELECT * FROM uniform_sales WHERE id = ?";
+            $saleStmt = $this->db->query($saleSql, [$sale_id]);
+            $sale = $saleStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$sale) {
+                return $this->formatError('Uniform sale not found', 404);
+            }
+
+            $this->db->beginTransaction();
+
+            try {
+                // Restore stock
+                $restoreSql = "
+                    UPDATE uniform_sizes 
+                    SET quantity_available = quantity_available + ?,
+                        quantity_sold = quantity_sold - ?,
+                        updated_at = NOW()
+                    WHERE item_id = ? AND size = ?
+                ";
+                $this->db->query($restoreSql, [$sale['quantity'], $sale['quantity'], $sale['item_id'], $sale['size']]);
+
+                // Update main inventory
+                $updateItemSql = "
+                    UPDATE inventory_items
+                    SET current_quantity = current_quantity + ?,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ";
+                $this->db->query($updateItemSql, [$sale['quantity'], $sale['item_id']]);
+
+                // Delete the sale
+                $deleteSql = "DELETE FROM uniform_sales WHERE id = ?";
+                $this->db->query($deleteSql, [$sale_id]);
+
+                $this->db->commit();
+
+                return $this->formatSuccess([
+                    'sale_id' => $sale_id,
+                    'restored_quantity' => $sale['quantity']
+                ], 'Uniform sale deleted and stock restored');
+            } catch (Exception $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        } catch (Exception $e) {
+            return $this->formatError('Failed to delete uniform sale: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
      * Format success response
      */
     private function formatSuccess($data, $message = 'Success')

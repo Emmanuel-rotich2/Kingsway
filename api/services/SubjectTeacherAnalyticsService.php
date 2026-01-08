@@ -163,4 +163,101 @@ class SubjectTeacherAnalyticsService
             'total' => $total
         ];
     }
+
+    /**
+     * Get subject performance by class chart data
+     */
+    public function getSubjectPerformanceChart(): array
+    {
+        try {
+            $sql = "SELECT 
+                        CASE 
+                            WHEN c.name = cs.stream_name THEN c.name
+                            ELSE CONCAT(c.name, ' ', COALESCE(cs.stream_name, ''))
+                        END as class_name,
+                        AVG(ar.score) as average_score
+                    FROM assessment_results ar
+                    JOIN assessments a ON ar.assessment_id = a.id
+                    JOIN students s ON ar.student_id = s.id
+                    JOIN class_streams cs ON s.stream_id = cs.id
+                    JOIN classes c ON cs.class_id = c.id
+                    WHERE a.teacher_id = ?
+                    GROUP BY c.id, c.name, cs.stream_name
+                    ORDER BY average_score DESC
+                    LIMIT 10";
+            $stmt = $this->db->query($sql, [$this->userId]);
+            $rows = $stmt->fetchAll();
+
+            $labels = [];
+            $data = [];
+            foreach ($rows as $row) {
+                $labels[] = $row['class_name'] ?? 'Unknown';
+                $data[] = round((float) ($row['average_score'] ?? 0), 1);
+            }
+
+            return ['labels' => $labels, 'data' => $data];
+        } catch (\Exception $e) {
+            error_log("getSubjectPerformanceChart error: " . $e->getMessage());
+            return ['labels' => [], 'data' => []];
+        }
+    }
+
+    /**
+     * Get assessment trends over time
+     */
+    public function getAssessmentTrendsChart(): array
+    {
+        try {
+            $sql = "SELECT 
+                        DATE_FORMAT(a.graded_at, '%Y-%m') as month,
+                        AVG(ar.score) as average_score,
+                        COUNT(*) as assessments_count
+                    FROM assessment_results ar
+                    JOIN assessments a ON ar.assessment_id = a.id
+                    WHERE a.teacher_id = ? 
+                        AND a.graded_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+                    GROUP BY DATE_FORMAT(a.graded_at, '%Y-%m')
+                    ORDER BY month ASC";
+            $stmt = $this->db->query($sql, [$this->userId]);
+            $rows = $stmt->fetchAll();
+
+            $labels = [];
+            $data = [];
+            foreach ($rows as $row) {
+                $labels[] = date('M Y', strtotime($row['month'] . '-01'));
+                $data[] = round((float) ($row['average_score'] ?? 0), 1);
+            }
+
+            return ['labels' => $labels, 'data' => $data];
+        } catch (\Exception $e) {
+            error_log("getAssessmentTrendsChart error: " . $e->getMessage());
+            return ['labels' => [], 'data' => []];
+        }
+    }
+
+    /**
+     * Get full dashboard data in a single call
+     */
+    public function getFullDashboardData(): array
+    {
+        return [
+            'cards' => [
+                'classes' => $this->getClassesStats(),
+                'sections' => $this->getSectionsStats(),
+                'assessments_due' => $this->getAssessmentsDueStats(),
+                'graded' => $this->getGradedStats(),
+                'exams' => $this->getExamsStats(),
+                'lesson_plans' => $this->getLessonPlansStats()
+            ],
+            'charts' => [
+                'subject_performance' => $this->getSubjectPerformanceChart(),
+                'assessment_trends' => $this->getAssessmentTrendsChart()
+            ],
+            'tables' => [
+                'pending_assessments' => $this->getPendingAssessments(),
+                'exam_schedule' => $this->getExamSchedule()
+            ],
+            'timestamp' => date('Y-m-d H:i:s')
+        ];
+    }
 }

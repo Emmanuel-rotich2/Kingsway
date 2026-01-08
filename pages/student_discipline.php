@@ -3,6 +3,14 @@
  * Student Discipline Page
  * HTML structure only - logic will be in js/pages/student_discipline.js
  * Embedded in app_layout.php
+ * 
+ * Role-based access:
+ * - Deputy Head Discipline: Full access (create, resolve, escalate)
+ * - Headteacher: View all, resolve escalated cases
+ * - Class Teacher: View and report own class only
+ * - Subject Teacher: Report incidents only
+ * - Counselor: View for counseling context
+ * - Admin: Full access
  */
 ?>
 
@@ -10,16 +18,34 @@
     <div class="card-header bg-gradient bg-danger text-white">
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="fas fa-gavel"></i> Student Discipline</h4>
-            <button class="btn btn-light btn-sm" id="addCaseBtn" data-permission="discipline_manage">
-                <i class="bi bi-plus-circle"></i> Record Case
-            </button>
+            <div class="btn-group">
+                <!-- Record Case - Teachers, Deputy Head Discipline -->
+                <button class="btn btn-light btn-sm" id="addCaseBtn" 
+                        data-permission="discipline_create"
+                        data-role="class_teacher,subject_teacher,deputy_head_discipline,headteacher,admin">
+                    <i class="bi bi-plus-circle"></i> Record Case
+                </button>
+                <!-- Resolve Cases - Deputy Head, Headteacher only -->
+                <button class="btn btn-outline-light btn-sm" id="resolveMultipleBtn"
+                        data-permission="discipline_resolve"
+                        data-role="deputy_head_discipline,headteacher,admin">
+                    <i class="bi bi-check-circle"></i> Bulk Resolve
+                </button>
+                <!-- Export - Deputy Head, Headteacher -->
+                <button class="btn btn-outline-light btn-sm" id="exportBtn"
+                        data-permission="discipline_view"
+                        data-role="deputy_head_discipline,headteacher,counselor,admin">
+                    <i class="bi bi-download"></i> Export
+                </button>
+            </div>
         </div>
     </div>
 
     <div class="card-body">
-        <!-- Summary Cards -->
+        <!-- Summary Cards - Visibility varies by role -->
         <div class="row mb-4">
-            <div class="col-md-3">
+            <!-- Total Cases - Deputy Head, Headteacher, Admin -->
+            <div class="col-md-3" data-role="deputy_head_discipline,headteacher,admin">
                 <div class="card border-danger">
                     <div class="card-body text-center">
                         <h6 class="text-muted mb-2">Total Cases</h6>
@@ -27,7 +53,8 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <!-- Pending Action - All with view permission -->
+            <div class="col-md-3" data-permission="discipline_view">
                 <div class="card border-warning">
                     <div class="card-body text-center">
                         <h6 class="text-muted mb-2">Pending Action</h6>
@@ -35,7 +62,8 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <!-- Resolved - Deputy Head, Headteacher, Admin -->
+            <div class="col-md-3" data-role="deputy_head_discipline,headteacher,admin">
                 <div class="card border-success">
                     <div class="card-body text-center">
                         <h6 class="text-muted mb-2">Resolved</h6>
@@ -43,11 +71,24 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-3">
+            <!-- This Term - All with view permission -->
+            <div class="col-md-3" data-permission="discipline_view">
                 <div class="card border-info">
                     <div class="card-body text-center">
                         <h6 class="text-muted mb-2">This Term</h6>
                         <h3 class="text-info mb-0" id="casesTerm">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Escalated Cases Card - Headteacher only -->
+        <div class="row mb-4" data-role="headteacher,admin">
+            <div class="col-md-4">
+                <div class="card border-danger bg-danger bg-opacity-10">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2"><i class="bi bi-exclamation-triangle me-1"></i>Escalated to You</h6>
+                        <h3 class="text-danger mb-0" id="escalatedCases">0</h3>
                     </div>
                 </div>
             </div>
@@ -76,15 +117,11 @@
                     <option value="severe">Severe</option>
                 </select>
             </div>
-            <div class="col-md-2">
+            <!-- Class filter - hidden for class teachers (locked to their class) -->
+            <div class="col-md-2" data-role-exclude="class_teacher,subject_teacher">
                 <select class="form-select" id="classFilter">
                     <option value="">All Classes</option>
                 </select>
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100" id="exportBtn">
-                    <i class="bi bi-download"></i> Export
-                </button>
             </div>
         </div>
 

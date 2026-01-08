@@ -396,6 +396,9 @@ const studentsManagementController = {
       student.assessment_number || "";
     document.getElementById("assessmentStatus").value =
       student.assessment_status || "";
+    document.getElementById("nemisNumber").value = student.nemis_number || "";
+    document.getElementById("nemisStatus").value =
+      student.nemis_status || "not_assigned";
     document.getElementById("studentEmail").value = student.email || "";
     document.getElementById("studentPhone").value = student.phone || "";
     document.getElementById("studentAddress").value = student.address || "";
@@ -439,6 +442,9 @@ const studentsManagementController = {
         document.getElementById("assessmentNumber").value || null,
       assessment_status:
         document.getElementById("assessmentStatus").value || "not_assigned",
+      nemis_number: document.getElementById("nemisNumber").value || null,
+      nemis_status:
+        document.getElementById("nemisStatus").value || "not_assigned",
       status: document.getElementById("studentStatus").value,
       blood_group: document.getElementById("bloodGroup").value || null,
       is_sponsored: isSponsored ? 1 : 0,
@@ -637,8 +643,11 @@ const studentsManagementController = {
                             <p><strong>Blood Group:</strong> ${
                               student.blood_group || "-"
                             }</p>
-                            <p><strong>Assessment No:</strong> ${
+                            <p><strong>KNEC Assessment No:</strong> ${
                               student.assessment_number || "-"
+                            }</p>
+                            <p><strong>NEMIS Number:</strong> ${
+                              student.nemis_number || "-"
                             }</p>
                         </div>
                         <div class="col-md-5">

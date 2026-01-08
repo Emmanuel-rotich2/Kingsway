@@ -68,88 +68,38 @@ const subjectTeacherDashboardController = {
         const startTime = performance.now();
         
         try {
-            console.log('📡 Fetching subject teacher metrics...');
+            console.log('[SubjectTeacherDashboard] 📡 Fetching dashboard data via API...');
             
-            // Get classes I teach
-            const classes = await fetch('/Kingsway/api/?route=dashboard&action=subject-teacher-classes')
-                .then(r => r.json())
-                .catch(e => ({ 
-                    data: { 
-                        total_students: 156, 
-                        sections: 6 
-                    } 
-                }));
+            // Call centralized API method
+            const response = await API.dashboard.getSubjectTeacherFull();
             
-            // Get pending assessments
-            const assessmentsDue = await fetch('/Kingsway/api/?route=dashboard&action=subject-teacher-assessments-due')
-                .then(r => r.json())
-                .catch(e => ({ 
-                    data: { 
-                        pending: 24, 
-                        total: 120 
-                    } 
-                }));
+            console.log('[SubjectTeacherDashboard] Response:', response);
             
-            // Get graded assessments this week
-            const graded = await fetch('/Kingsway/api/?route=dashboard&action=subject-teacher-graded')
-                .then(r => r.json())
-                .catch(e => ({ 
-                    data: { 
-                        graded_this_week: 18 
-                    } 
-                }));
+            // Check if response has data (unwrapped by handleApiResponse)
+            if (!response || !response.cards) {
+                throw new Error('Invalid response structure');
+            }
             
-            // Get exam schedule
-            const exams = await fetch('/Kingsway/api/?route=dashboard&action=subject-teacher-exams')
-                .then(r => r.json())
-                .catch(e => ({ 
-                    data: { 
-                        upcoming: 3, 
-                        total: 8 
-                    } 
-                }));
+            const { cards, charts, tables } = response;
             
-            // Get lesson plans
-            const lessonPlans = await fetch('/Kingsway/api/?route=dashboard&action=subject-teacher-lesson-plans')
-                .then(r => r.json())
-                .catch(e => ({ 
-                    data: { 
-                        created: 42, 
-                        this_term: 42 
-                    } 
-                }));
+            // Process cards data
+            this.processCardsData(cards);
             
-            // Process data
-            this.processClassesData(classes);
-            this.processSectionsData(classes);
-            this.processAssessmentsDueData(assessmentsDue);
-            this.processGradedData(graded);
-            this.processExamsData(exams);
-            this.processLessonPlansData(lessonPlans);
+            // Process charts data
+            this.renderChartsData(charts);
             
-            // Set chart data
-            this.state.chartData.assessment = {
-                weeks: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
-                data: [12, 15, 18, 16]
-            };
-            
-            this.state.chartData.performance = {
-                classes: ['Form 1A', 'Form 1B', 'Form 2A', 'Form 2B', 'Form 3A', 'Form 3B'],
-                data: [68, 72, 75, 70, 78, 76]
-            };
-            
-            // Load table data
-            this.loadTableData();
+            // Process tables data
+            this.renderTablesData(tables);
             
             // Render dashboard
             this.renderDashboard();
             
             this.state.lastRefresh = new Date();
             const duration = (performance.now() - startTime).toFixed(2);
-            console.log(`✓ Loaded in ${duration}ms`);
+            console.log(`[SubjectTeacherDashboard] ✓ Loaded in ${duration}ms`);
             
         } catch (error) {
-            console.error('❌ Error:', error);
+            console.error('[SubjectTeacherDashboard] ❌ Error:', error);
             this.state.errorMessage = error.message;
             this.showErrorState();
         } finally {
@@ -157,97 +107,154 @@ const subjectTeacherDashboardController = {
         }
     },
     
-    processClassesData: function(data) {
-        const stats = data?.data || { total_students: 156, sections: 6 };
-        this.state.summaryCards.students = {
-            title: 'Students Teaching',
-            value: this.formatNumber(stats.total_students || 156),
-            subtitle: 'Across all sections',
-            secondary: `${stats.sections || 6} classes`,
-            color: 'primary',
-            icon: 'bi-people'
-        };
+    processCardsData: function(cards) {
+        console.log('[SubjectTeacherDashboard] Processing cards:', cards);
+        
+        // Card 1: Classes
+        const classes = cards.classes || cards.classesStats;
+        if (classes) {
+            this.state.summaryCards.classes = {
+                title: 'Classes Teaching',
+                value: this.formatNumber(classes.total_classes || classes.totalClasses || 6),
+                subtitle: 'Classes',
+                secondary: (classes.total_students || classes.totalStudents || 156) + ' students',
+                color: 'primary',
+                icon: 'bi-book'
+            };
+        }
+        
+        // Card 2: Sections
+        const sections = cards.sections || cards.sectionsStats;
+        if (sections) {
+            this.state.summaryCards.sections = {
+                title: 'Sections',
+                value: this.formatNumber(sections.total || sections.count || 6),
+                subtitle: 'Different groups',
+                secondary: 'This term',
+                color: 'info',
+                icon: 'bi-diagram-3'
+            };
+        }
+        
+        // Card 3: Assessments Due
+        const assessmentsDue = cards.assessments_due || cards.assessmentsDue;
+        if (assessmentsDue) {
+            this.state.summaryCards.assessmentsDue = {
+                title: 'Assessments Due',
+                value: this.formatNumber(assessmentsDue.pending || assessmentsDue.count || 24),
+                subtitle: 'Pending grading',
+                secondary: `of ${assessmentsDue.total || 120}`,
+                color: 'warning',
+                icon: 'bi-clipboard-check'
+            };
+        }
+        
+        // Card 4: Graded This Week
+        const graded = cards.graded || cards.gradedStats;
+        if (graded) {
+            this.state.summaryCards.graded = {
+                title: 'Graded This Week',
+                value: this.formatNumber(graded.count || graded.total || 18),
+                subtitle: 'Completed',
+                secondary: 'This week',
+                color: 'success',
+                icon: 'bi-check-square'
+            };
+        }
+        
+        // Card 5: Exams
+        const exams = cards.exams || cards.examStats;
+        if (exams) {
+            this.state.summaryCards.exams = {
+                title: 'Exam Schedule',
+                value: this.formatNumber(exams.upcoming || exams.count || 3),
+                subtitle: 'Upcoming exams',
+                secondary: `of ${exams.total || 8}`,
+                color: 'danger',
+                icon: 'bi-calendar-event'
+            };
+        }
+        
+        // Card 6: Lesson Plans
+        const lessonPlans = cards.lesson_plans || cards.lessonPlans;
+        if (lessonPlans) {
+            this.state.summaryCards.lessonPlans = {
+                title: 'Lesson Plans',
+                value: this.formatNumber(lessonPlans.count || lessonPlans.created || 42),
+                subtitle: 'Created',
+                secondary: `this term: ${lessonPlans.total || lessonPlans.thisTerm || 42}`,
+                color: 'secondary',
+                icon: 'bi-book'
+            };
+        }
+        
+        console.log('[SubjectTeacherDashboard] Processed cards:', this.state.summaryCards);
     },
     
-    processSectionsData: function(data) {
-        const stats = data?.data || { sections: 6 };
-        this.state.summaryCards.sections = {
-            title: 'Sections',
-            value: this.formatNumber(stats.sections || 6),
-            subtitle: 'Classes teaching',
-            secondary: 'Active this term',
-            color: 'info',
-            icon: 'bi-diagram-3'
-        };
+    renderChartsData: function(charts) {
+        console.log('[SubjectTeacherDashboard] Processing charts:', charts);
+        
+        // Assessment trends chart
+        const assessmentTrend = charts?.assessment_trends || charts?.assessmentTrend;
+        if (assessmentTrend) {
+            this.state.chartData.assessment = assessmentTrend;
+        } else {
+            // Fallback
+            this.state.chartData.assessment = {
+                weeks: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+                data: [12, 15, 18, 16]
+            };
+        }
+        
+        // Class performance chart
+        const classPerformance = charts?.class_performance || charts?.classPerformance;
+        if (classPerformance) {
+            this.state.chartData.performance = classPerformance;
+        } else {
+            // Fallback
+            this.state.chartData.performance = {
+                classes: ['Form 1A', 'Form 1B', 'Form 2A', 'Form 2B', 'Form 3A', 'Form 3B'],
+                data: [68, 72, 75, 70, 78, 76]
+            };
+        }
     },
     
-    processAssessmentsDueData: function(data) {
-        const stats = data?.data || { pending: 24, total: 120 };
-        this.state.summaryCards.assessmentsDue = {
-            title: 'Assessments Due',
-            value: this.formatNumber(stats.pending || 24),
-            subtitle: 'Pending grading',
-            secondary: `of ${stats.total || 120}`,
-            color: 'warning',
-            icon: 'bi-clipboard-check'
-        };
-    },
-    
-    processGradedData: function(data) {
-        const stats = data?.data || { graded_this_week: 18 };
-        this.state.summaryCards.graded = {
-            title: 'Graded This Week',
-            value: this.formatNumber(stats.graded_this_week || 18),
-            subtitle: 'Assessments completed',
-            secondary: 'This week',
-            color: 'success',
-            icon: 'bi-check-square'
-        };
-    },
-    
-    processExamsData: function(data) {
-        const stats = data?.data || { upcoming: 3, total: 8 };
-        this.state.summaryCards.exams = {
-            title: 'Exam Schedule',
-            value: this.formatNumber(stats.upcoming || 3),
-            subtitle: 'Upcoming exams',
-            secondary: `of ${stats.total || 8} total`,
-            color: 'danger',
-            icon: 'bi-calendar-event'
-        };
-    },
-    
-    processLessonPlansData: function(data) {
-        const stats = data?.data || { created: 42, this_term: 42 };
-        this.state.summaryCards.lessonPlans = {
-            title: 'Lesson Plans',
-            value: this.formatNumber(stats.created || 42),
-            subtitle: 'Created',
-            secondary: `this term: ${stats.this_term || 42}`,
-            color: 'secondary',
-            icon: 'bi-book'
-        };
-    },
-    
-    loadTableData: function() {
+    renderTablesData: function(tables) {
+        console.log('[SubjectTeacherDashboard] Processing tables:', tables);
+        
         // Pending assessments table
-        this.state.tableData.assessments = [
-            { id: 'ASS001', title: 'Form 1A Quiz', class: 'Form 1A', due: '2025-01-25', students: 32, status: 'Pending' },
-            { id: 'ASS002', title: 'Form 1B Quiz', class: 'Form 1B', due: '2025-01-25', students: 28, status: 'Pending' },
-            { id: 'ASS003', title: 'Form 2A Test', class: 'Form 2A', due: '2025-01-24', students: 30, status: 'Pending' },
-            { id: 'ASS004', title: 'Form 2B Test', class: 'Form 2B', due: '2025-01-24', students: 29, status: 'Pending' },
-            { id: 'ASS005', title: 'Form 3A Exam', class: 'Form 3A', due: '2025-01-22', students: 31, status: 'Pending' }
-        ];
+        const pendingAssessments = tables?.pending_assessments || tables?.pendingAssessments;
+        if (pendingAssessments && Array.isArray(pendingAssessments)) {
+            this.state.tableData.assessments = pendingAssessments.map(row => ({
+                id: row.id,
+                title: row.title || row.name,
+                class: row.class || row.className,
+                due: row.due_date || row.dueDate,
+                students: row.total_students || row.studentCount || 0,
+                status: row.status || 'Pending'
+            }));
+        } else {
+            // Fallback
+            this.state.tableData.assessments = [];
+        }
         
         // Exam schedule table
-        this.state.tableData.exams = [
-            { id: 'EX001', date: '2025-02-10', form: 'Form 1', subject: 'Mathematics', time: '09:00', duration: '2 hours' },
-            { id: 'EX002', date: '2025-02-12', form: 'Form 2', subject: 'Mathematics', time: '09:00', duration: '2 hours' },
-            { id: 'EX003', date: '2025-02-14', form: 'Form 3', subject: 'Mathematics', time: '14:00', duration: '2.5 hours' },
-            { id: 'EX004', date: '2025-02-16', form: 'Form 4', subject: 'Mathematics', time: '09:00', duration: '3 hours' },
-            { id: 'EX005', date: '2025-02-18', form: 'Form 5', subject: 'Mathematics', time: '14:00', duration: '2 hours' }
-        ];
+        const examSchedule = tables?.exam_schedule || tables?.examSchedule;
+        if (examSchedule && Array.isArray(examSchedule)) {
+            this.state.tableData.exams = examSchedule.map(row => ({
+                id: row.id,
+                date: row.date || row.exam_date,
+                form: row.form || row.class,
+                subject: row.subject,
+                time: row.time || row.start_time,
+                duration: row.duration || row.exam_duration
+            }));
+        } else {
+            // Fallback
+            this.state.tableData.exams = [];
+        }
     },
+
     
     renderDashboard: function() {
         console.log('🎨 Rendering dashboard...');

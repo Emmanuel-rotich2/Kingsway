@@ -1271,6 +1271,60 @@ class InventoryController extends BaseController
     }
 
     /**
+     * GET /api/inventory/uniform-sales-list - List all uniform sales with filters
+     */
+    public function getUniformSalesList($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->listAllUniformSales($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/inventory/uniform-restock - Restock a uniform size
+     */
+    public function postUniformRestock($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->restockUniformSize($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniform-low-stock - Get low stock uniform items
+     */
+    public function getUniformLowStock($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getLowStockUniforms();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/inventory/uniform-sales-report - Get uniform sales report
+     */
+    public function getUniformSalesReport($id = null, $data = [], $segments = [])
+    {
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->getUniformSalesReport($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/inventory/uniform-sales/{id} - Delete a uniform sale
+     */
+    public function deleteUniformSales($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Sale ID is required');
+        }
+
+        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $result = $uniformsApi->deleteUniformSale($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * Handle API response and format appropriately
      */
     private function handleResponse($result)
