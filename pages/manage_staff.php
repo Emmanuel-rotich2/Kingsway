@@ -2,6 +2,14 @@
 /**
  * Manage Staff Page
  * HTML structure only - all logic in js/pages/staff.js (staffManagementController)
+ * 
+ * Role-based access:
+ * - HR Manager: Full CRUD, payroll, contracts
+ * - Headteacher: View all, approve leave, assign roles
+ * - Deputy Heads: View teaching staff, manage workload
+ * - Accountant/Bursar: View for payroll purposes
+ * - Admin/Director: Full access
+ * 
  * Embedded in app_layout.php
  */
 ?>
@@ -11,16 +19,29 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-person-workspace"></i> Staff Management</h4>
             <div class="btn-group">
+                <!-- Add Staff - HR Manager, Headteacher, Admin only -->
                 <button class="btn btn-light btn-sm" onclick="staffManagementController.showStaffModal()"
-                    data-permission="staff_create">
+                    data-permission="staff_create"
+                    data-role="hr_manager,headteacher,school_administrator,admin,director">
                     <i class="bi bi-plus-circle"></i> Add Staff
                 </button>
+                <!-- Bulk Import - HR Manager, Admin only -->
                 <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.showBulkImportModal()"
-                    data-permission="staff_create">
+                    data-permission="staff_create"
+                    data-role="hr_manager,school_administrator,admin">
                     <i class="bi bi-upload"></i> Bulk Import
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.exportStaff()">
+                <!-- Export - HR, Finance, Leadership -->
+                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.exportStaff()"
+                    data-permission="staff_export"
+                    data-role="hr_manager,headteacher,accountant,bursar,director,admin">
                     <i class="bi bi-download"></i> Export
+                </button>
+                <!-- Leave Management - HR and Headteacher -->
+                <button class="btn btn-outline-light btn-sm" onclick="staffManagementController.showLeaveRequests()"
+                    data-permission="staff_leave"
+                    data-role="hr_manager,headteacher,admin">
+                    <i class="bi bi-calendar-x"></i> Leave Requests
                 </button>
             </div>
         </div>
@@ -63,6 +84,42 @@
             </div>
         </div>
 
+        <!-- HR & Finance Stats - HR Manager, Accountant, Director only -->
+        <div class="row mb-4" data-role="hr_manager,accountant,bursar,director,admin">
+            <div class="col-md-3">
+                <div class="card border-danger">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Pending Leave</h6>
+                        <h3 class="text-danger mb-0" id="pendingLeaveCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card border-secondary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Contract Expiring</h6>
+                        <h3 class="text-secondary mb-0" id="contractExpiringCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3" data-role="accountant,bursar,director,admin">
+                <div class="card border-dark">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Monthly Payroll</h6>
+                        <h3 class="text-dark mb-0" id="monthlyPayroll">KES 0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3" data-role="hr_manager,director,admin">
+                <div class="card border-primary">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Vacancies</h6>
+                        <h3 class="text-primary mb-0" id="vacanciesCount">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Tab Navigation -->
         <ul class="nav nav-tabs mb-3" role="tablist">
             <li class="nav-item">
@@ -80,9 +137,22 @@
                     <i class="bi bi-briefcase"></i> Non-Teaching
                 </a>
             </li>
-            <li class="nav-item">
+            <!-- Payroll Tab - Finance and HR only -->
+            <li class="nav-item" data-role="hr_manager,accountant,bursar,director,admin">
                 <a class="nav-link" data-bs-toggle="tab" href="#payrollTab">
                     <i class="bi bi-cash-stack"></i> Payroll
+                </a>
+            </li>
+            <!-- Contracts Tab - HR and Director only -->
+            <li class="nav-item" data-role="hr_manager,director,admin">
+                <a class="nav-link" data-bs-toggle="tab" href="#contractsTab">
+                    <i class="bi bi-file-earmark-text"></i> Contracts
+                </a>
+            </li>
+            <!-- Attendance Tab - HR and Leadership only -->
+            <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,admin">
+                <a class="nav-link" data-bs-toggle="tab" href="#attendanceTab">
+                    <i class="bi bi-clock-history"></i> Attendance
                 </a>
             </li>
         </ul>
@@ -188,11 +258,258 @@
                 </div>
             </div>
 
-            <!-- Payroll Tab -->
-            <div class="tab-pane fade" id="payrollTab">
+            <!-- Payroll Tab - Finance and HR roles -->
+            <div class="tab-pane fade" id="payrollTab" data-role="hr_manager,accountant,bursar,director,admin">
                 <div id="payrollContainer">
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> Payroll information and management will appear here.
+                    <!-- Payroll Summary Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Gross Payroll</h6>
+                                    <h3 class="text-success" id="grossPayroll">KES 0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Deductions</h6>
+                                    <h3 class="text-warning" id="totalDeductions">KES 0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-primary">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Net Payroll</h6>
+                                    <h3 class="text-primary" id="netPayroll">KES 0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3" data-role="bursar,director,admin">
+                            <div class="card border-danger">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Pending Approval</h6>
+                                    <h3 class="text-danger" id="pendingPayrollApproval">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Payroll Actions -->
+                    <div class="d-flex justify-content-between mb-3">
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary" onclick="staffManagementController.runPayroll()"
+                                    data-role="hr_manager,bursar,admin">
+                                <i class="bi bi-calculator"></i> Run Payroll
+                            </button>
+                            <button class="btn btn-outline-success" onclick="staffManagementController.exportPayroll()"
+                                    data-role="accountant,bursar,director,admin">
+                                <i class="bi bi-file-earmark-excel"></i> Export Payroll
+                            </button>
+                            <button class="btn btn-outline-info" onclick="staffManagementController.showPayslips()">
+                                <i class="bi bi-receipt"></i> View Payslips
+                            </button>
+                        </div>
+                        <div data-role="bursar,director,admin">
+                            <button class="btn btn-success" onclick="staffManagementController.approvePayroll()">
+                                <i class="bi bi-check-circle"></i> Approve Payroll
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Payroll Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="payrollTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff No.</th>
+                                    <th>Name</th>
+                                    <th>Basic Salary</th>
+                                    <th>Allowances</th>
+                                    <th>Deductions</th>
+                                    <th>Net Pay</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payrollTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">
+                                        <i class="bi bi-cash-stack fs-1 d-block mb-2"></i>
+                                        Loading payroll data...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Contracts Tab - HR and Director only -->
+            <div class="tab-pane fade" id="contractsTab" data-role="hr_manager,director,admin">
+                <div id="contractsContainer">
+                    <!-- Contract Statistics -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Active Contracts</h6>
+                                    <h3 class="text-success" id="activeContracts">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Expiring (30 days)</h6>
+                                    <h3 class="text-warning" id="expiringContracts">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-danger">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Expired</h6>
+                                    <h3 class="text-danger" id="expiredContracts">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-info">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Pending Renewal</h6>
+                                    <h3 class="text-info" id="pendingRenewal">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Contract Actions -->
+                    <div class="d-flex justify-content-between mb-3">
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="staffManagementController.showContractModal()">
+                                <i class="bi bi-plus-circle"></i> New Contract
+                            </button>
+                            <button class="btn btn-outline-warning" onclick="staffManagementController.showRenewalQueue()">
+                                <i class="bi bi-arrow-repeat"></i> Renewal Queue
+                            </button>
+                        </div>
+                        <button class="btn btn-outline-secondary" onclick="staffManagementController.exportContracts()">
+                            <i class="bi bi-download"></i> Export
+                        </button>
+                    </div>
+                    
+                    <!-- Contracts Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="contractsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff No.</th>
+                                    <th>Name</th>
+                                    <th>Contract Type</th>
+                                    <th>Start Date</th>
+                                    <th>End Date</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="contractsTableBody">
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-file-earmark-text fs-1 d-block mb-2"></i>
+                                        Loading contracts...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Attendance Tab - HR and Leadership only -->
+            <div class="tab-pane fade" id="attendanceTab" data-role="hr_manager,headteacher,deputy_head_academic,admin">
+                <div id="staffAttendanceContainer">
+                    <!-- Attendance Summary -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Present Today</h6>
+                                    <h3 class="text-success" id="presentToday">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">On Leave</h6>
+                                    <h3 class="text-warning" id="staffOnLeave">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-danger">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Absent</h6>
+                                    <h3 class="text-danger" id="absentToday">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-info">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Late Arrivals</h6>
+                                    <h3 class="text-info" id="lateArrivals">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Attendance Actions -->
+                    <div class="d-flex justify-content-between mb-3">
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="staffManagementController.markAttendance()"
+                                    data-role="hr_manager,admin">
+                                <i class="bi bi-check2-square"></i> Mark Attendance
+                            </button>
+                            <button class="btn btn-outline-info" onclick="staffManagementController.showAttendanceReport()">
+                                <i class="bi bi-graph-up"></i> View Report
+                            </button>
+                        </div>
+                        <div class="input-group" style="width: 250px;">
+                            <input type="date" class="form-control" id="attendanceDate" 
+                                   value="<?php echo date('Y-m-d'); ?>">
+                            <button class="btn btn-outline-secondary" onclick="staffManagementController.loadAttendance()">
+                                <i class="bi bi-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Attendance Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="staffAttendanceTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff No.</th>
+                                    <th>Name</th>
+                                    <th>Department</th>
+                                    <th>Check-In</th>
+                                    <th>Check-Out</th>
+                                    <th>Status</th>
+                                    <th>Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody id="staffAttendanceTableBody">
+                                <tr>
+                                    <td colspan="7" class="text-center py-4 text-muted">
+                                        <i class="bi bi-clock-history fs-1 d-block mb-2"></i>
+                                        Loading attendance data...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
