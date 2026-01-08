@@ -1840,6 +1840,114 @@ window.API = {
       apiCall("/attendance", "GET", null, params),
   },
 
+  // Activities endpoints
+  activities: {
+    index: async () => apiCall("/activities/index", "GET"),
+
+    // CRUD
+    list: async (params = {}) => apiCall("/activities", "GET", null, params),
+    get: async (id) => apiCall(`/activities/${id}`, "GET"),
+    create: async (data) => apiCall("/activities", "POST", data),
+    update: async (id, data) => apiCall(`/activities/${id}`, "PUT", data),
+    delete: async (id) => apiCall(`/activities/${id}`, "DELETE"),
+
+    // Statistics
+    getSummary: async () => apiCall("/activities/statistics/get", "GET"),
+    getUpcoming: async (limit = 10) =>
+      apiCall("/activities/upcoming/list", "GET", null, { limit }),
+
+    // Categories
+    listCategories: async (params = {}) =>
+      apiCall("/activities/categories/list", "GET", null, params),
+    getCategory: async (id) =>
+      apiCall(`/activities/categories/get/${id}`, "GET"),
+    createCategory: async (data) =>
+      apiCall("/activities/categories/create", "POST", data),
+    updateCategory: async (id, data) =>
+      apiCall(`/activities/categories/update/${id}`, "PUT", data),
+    deleteCategory: async (id) =>
+      apiCall(`/activities/categories/delete/${id}`, "DELETE"),
+
+    // Participants
+    listParticipants: async (params = {}) =>
+      apiCall("/activities/participants/list", "GET", null, params),
+    registerParticipant: async (data) =>
+      apiCall("/activities/participants/register", "POST", data),
+    updateParticipantStatus: async (id, data) =>
+      apiCall(`/activities/participants/update-status/${id}`, "PUT", data),
+    withdrawParticipant: async (id, reason) =>
+      apiCall(`/activities/participants/withdraw/${id}`, "POST", { reason }),
+    getStudentActivityHistory: async (studentId) =>
+      apiCall(`/activities/participants/student-history/${studentId}`, "GET"),
+    bulkRegisterParticipants: async (activityId, studentIds) =>
+      apiCall("/activities/participants/bulk-register", "POST", {
+        activity_id: activityId,
+        student_ids: studentIds,
+      }),
+
+    // Resources
+    listResources: async (params = {}) =>
+      apiCall("/activities/resources/list", "GET", null, params),
+    addResource: async (data) =>
+      apiCall("/activities/resources/add", "POST", data),
+    updateResource: async (id, data) =>
+      apiCall(`/activities/resources/update/${id}`, "PUT", data),
+    deleteResource: async (id) =>
+      apiCall(`/activities/resources/delete/${id}`, "DELETE"),
+    getActivityResources: async (activityId) =>
+      apiCall(`/activities/resources/activity/${activityId}`, "GET"),
+
+    // Schedules
+    listSchedules: async (params = {}) =>
+      apiCall("/activities/schedules/list", "GET", null, params),
+    createSchedule: async (data) =>
+      apiCall("/activities/schedules/create", "POST", data),
+    updateSchedule: async (id, data) =>
+      apiCall(`/activities/schedules/update/${id}`, "PUT", data),
+    deleteSchedule: async (id) =>
+      apiCall(`/activities/schedules/delete/${id}`, "DELETE"),
+
+    // Workflows
+    startRegistrationWorkflow: async (data) =>
+      apiCall("/activities/workflow/registration/start", "POST", data),
+    startPlanningWorkflow: async (data) =>
+      apiCall("/activities/workflow/planning/start", "POST", data),
+    startCompetitionWorkflow: async (data) =>
+      apiCall("/activities/workflow/competition/start", "POST", data),
+    startEvaluationWorkflow: async (data) =>
+      apiCall("/activities/workflow/evaluation/start", "POST", data),
+    getWorkflowStatus: async (workflowId) =>
+      apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
+  },
+
+  // Counseling endpoints
+  counseling: {
+    index: async () => apiCall("/counseling/index", "GET"),
+
+    // Summary
+    getSummary: async () => apiCall("/counseling/summary", "GET"),
+
+    // CRUD
+    list: async (params = {}) =>
+      apiCall("/counseling/session", "GET", null, params),
+    get: async (id) => apiCall(`/counseling/session/${id}`, "GET"),
+    create: async (data) => apiCall("/counseling/session", "POST", data),
+    update: async (id, data) =>
+      apiCall(`/counseling/session/${id}`, "PUT", data),
+    delete: async (id) => apiCall(`/counseling/session/${id}`, "DELETE"),
+
+    // Aliases for backward compatibility
+    getSessions: async (params = {}) =>
+      apiCall("/counseling/session", "GET", null, params),
+    saveSession: async (data) => {
+      if (data.id || data.sessionId) {
+        const id = data.id || data.sessionId;
+        return apiCall(`/counseling/session/${id}`, "PUT", data);
+      }
+      return apiCall("/counseling/session", "POST", data);
+    },
+  },
+
   // Admission endpoints
   admission: {
     index: async () => apiCall("/admission/index", "GET"),
