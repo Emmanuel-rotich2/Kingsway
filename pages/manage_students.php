@@ -103,17 +103,19 @@
         <div class="table-responsive" id="studentsTableContainer">
             <table class="table table-hover table-striped">
                 <thead class="table-light">
-                    <tr>
-                        <th>#</th>
-                        <th>Admission No.</th>
-                        <th>Name</th>
-                        <th>Class/Stream</th>
-                        <th>Gender</th>
-                        <th>Contact</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
+<tr>
+    <th>Photo</th>
+    <th>#</th>
+    <th>Admission No.</th>
+    <th>Name</th>
+    <th>Class / Stream</th>
+    <th>Gender</th>
+    <th>Contact</th>
+    <th>Status</th>
+    <th>Actions</th>
+</tr>
+</thead>
+
                 <tbody id="studentsTableBody">
                     <tr>
                         <td colspan="8" class="text-center py-4">
@@ -476,7 +478,7 @@ $admissionNumber = generateAdmissionNumber();
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-save"></i> Save Student
+                        <i class="bi bi-save"></i> Admit student
                     </button>
                 </div>
             </form>
