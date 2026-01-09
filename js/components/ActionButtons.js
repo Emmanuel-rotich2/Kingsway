@@ -1,13 +1,24 @@
 /**
- * ActionButtons Component - Permission-aware action button helpers
- * Renders buttons/actions based on user permissions and conditions
+ * ActionButtons Component - Permission and Role-aware action button helpers
+ * Renders buttons/actions based on user permissions, roles, and conditions
  */
 
 class ActionButtons {
     /**
-     * Create permission-aware button with checks
+     * Check if user has required role(s)
+     * @param {string|Array} roles - Role or array of roles
+     * @returns {boolean}
+     */
+    static hasRole(roles) {
+        if (!roles) return true;
+        const rolesArray = Array.isArray(roles) ? roles : roles.split(',').map(r => r.trim());
+        return window.RoleBasedUI?.hasRole(rolesArray) || AuthContext.hasRole?.(rolesArray) || false;
+    }
+
+    /**
+     * Create permission and role-aware button with checks
      * @param {Object} config - Button configuration
-     * @returns {string} HTML button or empty string if permission denied
+     * @returns {string} HTML button or empty string if permission/role denied
      */
     static createButton(config) {
         const {
@@ -17,6 +28,8 @@ class ActionButtons {
             variant = 'primary',
             size = 'md',
             permission,
+            roles,          // NEW: Array or comma-separated string of allowed roles
+            excludeRoles,   // NEW: Roles that should NOT see this button
             visible = true,
             disabled = false,
             onclick,
@@ -26,6 +39,16 @@ class ActionButtons {
 
         // Check permission
         if (permission && !AuthContext.hasPermission(permission)) {
+            return '';
+        }
+
+        // Check role inclusion
+        if (roles && !ActionButtons.hasRole(roles)) {
+            return '';
+        }
+
+        // Check role exclusion
+        if (excludeRoles && ActionButtons.hasRole(excludeRoles)) {
             return '';
         }
 
@@ -86,13 +109,21 @@ class ActionButtons {
     }
 
     /**
-     * Create dropdown menu with actions
+     * Create dropdown menu with actions (permission and role-aware)
      * @param {Array} actions - Array of action configs
      * @returns {string} HTML
      */
     static createDropdownMenu(actions, label = 'Actions', variant = 'secondary') {
         const validActions = actions.filter(action => {
             if (action.permission && !AuthContext.hasPermission(action.permission)) {
+                return false;
+            }
+            // Check role inclusion
+            if (action.roles && !ActionButtons.hasRole(action.roles)) {
+                return false;
+            }
+            // Check role exclusion
+            if (action.excludeRoles && ActionButtons.hasRole(action.excludeRoles)) {
                 return false;
             }
             if (action.visible && !action.visible()) {
@@ -141,7 +172,7 @@ class ActionButtons {
     }
 
     /**
-     * Create icon button (small, square)
+     * Create icon button (small, square) - permission and role-aware
      * @param {Object} config - Button configuration
      * @returns {string} HTML
      */
@@ -151,12 +182,24 @@ class ActionButtons {
             icon,
             variant = 'info',
             permission,
+            roles,
+            excludeRoles,
             visible = true,
             title,
             onclick
         } = config;
 
         if (permission && !AuthContext.hasPermission(permission)) {
+            return '';
+        }
+
+        // Check role inclusion
+        if (roles && !ActionButtons.hasRole(roles)) {
+            return '';
+        }
+
+        // Check role exclusion
+        if (excludeRoles && ActionButtons.hasRole(excludeRoles)) {
             return '';
         }
 

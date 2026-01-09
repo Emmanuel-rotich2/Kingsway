@@ -193,6 +193,8 @@ class StudentsAPI extends BaseAPI
                     admission_date,
                     assessment_number,
                     assessment_status,
+                    nemis_number,
+                    nemis_status,
                     status,
                     photo_url,
                     qr_code_path,
@@ -201,7 +203,7 @@ class StudentsAPI extends BaseAPI
                     sponsor_type,
                     sponsor_waiver_percentage,
                     blood_group
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -217,6 +219,8 @@ class StudentsAPI extends BaseAPI
                 $data['admission_date'],
                 $data['assessment_number'] ?? null,
                 $data['assessment_status'] ?? 'not_assigned',
+                $data['nemis_number'] ?? null,
+                $data['nemis_status'] ?? 'not_assigned',
                 $data['status'] ?? 'active',
                 $data['photo_url'] ?? null,
                 $data['qr_code_path'] ?? null,
@@ -406,6 +410,8 @@ class StudentsAPI extends BaseAPI
                 'photo_url',
                 'assessment_number',
                 'assessment_status',
+                'nemis_number',
+                'nemis_status',
                 'is_sponsored',
                 'sponsor_name',
                 'sponsor_type',

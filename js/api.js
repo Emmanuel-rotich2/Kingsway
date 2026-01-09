@@ -1840,6 +1840,114 @@ window.API = {
       apiCall("/attendance", "GET", null, params),
   },
 
+  // Activities endpoints
+  activities: {
+    index: async () => apiCall("/activities/index", "GET"),
+
+    // CRUD
+    list: async (params = {}) => apiCall("/activities", "GET", null, params),
+    get: async (id) => apiCall(`/activities/${id}`, "GET"),
+    create: async (data) => apiCall("/activities", "POST", data),
+    update: async (id, data) => apiCall(`/activities/${id}`, "PUT", data),
+    delete: async (id) => apiCall(`/activities/${id}`, "DELETE"),
+
+    // Statistics
+    getSummary: async () => apiCall("/activities/statistics/get", "GET"),
+    getUpcoming: async (limit = 10) =>
+      apiCall("/activities/upcoming/list", "GET", null, { limit }),
+
+    // Categories
+    listCategories: async (params = {}) =>
+      apiCall("/activities/categories/list", "GET", null, params),
+    getCategory: async (id) =>
+      apiCall(`/activities/categories/get/${id}`, "GET"),
+    createCategory: async (data) =>
+      apiCall("/activities/categories/create", "POST", data),
+    updateCategory: async (id, data) =>
+      apiCall(`/activities/categories/update/${id}`, "PUT", data),
+    deleteCategory: async (id) =>
+      apiCall(`/activities/categories/delete/${id}`, "DELETE"),
+
+    // Participants
+    listParticipants: async (params = {}) =>
+      apiCall("/activities/participants/list", "GET", null, params),
+    registerParticipant: async (data) =>
+      apiCall("/activities/participants/register", "POST", data),
+    updateParticipantStatus: async (id, data) =>
+      apiCall(`/activities/participants/update-status/${id}`, "PUT", data),
+    withdrawParticipant: async (id, reason) =>
+      apiCall(`/activities/participants/withdraw/${id}`, "POST", { reason }),
+    getStudentActivityHistory: async (studentId) =>
+      apiCall(`/activities/participants/student-history/${studentId}`, "GET"),
+    bulkRegisterParticipants: async (activityId, studentIds) =>
+      apiCall("/activities/participants/bulk-register", "POST", {
+        activity_id: activityId,
+        student_ids: studentIds,
+      }),
+
+    // Resources
+    listResources: async (params = {}) =>
+      apiCall("/activities/resources/list", "GET", null, params),
+    addResource: async (data) =>
+      apiCall("/activities/resources/add", "POST", data),
+    updateResource: async (id, data) =>
+      apiCall(`/activities/resources/update/${id}`, "PUT", data),
+    deleteResource: async (id) =>
+      apiCall(`/activities/resources/delete/${id}`, "DELETE"),
+    getActivityResources: async (activityId) =>
+      apiCall(`/activities/resources/activity/${activityId}`, "GET"),
+
+    // Schedules
+    listSchedules: async (params = {}) =>
+      apiCall("/activities/schedules/list", "GET", null, params),
+    createSchedule: async (data) =>
+      apiCall("/activities/schedules/create", "POST", data),
+    updateSchedule: async (id, data) =>
+      apiCall(`/activities/schedules/update/${id}`, "PUT", data),
+    deleteSchedule: async (id) =>
+      apiCall(`/activities/schedules/delete/${id}`, "DELETE"),
+
+    // Workflows
+    startRegistrationWorkflow: async (data) =>
+      apiCall("/activities/workflow/registration/start", "POST", data),
+    startPlanningWorkflow: async (data) =>
+      apiCall("/activities/workflow/planning/start", "POST", data),
+    startCompetitionWorkflow: async (data) =>
+      apiCall("/activities/workflow/competition/start", "POST", data),
+    startEvaluationWorkflow: async (data) =>
+      apiCall("/activities/workflow/evaluation/start", "POST", data),
+    getWorkflowStatus: async (workflowId) =>
+      apiCall(`/activities/workflow/status/${workflowId}`, "GET"),
+  },
+
+  // Counseling endpoints
+  counseling: {
+    index: async () => apiCall("/counseling/index", "GET"),
+
+    // Summary
+    getSummary: async () => apiCall("/counseling/summary", "GET"),
+
+    // CRUD
+    list: async (params = {}) =>
+      apiCall("/counseling/session", "GET", null, params),
+    get: async (id) => apiCall(`/counseling/session/${id}`, "GET"),
+    create: async (data) => apiCall("/counseling/session", "POST", data),
+    update: async (id, data) =>
+      apiCall(`/counseling/session/${id}`, "PUT", data),
+    delete: async (id) => apiCall(`/counseling/session/${id}`, "DELETE"),
+
+    // Aliases for backward compatibility
+    getSessions: async (params = {}) =>
+      apiCall("/counseling/session", "GET", null, params),
+    saveSession: async (data) => {
+      if (data.id || data.sessionId) {
+        const id = data.id || data.sessionId;
+        return apiCall(`/counseling/session/${id}`, "PUT", data);
+      }
+      return apiCall("/counseling/session", "POST", data);
+    },
+  },
+
   // Admission endpoints
   admission: {
     index: async () => apiCall("/admission/index", "GET"),
@@ -2407,6 +2515,68 @@ window.API = {
       id
         ? apiCall(`/inventory/workflow-get/${id}`, "GET")
         : apiCall("/inventory/workflow-get", "GET"),
+
+    // ====================================
+    // Uniform Sales Management
+    // ====================================
+
+    // Get all uniform items with size availability
+    getUniformItems: async (params = {}) =>
+      apiCall("/inventory/uniform-items", "GET", null, params),
+
+    // Get size variants for a specific uniform item
+    getUniformSizes: async (itemId) =>
+      apiCall(`/inventory/uniform-sizes/${itemId}`, "GET"),
+
+    // Register a new uniform sale
+    registerUniformSale: async (data) =>
+      apiCall("/inventory/uniform-sales", "POST", data),
+
+    // Get uniform sales for a specific student
+    getStudentUniformSales: async (studentId) =>
+      apiCall(`/inventory/uniform-sales-by-student/${studentId}`, "GET"),
+
+    // Get all uniform sales with filters
+    listUniformSales: async (params = {}) =>
+      apiCall("/inventory/uniform-sales-list", "GET", null, params),
+
+    // Update uniform sale payment status
+    updateUniformPayment: async (saleId, paymentStatus) =>
+      apiCall(`/inventory/uniform-sales-payment/${saleId}`, "PUT", {
+        payment_status: paymentStatus,
+      }),
+
+    // Get uniform sales dashboard metrics
+    getUniformDashboard: async () =>
+      apiCall("/inventory/uniform-dashboard", "GET"),
+
+    // Get uniform payment summary
+    getUniformPaymentSummary: async () =>
+      apiCall("/inventory/uniform-payment-summary", "GET"),
+
+    // Get student uniform size profile
+    getStudentUniformProfile: async (studentId) =>
+      apiCall(`/inventory/uniform-student-profile/${studentId}`, "GET"),
+
+    // Update student uniform size profile
+    updateStudentUniformProfile: async (studentId, data) =>
+      apiCall(`/inventory/uniform-student-profile/${studentId}`, "PUT", data),
+
+    // Restock uniform size
+    restockUniformSize: async (data) =>
+      apiCall("/inventory/uniform-restock", "POST", data),
+
+    // Get low stock uniform items
+    getLowStockUniforms: async () =>
+      apiCall("/inventory/uniform-low-stock", "GET"),
+
+    // Get uniform sales analytics/reports
+    getUniformSalesReport: async (params = {}) =>
+      apiCall("/inventory/uniform-sales-report", "GET", null, params),
+
+    // Delete uniform sale (restores stock)
+    deleteUniformSale: async (saleId) =>
+      apiCall(`/inventory/uniform-sales/${saleId}`, "DELETE"),
 
     // Legacy support
     list: async (params = {}) =>
@@ -3450,6 +3620,296 @@ window.API = {
     },
     getDirectorSystemStatus: async () => {
       return await apiCall("/dashboard/director/system-status", "GET");
+    },
+
+    // =========================================================================
+    // SCHOOL ADMIN DASHBOARD ENDPOINTS (TIER 3: Operational Management)
+    // =========================================================================
+
+    /**
+     * Get full dashboard data in a single call (optimized for initial load)
+     * Returns: cards, charts, tables, timestamp
+     */
+    getSchoolAdminFull: async () => {
+      return await apiCall("/dashboard/school-admin/full", "GET");
+    },
+
+    /**
+     * Get active students statistics
+     * Returns: total_students, active_classes, male, female, class_distribution
+     */
+    getSchoolAdminStudents: async () => {
+      return await apiCall("/dashboard/school-admin/students", "GET");
+    },
+
+    /**
+     * Get staff statistics including activities and leaves
+     * Returns: teaching, activities, leaves
+     */
+    getSchoolAdminStaff: async () => {
+      return await apiCall("/dashboard/school-admin/staff", "GET");
+    },
+
+    /**
+     * Get daily attendance statistics and trend
+     * Returns: today (with percentage), trend (weekly data)
+     */
+    getSchoolAdminAttendance: async () => {
+      return await apiCall("/dashboard/school-admin/attendance", "GET");
+    },
+
+    /**
+     * Get admission pipeline statistics
+     * Returns: pending, approved, rejected, total
+     */
+    getSchoolAdminAdmissions: async () => {
+      return await apiCall("/dashboard/school-admin/admissions", "GET");
+    },
+
+    /**
+     * Get timetables and today's schedule
+     * Returns: stats (active_timetables, classes_per_week), today (schedule array)
+     */
+    getSchoolAdminTimetables: async () => {
+      return await apiCall("/dashboard/school-admin/timetables", "GET");
+    },
+
+    /**
+     * Get announcements statistics
+     * Returns: count, active, total_views, recipients
+     */
+    getSchoolAdminAnnouncements: async () => {
+      return await apiCall("/dashboard/school-admin/announcements", "GET");
+    },
+
+    /**
+     * Get all pending items requiring attention
+     * Returns: items array (type, description, count, priority, action)
+     */
+    getSchoolAdminPendingItems: async () => {
+      return await apiCall("/dashboard/school-admin/pending-items", "GET");
+    },
+
+    /**
+     * Get staff directory with optional search
+     * @param {string} search - Optional search term
+     */
+    getSchoolAdminStaffDirectory: async (search = "") => {
+      const params = search ? `?search=${encodeURIComponent(search)}` : "";
+      return await apiCall(
+        `/dashboard/school-admin/staff-directory${params}`,
+        "GET"
+      );
+    },
+
+    /**
+     * Get class distribution chart data
+     * @param {string} filter - Filter by form (all, form1, form2, etc.)
+     */
+    getSchoolAdminClassDistribution: async (filter = "all") => {
+      return await apiCall(
+        `/dashboard/school-admin/class-distribution?filter=${filter}`,
+        "GET"
+      );
+    },
+
+    /**
+     * Get weekly attendance trend chart data
+     * @param {number} weeks - Number of weeks (default 4)
+     */
+    getSchoolAdminAttendanceTrend: async (weeks = 4) => {
+      return await apiCall(
+        `/dashboard/school-admin/attendance-trend?weeks=${weeks}`,
+        "GET"
+      );
+    },
+
+    /**
+     * Get system status (limited view for School Admin)
+     * Returns: status, uptime, db_healthy
+     */
+    getSchoolAdminSystemStatus: async () => {
+      return await apiCall("/dashboard/school-admin/system-status", "GET");
+    },
+
+    // ============= HEADTEACHER DASHBOARD (ROLE 5) =============
+
+    /**
+     * Get full headteacher dashboard data in a single call
+     * Returns: cards, charts, tables, timestamp
+     */
+    getHeadteacherFull: async () => {
+      return await apiCall("/dashboard/headteacher/full", "GET");
+    },
+
+    /**
+     * Get headteacher overview statistics
+     */
+    getHeadteacherOverview: async () => {
+      return await apiCall("/dashboard/headteacher/overview", "GET");
+    },
+
+    /**
+     * Get today's attendance statistics
+     */
+    getHeadteacherAttendance: async () => {
+      return await apiCall("/dashboard/headteacher/attendance-today", "GET");
+    },
+
+    /**
+     * Get class schedules
+     */
+    getHeadteacherSchedules: async () => {
+      return await apiCall("/dashboard/headteacher/schedules", "GET");
+    },
+
+    /**
+     * Get admission statistics
+     */
+    getHeadteacherAdmissions: async () => {
+      return await apiCall("/dashboard/headteacher/admissions", "GET");
+    },
+
+    /**
+     * Get discipline statistics
+     */
+    getHeadteacherDiscipline: async () => {
+      return await apiCall("/dashboard/headteacher/discipline", "GET");
+    },
+
+    /**
+     * Get communications statistics
+     */
+    getHeadteacherCommunications: async () => {
+      return await apiCall("/dashboard/headteacher/communications", "GET");
+    },
+
+    /**
+     * Get assessments statistics
+     */
+    getHeadteacherAssessments: async () => {
+      return await apiCall("/dashboard/headteacher/assessments", "GET");
+    },
+
+    /**
+     * Get performance statistics
+     */
+    getHeadteacherPerformance: async () => {
+      return await apiCall("/dashboard/headteacher/performance", "GET");
+    },
+
+    /**
+     * Get pending admissions table data
+     */
+    getHeadteacherPendingAdmissions: async () => {
+      return await apiCall("/dashboard/headteacher/pending-admissions", "GET");
+    },
+
+    /**
+     * Get discipline cases table data
+     */
+    getHeadteacherDisciplineCases: async () => {
+      return await apiCall("/dashboard/headteacher/discipline-cases", "GET");
+    },
+
+    // ============= CLASS TEACHER DASHBOARD (ROLE 7) =============
+
+    /**
+     * Get full class teacher dashboard data in a single call
+     * Returns: cards, charts, tables, timestamp
+     */
+    getClassTeacherFull: async () => {
+      return await apiCall("/dashboard/class-teacher/full", "GET");
+    },
+
+    /**
+     * Get my class statistics
+     */
+    getClassTeacherMyClass: async () => {
+      return await apiCall("/dashboard/class-teacher/my-class", "GET");
+    },
+
+    /**
+     * Get my class attendance today
+     */
+    getClassTeacherAttendance: async () => {
+      return await apiCall("/dashboard/class-teacher/attendance", "GET");
+    },
+
+    /**
+     * Get my class assessments
+     */
+    getClassTeacherAssessments: async () => {
+      return await apiCall("/dashboard/class-teacher/assessments", "GET");
+    },
+
+    /**
+     * Get my class lesson plans
+     */
+    getClassTeacherLessonPlans: async () => {
+      return await apiCall("/dashboard/class-teacher/lesson-plans", "GET");
+    },
+
+    /**
+     * Get my class students table
+     */
+    getClassTeacherStudents: async () => {
+      return await apiCall("/dashboard/class-teacher/students", "GET");
+    },
+
+    // ============= SUBJECT TEACHER DASHBOARD (ROLE 8) =============
+
+    /**
+     * Get full subject teacher dashboard data in a single call
+     * Returns: cards, charts, tables, timestamp
+     */
+    getSubjectTeacherFull: async () => {
+      return await apiCall("/dashboard/subject-teacher/full", "GET");
+    },
+
+    /**
+     * Get subject teacher classes/sections
+     */
+    getSubjectTeacherClasses: async () => {
+      return await apiCall("/dashboard/subject-teacher/classes", "GET");
+    },
+
+    /**
+     * Get subject teacher assessments
+     */
+    getSubjectTeacherAssessments: async () => {
+      return await apiCall("/dashboard/subject-teacher/assessments", "GET");
+    },
+
+    /**
+     * Get subject teacher students
+     */
+    getSubjectTeacherStudents: async () => {
+      return await apiCall("/dashboard/subject-teacher/students", "GET");
+    },
+
+    // ============= INTERN TEACHER DASHBOARD (ROLE 9) =============
+
+    /**
+     * Get full intern teacher dashboard data in a single call
+     * Returns: cards, charts, tables, timestamp
+     */
+    getInternTeacherFull: async () => {
+      return await apiCall("/dashboard/intern-teacher/full", "GET");
+    },
+
+    /**
+     * Get intern teacher assigned classes
+     */
+    getInternTeacherClasses: async () => {
+      return await apiCall("/dashboard/intern-teacher/classes", "GET");
+    },
+
+    /**
+     * Get intern teacher observations
+     */
+    getInternTeacherObservations: async () => {
+      return await apiCall("/dashboard/intern-teacher/observations", "GET");
     },
   },
 };

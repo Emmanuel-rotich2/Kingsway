@@ -191,29 +191,115 @@
 
 
   <!-- Login Modal -->
-  <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content border-0 shadow">
-        <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title">Admin/Staff Login</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+  <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content border-0 shadow-lg" id="loginForm" style="border-radius: 1rem; overflow: hidden;">
+        <!-- Header with gradient background -->
+        <div class="modal-header border-0 text-white py-4" style="background: linear-gradient(135deg, #198754 0%, #0d6efd 100%);">
+          <div class="w-100 text-center">
+            <img src="./images/logo.jpg" alt="Kingsway Logo" class="mb-3" style="width: 80px; height: 80px; object-fit: contain; border-radius: 50%; background: #fff; padding: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h4 class="modal-title fw-bold mb-1" id="loginModalLabel">Welcome Back!</h4>
+            <p class="mb-0 opacity-75 small">Sign in to Kingsway Academy Portal</p>
+          </div>
+          <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" aria-label="Close"></button>
         </div>
-        <div class="modal-body">
-          <form action="login.php" method="post">
-            <div class="mb-3">
-              <label for="username" class="form-label">Username</label>
-              <input type="text" name="username" class="form-control" required>
+        
+        <div class="modal-body px-4 py-4">
+          <!-- Username/Email Field -->
+          <div class="mb-3">
+            <label for="loginUsername" class="form-label fw-semibold text-muted small">
+              <i class="bi bi-person me-1"></i>Username or Email
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-light border-end-0"><i class="bi bi-person-circle text-muted"></i></span>
+              <input type="text"
+                id="loginUsername"
+                name="username"
+                class="form-control border-start-0 ps-0"
+                placeholder="Enter your username or email"
+                autocomplete="username"
+                required
+                style="border-radius: 0 0.375rem 0.375rem 0;">
             </div>
-            <div class="mb-3">
-              <label for="password" class="form-label">Password</label>
-              <input type="password" name="password" class="form-control" required>
+          </div>
+          
+          <!-- Password Field with Show/Hide Toggle -->
+          <div class="mb-3">
+            <label for="loginPassword" class="form-label fw-semibold text-muted small">
+              <i class="bi bi-lock me-1"></i>Password
+            </label>
+            <div class="input-group">
+              <span class="input-group-text bg-light border-end-0"><i class="bi bi-key text-muted"></i></span>
+              <input type="password"
+                id="loginPassword"
+                name="password"
+                class="form-control border-start-0 border-end-0 ps-0"
+                placeholder="Enter your password"
+                autocomplete="current-password"
+                required>
+              <button type="button" class="btn btn-outline-secondary border-start-0 bg-light" id="togglePassword" tabindex="-1" title="Show/Hide Password">
+                <i class="bi bi-eye" id="togglePasswordIcon"></i>
+              </button>
             </div>
-            <button type="submit" class="btn btn-primary w-100">Login</button>
-          </form>
+          </div>
+          
+          <!-- Remember Me & Forgot Password -->
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="form-check">
+              <input type="checkbox" class="form-check-input" id="rememberMe" name="remember_me">
+              <label class="form-check-label small text-muted" for="rememberMe">Remember me</label>
+            </div>
+            <a href="forgot_password.php" class="text-decoration-none small fw-semibold" style="color: #198754;">
+              <i class="bi bi-question-circle me-1"></i>Forgot Password?
+            </a>
+          </div>
+          
+          <!-- Error Alert -->
+          <div id="loginError" class="alert alert-danger d-none py-2 small">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <span id="loginErrorText"></span>
+          </div>
+          
+          <!-- Login Button -->
+          <button type="submit" class="btn btn-success w-100 py-2 fw-semibold" id="loginSubmitBtn" style="border-radius: 0.5rem;">
+            <span id="loginBtnText"><i class="bi bi-box-arrow-in-right me-2"></i>Sign In</span>
+            <span id="loginSpinner" class="d-none">
+              <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+              Signing in...
+            </span>
+          </button>
         </div>
-      </div>
+        
+        <!-- Footer -->
+        <div class="modal-footer border-0 bg-light py-3 justify-content-center">
+          <small class="text-muted">
+            <i class="bi bi-shield-lock me-1"></i>
+            Secure login protected by SSL encryption
+          </small>
+        </div>
+      </form>
     </div>
   </div>
+
+  <!-- Password Toggle Script -->
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      const togglePassword = document.getElementById('togglePassword');
+      const passwordInput = document.getElementById('loginPassword');
+      const toggleIcon = document.getElementById('togglePasswordIcon');
+      
+      if (togglePassword && passwordInput && toggleIcon) {
+        togglePassword.addEventListener('click', function() {
+          const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+          passwordInput.setAttribute('type', type);
+          toggleIcon.classList.toggle('bi-eye');
+          toggleIcon.classList.toggle('bi-eye-slash');
+        });
+      }
+      
+      // Add loading state to login form - handled via AJAX below
+    });
+  </script>
 
   <!-- Footer -->
  <section class="py-5" id="contact">
@@ -269,6 +355,76 @@
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/api.js?v=<?php echo time(); ?>"></script>
+  
+  <script>
+    // Login form handler with AJAX
+    document.addEventListener('DOMContentLoaded', function() {
+      const loginForm = document.getElementById('loginForm');
+      const loginError = document.getElementById('loginError');
+      const loginErrorText = document.getElementById('loginErrorText');
+      const loginBtnText = document.getElementById('loginBtnText');
+      const loginSpinner = document.getElementById('loginSpinner');
+      const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+      
+      // Function to reset button state
+      function resetLoginButton() {
+        if (loginBtnText && loginSpinner && loginSubmitBtn) {
+          loginBtnText.classList.remove('d-none');
+          loginSpinner.classList.add('d-none');
+          loginSubmitBtn.disabled = false;
+        }
+      }
+      
+      // Function to show error
+      function showLoginError(message) {
+        if (loginErrorText) {
+          loginErrorText.textContent = message;
+        } else if (loginError) {
+          loginError.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
+        }
+        if (loginError) {
+          loginError.classList.remove('d-none');
+        }
+        resetLoginButton();
+      }
+      
+      if (loginForm) {
+        loginForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          
+          // Get form data
+          const username = this.querySelector('input[name="username"]').value;
+          const password = this.querySelector('input[name="password"]').value;
+          
+          // Hide previous errors and show loading state
+          if (loginError) loginError.classList.add('d-none');
+          if (loginBtnText) loginBtnText.classList.add('d-none');
+          if (loginSpinner) loginSpinner.classList.remove('d-none');
+          if (loginSubmitBtn) loginSubmitBtn.disabled = true;
+          
+          try {
+            console.log('Attempting login for:', username);
+            
+            // Call the login API
+            const response = await API.auth.login(username, password);
+            
+            console.log('Login response:', response);
+            
+            if (response && response.token) {
+              console.log('Login successful, redirecting...');
+              // The API.auth.login already handles the redirect
+            } else {
+              throw new Error(response?.message || 'Login failed');
+            }
+          } catch (error) {
+            console.error('Login error:', error);
+            showLoginError(error.message || 'Login failed. Please try again.');
+          }
+        });
+      }
+    });
+  </script>
 </body>
 
 </html>

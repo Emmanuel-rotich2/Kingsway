@@ -5,38 +5,37 @@
 
 class DataTable {
     constructor(containerId, options = {}) {
-        this.containerId = containerId;
-        this.container = document.getElementById(containerId);
-        
-        // Configuration
-        this.apiEndpoint = options.apiEndpoint;
-        this.columns = options.columns || [];
-        this.pageSize = options.pageSize || 10;
-        this.sortBy = options.sortBy || 'id';
-        this.sortOrder = options.sortOrder || 'asc';
-        this.onRowAction = options.onRowAction || null;
-        this.rowActions = options.rowActions || [];
-        this.filters = options.filters || {};
-        this.searchFields = options.searchFields || ['id', 'name'];
-        this.permissions = options.permissions || {};
-        this.formatters = options.formatters || {};
-        this.bulkActions = options.bulkActions || [];
-        this.dataField = options.dataField || null;
-        // When true, skip front-end permission validation before calling API (useful for public dashboard widgets)
-        this.checkPermission =
-          options.checkPermission !== undefined
-            ? options.checkPermission
-            : false;
-        
-        // State
-        this.data = [];
-        this.filteredData = [];
-        this.currentPage = 1;
-        this.totalPages = 1;
-        this.selectedRows = new Set();
-        
-        // Initialize
-        this.init();
+      this.containerId = containerId;
+      this.container = document.getElementById(containerId);
+
+      // Configuration
+      this.apiEndpoint = options.apiEndpoint;
+      this.columns = options.columns || [];
+      this.pageSize = options.pageSize || 10;
+      this.sortBy = options.sortBy || "id";
+      this.sortOrder = options.sortOrder || "asc";
+      this.onRowAction = options.onRowAction || null;
+      this.rowActions = options.rowActions || [];
+      this.filters = options.filters || {};
+      this.searchFields = options.searchFields || ["id", "name"];
+      this.permissions = options.permissions || {};
+      this.formatters = options.formatters || {};
+      this.bulkActions = options.bulkActions || [];
+      this.dataField = options.dataField || null;
+      this.onDataLoaded = options.onDataLoaded || null; // Callback after data is loaded
+      // When true, skip front-end permission validation before calling API (useful for public dashboard widgets)
+      this.checkPermission =
+        options.checkPermission !== undefined ? options.checkPermission : false;
+
+      // State
+      this.data = [];
+      this.filteredData = [];
+      this.currentPage = 1;
+      this.totalPages = 1;
+      this.selectedRows = new Set();
+
+      // Initialize
+      this.init();
     }
 
     async init() {
@@ -182,6 +181,11 @@ class DataTable {
           this.totalPages = Math.ceil(this.filteredData.length / this.pageSize);
           this.renderTableBody();
           this.renderPagination();
+
+          // Invoke callback after data is loaded
+          if (typeof this.onDataLoaded === "function") {
+            this.onDataLoaded(this.data);
+          }
         } catch (error) {
             console.error('Failed to load data:', error);
             this.renderError('Failed to load data. Please try again.');

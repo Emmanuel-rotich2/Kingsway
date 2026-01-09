@@ -72,6 +72,8 @@ $roles = [$main_role];
 
     <!-- Application Scripts -->
     <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/components/ActionButtons.js?v=<?php echo time(); ?>"></script>
+    <script src="/Kingsway/js/components/RoleBasedUI.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/components/DataTable.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>

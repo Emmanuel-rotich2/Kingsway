@@ -3,6 +3,15 @@
  * Manage Students Page
  * HTML structure only - all logic in js/pages/students.js (studentsManagementController)
  * Embedded in app_layout.php
+ * 
+ * Role-based access:
+ * - Admin/Director: Full access (view, edit, delete, promote, transfer)
+ * - Headteacher: Full access except system delete
+ * - Deputy Head Academic: View, edit, promote
+ * - Class Teacher: View own class students only
+ * - Registrar/Secretary: View, add, edit
+ * - Accountant: View with fee status (no edit)
+ * - Parent: View own children only
  */
 ?>
 
@@ -11,13 +20,20 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-people-fill"></i> Student Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="studentsManagementController.showStudentModal()" data-permission="students_create">
+                <!-- Only users with create permission can add students -->
+                <button class="btn btn-light btn-sm" onclick="studentsManagementController.showStudentModal()" 
+                        data-permission="students_create">
                     <i class="bi bi-plus-circle"></i> Add Student
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.showBulkImportModal()" data-permission="students_create">
+                <!-- Bulk import only for registrar/admin -->
+                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.showBulkImportModal()" 
+                        data-permission="students_create"
+                        data-role="registrar,school_administrator,admin">
                     <i class="bi bi-upload"></i> Bulk Import
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.exportStudents()">
+                <!-- Export available to most roles -->
+                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.exportStudents()"
+                        data-permission="students_view">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -25,7 +41,7 @@
     </div>
 
     <div class="card-body">
-        <!-- Statistics Cards -->
+        <!-- Statistics Cards - visible based on role -->
         <div class="row mb-4">
             <div class="col-md-3">
                 <div class="card border-primary">
@@ -61,6 +77,34 @@
             </div>
         </div>
 
+        <!-- Fee Statistics - Only for finance roles -->
+        <div class="row mb-4" data-role="accountant,bursar,director,admin" data-permission="fees_view">
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">With Outstanding Fees</h6>
+                        <h3 class="text-info mb-0" id="studentsWithBalanceCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-success">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Fully Paid</h6>
+                        <h3 class="text-success mb-0" id="studentsPaidCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card border-danger">
+                    <div class="card-body text-center">
+                        <h6 class="text-muted mb-2">Total Outstanding</h6>
+                        <h3 class="text-danger mb-0" id="totalOutstandingFees">KES 0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Filters and Search -->
         <div class="row mb-3">
             <div class="col-md-4">
@@ -71,7 +115,8 @@
                            onkeyup="studentsManagementController.searchStudents(this.value)">
                 </div>
             </div>
-            <div class="col-md-2">
+            <!-- Class filter - hidden for class teachers (locked to their class) -->
+            <div class="col-md-2" data-role-exclude="class_teacher">
                 <select id="classFilter" class="form-select" onchange="studentsManagementController.filterByClass(this.value)">
                     <option value="">All Classes</option>
                 </select>
@@ -95,6 +140,19 @@
                     <option value="inactive">Inactive</option>
                     <option value="suspended">Suspended</option>
                     <option value="graduated">Graduated</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Fee Balance Filter - Only for finance roles -->
+        <div class="row mb-3" data-role="accountant,bursar,director,admin" data-permission="fees_view">
+            <div class="col-md-3">
+                <select id="feeStatusFilter" class="form-select" onchange="studentsManagementController.filterByFeeStatus(this.value)">
+                    <option value="">All Fee Status</option>
+                    <option value="fully_paid">Fully Paid</option>
+                    <option value="partial">Partial Payment</option>
+                    <option value="unpaid">Unpaid</option>
+                    <option value="overdue">Overdue</option>
                 </select>
             </div>
         </div>
@@ -289,15 +347,30 @@ $admissionNumber = generateAdmissionNumber();
                             </select>
                         </div>
                         <div class="col-md-3 mb-3">
-                            <label class="form-label">Assessment Number</label>
-                            <input type="text" id="assessmentNumber" class="form-control" placeholder="Assessment Number (UPI/NEMIS)">
+                            <label class="form-label">KNEC Assessment No.</label>
+                            <input type="text" id="assessmentNumber" class="form-control" placeholder="KNEC Assessment Number">
+                            <small class="text-muted">From Grade 3 - issued by KNEC</small>
                         </div>
                     </div>
                     <div class="row">
-                        <div class="col-md-6 mb-3">
+                        <div class="col-md-3 mb-3">
                             <label class="form-label">Assessment Status</label>
                             <select id="assessmentStatus" class="form-select">
                                 <option value="">-- Select --</option>
+                                <option value="not_assigned">Not Assigned</option>
+                                <option value="pending">Pending</option>
+                                <option value="assigned">Assigned</option>
+                                <option value="verified">Verified</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">NEMIS Number</label>
+                            <input type="text" id="nemisNumber" class="form-control" placeholder="NEMIS Number">
+                            <small class="text-muted">National govt. learner ID</small>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <label class="form-label">NEMIS Status</label>
+                            <select id="nemisStatus" class="form-select">
                                 <option value="not_assigned">Not Assigned</option>
                                 <option value="pending">Pending</option>
                                 <option value="assigned">Assigned</option>

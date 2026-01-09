@@ -91,12 +91,63 @@ class DirectorAnalyticsService
 
     /**
      * Get latest published announcements for dashboard
+     * Returns: announcements array and expiring_notices array
      */
     public function getLatestAnnouncements()
     {
-        $query = "SELECT id, title, content, announcement_type, priority, published_at, expires_at FROM announcements_bulletin WHERE status = 'published' AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY published_at DESC LIMIT 5";
+        $result = [
+            'announcements' => [],
+            'expiring_notices' => []
+        ];
+
+        // Get latest announcements
+        $query = "
+            SELECT 
+                id, 
+                title, 
+                content, 
+                announcement_type, 
+                priority, 
+                published_at, 
+                expires_at,
+                view_count
+            FROM announcements_bulletin 
+            WHERE status = 'published' 
+              AND (expires_at IS NULL OR expires_at > NOW()) 
+            ORDER BY 
+                CASE priority 
+                    WHEN 'critical' THEN 1 
+                    WHEN 'high' THEN 2 
+                    WHEN 'normal' THEN 3 
+                    WHEN 'low' THEN 4 
+                END,
+                published_at DESC 
+            LIMIT 10
+        ";
         $stmt = $this->db->query($query);
-        return $stmt->fetchAll();
+        $result['announcements'] = $stmt->fetchAll();
+
+        // Get notices expiring within 7 days
+        $query = "
+            SELECT 
+                id, 
+                title, 
+                announcement_type, 
+                priority,
+                expires_at,
+                DATEDIFF(expires_at, NOW()) as days_remaining
+            FROM announcements_bulletin 
+            WHERE status = 'published' 
+              AND expires_at IS NOT NULL 
+              AND expires_at > NOW()
+              AND expires_at <= DATE_ADD(NOW(), INTERVAL 7 DAY)
+            ORDER BY expires_at ASC
+            LIMIT 5
+        ";
+        $stmt = $this->db->query($query);
+        $result['expiring_notices'] = $stmt->fetchAll();
+
+        return $result;
     }
 
     /**
@@ -163,15 +214,72 @@ class DirectorAnalyticsService
         $teacher_count = $teacher_stmt->fetch()['count'] ?? 1;
         $result['teacher_student_ratio'] = $teacher_count > 0 ? round($result['total_students'] / $teacher_count, 1) : 0;
 
-        // Fees Collected YTD
-        $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01') AND status = 'confirmed'";
-        $stmt = $this->db->query($query);
+        // Fees Collected YTD - Get current academic year date range or fall back to last 12 months
+        $academicYearQuery = "
+            SELECT start_date, end_date 
+            FROM academic_years 
+            WHERE status IN ('active', 'registration', 'current') OR is_current = 1 
+            ORDER BY start_date DESC LIMIT 1
+        ";
+        $ayStmt = $this->db->query($academicYearQuery);
+        $academicYear = $ayStmt->fetch();
+
+        // Use academic year dates if available, otherwise last 12 months
+        if ($academicYear && $academicYear['start_date']) {
+            $startDate = $academicYear['start_date'];
+            // If academic year hasn't started yet, look at previous year's data
+            if (strtotime($startDate) > time()) {
+                $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
+            } else {
+                $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= ? AND status = 'confirmed'";
+            }
+        } else {
+            $query = "SELECT SUM(amount_paid) as total FROM payment_transactions WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH) AND status = 'confirmed'";
+        }
+
+        // Execute with or without parameter
+        if (isset($startDate) && strtotime($startDate) <= time()) {
+            $stmt = $this->db->query($query, [$startDate]);
+        } else {
+            $stmt = $this->db->query($query);
+        }
         $result['fees_collected_ytd'] = $stmt->fetch()['total'] ?? 0;
 
-        // Fees Outstanding
-        $query = "SELECT SUM(term_allocation - amount_paid) as total FROM payment_transactions WHERE status = 'confirmed' AND term_allocation > amount_paid";
-        $stmt = $this->db->query($query);
-        $result['fees_outstanding'] = $stmt->fetch()['total'] ?? 0;
+        // Fees Outstanding - Calculate from expected fees minus collected
+        // First try student_fee_obligations, fall back to fee_structures estimate
+        $outstandingQuery = "
+            SELECT COALESCE(SUM(sfo.balance), 0) as outstanding
+            FROM student_fee_obligations sfo
+            WHERE sfo.status IN ('pending', 'partial', 'arrears')
+        ";
+        $stmt = $this->db->query($outstandingQuery);
+        $outstanding = $stmt->fetch()['outstanding'] ?? 0;
+
+        // If no obligations data, estimate from active students × average fee structure
+        if ($outstanding == 0 && $result['total_students'] > 0) {
+            // Try fee_structures_detailed first, fall back to fee_structures
+            $feeQuery = "SELECT AVG(amount) as avg_fee FROM fee_structures_detailed WHERE status = 'active'";
+            try {
+                $stmt = $this->db->query($feeQuery);
+                $avgFee = $stmt->fetch()['avg_fee'] ?? 0;
+
+                // If no active detailed structures, use base fee_structures table
+                if (!$avgFee || $avgFee == 0) {
+                    $feeQuery = "SELECT AVG(amount) as avg_fee FROM fee_structures";
+                    $stmt = $this->db->query($feeQuery);
+                    $avgFee = $stmt->fetch()['avg_fee'] ?? 0;
+                }
+
+                // Estimate: (students × average annual fee) - collected = outstanding
+                if ($avgFee > 0) {
+                    $estimatedTotal = $result['total_students'] * $avgFee;
+                    $outstanding = max(0, $estimatedTotal - $result['fees_collected_ytd']);
+                }
+            } catch (\Exception $e) {
+                $outstanding = 0;
+            }
+        }
+        $result['fees_outstanding'] = $outstanding;
 
         // Fee Collection Rate
         $total_fees = $result['fees_collected_ytd'] + $result['fees_outstanding'];
@@ -257,26 +365,66 @@ class DirectorAnalyticsService
             $result['staff_by_department'] = [];
         }
 
-        // Age distribution (students) - simple buckets
+        // Age distribution (students AND staff) - combined with separate counts
         try {
-            $ageQuery = "SELECT
+            // Student age distribution (school-age buckets)
+            $studentAgeQuery = "SELECT
                 CASE
-                    WHEN TIMESTAMPDIFF(YEAR, dob, CURDATE()) < 10 THEN '0-9'
-                    WHEN TIMESTAMPDIFF(YEAR, dob, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
-                    WHEN TIMESTAMPDIFF(YEAR, dob, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 10 THEN '0-9'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 10 AND 13 THEN '10-13'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 14 AND 17 THEN '14-17'
                     ELSE '18+'
                 END as age_range,
                 COUNT(*) as cnt
                 FROM students
-                WHERE dob IS NOT NULL
-                GROUP BY age_range";
-            $stmt = $this->db->query($ageQuery);
-            $rows = $stmt->fetchAll();
+                WHERE date_of_birth IS NOT NULL AND status = 'active'
+                GROUP BY age_range
+                ORDER BY FIELD(age_range, '0-9', '10-13', '14-17', '18+')";
+            $stmt = $this->db->query($studentAgeQuery);
+            $studentRows = $stmt->fetchAll();
+
+            // Staff age distribution (adult buckets)
+            $staffAgeQuery = "SELECT
+                CASE
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 25 THEN '18-24'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 25 AND 34 THEN '25-34'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 35 AND 44 THEN '35-44'
+                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) BETWEEN 45 AND 54 THEN '45-54'
+                    ELSE '55+'
+                END as age_range,
+                COUNT(*) as cnt
+                FROM staff
+                WHERE date_of_birth IS NOT NULL AND status = 'active'
+                GROUP BY age_range
+                ORDER BY FIELD(age_range, '18-24', '25-34', '35-44', '45-54', '55+')";
+            $stmt2 = $this->db->query($staffAgeQuery);
+            $staffRows = $stmt2->fetchAll();
+
+            // Format student age distribution
             $result['age_distribution'] = array_map(function ($r) {
-                return ['class_name' => $r['age_range'], 'total' => (int) $r['cnt']];
-            }, $rows);
+                return ['age_range' => $r['age_range'], 'count' => (int) $r['cnt'], 'type' => 'student'];
+            }, $studentRows);
+
+            // Format staff age distribution
+            $result['staff_age_distribution'] = array_map(function ($r) {
+                return ['age_range' => $r['age_range'], 'count' => (int) $r['cnt'], 'type' => 'staff'];
+            }, $staffRows);
+
+            // Combined summary for the chart (both together)
+            $result['combined_age_summary'] = [
+                'students' => [
+                    'total' => array_sum(array_column($studentRows, 'cnt')),
+                    'distribution' => $result['age_distribution']
+                ],
+                'staff' => [
+                    'total' => array_sum(array_column($staffRows, 'cnt')),
+                    'distribution' => $result['staff_age_distribution']
+                ]
+            ];
         } catch (\Exception $e) {
             $result['age_distribution'] = [];
+            $result['staff_age_distribution'] = [];
+            $result['combined_age_summary'] = ['students' => ['total' => 0, 'distribution' => []], 'staff' => ['total' => 0, 'distribution' => []]];
         }
 
         return $result;
@@ -419,21 +567,123 @@ class DirectorAnalyticsService
     }
 
     /**
-     * Get attendance trends
+     * Get attendance trends including:
+     * - 30-day attendance trend data for charts
+     * - Today's absent students
+     * - Today's absent staff
      */
     public function getAttendanceTrends()
     {
+        $result = [
+            'data' => [],
+            'absent_students' => [],
+            'absent_staff' => [],
+            'summary' => []
+        ];
+
+        // 1. 30-day attendance trend for charts
         $query = "
             SELECT 
-                date,
-                ROUND((SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / COUNT(*)) * 100,1) as attendance_rate
+                DATE_FORMAT(date, '%Y-%m-%d') as date,
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_count,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent_count,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late_count,
+                ROUND((SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) / COUNT(*)) * 100, 1) as attendance_rate
             FROM student_attendance 
             WHERE date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
             GROUP BY date
             ORDER BY date
         ";
         $stmt = $this->db->query($query);
-        return $stmt->fetchAll();
+        $result['data'] = $stmt->fetchAll();
+
+        // 2. Students absent today
+        $query = "
+            SELECT 
+                s.id,
+                s.admission_no,
+                CONCAT(s.first_name, ' ', s.last_name) as name,
+                CASE 
+                    WHEN c.name = cs.stream_name THEN c.name
+                    WHEN cs.stream_name IS NULL THEN COALESCE(c.name, 'Unknown')
+                    ELSE CONCAT(c.name, ' - ', cs.stream_name)
+                END as class,
+                'Not provided' as reason
+            FROM student_attendance sa
+            JOIN students s ON sa.student_id = s.id
+            LEFT JOIN class_streams cs ON s.stream_id = cs.id
+            LEFT JOIN classes c ON cs.class_id = c.id
+            WHERE sa.date = CURDATE()
+              AND sa.status = 'absent'
+            ORDER BY c.name, s.first_name
+        ";
+        $stmt = $this->db->query($query);
+        $result['absent_students'] = $stmt->fetchAll();
+
+        // 3. Staff absent today
+        $query = "
+            SELECT 
+                st.id,
+                st.staff_no,
+                CONCAT(st.first_name, ' ', st.last_name) as name,
+                d.name as department,
+                'Not provided' as reason
+            FROM staff_attendance sta
+            JOIN staff st ON sta.staff_id = st.id
+            LEFT JOIN departments d ON st.department_id = d.id
+            WHERE sta.date = CURDATE()
+              AND sta.status = 'absent'
+            ORDER BY d.name, st.first_name
+        ";
+        $stmt = $this->db->query($query);
+        $result['absent_staff'] = $stmt->fetchAll();
+
+        // 4. Summary statistics
+        $today = date('Y-m-d');
+
+        // Today's student attendance summary
+        $query = "
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late
+            FROM student_attendance
+            WHERE date = CURDATE()
+        ";
+        $stmt = $this->db->query($query);
+        $studentSummary = $stmt->fetch();
+
+        // Today's staff attendance summary
+        $query = "
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late
+            FROM staff_attendance
+            WHERE date = CURDATE()
+        ";
+        $stmt = $this->db->query($query);
+        $staffSummary = $stmt->fetch();
+
+        $result['summary'] = [
+            'students' => [
+                'total_marked' => (int) ($studentSummary['total'] ?? 0),
+                'present' => (int) ($studentSummary['present'] ?? 0),
+                'absent' => (int) ($studentSummary['absent'] ?? 0),
+                'late' => (int) ($studentSummary['late'] ?? 0)
+            ],
+            'staff' => [
+                'total_marked' => (int) ($staffSummary['total'] ?? 0),
+                'present' => (int) ($staffSummary['present'] ?? 0),
+                'absent' => (int) ($staffSummary['absent'] ?? 0),
+                'late' => (int) ($staffSummary['late'] ?? 0)
+            ]
+        ];
+
+        return $result;
     }
 
     /**
@@ -497,14 +747,19 @@ class DirectorAnalyticsService
         $stmt = $this->db->query($query);
         $result['pending_approvals'] = $stmt->fetchAll();
 
-        // Audit logs (recent)
+        // Audit logs (recent) - include entity and ip_address
         $query = "
             SELECT 
-                action,
-                user_id,
-                created_at
-            FROM audit_logs
-            ORDER BY created_at DESC
+                al.action,
+                al.entity,
+                al.entity_id,
+                al.user_id,
+                al.ip_address,
+                al.created_at,
+                CONCAT(u.first_name, ' ', u.last_name) as user_name
+            FROM audit_logs al
+            LEFT JOIN users u ON al.user_id = u.id
+            ORDER BY al.created_at DESC
             LIMIT 20
         ";
         $stmt = $this->db->query($query);

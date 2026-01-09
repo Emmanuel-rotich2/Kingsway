@@ -1,47 +1,103 @@
 <?php
-// filepath: /home/prof_angera/Projects/php_pages/Kingsway/pages/manage_timetable.php
+/**
+ * Timetable Management Page
+ * 
+ * Role-based access:
+ * - Subject Teacher: View own teaching timetable only
+ * - Class Teacher: View class timetable, can report conflicts
+ * - HOD: View department timetables, request changes
+ * - Deputy Head Academic: Generate, edit, approve timetables
+ * - Headteacher/Admin: Full control
+ */
 ?>
 
 <div class="container mt-1">
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-calendar3"></i> Timetable Management</span>
     <div class="btn-group">
-      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal">
+      <!-- Generate Timetable - Deputy Head, Admin only -->
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#generateTimetableModal"
+              data-permission="timetable_generate"
+              data-role="deputy_head_academic,headteacher,admin">
         <i class="bi bi-gear"></i> Generate Timetable
       </button>
-      <button class="btn btn-outline-primary">
+      <!-- Edit Timetable - Deputy Head, Admin only -->
+      <button class="btn btn-outline-primary" onclick="timetableController.enterEditMode()"
+              data-permission="timetable_edit"
+              data-role="deputy_head_academic,admin">
+        <i class="bi bi-pencil"></i> Edit
+      </button>
+      <!-- Export - Academic leadership -->
+      <button class="btn btn-outline-secondary" onclick="timetableController.exportTimetable()"
+              data-permission="timetable_export"
+              data-role="deputy_head_academic,headteacher,class_teacher,admin">
         <i class="bi bi-download"></i> Export
+      </button>
+      <!-- Print My Timetable - Teachers -->
+      <button class="btn btn-outline-info" onclick="timetableController.printMyTimetable()"
+              data-role="subject_teacher,class_teacher,intern">
+        <i class="bi bi-printer"></i> Print My Timetable
+      </button>
+      <!-- Report Conflict - Teachers -->
+      <button class="btn btn-outline-warning" onclick="timetableController.showConflictReportModal()"
+              data-role="subject_teacher,class_teacher,hod,intern">
+        <i class="bi bi-exclamation-triangle"></i> Report Conflict
       </button>
     </div>
   </h2>
   
+  <!-- Filter row -->
   <div class="row mb-4">
-    <div class="col-md-4">
+    <!-- Class filter - Hidden from teachers viewing own timetable -->
+    <div class="col-md-3">
       <label class="form-label">Select Class</label>
-      <select class="form-select">
-        <option>All Classes</option>
-        <option>Form 4 East</option>
-        <option>Grade 6 A</option>
-        <option>Form 2 West</option>
-        <option>Grade 8 B</option>
+      <select class="form-select" id="classFilter">
+        <option value="">All Classes</option>
       </select>
     </div>
-    <div class="col-md-4">
+    <!-- Teacher filter - Only for academic leadership -->
+    <div class="col-md-3" data-role="deputy_head_academic,headteacher,hod,admin">
       <label class="form-label">Select Teacher</label>
-      <select class="form-select">
-        <option>All Teachers</option>
-        <option>John Kamau</option>
-        <option>Mary Wanjiru</option>
-        <option>Peter Ochieng</option>
+      <select class="form-select" id="teacherFilter">
+        <option value="">All Teachers</option>
       </select>
     </div>
-    <div class="col-md-4">
-      <label class="form-label">View Type</label>
-      <select class="form-select">
-        <option>Weekly View</option>
-        <option>Daily View</option>
-        <option>Monthly View</option>
+    <!-- Subject filter - HODs see subjects in department -->
+    <div class="col-md-3" data-role="deputy_head_academic,headteacher,hod,admin">
+      <label class="form-label">Select Subject</label>
+      <select class="form-select" id="subjectFilter">
+        <option value="">All Subjects</option>
       </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">View Type</label>
+      <select class="form-select" id="viewTypeFilter">
+        <option value="weekly">Weekly View</option>
+        <option value="daily">Daily View</option>
+        <option value="monthly">Monthly View</option>
+      </select>
+    </div>
+  </div>
+  
+  <!-- Quick Actions - Academic leadership only -->
+  <div class="row mb-3" data-role="deputy_head_academic,headteacher,admin">
+    <div class="col-12">
+      <div class="alert alert-info d-flex align-items-center">
+        <i class="bi bi-info-circle me-2"></i>
+        <span><strong>Quick Actions:</strong></span>
+        <button class="btn btn-sm btn-outline-info ms-3" onclick="timetableController.checkConflicts()">
+          <i class="bi bi-check-circle"></i> Check Conflicts
+        </button>
+        <button class="btn btn-sm btn-outline-info ms-2" onclick="timetableController.showTeacherWorkload()">
+          <i class="bi bi-person-lines-fill"></i> Teacher Workload
+        </button>
+        <button class="btn btn-sm btn-outline-info ms-2" onclick="timetableController.showRoomUtilization()">
+          <i class="bi bi-door-open"></i> Room Utilization
+        </button>
+        <span class="badge bg-warning ms-auto" id="pendingConflictsCount" style="display:none;">
+          <i class="bi bi-exclamation-triangle"></i> <span>0</span> Pending Conflicts
+        </span>
+      </div>
     </div>
   </div>
 

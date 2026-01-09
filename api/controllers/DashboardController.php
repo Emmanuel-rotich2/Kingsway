@@ -8,7 +8,10 @@ use App\API\Services\DirectorAnalyticsService;
 use App\API\Services\HeadteacherAnalyticsService;
 use App\API\Services\SubjectTeacherAnalyticsService;
 use App\API\Services\TeacherAnalyticsService;
+use App\API\Services\ClassTeacherAnalyticsService;
+use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
+use App\API\Services\SchoolAdminAnalyticsService;
 
 /**
  * DashboardController - Role-specific dashboard endpoints
@@ -38,17 +41,15 @@ class DashboardController extends BaseController
     }
     /**
      * GET /api/dashboard/director/announcements
-     * Director-only: Latest published announcements/news for dashboard
+     * Director-only: Latest published announcements/news and expiring notices for dashboard
      */
     public function getDirectorAnnouncements($id = null, $data = [], $segments = [])
-    {
-
+        {
         try {
             $service = new DirectorAnalyticsService();
-            $announcements = $service->getLatestAnnouncements();
-            return $this->success([
-                'data' => $announcements
-            ], 'Latest announcements retrieved');
+            $result = $service->getLatestAnnouncements();
+            // Returns: { announcements: [...], expiring_notices: [...] }
+            return $this->success($result, 'Latest announcements retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch announcements: ' . $e->getMessage());
         }
@@ -200,11 +201,10 @@ class DashboardController extends BaseController
 
     /**
      * GET /api/attendance/trends
-     * CEO-only: Attendance trends data
+     * CEO-only: Attendance trends data including trends, absent students, absent staff
      */
     public function getAttendanceTrends($id = null, $data = [], $segments = [])
     {
-
         try {
             $analytics = new DirectorAnalyticsService();
             $trends = $analytics->getAttendanceTrends();
@@ -214,9 +214,8 @@ class DashboardController extends BaseController
                 return $this->serverError('Attendance trends not available');
             }
 
-            return $this->success([
-                'data' => $trends
-            ], 'Attendance trends retrieved');
+            // Return the full trends object directly (contains data, absent_students, absent_staff, summary)
+            return $this->success($trends, 'Attendance trends retrieved');
 
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch attendance trends: ' . $e->getMessage());
@@ -294,16 +293,13 @@ class DashboardController extends BaseController
      * Director-only: Operational risks and audit data
      */
     public function getDirectorRisks($id = null, $data = [], $segments = [])
-    {
-
-
+        {
         try {
             $analytics = new DirectorAnalyticsService();
             $risks = $analytics->getOperationalRisks();
 
-            return $this->success([
-                'data' => $risks
-            ], 'Operational risks retrieved');
+            // Return risks directly - success() will wrap it in 'data'
+            return $this->success($risks, 'Operational risks retrieved');
 
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch operational risks: ' . $e->getMessage());
@@ -496,6 +492,25 @@ class DashboardController extends BaseController
     }
 
     // ============= HEADTEACHER ENDPOINTS (ROLE 5) =============
+
+    /**
+     * GET /api/dashboard/headteacher/full
+     * Headteacher-only: Complete dashboard data in single call
+     */
+    public function getHeadteacherFull($id = null, $data = [], $segments = [])
+    {
+        $allowedRoles = [5, 6, 63]; // Headteacher, Deputy Head, HOD
+        if (!in_array($this->getUserRole(), $allowedRoles)) {
+            return $this->forbidden('Headteacher/Deputy Head access only');
+        }
+        try {
+            $service = new HeadteacherAnalyticsService();
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Headteacher dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
 
     /**
      * GET /api/dashboard/headteacher/overview
@@ -703,6 +718,24 @@ class DashboardController extends BaseController
     // ============= SUBJECT TEACHER ENDPOINTS (ROLE 8) =============
 
     /**
+     * GET /api/dashboard/subject-teacher/full
+     * Subject Teacher-only: Complete dashboard data in single call
+     */
+    public function getSubjectTeacherFull($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 8) {
+            return $this->forbidden('Subject Teacher access only');
+        }
+        try {
+            $service = new SubjectTeacherAnalyticsService($this->getUserId());
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Subject Teacher dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * GET /api/dashboard/subject-teacher/classes
      * Subject Teacher-only: Classes assigned
      */
@@ -865,7 +898,117 @@ class DashboardController extends BaseController
     }
 
 
-    // ============= TEACHER ENDPOINTS (MY CLASS ONLY) =============
+    // ============= CLASS TEACHER ENDPOINTS (MY CLASS ONLY - ROLE 7) =============
+
+    /**
+     * GET /api/dashboard/class-teacher/full
+     * Class Teacher-only: Complete dashboard data in single call
+     */
+    public function getClassTeacherFull($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Class Teacher dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/class-teacher/my-class
+     * Class Teacher-only: My class statistics
+     */
+    public function getClassTeacherMyClass($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getMyStudentsStats();
+            return $this->success($result, 'My class data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch class data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/class-teacher/attendance
+     * Class Teacher-only: Today's attendance for my class
+     */
+    public function getClassTeacherAttendance($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getTodayAttendanceStats();
+            return $this->success($result, 'Attendance data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch attendance: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/class-teacher/assessments
+     * Class Teacher-only: Pending assessments for my class
+     */
+    public function getClassTeacherAssessments($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getPendingAssessmentsStats();
+            return $this->success($result, 'Assessments data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch assessments: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/class-teacher/lesson-plans
+     * Class Teacher-only: Lesson plans statistics
+     */
+    public function getClassTeacherLessonPlans($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getLessonPlansStats();
+            return $this->success($result, 'Lesson plans data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch lesson plans: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/class-teacher/students
+     * Class Teacher-only: Student roster for my class
+     */
+    public function getClassTeacherStudents($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 7) {
+            return $this->forbidden('Class Teacher access only');
+        }
+        try {
+            $service = new ClassTeacherAnalyticsService($this->getUserId());
+            $result = $service->getStudentRoster();
+            return $this->success(['data' => $result], 'Student roster retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch students: ' . $e->getMessage());
+        }
+    }
+
+    // ============= LEGACY TEACHER ENDPOINTS (Keep for backward compatibility) =============
 
     /**
      * GET /api/dashboard/teacher/my-class
@@ -907,6 +1050,259 @@ class DashboardController extends BaseController
             ], 'Attendance data retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch attendance: ' . $e->getMessage());
+        }
+    }
+
+    // ============= SCHOOL ADMIN ENDPOINTS (OPERATIONAL DATA) =============
+
+    /**
+     * GET /api/dashboard/school-admin/full
+     * School Admin: Full dashboard data (all cards, charts, tables)
+     */
+    public function getSchoolAdminFull($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'School Admin dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/students
+     * School Admin: Active students statistics
+     */
+    public function getSchoolAdminStudents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            $students = $service->getActiveStudentsStats();
+            $classDistribution = $service->getClassDistributionStats();
+            return $this->success([
+                'students' => $students,
+                'class_distribution' => $classDistribution
+            ], 'Student stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch student stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/staff
+     * School Admin: Staff statistics including activities and leaves
+     */
+    public function getSchoolAdminStaff($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success([
+                'teaching' => $service->getTeachingStaffStats(),
+                'activities' => $service->getStaffActivitiesStats(),
+                'leaves' => $service->getStaffLeavesStats()
+            ], 'Staff stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch staff stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/attendance
+     * School Admin: Daily attendance statistics
+     */
+    public function getSchoolAdminAttendance($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success([
+                'today' => $service->getDailyAttendanceStats(),
+                'trend' => $service->getWeeklyAttendanceTrend(4)
+            ], 'Attendance stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch attendance stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/admissions
+     * School Admin: Admission pipeline statistics
+     */
+    public function getSchoolAdminAdmissions($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success($service->getStudentAdmissionsStats(), 'Admission stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch admission stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/timetables
+     * School Admin: Class timetables and schedules
+     */
+    public function getSchoolAdminTimetables($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success([
+                'stats' => $service->getClassTimetablesStats(),
+                'today' => $service->getTodaySchedule()
+            ], 'Timetable stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch timetable stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/announcements
+     * School Admin: Announcements statistics
+     */
+    public function getSchoolAdminAnnouncements($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success($service->getAnnouncementsStats(), 'Announcement stats retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch announcement stats: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/pending-items
+     * School Admin: All pending items requiring attention
+     */
+    public function getSchoolAdminPendingItems($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            $items = $service->getPendingItems();
+            return $this->success([
+                'items' => $items,
+                'total' => count($items)
+            ], 'Pending items retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch pending items: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/staff-directory
+     * School Admin: Staff directory with search
+     */
+    public function getSchoolAdminStaffDirectory($id = null, $data = [], $segments = [])
+    {
+        try {
+            $search = $_GET['search'] ?? '';
+            $service = new SchoolAdminAnalyticsService();
+            $directory = $service->getStaffDirectory($search);
+            return $this->success([
+                'staff' => $directory,
+                'total' => count($directory)
+            ], 'Staff directory retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch staff directory: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/class-distribution
+     * School Admin: Class distribution chart data
+     */
+    public function getSchoolAdminClassDistribution($id = null, $data = [], $segments = [])
+    {
+        try {
+            $filter = $_GET['filter'] ?? 'all';
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success($service->getClassDistributionChart($filter), 'Class distribution retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch class distribution: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/attendance-trend
+     * School Admin: Weekly attendance trend chart data
+     */
+    public function getSchoolAdminAttendanceTrend($id = null, $data = [], $segments = [])
+    {
+        try {
+            $weeks = (int) ($_GET['weeks'] ?? 4);
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success($service->getWeeklyAttendanceTrend($weeks), 'Attendance trend retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch attendance trend: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/school-admin/system-status
+     * School Admin: Limited system status view
+     */
+    public function getSchoolAdminSystemStatus($id = null, $data = [], $segments = [])
+    {
+        try {
+            $service = new SchoolAdminAnalyticsService();
+            return $this->success($service->getSystemStatus(), 'System status retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch system status: ' . $e->getMessage());
+        }
+    }
+
+    // ============= INTERN TEACHER ENDPOINTS (ROLE 9) =============
+
+    /**
+     * GET /api/dashboard/intern-teacher/full
+     * Intern Teacher-only: Complete dashboard data (READ-ONLY)
+     */
+    public function getInternTeacherFull($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 9) {
+            return $this->forbidden('Intern Teacher access only');
+        }
+        try {
+            $service = new InternTeacherAnalyticsService($this->getUserId());
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Intern Teacher dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/intern-teacher/classes
+     * Intern Teacher-only: Assigned classes under supervision
+     */
+    public function getInternTeacherClasses($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 9) {
+            return $this->forbidden('Intern Teacher access only');
+        }
+        try {
+            $service = new InternTeacherAnalyticsService($this->getUserId());
+            $result = $service->getAssignedClassesStats();
+            return $this->success($result, 'Assigned classes retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch classes: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/intern-teacher/observations
+     * Intern Teacher-only: Lesson observations and feedback
+     */
+    public function getInternTeacherObservations($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 9) {
+            return $this->forbidden('Intern Teacher access only');
+        }
+        try {
+            $service = new InternTeacherAnalyticsService($this->getUserId());
+            $result = $service->getLessonObservationsStats();
+            return $this->success($result, 'Observations retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch observations: ' . $e->getMessage());
         }
     }
 

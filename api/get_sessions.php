@@ -1,41 +1,72 @@
 <?php
-require '../db.php';
+/**
+ * ============================================================================
+ * ⚠️  DEPRECATED - DO NOT USE THIS FILE
+ * ============================================================================
+ * 
+ * This file has been migrated to the proper architecture.
+ * 
+ * WHAT CHANGED:
+ * -------------
+ * Your original code here had several issues:
+ *   ❌ SQL injection risk (limit/offset not parameterized)
+ *   ❌ No authentication - anyone could access all session data
+ *   ❌ No pagination validation (negative pages, huge limits)
+ *   ❌ Direct database access bypassing Database singleton
+ * 
+ * WHERE THE CODE NOW LIVES:
+ * -------------------------
+ * 
+ * 1. BUSINESS LOGIC → api/modules/counseling/CounselingAPI.php
+ *    - list($params) method
+ *    - Supports: search, status, category, date, page, limit
+ *    - Returns paginated results with proper validation
+ * 
+ * 2. HTTP HANDLING → api/controllers/CounselingController.php
+ *    - getSession() → Handles GET /api/?route=counseling/session
+ *    - Also handles single session: GET /api/?route=counseling/session/{id}
+ * 
+ * 3. FRONTEND → js/api.js (window.API.counseling)
+ *    - window.API.counseling.list({ search, status, page, limit })
+ *    - window.API.counseling.get(id)
+ * 
+ * CORRECT USAGE IN FRONTEND JS:
+ * -----------------------------
+ * 
+ *   // ❌ OLD WAY (wrong)
+ *   fetch(`api/get_sessions.php?search=${search}&page=${page}`)
+ *     .then(r => r.json())
+ *     .then(data => { ... });
+ *   
+ *   // ✅ NEW WAY (correct)
+ *   const response = await window.API.counseling.list({
+ *     search: 'John',
+ *     status: 'scheduled',
+ *     page: 1,
+ *     limit: 10
+ *   });
+ *   if (response.success) {
+ *     const { sessions, pagination } = response.data;
+ *   }
+ * 
+ * RESPONSE FORMAT:
+ * ----------------
+ * {
+ *   "success": true,
+ *   "data": {
+ *     "sessions": [...],
+ *     "pagination": { "total": 50, "page": 1, "limit": 10, "pages": 5 }
+ *   }
+ * }
+ * 
+ * ============================================================================
+ */
 
-$search = $_GET['search'] ?? '';
-$status = $_GET['status'] ?? '';
-$category = $_GET['category'] ?? '';
-$date = $_GET['date'] ?? '';
-$page = intval($_GET['page'] ?? 1);
-$limit = intval($_GET['limit'] ?? 10);
-$offset = ($page - 1) * $limit;
-
-// Base query
-$query = "SELECT cs.*, s.first_name, s.last_name, c.name as class_name
-          FROM counseling_sessions cs
-          JOIN students s ON cs.student_id = s.id
-          JOIN classes c ON s.class_id = c.id
-          WHERE 1=1";
-$params = [];
-
-if ($search) { $query .= " AND CONCAT(s.first_name,' ',s.last_name) LIKE ?"; $params[] = "%$search%"; }
-if ($status) { $query .= " AND cs.status = ?"; $params[] = $status; }
-if ($category) { $query .= " AND cs.category = ?"; $params[] = $category; }
-if ($date) { $query .= " AND DATE(cs.session_datetime) = ?"; $params[] = $date; }
-
-// Count total
-$stmtCount = $db->prepare(str_replace('SELECT cs.*, s.first_name, s.last_name, c.name as class_name', 'SELECT COUNT(*) as total', $query));
-$stmtCount->execute($params);
-$total = $stmtCount->fetch(PDO::FETCH_ASSOC)['total'];
-
-// Limit & order
-$query .= " ORDER BY cs.session_datetime DESC LIMIT $limit OFFSET $offset";
-$stmt = $db->prepare($query);
-$stmt->execute($params);
-$sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
+header('HTTP/1.1 410 Gone');
+header('Content-Type: application/json');
 echo json_encode([
-    'sessions' => $sessions,
-    'total' => $total,
-    'page' => $page,
-    'pages' => ceil($total / $limit)
+    'status' => 'error',
+    'message' => 'This endpoint is deprecated. Use GET /api/?route=counseling/session instead.',
+    'new_endpoint' => '/api/?route=counseling/session',
+    'frontend_usage' => 'window.API.counseling.list({ search, status, page, limit })'
 ]);

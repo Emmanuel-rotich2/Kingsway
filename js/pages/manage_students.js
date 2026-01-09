@@ -26,6 +26,7 @@ const studentsManagementController = (() => {
         if (currentStep > 1) showStep(currentStep - 1);
     }
 
+<<<<<<< HEAD
     function validateStep(step) {
         let valid = true;
         const stepFields = document.querySelectorAll(`#studentForm .wizard-step[data-step="${step}"] [required]`);
@@ -36,6 +37,96 @@ const studentsManagementController = (() => {
             } else f.classList.remove('is-invalid');
         });
         return valid;
+=======
+    document.getElementById("studentTypeId").value =
+      student.student_type_id || "";
+    document.getElementById("admissionDate").value =
+      student.admission_date || "";
+    document.getElementById("studentStatus").value = student.status || "active";
+    document.getElementById("boardingStatus").value =
+      student.boarding_status || "day";
+    document.getElementById("assessmentNumber").value =
+      student.assessment_number || "";
+    document.getElementById("assessmentStatus").value =
+      student.assessment_status || "";
+    document.getElementById("nemisNumber").value = student.nemis_number || "";
+    document.getElementById("nemisStatus").value =
+      student.nemis_status || "not_assigned";
+    document.getElementById("studentEmail").value = student.email || "";
+    document.getElementById("studentPhone").value = student.phone || "";
+    document.getElementById("studentAddress").value = student.address || "";
+
+    // Sponsorship
+    const isSponsored =
+      student.is_sponsored === 1 ||
+      student.is_sponsored === "1" ||
+      student.is_sponsored === true;
+    document.getElementById("isSponsored").checked = isSponsored;
+    document.getElementById("sponsorName").value = student.sponsor_name || "";
+    document.getElementById("sponsorType").value = student.sponsor_type || "";
+    document.getElementById("sponsorWaiverPercentage").value =
+      student.sponsor_waiver_percentage || "";
+    this.toggleSponsorFields();
+
+    // Photo preview
+    if (student.photo_url) {
+      document.getElementById("studentPhotoPreview").src = student.photo_url;
+    }
+  },
+
+  saveStudent: async function (event) {
+    event.preventDefault();
+
+    const isNew = document.getElementById("isNewParent")?.checked;
+    const isSponsored = document.getElementById("isSponsored")?.checked;
+
+    // Build student data
+    const studentData = {
+      admission_no: document.getElementById("admissionNumber").value,
+      first_name: document.getElementById("firstName").value,
+      middle_name: document.getElementById("middleName").value || null,
+      last_name: document.getElementById("lastName").value,
+      date_of_birth: document.getElementById("dateOfBirth").value,
+      gender: document.getElementById("gender").value,
+      stream_id: document.getElementById("studentStream").value,
+      student_type_id: document.getElementById("studentTypeId").value || null,
+      admission_date: document.getElementById("admissionDate").value,
+      assessment_number:
+        document.getElementById("assessmentNumber").value || null,
+      assessment_status:
+        document.getElementById("assessmentStatus").value || "not_assigned",
+      nemis_number: document.getElementById("nemisNumber").value || null,
+      nemis_status:
+        document.getElementById("nemisStatus").value || "not_assigned",
+      status: document.getElementById("studentStatus").value,
+      blood_group: document.getElementById("bloodGroup").value || null,
+      is_sponsored: isSponsored ? 1 : 0,
+      sponsor_name: document.getElementById("sponsorName").value || null,
+      sponsor_type: document.getElementById("sponsorType").value || null,
+      sponsor_waiver_percentage:
+        document.getElementById("sponsorWaiverPercentage").value || null,
+    };
+
+    // Add payment data if not sponsored (required for new students)
+    if (!isSponsored && !this.editingId) {
+      const paymentAmount =
+        parseFloat(document.getElementById("initialPaymentAmount").value) || 0;
+      const paymentMethod = document.getElementById("paymentMethod").value;
+
+      if (paymentAmount <= 0 || !paymentMethod) {
+        this.showError(
+          "Students must have an initial payment recorded OR be marked as sponsored. Please enter payment details or check 'Is Sponsored'."
+        );
+        return;
+      }
+
+      studentData.initial_payment_amount = paymentAmount;
+      studentData.payment_method = paymentMethod;
+      studentData.payment_reference =
+        document.getElementById("paymentReference").value || null;
+      studentData.receipt_no =
+        document.getElementById("receiptNo").value || null;
+>>>>>>> 7f7dc5a01055a7b5f03920c6cd8cc053166e6a28
     }
 
     /* ------------------------------
@@ -128,6 +219,7 @@ const studentsManagementController = (() => {
         }
     }
 
+<<<<<<< HEAD
     /* ------------------------------
        Load Students Table
     -------------------------------*/
@@ -153,6 +245,90 @@ const studentsManagementController = (() => {
                         <button class="btn btn-sm btn-primary" onclick="studentsManagementController.editStudent(${s.id})">Edit</button>
                         <button class="btn btn-sm btn-danger" onclick="studentsManagementController.deleteStudent(${s.id})">Delete</button>
                     </td>
+=======
+  editStudent: async function (id) {
+    try {
+      const resp = await window.API.apiCall(`/students/student/${id}`, "GET");
+      if (resp && resp.data) {
+        this.showStudentModal(resp.data);
+      }
+    } catch (error) {
+      this.showError("Failed to load student details");
+    }
+  },
+
+  viewStudent: async function (id) {
+    try {
+      const resp = await window.API.apiCall(`/students/student/${id}`, "GET");
+      if (resp && resp.data) {
+        const student = resp.data;
+        const content = document.getElementById("viewStudentContent");
+        content.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-3 text-center">
+                            <img src="${
+                              student.photo_url ||
+                              "/Kingsway/images/default-avatar.png"
+                            }" 
+                                 class="img-thumbnail rounded-circle" width="120" height="120" 
+                                 style="object-fit: cover;">
+                            <h5 class="mt-2">${student.first_name} ${
+          student.last_name
+        }</h5>
+                            <span class="badge bg-${
+                              student.status === "active"
+                                ? "success"
+                                : "secondary"
+                            }">${student.status}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Personal Information</h6>
+                            <p><strong>Admission No:</strong> ${
+                              student.admission_no
+                            }</p>
+                            <p><strong>Gender:</strong> ${student.gender}</p>
+                            <p><strong>Date of Birth:</strong> ${
+                              student.date_of_birth || "-"
+                            }</p>
+                            <p><strong>Blood Group:</strong> ${
+                              student.blood_group || "-"
+                            }</p>
+                            <p><strong>KNEC Assessment No:</strong> ${
+                              student.assessment_number || "-"
+                            }</p>
+                            <p><strong>NEMIS Number:</strong> ${
+                              student.nemis_number || "-"
+                            }</p>
+                        </div>
+                        <div class="col-md-5">
+                            <h6>Academic Information</h6>
+                            <p><strong>Class/Stream:</strong> ${
+                              student.class_name || "-"
+                            } ${
+          student.stream_name ? "(" + student.stream_name + ")" : ""
+        }</p>
+                            <p><strong>Admission Date:</strong> ${
+                              student.admission_date || "-"
+                            }</p>
+                            <p><strong>Boarding:</strong> ${
+                              student.boarding_status || "Day"
+                            }</p>
+                            <h6 class="mt-3">Sponsorship</h6>
+                            <p><strong>Sponsored:</strong> ${
+                              student.is_sponsored ? "Yes" : "No"
+                            }</p>
+                            ${
+                              student.is_sponsored
+                                ? `<p><strong>Sponsor:</strong> ${
+                                    student.sponsor_name || "-"
+                                  } (${
+                                    student.sponsor_waiver_percentage || 0
+                                  }% waiver)</p>`
+                                : ""
+                            }
+                        </div>
+                    </div>
+>>>>>>> 7f7dc5a01055a7b5f03920c6cd8cc053166e6a28
                 `;
                 tbody.appendChild(tr);
             });

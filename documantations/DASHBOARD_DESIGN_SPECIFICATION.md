@@ -404,6 +404,66 @@ Operational school management. Day-to-day operations, user/role management (limi
 - Hide: finance, system admin, technical settings
 - Data limited to high-level summaries
 
+### Sidebar Menu Structure
+
+```
+Dashboard                          (fas fa-tachometer-alt)
+|
++-- Students                       (fas fa-user-graduate)
+|   +-- All Students               → manage_students
+|   +-- Admissions                 → manage_students_admissions
+|   +-- Attendance                 → mark_attendance
+|   +-- Enrollment                 → manage_students
+|   +-- Student Reports            → enrollment_reports
+|   +-- ID Cards                   → student_id_cards
+|   +-- Family Groups              → manage_family_groups
+|
++-- Academic                       (fas fa-graduation-cap)
+|   +-- Classes                    → manage_classes
+|   +-- Timetable                  → manage_timetable
+|   +-- Results                    → view_results
+|   +-- Subjects                   → manage_subjects
+|   +-- Assessments                → manage_assessments
+|
++-- Staff                          (fas fa-chalkboard-teacher)
+|   +-- All Staff                  → manage_staff
+|   +-- Attendance                 → staff_attendance
+|   +-- Teachers                   → manage_teachers
+|   +-- Non-Teaching Staff         → manage_non_teaching_staff
+|   +-- Staff Leaves               → manage_staff
+|
++-- Communications                 (fas fa-comments)
+|   +-- Messages                   → manage_communications
+|   +-- Announcements              → manage_announcements
+|   +-- SMS                        → manage_sms
+|   +-- Email                      → manage_email
+|
++-- Activities                     (fas fa-running)
+|   +-- All Activities             → manage_activities
+|   +-- Clubs & Societies          → manage_activities
+|   +-- Sports                     → manage_activities
+|
++-- Calendar & Events              (fas fa-calendar-week)
+|   +-- School Events              → manage_activities
+|   +-- Daily Schedule             → manage_timetable
+|
++-- Reports                        (fas fa-chart-bar)
+|   +-- Attendance Reports         → view_attendance
+|   +-- Enrollment Statistics      → enrollment_reports
+|   +-- Staff Reports              → staff_performance
+|
++-- Users                          (fas fa-users-cog)
+    +-- Manage Users (limited)     → manage_users
+```
+
+**Menu Item Count**: 39 items (8 parent groups + 31 child items)
+
+**Implementation**:
+
+- Migration: `database/migrations/school_admin_sidebar_menus.sql`
+- Role ID: 4 (School Administrative Officer)
+- Last Updated: January 2025
+
 ---
 
 ## TIER 4: Academic Leaders (Headteacher, Deputy Heads, Teachers)
