@@ -1,11 +1,28 @@
 <?php
 /**
- * Manage Transport Page
- * HTML structure only - all logic in js/pages/transport.js (transportController)
- * Embedded in app_layout.php
+ * Manage Transport Page - Role-Based Router
+ * Routes to appropriate template based on user role category
  */
+
+require_once __DIR__ . '/../config/permissions.php';
+
+session_start();
+$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
+
+// Route to role-specific template
+$templateMap = [
+    'admin' => 'transport/admin_transport.php',
+    'manager' => 'transport/manager_transport.php',
+    'operator' => 'transport/operator_transport.php',
+    'viewer' => 'transport/viewer_transport.php'
+];
+
+$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+include __DIR__ . '/' . $template;
+exit;
 ?>
 
+<!-- Legacy fallback (should not reach here) -->
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-white">
         <div class="d-flex justify-content-between align-items-center">

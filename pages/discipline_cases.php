@@ -1,13 +1,36 @@
 <?php
 /**
- * Discipline Cases Page
+ * Discipline Cases - Role-Based Router
  * 
- * Purpose: Manage student discipline cases
- * Features:
- * - Log discipline incidents
- * - Track case status and resolution
- * - Generate conduct reports
+ * Routes to appropriate template based on user role category:
+ * - admin: Full case management with all columns and actions
+ * - manager: Standard case management for department
+ * - operator: Report cases for own students, view own reports
+ * - viewer: Read-only discipline history for students/parents
  */
+
+session_start();
+require_once __DIR__ . '/../config/permissions.php';
+
+// Get role category for current user
+$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
+
+// Template mapping by role category
+$templateMap = [
+    'admin' => 'discipline/admin_discipline.php',
+    'manager' => 'discipline/manager_discipline.php',
+    'operator' => 'discipline/operator_discipline.php',
+    'viewer' => 'discipline/viewer_discipline.php'
+];
+
+// Default to viewer if category not found
+$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+
+// Include the appropriate template
+include __DIR__ . '/' . $template;
+exit;
+
+// Legacy template below (kept for reference, not executed)
 ?>
 
 <div class="container-fluid py-4">

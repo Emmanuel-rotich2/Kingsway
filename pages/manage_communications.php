@@ -1,21 +1,36 @@
 <?php
-
 /**
- * Manage Communications Page
+ * Manage Communications - Role-Based Router
  * 
- * HTML structure only - all logic in js/pages/communications.js (communicationsController)
- * 
- * Role-based access:
- * - Secretary: Send messages to parents, view sent messages
- * - Headteacher: All communications, school-wide announcements
- * - Class Teacher: Send to own class parents only
- * - Accountant: Send fee reminders
- * - Admin: Full access, manage templates
- * - Director: View all, approve campaigns
- * 
- * Embedded in app_layout.php
+ * Routes to appropriate template based on user role category:
+ * - admin: Full featured with all channels, campaigns, cost tracking
+ * - manager: Standard with SMS/Email, compose, basic stats
+ * - operator: Minimal view, can message own class only
+ * - viewer: Read-only inbox for students/parents
  */
 
+session_start();
+require_once __DIR__ . '/../config/permissions.php';
+
+// Get role category for current user
+$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
+
+// Template mapping by role category
+$templateMap = [
+    'admin' => 'communications/admin_communications.php',
+    'manager' => 'communications/manager_communications.php',
+    'operator' => 'communications/operator_communications.php',
+    'viewer' => 'communications/viewer_communications.php'
+];
+
+// Default to viewer if category not found
+$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+
+// Include the appropriate template
+include __DIR__ . '/' . $template;
+exit;
+
+// Legacy template below (kept for reference, not executed)
 ?>
 
 <div class="card shadow-sm">

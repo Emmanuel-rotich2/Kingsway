@@ -1,13 +1,36 @@
 <?php
 /**
- * All Students Page
+ * All Students - Role-Based Router
  * 
- * Purpose: View and manage all enrolled students
- * Features:
- * - List all students with filters
- * - Quick student actions
- * - Export functionality
+ * Routes to appropriate template based on user role category:
+ * - admin: Full featured with all columns, charts, bulk ops
+ * - manager: Standard view with edit capabilities
+ * - operator: Own class students only, view-only
+ * - viewer: Own profile (student) or children (parent)
  */
+
+session_start();
+require_once __DIR__ . '/../config/permissions.php';
+
+// Get role category for current user
+$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
+
+// Template mapping by role category
+$templateMap = [
+    'admin' => 'students/admin_students.php',
+    'manager' => 'students/manager_students.php',
+    'operator' => 'students/operator_students.php',
+    'viewer' => 'students/viewer_students.php'
+];
+
+// Default to viewer if category not found
+$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+
+// Include the appropriate template
+include __DIR__ . '/' . $template;
+exit;
+
+// Legacy template below (kept for reference, not executed)
 ?>
 
 <div class="container-fluid py-4">
