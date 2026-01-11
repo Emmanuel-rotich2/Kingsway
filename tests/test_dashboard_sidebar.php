@@ -182,6 +182,38 @@ try {
 
     $results['tests'][] = $test5;
 
+    // Test 6: Class Teacher should NOT have 'My Classes' (menu id 400) in sidebar
+    $test6 = [
+        'name' => "Class Teacher: 'My Classes' not present in sidebar",
+        'passed' => false,
+        'details' => []
+    ];
+
+    $ctUser = [
+        'id' => 2,
+        'username' => 'test_class_teacher',
+        'roles' => [ ['id' => 7, 'name' => 'Class Teacher'] ],
+        'permissions' => []
+    ];
+
+    $dm = new \DashboardManager();
+    $dm->setUser($ctUser);
+    $ctMenu = $dm->getMenuItems();
+
+    $has400 = false;
+    $stack = $ctMenu;
+    while (!$has400 && !empty($stack)) {
+        $item = array_shift($stack);
+        if (isset($item['id']) && (int)$item['id'] === 400) {
+            $has400 = true; break;
+        }
+        if (!empty($item['subitems'])) { $stack = array_merge($stack, $item['subitems']); }
+    }
+
+    $test6['details']['has_400'] = $has400;
+    $test6['passed'] = (!$has400);
+    $results['tests'][] = $test6;
+
     // Summary
     $results['summary'] = [
         'total_tests' => count($results['tests']),
