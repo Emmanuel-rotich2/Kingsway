@@ -425,7 +425,7 @@ $dashboardDefinitions = [
             [
                 'label' => 'Dashboard',
                 'icon' => 'fas fa-tachometer-alt',
-                'url' => 'deputy_headteacher_dashboard',
+                'url' => 'deputy_head_academic_dashboard',
                 'subitems' => []
             ],
             [
@@ -480,7 +480,7 @@ $dashboardDefinitions = [
             [
                 'label' => 'Dashboard',
                 'icon' => 'fas fa-tachometer-alt',
-                'url' => 'deputy_headteacher_dashboard',
+                'url' => 'deputy_head_discipline_dashboard',
                 'subitems' => []
             ],
             [

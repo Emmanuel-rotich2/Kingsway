@@ -5,6 +5,8 @@ use App\API\Modules\students\StudentsAPI;
 use App\API\Modules\system\SystemAPI;
 use Exception;
 use App\API\Services\DirectorAnalyticsService;
+use App\API\Services\DeputyAcademicAnalyticsService;
+use App\API\Services\DeputyDisciplineAnalyticsService;
 use App\API\Services\HeadteacherAnalyticsService;
 use App\API\Services\SubjectTeacherAnalyticsService;
 use App\API\Services\TeacherAnalyticsService;
@@ -509,6 +511,44 @@ class DashboardController extends BaseController
             return $this->success($result, 'Headteacher dashboard data retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    // ============= DEPUTY HEADTEACHER ENDPOINTS =============
+
+    /**
+     * GET /api/dashboard/deputy-academic/full
+     * Deputy Academic (role 6): Focused academic dashboard data
+     */
+    public function getDeputyAcademicFull($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 6) {
+            return $this->forbidden('Deputy Academic access only');
+        }
+        try {
+            $service = new DeputyAcademicAnalyticsService();
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Deputy Academic dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch deputy academic dashboard data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/deputy-discipline/full
+     * Deputy Discipline (role 63): Discipline-focused dashboard data
+     */
+    public function getDeputyDisciplineFull($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 63) {
+            return $this->forbidden('Deputy Discipline access only');
+        }
+        try {
+            $service = new DeputyDisciplineAnalyticsService();
+            $result = $service->getFullDashboardData();
+            return $this->success($result, 'Deputy Discipline dashboard data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch deputy discipline dashboard data: ' . $e->getMessage());
         }
     }
 
@@ -1314,10 +1354,27 @@ class DashboardController extends BaseController
      */
     protected function getUserRole()
     {
-        // Handle both single role and role_ids array
+        // Primary role from explicit role_ids array (common JWT shape)
         if (isset($this->user['role_ids']) && is_array($this->user['role_ids'])) {
-            return $this->user['role_ids'][0] ?? null; // Return primary role
+            return $this->user['role_ids'][0] ?? null;
         }
+
+        // Roles array may be an array of IDs or array of objects with id/name
+        if (isset($this->user['roles']) && is_array($this->user['roles']) && !empty($this->user['roles'])) {
+            $firstRole = $this->user['roles'][0];
+            if (is_array($firstRole) && isset($firstRole['id'])) {
+                return $firstRole['id'];
+            }
+            if (is_object($firstRole) && isset($firstRole->id)) {
+                return $firstRole->id;
+            }
+            // If the roles array already contains raw role IDs
+            if (is_numeric($firstRole)) {
+                return (int) $firstRole;
+            }
+        }
+
+        // Fallback to single role fields
         return $this->user['role'] ?? $this->user['role_id'] ?? null;
     }
 }

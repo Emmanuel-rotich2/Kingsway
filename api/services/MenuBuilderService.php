@@ -463,14 +463,23 @@ class MenuBuilderService
     public function buildSidebarForMultipleRoles(int $userId, array $roleIds, array $userPermissions = []): array
     {
         $allItems = [];
-        $seenIds = [];
+        $seenKeys = [];
 
+        // Build union of menu items but dedupe by canonical key (route_url, route_name, url, name, label)
         foreach ($roleIds as $roleId) {
             $roleItems = $this->getMenuItemsForRole($roleId);
             foreach ($roleItems as $item) {
-                if (!in_array($item['id'], $seenIds)) {
+                // Construct canonical key for deduplication
+                $key = $item['route_url'] ?? $item['route_name'] ?? $item['url'] ?? $item['name'] ?? $item['label'];
+                if ($key === null) {
+                    // Fallback to menu item id as last resort
+                    $key = 'id:' . $item['id'];
+                }
+
+                // Keep first encountered item for a given key (role ordering determines priority)
+                if (!isset($seenKeys[$key])) {
                     $allItems[] = $item;
-                    $seenIds[] = $item['id'];
+                    $seenKeys[$key] = $item['id'];
                 }
             }
         }

@@ -3743,6 +3743,20 @@ window.API = {
     },
 
     /**
+     * Get Deputy Academic dashboard data
+     */
+    getDeputyAcademicFull: async () => {
+      return await apiCall("/dashboard/deputy-academic/full", "GET");
+    },
+
+    /**
+     * Get Deputy Discipline dashboard data
+     */
+    getDeputyDisciplineFull: async () => {
+      return await apiCall("/dashboard/deputy-discipline/full", "GET");
+    },
+
+    /**
      * Get headteacher overview statistics
      */
     getHeadteacherOverview: async () => {

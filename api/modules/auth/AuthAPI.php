@@ -266,10 +266,13 @@ class AuthAPI extends BaseAPI
 
             return $loginData;
         }
-        // If not successful, return error
+        // If not successful, return error (include debug info in dev)
         return [
             'status' => 'error',
-            'message' => $result['message'] ?? 'Login failed'
+            'message' => $result['error'] ?? $result['message'] ?? 'Login failed',
+            'data' => [
+                'debug' => $result
+            ]
         ];
     }
 
@@ -284,6 +287,25 @@ class AuthAPI extends BaseAPI
     ): array {
         $userId = $userData['id'];
         $userPermissions = array_column($userData['permissions'] ?? [], 'code');
+
+        // If deputy headteacher (role 6) is logged in, automatically include
+        // the headteacher menu (role 5) **only if** there is an active delegation
+        // record from Headteacher -> Deputy Head Academic. This prevents unintended
+        // menu duplication unless the Headteacher has explicitly delegated access.
+        if (in_array(6, $roleIds) && !in_array(5, $roleIds)) {
+            try {
+                $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM role_delegations WHERE delegator_role_id = ? AND delegate_role_id = ? AND active = 1");
+                $stmt->execute([5, 6]);
+                $res = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if (!empty($res['cnt']) && (int) $res['cnt'] > 0) {
+                    // Role 5 delegated to role 6, include headteacher menus
+                    $roleIds[] = 5;
+                }
+            } catch (\Exception $e) {
+                // role_delegations table may not exist yet; in that case we do not add role 5
+                // This is a safe fallback to avoid unintended behavior
+            }
+        }
 
         try {
             // Build sidebar from database using MenuBuilderService
