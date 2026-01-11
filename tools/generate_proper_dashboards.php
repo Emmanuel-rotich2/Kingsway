@@ -523,15 +523,8 @@ $dashboardDefinitions = [
                 'url' => 'class_teacher_dashboard',
                 'subitems' => []
             ],
-            [
-                'label' => 'My Classes',
-                'icon' => 'fas fa-door-open',
-                'url' => null,
-                'subitems' => [
-                    ['label' => 'My Classes', 'url' => 'myclasses'],
-                    ['label' => 'Class Attendance', 'url' => 'mark_attendance']
-                ]
-            ],
+            // 'My Classes' menu removed for Class Teacher (id: 7) by request
+
             [
                 'label' => 'Assessments',
                 'icon' => 'fas fa-file-alt',

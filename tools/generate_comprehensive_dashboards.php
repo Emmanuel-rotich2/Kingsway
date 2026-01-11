@@ -532,20 +532,11 @@ $dashboardDefinitions = [
                 'icon' => 'fas fa-tachometer-alt',
                 'route' => '/dashboard',
                 'subitems' => [
-                    ['label' => 'My Classes', 'route' => '/dashboard/my-classes'],
                     ['label' => 'Today\'s Schedule', 'route' => '/dashboard/schedule']
                 ]
             ],
-            [
-                'label' => 'My Classes',
-                'icon' => 'fas fa-door-open',
-                'route' => null,
-                'subitems' => [
-                    ['label' => 'Class List', 'route' => '/classes/my-classes'],
-                    ['label' => 'Attendance', 'route' => '/classes/attendance'],
-                    ['label' => 'Performance', 'route' => '/classes/performance']
-                ]
-            ],
+            // 'My Classes' menu removed for Class Teacher (id: 7) by request
+
             [
                 'label' => 'Attendance',
                 'icon' => 'fas fa-clipboard-check',

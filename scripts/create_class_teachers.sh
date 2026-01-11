@@ -40,14 +40,11 @@ fi
 
 echo "Admin token acquired (length: ${#TOKEN})"
 
-# Option A: Disable the redundant sidebar entry (menu_item_id=400) and delete its role mappings
-# This action is done directly against DB because there's no public API for role_sidebar_menus.
+# Note: 'My Classes' menu is removed for Class Teacher via code changes (no DB modification).
 if [ "$DRY_RUN" -eq 1 ]; then
-  echo "DRY RUN: Skipping DB changes for My Classes (menu_item_id=400). To apply, set DRY_RUN=0 and re-run."
+  echo "DRY RUN: No DB changes for My Classes. Menu removed in code; set DRY_RUN=0 to perform creation of class teachers only."
 else
-  echo "Disabling 'My Classes' sidebar menu (id=400) and deleting role mappings..."
-  /opt/lampp/bin/mysql -u "$DB_USER" -p"$DB_PASS" -D "$DB_NAME" -e "UPDATE sidebar_menu_items SET is_active = 0 WHERE id = 400; DELETE FROM role_sidebar_menus WHERE menu_item_id = 400;"
-  echo "DB updates applied."
+  echo "No DB changes performed for My Classes; menu removal handled in code."
 fi
 
 # Fetch classes via API
