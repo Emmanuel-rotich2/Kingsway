@@ -485,6 +485,38 @@ class CommunicationsController extends BaseController
         return $this->handleResponse($this->api->postSendEmail());
     }
 
+    /**
+     * Send Fee Reminder (SMS/WhatsApp)
+     * POST /communications/fee-reminder
+     * 
+     * Sends a fee reminder message to a parent about outstanding balance
+     * 
+     * @param int|null $id
+     * @param array $data Contains: student_id, phone, message, type (sms/whatsapp), balance
+     * @param array $segments
+     * @return array
+     */
+    public function postFeeReminder($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->sendFeeReminder($data));
+    }
+
+    /**
+     * Send Bulk Fee Reminders
+     * POST /communications/fee-reminder-bulk
+     * 
+     * Sends fee reminder messages to multiple parents
+     * 
+     * @param int|null $id
+     * @param array $data Contains: students (array of {student_id, phone, balance}), message_template, type
+     * @param array $segments
+     * @return array
+     */
+    public function postFeeReminderBulk($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->sendBulkFeeReminders($data));
+    }
+
     // --- Communications CRUD ---
     public function getCommunication($id = null, $data = [], $segments = [])
     {

@@ -175,8 +175,10 @@ class SystemConfigService
      */
     public function getPermissionsForRouteName(string $routeName): array
     {
+        // NOTE: permissions table uses 'code' as the identifier. Return as 'name' to
+        // keep calling code compatible.
         $stmt = $this->db->query(
-            "SELECT p.name, p.id, rp.access_type, rp.is_required
+            "SELECT p.code as name, p.id, rp.access_type, rp.is_required
              FROM routes r
              JOIN route_permissions rp ON rp.route_id = r.id
              JOIN permissions p ON p.id = rp.permission_id
@@ -812,6 +814,58 @@ class SystemConfigService
             [$roleId]
         );
         return $stmt->fetchAll();
+    }
+
+    /**
+     * Get a dashboard by its system name (safe lookup)
+     */
+    public function getDashboardByName(string $name): ?array
+    {
+        try {
+            $stmt = $this->db->query('SELECT * FROM dashboards WHERE name = ? LIMIT 1', [$name]);
+            $dashboard = $stmt->fetch(\PDO::FETCH_ASSOC) ?: null;
+
+            if ($dashboard && !empty($dashboard['route_id'])) {
+                $route = $this->getRouteById($dashboard['route_id']);
+                if ($route) {
+                    $dashboard['route'] = $route['url'] ?? '';
+                    $dashboard['route_name'] = $route['name'] ?? '';
+                }
+            }
+
+            return $dashboard;
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Find a dashboard by role name heuristics (e.g., 'Accountant' -> 'school_accountant_dashboard')
+     */
+    public function findDashboardForRoleName(string $roleName): ?array
+    {
+        try {
+            $normalized = strtolower(trim($roleName));
+            $likeName = '%' . str_replace(' ', '%', $normalized) . '%';
+
+            $stmt = $this->db->query(
+                "SELECT * FROM dashboards WHERE (LOWER(name) LIKE ? OR LOWER(display_name) LIKE ?) AND is_active = 1 LIMIT 1",
+                [$likeName, $likeName]
+            );
+            $dashboard = $stmt->fetch() ?: null;
+
+            if ($dashboard && !empty($dashboard['route_id'])) {
+                $route = $this->getRouteById($dashboard['route_id']);
+                if ($route) {
+                    $dashboard['route'] = $route['url'] ?? '';
+                    $dashboard['route_name'] = $route['name'] ?? '';
+                }
+            }
+
+            return $dashboard;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**

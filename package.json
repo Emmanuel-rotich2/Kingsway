@@ -1,0 +1,11 @@
+{
+  "name": "kingsway-ui-tests",
+  "version": "0.1.0",
+  "description": "Lightweight UI smoke tests for Kingsway dashboards",
+  "scripts": {
+    "test:ui": "node scripts/ui-test.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0"
+  }
+}

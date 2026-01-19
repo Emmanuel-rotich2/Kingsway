@@ -285,28 +285,43 @@ class MpesaPaymentService
                 $request = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if ($request) {
+                    // Get parent_id from student_parents relationship table
+                    $parentId = null;
+                    $parentStmt = $this->db->prepare("
+                        SELECT parent_id FROM student_parents 
+                        WHERE student_id = ? 
+                        LIMIT 1
+                    ");
+                    $parentStmt->execute([$request['student_id']]);
+                    $parentData = $parentStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($parentData) {
+                        $parentId = $parentData['parent_id'];
+                    }
+
                     // Process payment using stored procedure
                     $stmt = $this->db->prepare("
-                        CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?)
+                        CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ");
 
                     $stmt->execute([
-                        $request['student_id'],
-                        $amount,
-                        'mpesa',
-                        $mpesaReceiptNumber,
-                        $this->formatTransactionDate($transactionDate),
-                        null, // received_by (automatic)
-                        'M-Pesa Payment - ' . $request['admission_number']
+                        $request['student_id'],     // p_student_id
+                        $parentId,                   // p_parent_id
+                        $amount,                     // p_amount_paid
+                        'mpesa',                     // p_payment_method
+                        $mpesaReceiptNumber,         // p_reference_no
+                        'MPESA-' . $mpesaReceiptNumber,  // p_receipt_no
+                        1,                           // p_received_by
+                        $this->formatTransactionDate($transactionDate),  // p_payment_date
+                        'M-Pesa Payment - ' . $request['admission_number']  // p_notes
                     ]);
 
                     // Get the payment ID
                     $stmt = $this->db->prepare("
                         SELECT id FROM payment_transactions 
-                        WHERE transaction_ref = ? 
-                        ORDER BY id DESC LIMIT 1
+                        WHERE student_id = ? 
+                        ORDER BY created_at DESC LIMIT 1
                     ");
-                    $stmt->execute([$mpesaReceiptNumber]);
+                    $stmt->execute([$request['student_id']]);
                     $payment = $stmt->fetch(PDO::FETCH_ASSOC);
 
                     if ($payment) {
@@ -621,13 +636,31 @@ class MpesaPaymentService
                 $thirdPartyTransID
             ]);
 
+            // Get parent_id from student_parents relationship table
+            $parentId = null;
+            $parentStmt = $this->db->prepare("
+                SELECT parent_id FROM student_parents 
+                WHERE student_id = ? 
+                LIMIT 1
+            ");
+            $parentStmt->execute([$student_id]);
+            $parentData = $parentStmt->fetch(PDO::FETCH_ASSOC);
+            if ($parentData) {
+                $parentId = $parentData['parent_id'];
+            }
+
             // Use stored procedure to process the payment
-            $stmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?)");
+            $stmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
-                $student_id,
-                $transAmount,
-                $transID,
-                'mpesa_c2b'
+                $student_id,                    // p_student_id
+                $parentId,                      // p_parent_id
+                $transAmount,                   // p_amount_paid
+                'mpesa',                        // p_payment_method
+                $transID,                       // p_reference_no
+                'MPESA-' . $transID,            // p_receipt_no
+                1,                              // p_received_by (default user)
+                date('Y-m-d H:i:s'),            // p_payment_date
+                'M-Pesa C2B Payment'            // p_notes
             ]);
 
             $this->db->commit();

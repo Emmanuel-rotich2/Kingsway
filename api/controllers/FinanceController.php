@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\finance\FinanceAPI;
+use App\API\Modules\finance\PaymentReconciliationAPI;
 use Exception;
 
 /**
@@ -587,7 +588,7 @@ class FinanceController extends BaseController
     }
 
     // ========================================
-    // SECTION 5: Student Payment History
+    // SECTION 5: Student Payment History & Fee Statement
     // ========================================
 
     /**
@@ -604,6 +605,60 @@ class FinanceController extends BaseController
         
         $result = $this->api->getStudentPaymentHistory($studentId, $academicYear);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/students/fee-statement/{id}
+     * Get complete fee statement for a student
+     */
+    public function getStudentsFeeStatement($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        $academicYear = $data['academic_year'] ?? $_GET['academic_year'] ?? null;
+
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        // If no academic year provided, get current one
+        if ($academicYear === null) {
+            $academicYear = $this->getCurrentAcademicYear();
+        }
+
+        $result = $this->api->handleCustomGet($studentId, 'statement', ['academic_year' => $academicYear]);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/students/balance/{id}
+     * Get current fee balance for a student
+     */
+    public function getStudentsBalance($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $result = $this->api->handleCustomGet($studentId, 'balance', []);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * Helper: Get current academic year
+     */
+    private function getCurrentAcademicYear()
+    {
+        try {
+            $db = \Database::getInstance();
+            $stmt = $db->prepare("SELECT year FROM academic_years WHERE is_current = 1 LIMIT 1");
+            $stmt->execute();
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $result['year'] ?? date('Y');
+        } catch (\Exception $e) {
+            return date('Y');
+        }
     }
 
     // ========================================
@@ -638,6 +693,35 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 7: Helper Methods
     // ========================================
+
+    /**
+     * GET /api/finance/reconciliation/unreconciled
+     * Wrapper to list unreconciled transactions for accountant dashboard
+     */
+    public function getReconciliationUnreconciled($id = null, $data = [], $segments = [])
+    {
+        // Require authentication + permission
+        $user = $_SERVER['auth_user'] ?? null;
+        if (!$user)
+            return $this->unauthorized('Authentication required');
+        $perms = $user['effective_permissions'] ?? [];
+        $roles = $user['roles'] ?? [];
+        $role = $user['role'] ?? '';
+        $allowed = false;
+        if (in_array('finance.reconcile', $perms) || in_array('finance.view', $perms) || in_array(10, $roles) || $role === 'accountant' || $role === 'finance' || $role === 'admin') {
+            $allowed = true;
+        }
+        if (!$allowed)
+            return $this->forbidden('Insufficient permissions');
+
+        try {
+            $recon = new PaymentReconciliationAPI();
+            $result = $recon->listUnreconciled($data);
+            return $this->handleResponse($result);
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch unreconciled transactions: ' . $e->getMessage());
+        }
+    }
 
     /**
      * Route nested POST requests to appropriate methods

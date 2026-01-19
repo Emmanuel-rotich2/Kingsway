@@ -1,11 +1,19 @@
 <?php
 /**
- * Manage Transport Page
- * HTML structure only - all logic in js/pages/transport.js (transportController)
- * Embedded in app_layout.php
+ * Manage Transport Page - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
+
+// Default template (will be overridden by JavaScript)
+$template = 'transport/manager_transport.php'; // Default fallback
+
+// Include the template (JavaScript will replace content based on role)
+include __DIR__ . '/' . $template;
+exit;
 ?>
 
+<!-- Legacy fallback (should not reach here) -->
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-white">
         <div class="d-flex justify-content-between align-items-center">

@@ -18,13 +18,7 @@
  * - No business logic in PHP (stateless)
  */
 
-session_start();
-
-// Check authentication
-if (!isset($_SESSION['user_id'])) {
-    header('Location: /Kingsway/index.php');
-    exit;
-}
+// Authentication handled by JWT middleware and JavaScript
 
 $pageTitle = 'Dashboard';
 ?>

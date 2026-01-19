@@ -32,6 +32,7 @@
  */
 
 const headteacherDashboardController = {
+  runtimeConfig: window.headteacherDashboardConfig || {},
   state: {
     summaryCards: {},
     chartData: {},
@@ -80,10 +81,12 @@ const headteacherDashboardController = {
     const startTime = performance.now();
 
     try {
-      console.log("📡 Fetching headteacher dashboard data via API...");
+      const loader =
+        this.runtimeConfig.loader || window.API.dashboard.getHeadteacherFull;
+      console.log("📡 Fetching dashboard data via API...");
 
-      // Use the centralized API module - response is already unwrapped
-      const data = await window.API.dashboard.getHeadteacherFull();
+      // Use the configured loader (defaults to Headteacher endpoint)
+      const data = await loader();
 
       console.log("📦 Received dashboard data:", data);
 
@@ -91,19 +94,22 @@ const headteacherDashboardController = {
         throw new Error("No data received from API");
       }
 
+      // Extract nested data object if API returns {data: {...}}
+      const dashboardData = data.data || data;
+
       // Process cards data
-      if (data.cards) {
-        this.processCardsData(data.cards);
+      if (dashboardData.cards) {
+        this.processCardsData(dashboardData.cards);
       }
 
       // Process charts data
-      if (data.charts) {
-        this.state.chartData = data.charts;
+      if (dashboardData.charts) {
+        this.state.chartData = dashboardData.charts;
       }
 
       // Process tables data
-      if (data.tables) {
-        this.state.tableData = data.tables;
+      if (dashboardData.tables) {
+        this.state.tableData = dashboardData.tables;
       }
 
       // Render dashboard
@@ -135,43 +141,40 @@ const headteacherDashboardController = {
       return;
     }
 
-    // Card 1: Total Students
-    const totalStudents = cards.total_students || cards.totalStudents;
+    // Card 1: Total Students - matches backend card_type: 'total_students'
+    const totalStudents = cards.total_students;
     if (totalStudents) {
       this.state.summaryCards.students = {
         title: "Total Students",
-        value: totalStudents.total_students || totalStudents.value || "0",
+        value: totalStudents.total_students || "0",
         subtitle: "Enrolled",
-        secondary:
-          (totalStudents.active_streams || totalStudents.streams || "0") +
-          " streams",
+        secondary: "All active students",
         color: "primary",
         icon: "bi-people",
       };
     }
 
-    // Card 2: Attendance Today
-    const attendanceToday = cards.attendance_today || cards.attendanceToday;
+    // Card 2: Attendance Today - matches backend card_type: 'attendance_today'
+    const attendanceToday = cards.attendance_today;
     if (attendanceToday) {
       this.state.summaryCards.attendance = {
         title: "Attendance Today",
         value: (attendanceToday.percentage || "0") + "%",
         subtitle: "Present",
-        secondary:
-          (attendanceToday.present || "0") +
-          " of " +
-          (attendanceToday.total || "0"),
+        secondary: `Present: ${attendanceToday.present || 0} | Absent: ${
+          attendanceToday.absent || 0
+        }`,
         color: "success",
         icon: "bi-check-circle",
       };
     }
 
-    // Card 3: Class Schedules
-    const schedules = cards.class_schedules || cards.classSchedules;
+    // Card 3: Class Schedules - matches backend card_type: 'schedules'
+    const schedules = cards.class_schedules;
     if (schedules) {
       this.state.summaryCards.schedules = {
         title: "Class Schedules",
-        value: schedules.total_sessions || schedules.value || "0",
+        value: schedules.total_sessions || "0",
         subtitle: "This week",
         secondary: (schedules.upcoming || "0") + " upcoming",
         color: "info",
@@ -179,68 +182,61 @@ const headteacherDashboardController = {
       };
     }
 
-    // Card 4: Pending Admissions
-    const admissions = cards.pending_admissions || cards.pendingAdmissions;
+    // Card 4: Pending Admissions - matches backend card_type: 'admissions'
+    const admissions = cards.pending_admissions;
     if (admissions) {
       this.state.summaryCards.admissions = {
         title: "Pending Admissions",
-        value: admissions.pending_applications || admissions.pending || "0",
+        value: admissions.pending_applications || "0",
         subtitle: "To review",
-        secondary: (admissions.approved || "0") + " approved",
+        secondary: (admissions.documents_verified || "0") + " verified",
         color: "warning",
         icon: "bi-inbox",
       };
     }
 
-    // Card 5: Discipline Cases
-    const discipline = cards.discipline_cases || cards.disciplineCases;
+    // Card 5: Discipline Cases - matches backend card_type: 'discipline'
+    const discipline = cards.discipline_cases;
     if (discipline) {
       this.state.summaryCards.discipline = {
         title: "Discipline Cases",
-        value: discipline.open_cases || discipline.open || "0",
+        value: discipline.open_cases || "0",
         subtitle: "Open",
-        secondary: (discipline.resolved_this_month || "0") + " resolved",
+        secondary:
+          (discipline.resolved_this_month || "0") + " resolved this month",
         color: "danger",
         icon: "bi-exclamation-triangle",
       };
     }
 
-    // Card 6: Parent Communications
-    const communications =
-      cards.parent_communications || cards.parentCommunications;
+    // Card 6: Parent Communications - matches backend card_type: 'communications'
+    const communications = cards.parent_communications;
     if (communications) {
       this.state.summaryCards.communications = {
         title: "Communications",
-        value: communications.sent_this_week || communications.value || "0",
-        subtitle: "Sent",
-        secondary:
-          (communications.pending_responses || "0") + " responses pending",
+        value: communications.sent_this_week || "0",
+        subtitle: "Sent this week",
+        secondary: (communications.drafts || "0") + " drafts",
         color: "secondary",
         icon: "bi-chat-dots",
       };
     }
 
-    // Card 7: Student Assessments
-    const assessments = cards.student_assessments || cards.studentAssessments;
+    // Card 7: Student Assessments - matches backend card_type: 'assessments'
+    const assessments = cards.student_assessments;
     if (assessments) {
       this.state.summaryCards.assessments = {
         title: "Assessments",
-        value:
-          assessments.total_assessments ||
-          assessments.graded_this_month ||
-          assessments.value ||
-          "0",
+        value: assessments.total_assessments || "0",
         subtitle: "Total",
-        secondary:
-          (assessments.pending_approval || assessments.pending_marking || "0") +
-          " pending approval",
+        secondary: (assessments.pending_approval || "0") + " pending approval",
         color: "success",
         icon: "bi-graph-up",
       };
     }
 
-    // Card 8: Class Performance
-    const performance = cards.class_performance || cards.classPerformance;
+    // Card 8: Class Performance - matches backend card_type: 'performance'
+    const performance = cards.class_performance;
     if (performance) {
       this.state.summaryCards.performance = {
         title: "Class Performance",

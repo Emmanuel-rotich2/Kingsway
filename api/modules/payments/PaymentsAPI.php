@@ -200,109 +200,161 @@ class PaymentsAPI extends BaseAPI
     {
         $logFileRaw = $this->logDir . '/mpesa_c2b_confirmation_raw.log';
         $logFile = $this->logDir . '/mpesa_c2b_confirmation.log';
-        file_put_contents($logFileRaw, $this->timestamp . " - RAW REQUEST:\n" . json_encode($confirmationData) . "\n\n", FILE_APPEND);
+        @file_put_contents($logFileRaw, $this->timestamp . " - RAW REQUEST:\n" . json_encode($confirmationData) . "\n\n", FILE_APPEND);
+
         try {
             // Log parsed data
-            file_put_contents($logFile, $this->timestamp . " - PARSED DATA:\n" . print_r($confirmationData, true) . "\n\n", FILE_APPEND);
-            // Extract payment details
+            @file_put_contents($logFile, $this->timestamp . " - PARSED DATA:\n" . print_r($confirmationData, true) . "\n\n", FILE_APPEND);
+
+            // Extract payment details from Safaricom callback
             $mpesaCode = $confirmationData['TransID'] ?? '';
             $admissionNumber = $confirmationData['BillRefNumber'] ?? '';
             $amount = floatval($confirmationData['TransAmount'] ?? 0);
             $phoneNumber = $confirmationData['MSISDN'] ?? '';
             $transTime = $confirmationData['TransTime'] ?? '';
-            // $businessShortCode = $confirmationData['BusinessShortCode'] ?? ''; // Unused variable removed
             $firstName = $confirmationData['FirstName'] ?? '';
             $middleName = $confirmationData['MiddleName'] ?? '';
             $lastName = $confirmationData['LastName'] ?? '';
             $orgBalance = $confirmationData['OrgAccountBalance'] ?? '';
+            $thirdPartyTransId = $confirmationData['ThirdPartyTransID'] ?? '';
+
             // Validate required fields
             if (empty($mpesaCode) || empty($admissionNumber) || $amount <= 0) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Missing required fields\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Missing required fields'
                 ];
             }
+
+            // Format transaction date
+            $transDateTime = \DateTime::createFromFormat('YmdHis', $transTime);
+            $transDateFormatted = $transDateTime ? $transDateTime->format('Y-m-d H:i:s') : date('Y-m-d H:i:s');
+
+            // Look up student by admission number
             $stmt = $this->db->prepare("SELECT id, first_name, last_name, status FROM students WHERE admission_no = :admission_no LIMIT 1");
             $stmt->execute(['admission_no' => $admissionNumber]);
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
+            
             if (!$student) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Student not found: {$admissionNumber}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Student not found'
                 ];
             }
+            
             if (!in_array($student['status'], ['active', 'enrolled'])) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Student not active: {$admissionNumber} (status: {$student['status']})\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Student account not active'
                 ];
             }
-            $this->db->beginTransaction();
-            // Check for duplicate transaction
-            $dupStmt = $this->db->prepare("SELECT id FROM payment_transactions WHERE reference_no = :reference_no AND payment_method = 'mpesa_c2b' LIMIT 1");
-            $dupStmt->execute(['reference_no' => $mpesaCode]);
-            $existing = $dupStmt->fetch(\PDO::FETCH_ASSOC);
-            if ($existing) {
-                $this->db->rollBack();
-                file_put_contents($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already processed (ID: {$existing['id']})\n", FILE_APPEND);
+
+            $studentId = $student['id'];
+
+            // Check for duplicate M-Pesa transaction
+            $dupStmt = $this->db->prepare("SELECT id FROM mpesa_transactions WHERE mpesa_code = :mpesa_code LIMIT 1");
+            $dupStmt->execute(['mpesa_code' => $mpesaCode]);
+            if ($dupStmt->fetch()) {
+                @file_put_contents($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already exists\n", FILE_APPEND);
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'Confirmation received successfully (already processed)'
                 ];
             }
-            // Insert payment record
-            $transDateTime = \DateTime::createFromFormat('YmdHis', $transTime);
-            if (!$transDateTime) {
-                $transDateTime = new \DateTime();
-            }
-            $transDateFormatted = $transDateTime->format('Y-m-d H:i:s');
-            $insertQuery = "INSERT INTO payment_transactions (student_id, amount_paid, payment_date, payment_method, reference_no, receipt_no, status, notes, created_at) VALUES (:student_id, :amount_paid, :payment_date, 'mpesa_c2b', :reference_no, :receipt_no, 'confirmed', :notes, NOW())";
-            $insertStmt = $this->db->prepare($insertQuery);
-            $insertStmt->execute([
-                'student_id' => $student['id'],
-                'amount_paid' => $amount,
-                'payment_date' => $transDateFormatted,
-                'reference_no' => $mpesaCode,
-                'receipt_no' => 'MPESA-' . $mpesaCode,
-                'notes' => "M-Pesa payment from {$firstName} {$middleName} {$lastName} (Phone: {$phoneNumber}). OrgBalance: {$orgBalance}"
-            ]);
-            // Update student fee balance
-            $balStmt = $this->db->prepare("UPDATE student_fee_balances SET balance = balance - :amount WHERE student_id = :student_id");
-            $balStmt->execute([
+
+            // Record M-Pesa transaction with enhanced fields
+            $insertMpesa = $this->db->prepare("
+                INSERT INTO mpesa_transactions 
+                (mpesa_code, student_id, amount, transaction_date, phone_number, 
+                 first_name, middle_name, last_name, org_account_balance, 
+                 bill_ref_number, third_party_trans_id, status, transaction_type, raw_callback, created_at)
+                VALUES (:mpesa_code, :student_id, :amount, :trans_date, :phone,
+                        :first_name, :middle_name, :last_name, :org_balance,
+                        :bill_ref, :third_party_id, 'processed', 'C2B', :raw_callback, NOW())
+            ");
+            $insertMpesa->execute([
+                'mpesa_code' => $mpesaCode,
+                'student_id' => $studentId,
                 'amount' => $amount,
-                'student_id' => $student['id']
+                'trans_date' => $transDateFormatted,
+                'phone' => $phoneNumber,
+                'first_name' => $firstName,
+                'middle_name' => $middleName,
+                'last_name' => $lastName,
+                'org_balance' => $orgBalance,
+                'bill_ref' => $admissionNumber,
+                'third_party_id' => $thirdPartyTransId,
+                'raw_callback' => json_encode($confirmationData)
             ]);
+
+            $mpesaTxId = $this->db->lastInsertId();
+            @file_put_contents($logFile, $this->timestamp . " - M-Pesa TX recorded (ID: {$mpesaTxId})\n", FILE_APPEND);
+
+            // Get parent_id for this student
+            $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = :student_id LIMIT 1");
+            $parentStmt->execute(['student_id' => $studentId]);
+            $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
+            $parentId = $parentRow ? $parentRow['parent_id'] : null;
+
+            // Generate receipt number
+            $receiptNo = 'MPESA-' . $mpesaCode;
+
+            // System user for automated payments
+            $systemUserId = 1;
+
+            // Process payment using stored procedure sp_process_student_payment
+            // Parameters: p_student_id, p_parent_id, p_amount_paid, p_payment_method, p_reference_no, 
+            //             p_receipt_no, p_received_by, p_payment_date, p_notes
+            $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $spStmt->execute([
+                $studentId,
+                $parentId,
+                $amount,
+                'mpesa',  // payment_method ENUM value
+                $mpesaCode,
+                $receiptNo,
+                $systemUserId,
+                $transDateFormatted,
+                "M-Pesa C2B payment from {$firstName} {$middleName} {$lastName} (Phone: {$phoneNumber}). OrgBalance: {$orgBalance}"
+            ]);
+            $spStmt->closeCursor();
+
             // Log webhook
-            $webhookLogQuery = "INSERT INTO payment_webhooks_log (source, webhook_data, status, created_at) VALUES ('mpesa_c2b', :webhook_data, 'processed', NOW())";
+            $webhookLogQuery = "INSERT INTO payment_webhooks_log (source, webhook_data, status, created_at) VALUES ('mpesa_c2b_confirmation', :webhook_data, 'processed', NOW())";
             $webhookStmt = $this->db->prepare($webhookLogQuery);
             $webhookStmt->execute([
                 'webhook_data' => json_encode([
                     'mpesa_code' => $mpesaCode,
                     'admission_no' => $admissionNumber,
-                    'student_id' => $student['id'],
+                    'student_id' => $studentId,
+                    'mpesa_tx_id' => $mpesaTxId,
                     'amount' => $amount,
                     'phone' => $phoneNumber,
                     'trans_time' => $transDateFormatted,
+                    'payer_name' => trim("{$firstName} {$middleName} {$lastName}"),
                     'org_balance' => $orgBalance
                 ])
             ]);
-            $this->db->commit();
-            file_put_contents($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber}, Amount: {$amount}\n", FILE_APPEND);
+
+            @file_put_contents($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
+
             return [
                 'ResultCode' => 0,
                 'ResultDesc' => 'Confirmation received successfully'
             ];
+
         } catch (\Exception $e) {
-            if ($this->db && $this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
-            file_put_contents($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            @file_put_contents($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            // Return error with more details for debugging
+            error_log("M-Pesa C2B Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
                 'ResultDesc' => 'Internal server error'
             ];
         }
-
     }
     /**
      * Process KCB Validation
@@ -685,16 +737,30 @@ class PaymentsAPI extends BaseAPI
                     'webhook_data' => json_encode($notificationData)
                 ]);
                 $bankTransactionId = $this->db->lastInsertId();
-                $paymentQuery = "INSERT INTO payment_transactions (student_id, amount_paid, payment_date, payment_method, reference_no, receipt_no, status, notes, created_at) VALUES (:student_id, :amount_paid, :payment_date, 'bank_transfer', :reference_no, :receipt_no, 'confirmed', :notes, NOW())";
-                $paymentStmt = $this->db->prepare($paymentQuery);
-                $paymentStmt->execute([
-                    'student_id' => $studentId,
-                    'amount_paid' => $transactionAmount,
-                    'payment_date' => $transDateFormatted,
-                    'reference_no' => $transactionReference,
-                    'receipt_no' => 'KCB-' . $transactionReference,
-                    'notes' => "KCB Bank payment from {$customerName} (Mobile: {$customerMobile}). {$narration}"
+
+                // Get parent_id for this student (for fee allocation)
+                $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
+                $parentStmt->execute([$studentId]);
+                $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
+                $parentId = $parentRow ? $parentRow['parent_id'] : null;
+
+                // Use sp_process_student_payment to properly allocate payment to fee obligations
+                $receiptNo = 'KCB-' . $transactionReference;
+                $notes = "KCB Bank payment from {$customerName} (Mobile: {$customerMobile}). {$narration}";
+
+                $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $spStmt->execute([
+                    $studentId,
+                    $parentId,
+                    $transactionAmount,
+                    'bank_transfer',
+                    $transactionReference,
+                    $receiptNo,
+                    1, // received_by = system (1)
+                    $transDateFormatted,
+                    $notes
                 ]);
+                $spStmt->closeCursor();
                 $webhookLogQuery = "INSERT INTO payment_webhooks_log (source, webhook_data, status, created_at) VALUES ('kcb_bank', :webhook_data, 'processed', NOW())";
                 $webhookStmt = $this->db->prepare($webhookLogQuery);
                 $webhookStmt->execute([

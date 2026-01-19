@@ -1,21 +1,23 @@
 <?php
-
 /**
- * Manage Communications Page
- * 
- * HTML structure only - all logic in js/pages/communications.js (communicationsController)
- * 
- * Role-based access:
- * - Secretary: Send messages to parents, view sent messages
- * - Headteacher: All communications, school-wide announcements
- * - Class Teacher: Send to own class parents only
- * - Accountant: Send fee reminders
- * - Admin: Full access, manage templates
- * - Director: View all, approve campaigns
- * 
- * Embedded in app_layout.php
+ * Manage Communications - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
 
+// Default template (will be overridden by JavaScript)
+$template = 'communications/manager_communications.php'; // Default fallback
+
+// Include the template (JavaScript will replace content based on role)
+include __DIR__ . '/' . $template;
+exit;
+?>
+
+// Include the appropriate template
+include __DIR__ . '/' . $template;
+exit;
+
+// Legacy template below (kept for reference, not executed)
 ?>
 
 <div class="card shadow-sm">

@@ -230,6 +230,15 @@ class DashboardManager
         $stmt->execute([$roleId]);
         $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
+        // Hide 'My Classes' (ids 400,402) for Class Teacher (role id 7) at code level
+        if ($roleId === 7) {
+            $items = array_filter($items, function($it) {
+                return !in_array((int)$it['id'], [400, 402], true);
+            });
+            // Reindex array
+            $items = array_values($items);
+        }
+
         // Build hierarchical structure
         return $this->buildMenuHierarchy($items);
     }
@@ -406,6 +415,14 @@ class DashboardManager
         );
         $stmt->execute([$roleId]);
         $items = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        // Hide 'My Classes' (ids 400,402) for Class Teacher (role id 7)
+        if ($roleId === 7) {
+            $items = array_filter($items, function($it) {
+                return !in_array((int)$it['id'], [400, 402], true);
+            });
+            $items = array_values($items);
+        }
 
         return $this->buildMenuHierarchy($items);
     }

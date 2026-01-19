@@ -210,8 +210,27 @@ class StaffAPI extends BaseAPI {
                 return $v !== null && $v !== '';
             });
 
+            // If caller provided nested staff_info, merge and prefer those values
+            if (!empty($data['staff_info']) && is_array($data['staff_info'])) {
+                $staffInfo = array_merge($staffInfo, array_filter($data['staff_info'], function ($v) {
+                    return $v !== null && $v !== '';
+                }));
+            }
+
+            // Determine username: prefer provided username, else use email prefix sanitized
+            $username = $data['username'] ?? null;
+            if (empty($username) && !empty($data['email'])) {
+                # take local-part of email and remove invalid chars
+                $local = explode('@', $data['email'])[0] ?? $data['email'];
+                $username = preg_replace('/[^a-zA-Z0-9_-]/', '_', $local);
+                # ensure starts with letter; prefix with 'user' if necessary
+                if (!preg_match('/^[a-zA-Z]/', $username)) {
+                    $username = 'u' . $username;
+                }
+            }
+
             $userPayload = [
-                'username' => $data['email'],
+                'username' => $username,
                 'email' => $data['email'],
                 'password' => $data['password'] ?? 'changeme123',
                 'first_name' => $data['first_name'],
@@ -220,23 +239,35 @@ class StaffAPI extends BaseAPI {
                 'staff_info' => $staffInfo
             ];
 
-            $userResult = $usersApi->create($userPayload);
-            if (!isset($userResult['success']) || !$userResult['success']) {
-                throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
-            }
-
-            // Determine created user ID (returned in data or fetch by email as fallback)
-            $userId = $userResult['data']['id'] ?? null;
-            if (!$userId) {
-                $stmt = $this->db->prepare("SELECT id FROM users WHERE email = ?");
-                $stmt->execute([$data['email']]);
-                $row = $stmt->fetch();
-                if ($row) {
-                    $userId = $row['id'];
+            // If a user with this email or username already exists, add staff for that user instead of creating a duplicate user
+            $existingUserStmt = $this->db->prepare('SELECT id FROM users WHERE email = ? OR username = ? LIMIT 1');
+            $existingUserStmt->execute([$data['email'], $username]);
+            $existingUser = $existingUserStmt->fetch(PDO::FETCH_ASSOC);
+            if ($existingUser) {
+                $userId = $existingUser['id'];
+                $addResult = $usersApi->addStaffForUser($userId, $staffInfo, $roleIds);
+                if (!isset($addResult['success']) || !$addResult['success']) {
+                    throw new Exception('Failed to create staff for existing user: ' . ($addResult['error'] ?? json_encode($addResult)));
                 }
-            }
-            if (!$userId) {
-                throw new Exception('Unable to determine created user id');
+            } else {
+                $userResult = $usersApi->create($userPayload);
+                if (!isset($userResult['success']) || !$userResult['success']) {
+                    throw new Exception('Failed to create user: ' . ($userResult['error'] ?? json_encode($userResult)));
+                }
+
+                // Determine created user ID (returned in data or fetch by email as fallback)
+                $userId = $userResult['data']['id'] ?? null;
+                if (!$userId) {
+                    $stmt = $this->db->prepare("SELECT id FROM users WHERE email = ?");
+                    $stmt->execute([$data['email']]);
+                    $row = $stmt->fetch();
+                    if ($row) {
+                        $userId = $row['id'];
+                    }
+                }
+                if (!$userId) {
+                    throw new Exception('Unable to determine created user id');
+                }
             }
 
             // Expect UsersAPI.create to have created the staff row.
@@ -320,7 +351,8 @@ class StaffAPI extends BaseAPI {
             if ($qcount === 0) {
                 $sql = "INSERT INTO staff_qualifications (staff_id, qualification_type, title, institution, year_obtained, description, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$staffId, 'placeholder', 'To be uploaded', null, null, null, null]);
+                // Use current year as a safe default for placeholder qualifications to satisfy NOT NULL constraint
+                $stmt->execute([$staffId, 'other', 'To be uploaded', 'N/A', date('Y'), null, null]);
             }
 
             $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_experience WHERE staff_id = ?");
@@ -329,7 +361,9 @@ class StaffAPI extends BaseAPI {
             if ($ecount === 0) {
                 $sql = "INSERT INTO staff_experience (staff_id, organization, position, start_date, end_date, responsibilities, document_url) VALUES (?, ?, ?, ?, ?, ?, ?)";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$staffId, 'placeholder', 'To be updated', null, null, null, null]);
+                // Use employment_date or today as a safe default for start_date (NOT NULL constraint)
+                $safeStart = $data['employment_date'] ?? ($staffInfo['employment_date'] ?? date('Y-m-d'));
+                $stmt->execute([$staffId, 'placeholder', 'To be updated', $safeStart, null, null, null]);
             }
 
             // Add qualifications if provided

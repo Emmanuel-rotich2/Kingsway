@@ -1,0 +1,71 @@
+name: UI Smoke Tests
+
+on:
+  push:
+    branches: [ development, main ]
+  pull_request:
+    branches: [ development, main ]
+
+jobs:
+  ui-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: pdo, pdo_mysql, mysqli, json, mbstring, openssl, curl
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-server mysql-client
+          sudo systemctl start mysql
+          sudo mysql -e "CREATE DATABASE IF NOT EXISTS KingsWayAcademy;"
+          sudo mysql -e "CREATE USER IF NOT EXISTS 'testuser'@'localhost' IDENTIFIED BY 'testpass';"
+          sudo mysql -e "GRANT ALL PRIVILEGES ON KingsWayAcademy.* TO 'testuser'@'localhost';"
+          sudo mysql -e "FLUSH PRIVILEGES;"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup application
+        run: |
+          # Copy config template if it exists
+          if [ -f config/config.template.php ]; then
+            cp config/config.template.php config/config.php
+          fi
+          # Import database schema if available
+          if [ -f database/KingsWayAcademy.sql ]; then
+            sudo mysql -u testuser -ptestpass KingsWayAcademy < database/KingsWayAcademy.sql
+          fi
+
+      - name: Start PHP built-in server
+        run: |
+          php -S 127.0.0.1:8000 -t . > /tmp/php-server.log 2>&1 &
+
+      - name: Wait for PHP server
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:8000/ >/dev/null; then break; fi
+            sleep 2
+          done
+          echo "PHP server ready"
+          
+
+      - name: Run UI smoke test (Puppeteer)
+        env:
+          BASE_URL: http://127.0.0.1:8000
+          DB_HOST: 127.0.0.1
+          DB_USER: testuser
+          DB_PASS: testpass
+          DB_NAME: KingsWayAcademy
+          DB_PORT: 3306
+        run: npm run test:ui

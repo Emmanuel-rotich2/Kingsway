@@ -55,33 +55,65 @@ class PaymentManager
 
             $this->db->beginTransaction();
 
-            // Validate student exists
+            // Verify student exists
             $stmt = $this->db->prepare("SELECT id FROM students WHERE id = ?");
             $stmt->execute([$data['student_id']]);
+            $studentRow = $stmt->fetch();
 
-            if (!$stmt->fetch()) {
+            if (!$studentRow) {
                 $this->db->rollBack();
                 return formatResponse(false, null, 'Student not found');
             }
 
-            // Call stored procedure to process payment
+            // Get parent_id from the student_parents relationship table or use NULL if not found
+            $parentId = null;
             $stmt = $this->db->prepare("
-                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?)
+                SELECT parent_id FROM student_parents 
+                WHERE student_id = ? 
+                LIMIT 1
+            ");
+            $stmt->execute([$data['student_id']]);
+            $parentRow = $stmt->fetch();
+            if ($parentRow) {
+                $parentId = $parentRow['parent_id'];
+            }
+
+            // Generate receipt number if not provided
+            $receiptNo = $data['receipt_no'] ?? 'RCP-' . date('Ymdhis') . '-' . $data['student_id'];
+
+            // Call stored procedure to process payment (requires 9 arguments)
+            $stmt = $this->db->prepare("
+                CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             $stmt->execute([
-                $data['student_id'],
-                $data['amount'],
-                $data['payment_method'], // 'cash', 'bank', 'mpesa', 'cheque'
-                $data['transaction_ref'] ?? null,
-                $data['payment_date'] ?? date('Y-m-d H:i:s'),
-                $data['received_by'] ?? null,
-                $data['notes'] ?? null
+                $data['student_id'],           // p_student_id
+                $parentId,                      // p_parent_id (can be NULL)
+                $data['amount'],                // p_amount_paid
+                $data['payment_method'],        // p_payment_method ('cash', 'bank', 'mpesa', 'cheque')
+                $data['reference_no'] ?? null,  // p_reference_no (transaction ref)
+                $receiptNo,                     // p_receipt_no
+                $data['received_by'] ?? 1,      // p_received_by (user_id)
+                $data['payment_date'] ?? date('Y-m-d H:i:s'),  // p_payment_date
+                $data['notes'] ?? null          // p_notes
             ]);
 
-            // Get the payment ID from the procedure result
-            $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            $paymentId = $result['payment_id'] ?? $this->db->lastInsertId();
+            // The stored procedure doesn't return a result set, so we need to fetch the payment_id from the database
+            // Get the latest payment ID for this student from the payment_transactions table
+            $stmt = $this->db->prepare("
+                SELECT id FROM payment_transactions 
+                WHERE student_id = ? 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            ");
+            $stmt->execute([$data['student_id']]);
+            $paymentResult = $stmt->fetch(PDO::FETCH_ASSOC);
+            $paymentId = $paymentResult['id'] ?? null;
+
+            if (!$paymentId) {
+                $this->db->rollBack();
+                return formatResponse(false, null, 'Payment was processed but ID could not be retrieved');
+            }
 
             // If M-Pesa payment, record M-Pesa transaction details
             if ($data['payment_method'] === 'mpesa' && !empty($data['mpesa_data'])) {
@@ -177,7 +209,7 @@ class PaymentManager
 
             // Verify payment exists
             $stmt = $this->db->prepare("
-                SELECT id, amount, student_id FROM payment_transactions WHERE id = ?
+                SELECT id, amount_paid AS amount, student_id FROM payment_transactions WHERE id = ?
             ");
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -537,10 +569,12 @@ class PaymentManager
     public function getPaymentSummary($filters = [])
     {
         try {
+            $amountExpr = \App\API\Includes\sql_coalesce_existing_columns('payment_transactions', ['amount_paid', 'amount'], '0', 300, true);
+
             $sql = "SELECT 
                         COUNT(*) as total_transactions,
-                        SUM(amount) as total_amount,
-                        AVG(amount) as average_amount,
+                        SUM($amountExpr) as total_amount,
+                        AVG($amountExpr) as average_amount,
                         payment_method,
                         COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_count,
                         COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_count,

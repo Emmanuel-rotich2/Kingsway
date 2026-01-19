@@ -224,6 +224,13 @@ curl http://localhost/Kingsway/api/?route=payments&action=collection-trends
 ### Multi-Role Users
 - **Alt+D**: Open role switcher dropdown (if applicable)
 
+### Delegation Policy ✅
+
+- **Full-role delegation is not permitted.** The system enforces per-menu-item delegation only.
+- When delegating responsibilities, administrators must delegate specific sidebar items (functions) using the `role_delegations_items` mechanism — not the entire role/sidebars.
+- If a Headteacher delegates a function to deputies, the delegation should be given explicitly to *both* deputy roles (e.g., Role 6 and Role 63) as needed — do **not** give all functions to a single deputy.
+- Attempts to create active full-role delegations are blocked and recorded in an audit table; contact an administrator to perform fine-grained delegation.
+
 ---
 
 ## Performance Tips
