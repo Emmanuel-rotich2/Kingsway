@@ -248,6 +248,9 @@ include_once __DIR__ . '/../cards/card_component.php';
                         <a href="home.php?route=manage_users" class="btn btn-outline-primary text-start">
                             <i class="fas fa-user-plus me-2"></i>Manage Users
                         </a>
+                        <a href="home.php?route=admin_delegations" class="btn btn-outline-secondary text-start">
+                            <i class="fas fa-user-shield me-2"></i>Manage Delegations
+                        </a>
                         <a href="home.php?route=role_definitions" class="btn btn-outline-secondary text-start">
                             <i class="fas fa-user-tag me-2"></i>Manage Roles
                         </a>

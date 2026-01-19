@@ -11,13 +11,13 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/viewer-theme.css">
 
 <div class="viewer-layout">
     <!-- Header -->
     <header class="viewer-header">
-        <a href="/pages/dashboard.php" class="back-link">← Dashboard</a>
+        <a href="/Kingsway/home.php?route=dashboard" class="back-link">← Dashboard</a>
         <h1 class="page-title">💰 My Fees</h1>
     </header>
 

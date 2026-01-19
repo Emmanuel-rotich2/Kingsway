@@ -81,6 +81,11 @@ class Database
         return $this->connection->beginTransaction();
     }
 
+    public function inTransaction()
+    {
+        return $this->connection->inTransaction();
+    }
+
     public function commit()
     {
         return $this->connection->commit();

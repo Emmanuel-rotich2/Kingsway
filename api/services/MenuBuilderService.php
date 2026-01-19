@@ -238,6 +238,46 @@ class MenuBuilderService
     }
 
     /**
+     * Get menu items that were explicitly delegated to a given role.
+     * This implements per-menu-item delegation (role_delegations_items).
+     */
+    public function getDelegatedMenuItemsForRole(int $delegateRoleId): array
+    {
+        $stmt = $this->db->query(
+            "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
+                    rdi.active as delegation_active
+             FROM role_delegations_items rdi
+             JOIN sidebar_menu_items mi ON mi.id = rdi.menu_item_id
+             LEFT JOIN routes r ON r.id = mi.route_id
+             LEFT JOIN sidebar_menu_configs mic ON mic.menu_item_id = mi.id
+             WHERE rdi.delegate_role_id = ? AND rdi.active = 1 AND mi.is_active = 1
+             ORDER BY mi.display_order",
+            [$delegateRoleId]
+        );
+        return $stmt->fetchAll();
+    }
+
+    /**
+     * Get menu items that were explicitly delegated to a specific user.
+     * New: user-level per-menu-item delegation (user_delegations_items).
+     */
+    public function getDelegatedMenuItemsForUser(int $delegateUserId): array
+    {
+        $stmt = $this->db->query(
+            "SELECT mi.*, r.name as route_name, r.url as route_url, r.domain as route_domain,
+                    udi.active as delegation_active
+             FROM user_delegations_items udi
+             JOIN sidebar_menu_items mi ON mi.id = udi.menu_item_id
+             LEFT JOIN routes r ON r.id = mi.route_id
+             LEFT JOIN sidebar_menu_configs mic ON mic.menu_item_id = mi.id
+             WHERE udi.delegate_user_id = ? AND udi.active = 1 AND mi.is_active = 1
+             ORDER BY mi.display_order",
+            [$delegateUserId]
+        );
+        return $stmt->fetchAll();
+    }
+
+    /**
      * Assign menu item to role
      */
     public function assignMenuItemToRole(int $roleId, int $menuItemId, bool $isDefault = true, ?int $customOrder = null): bool
@@ -345,6 +385,84 @@ class MenuBuilderService
         // 1. Get all menu items for the role
         $menuItems = $this->getMenuItemsForRole($roleId);
 
+        // If this user is a staff member assigned to Lower Primary classes (grade 1-3),
+        // ensure they get the canonical teacher dashboard/menu even if their role mapping
+        // does not include it. This makes teachers teaching Grade <=3 behave as class teachers.
+        try {
+            $stmt = $this->db->query("SELECT id FROM staff WHERE user_id = ? LIMIT 1", [$userId]);
+            $staffRow = $stmt->fetch();
+            if ($staffRow) {
+                $staffId = (int) $staffRow['id'];
+                $stmt2 = $this->db->query(
+                    "SELECT DISTINCT c.level_id, c.name FROM vw_current_staff_assignments v JOIN classes c ON v.class_id = c.id WHERE v.staff_id = ?",
+                    [$staffId]
+                );
+                $levels = $stmt2->fetchAll();
+                $treatAsClassTeacher = false;
+                foreach ($levels as $lv) {
+                    if (isset($lv['level_id']) && (int) $lv['level_id'] === 2) {
+                        $treatAsClassTeacher = true;
+                        break;
+                    }
+                    // fallback: check class name for Grade 1-3 or Playgroup/PP
+                    if (!empty($lv['name']) && preg_match('/Grade\s*(1|2|3)|Playgroup|PP/i', $lv['name'])) {
+                        $treatAsClassTeacher = true;
+                        break;
+                    }
+                }
+
+                if ($treatAsClassTeacher) {
+                    // Find canonical teacher route/menu (route name 'teacher_dashboard')
+                    $routeId = $this->findRouteIdByName('teacher_dashboard');
+                    if ($routeId) {
+                        $stmt3 = $this->db->query("SELECT id FROM sidebar_menu_items WHERE route_id = ? AND is_active = 1 LIMIT 1", [$routeId]);
+                        $menuRow = $stmt3->fetch();
+                        if ($menuRow) {
+                            $menuId = (int) $menuRow['id'];
+                            // Add to menuItems if not already present
+                            $exists = array_filter($menuItems, fn($mi) => (int) $mi['id'] === $menuId);
+                            if (empty($exists)) {
+                                $menuItems[] = $this->getMenuItemById($menuId);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Non-fatal: if view/table missing or query fails, continue without forcing menu change
+        }
+
+        // Also include menu items explicitly delegated to this role (per-item delegation)
+        try {
+            $delegated = $this->getDelegatedMenuItemsForRole($roleId);
+            if (!empty($delegated)) {
+                // Append delegated items; de-duplication handled later by canonical keys
+                $menuItems = array_merge($menuItems, $delegated);
+            }
+        } catch (\Exception $e) {
+            // If the role_delegations_items table does not exist yet, ignore
+        }
+
+        // If this is the Accountant role (role_id = 10), prefer new workflow parent groups
+        // by filtering the menu to only include those parents and their descendants.
+        try {
+            if ((int) $roleId === 10) {
+                $menuItems = $this->applyAccountantMenuFilter($menuItems);
+            }
+        } catch (\Exception $e) {
+            // Non-fatal: continue with original menuItems on error
+        }
+
+        // Also include menu items explicitly delegated to this specific user (user-level delegation)
+        try {
+            $userDelegated = $this->getDelegatedMenuItemsForUser($userId);
+            if (!empty($userDelegated)) {
+                $menuItems = array_merge($menuItems, $userDelegated);
+            }
+        } catch (\Exception $e) {
+            // If the user_delegations_items table does not exist yet, ignore
+        }
+
         // 2. Get user overrides
         $overrides = $this->getUserMenuOverrides($userId);
         $overrideMap = [];
@@ -427,11 +545,22 @@ class MenuBuilderService
             if ($item['parent_id'] == $parentId) {
                 $children = $this->buildMenuTree($items, $item['id']);
 
+                $rawUrl = $item['url'] ?? $item['route_name'] ?? null;
+                $normalizedUrl = $rawUrl;
+                if ($rawUrl && strpos($rawUrl, 'route=') !== false) {
+                    // Extract route name from URLs like home.php?route=dashboard
+                    $query = parse_url($rawUrl, PHP_URL_QUERY);
+                    if ($query) {
+                        parse_str($query, $params);
+                        $normalizedUrl = $params['route'] ?? $rawUrl;
+                    }
+                }
+
                 $menuItem = [
                     'id' => $item['id'],
                     'label' => $item['label'],
                     'icon' => $item['icon'],
-                    'url' => $item['url'] ?? $item['route_name'] ?? null,
+                    'url' => $normalizedUrl,
                     'route_url' => $item['route_url'] ?? null,
                     'domain' => $item['domain'],
                     'display_order' => $item['display_order'] ?? 0,
@@ -464,10 +593,34 @@ class MenuBuilderService
     {
         $allItems = [];
         $seenKeys = [];
+        $seenLabels = []; // prevent duplicate top-level labels (e.g. multiple 'Dashboard')
 
         // Build union of menu items but dedupe by canonical key (route_url, route_name, url, name, label)
+        // Ensure teacher role ordering: prefer Subject Teacher (8) first, then Class Teacher (7), then Intern (9), then others
+        $priority = [8, 7, 9];
+        usort($roleIds, function ($a, $b) use ($priority) {
+            $pa = array_search($a, $priority, true);
+            $pb = array_search($b, $priority, true);
+            $pa = $pa === false ? 999 : $pa;
+            $pb = $pb === false ? 999 : $pb;
+            if ($pa === $pb)
+                return 0;
+            return $pa <=> $pb;
+        });
+
         foreach ($roleIds as $roleId) {
             $roleItems = $this->getMenuItemsForRole($roleId);
+
+            // Also include delegated items for this role (per-item delegation)
+            try {
+                $delegated = $this->getDelegatedMenuItemsForRole($roleId);
+                if (!empty($delegated)) {
+                    $roleItems = array_merge($roleItems, $delegated);
+                }
+            } catch (\Exception $e) {
+                // Role delegations items table may not exist in older environments - safe fallback
+            }
+
             foreach ($roleItems as $item) {
                 // Construct canonical key for deduplication
                 $key = $item['route_url'] ?? $item['route_name'] ?? $item['url'] ?? $item['name'] ?? $item['label'];
@@ -476,10 +629,25 @@ class MenuBuilderService
                     $key = 'id:' . $item['id'];
                 }
 
+                // Prevent duplicate labels at top level (user requested single 'Dashboard' etc.)
+                if (empty($item['parent_id'])) {
+                    $labelKey = trim(strtolower($item['label'] ?? ''));
+                    if ($labelKey !== '' && isset($seenLabels[$labelKey])) {
+                        // Skip duplicate top-level label entirely
+                        continue;
+                    }
+                }
+
                 // Keep first encountered item for a given key (role ordering determines priority)
                 if (!isset($seenKeys[$key])) {
                     $allItems[] = $item;
                     $seenKeys[$key] = $item['id'];
+                    if (empty($item['parent_id'])) {
+                        $labelKey = trim(strtolower($item['label'] ?? ''));
+                        if ($labelKey !== '') {
+                            $seenLabels[$labelKey] = $item['id'];
+                        }
+                    }
                 }
             }
         }
@@ -504,6 +672,15 @@ class MenuBuilderService
             }
 
             $filteredItems[] = $item;
+        }
+
+        // If the Accountant role is present among the roles, apply accountant-specific filtering
+        try {
+            if (in_array(10, $roleIds, true)) {
+                $filteredItems = $this->applyAccountantMenuFilter($filteredItems);
+            }
+        } catch (\Exception $e) {
+            // ignore and proceed
         }
 
         // Filter by permissions
@@ -683,6 +860,84 @@ class MenuBuilderService
         );
         $result = $stmt->fetch();
         return $result ? (int) $result['id'] : null;
+    }
+
+    /**
+     * Return array of preferred parent IDs for the Accountant role.
+     */
+    private function getPreferredParentIdsForAccountant(): array
+    {
+        $names = [
+            'Income',
+            'Expenditure',
+            'Accounts & Balances',
+            'Budget & Planning',
+            'Assets & Inventory',
+            'Reports & Analytics',
+            'Controls & Audit',
+            'Communications'
+        ];
+
+        $placeholders = implode(',', array_fill(0, count($names), '?'));
+        $sql = "SELECT id, name FROM sidebar_menu_items WHERE name IN ($placeholders) AND parent_id IS NULL AND is_active = 1";
+        $stmt = $this->db->query($sql, $names);
+        $rows = $stmt->fetchAll();
+        $ids = array_map(fn($r) => (int) $r['id'], $rows);
+        return $ids;
+    }
+
+    /**
+     * Filter a flat list of menu items to include only preferred accountant parents and their descendants.
+     */
+    private function applyAccountantMenuFilter(array $menuItems): array
+    {
+        if (empty($menuItems)) {
+            return $menuItems;
+        }
+
+        $preferredParents = $this->getPreferredParentIdsForAccountant();
+        if (empty($preferredParents)) {
+            // No special parents defined; leave menu unchanged
+            return $menuItems;
+        }
+
+        // Build lookup by id for ancestor traversal
+        $byId = [];
+        foreach ($menuItems as $mi) {
+            $byId[(int) $mi['id']] = $mi;
+        }
+
+        $allowed = [];
+
+        foreach ($menuItems as $mi) {
+            $id = (int) $mi['id'];
+            $parent = isset($mi['parent_id']) ? (int) $mi['parent_id'] : null;
+
+            // If item is one of the preferred parents, allow and mark display_order to bring to top
+            if (in_array($id, $preferredParents, true)) {
+                $mi['display_order'] = -100; // push to top
+                $allowed[$id] = $mi;
+                continue;
+            }
+
+            // Walk up ancestry to see if any ancestor is a preferred parent
+            $curParent = $parent;
+            $included = false;
+            while ($curParent !== null && isset($byId[$curParent])) {
+                if (in_array($curParent, $preferredParents, true)) {
+                    $included = true;
+                    break;
+                }
+                $curParent = isset($byId[$curParent]['parent_id']) ? (int) $byId[$curParent]['parent_id'] : null;
+            }
+
+            if ($included) {
+                $allowed[$id] = $mi;
+            }
+        }
+
+        // Return values as array
+        return array_values($allowed);
     }
 
     /**

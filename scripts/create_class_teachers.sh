@@ -145,10 +145,33 @@ for cls_b64 in $classes_list; do
   }
 
   short=$(map_class_to_short "$class_name")
-  username="test_classteacher_${short}"
+  # Build username with truncation to meet validation limits (max 30 chars)
+  slug_full="$short"
+  # keep 12 chars for slug part so prefix fits: prefix 'test_classteacher_' (18) + 12 = 30
+  slug_trunc=$(echo "$slug_full" | sed -E 's/[^a-z0-9]+/_/g' | sed -E 's/^_|_$//g' | cut -c1-12)
+
+  # Ensure username uniqueness by appending suffix if needed
+  ensure_unique_username() {
+    local base="$1"
+    local uname="$base"
+    local i=1
+    while /opt/lampp/bin/mysql -u "$DB_USER" -p"$DB_PASS" -D "$DB_NAME" -N -e "SELECT COUNT(*) FROM users WHERE username = '$uname'" | grep -qv "^0$"; do
+      uname="${base}_$i"
+      i=$((i+1))
+    done
+    echo "$uname"
+  }
+
+  username_base="test_classteacher_${slug_trunc}"
+  username=$(ensure_unique_username "$username_base")
   email="${username}@example.com"
   first_name="Test"
-  last_name="${short}_CT"
+  # Sanitize and format last name to only letters and spaces for validation
+  clean_last=$(echo "$short" | sed -E 's/[^a-zA-Z]+/ /g' | sed -E 's/^\s+|\s+$//g')
+  if [ -z "$clean_last" ]; then
+    clean_last="ClassTeacher"
+  fi
+  last_name="${clean_last} CT"
 
   staff_category_id=$(map_class_to_category "$class_name")
 
@@ -167,7 +190,7 @@ for cls_b64 in $classes_list; do
                  --arg pos "Class Teacher" \
                  --arg empdate "$(date +%F)" \
                  --arg staffno "$staffno_var" \
-                 '{username:$username,email:$email,password:$pass,first_name:$fn,last_name:$ln,role_ids:$roles,staff_info:{department_id:$dept,staff_category_id:$staffcategory,position:$pos,employment_date:$empdate,date_of_birth:"1990-01-01",nssf_no:"N/A",kra_pin:"A000",nhif_no:"N/A",bank_account:"0000",salary:0.00,staff_no:$staffno}}')
+                 '{username:$username,email:$email,password:$pass,first_name:$fn,last_name:$ln,role_ids:$roles,department_id:$dept,position:$pos,employment_date:$empdate,staff_info:{department_id:$dept,staff_category_id:$staffcategory,position:$pos,employment_date:$empdate,date_of_birth:"1990-01-01",nssf_no:"N/A",kra_pin:"A000",nhif_no:"N/A",bank_account:"0000",salary:0.00,staff_no:$staffno}}')
 
   echo "\nCreating teacher for class: $class_name (id=$class_id) -> username: $username"
   if [ "$DRY_RUN" -eq 1 ]; then
@@ -190,15 +213,27 @@ for cls_b64 in $classes_list; do
       -d "$payload")
   fi
 
+  # Inspect response for errors
   echo "create resp: " $(echo "$resp" | jq -r '.message // .error // empty')
+  create_status=$(echo "$resp" | jq -r '.data.status // empty')
+  if [ "$create_status" = "error" ]; then
+    echo "Create failed for $username: "
+    echo "$resp" | jq '.'
+    echo "created: false" >> "$summary_file"
+    continue
+  fi
 
   # Try to extract staff ID or user id from response
   staff_id=$(echo "$resp" | jq -r '.data.staff_id // .data.id // .data.user_id // .data.user.id // .data.user_id // .data.staff.id // empty')
   user_id=$(echo "$resp" | jq -r '.data.user.id // .data.user_id // .data.id // empty')
   if [ -z "$staff_id" ]; then
-    # If we only have user id, try to resolve staff by user_id
+    # If we only have user id, try to resolve staff by user_id (use TEST_TOKEN if provided)
     if [ -n "$user_id" ]; then
-      staff_id=$(curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/staff?user_id=$user_id" | jq -r '.data[0].id // empty')
+      if [ -n "${TEST_TOKEN:-}" ]; then
+        staff_id=$(curl -sS -H "X-Test-Token: $TEST_TOKEN" "$BASE_URL/api/staff?user_id=$user_id" | jq -r '.data[0].id // empty')
+      else
+        staff_id=$(curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/staff?user_id=$user_id" | jq -r '.data[0].id // empty')
+      fi
     fi
   fi
 

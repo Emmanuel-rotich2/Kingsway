@@ -45,6 +45,9 @@ class PaymentReconciliationAPI extends BaseAPI {
      * Reconcile a transaction
      */
     public function reconcileTransaction($data) {
+        // Check transaction ownership before try block for catch scope
+        $ownTransaction = !$this->db->inTransaction();
+
         try {
             $required = ['transaction_id', 'bank_statement_ref'];
             $missing = $this->validateRequired($data, $required);
@@ -56,7 +59,10 @@ class PaymentReconciliationAPI extends BaseAPI {
                 ], 400);
             }
 
-            $this->db->beginTransaction();
+            // Only start transaction if one is not already active (allows nested calls)
+            if ($ownTransaction) {
+                $this->db->beginTransaction();
+            }
 
             $sql = "
                 INSERT INTO payment_reconciliations (
@@ -84,14 +90,28 @@ class PaymentReconciliationAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$data['transaction_id']]);
 
-            $this->db->commit();
+            $reconciliationId = $this->db->lastInsertId();
+
+            // Fetch inserted reconciliation record
+            $stmt = $this->db->prepare("SELECT pr.*, u.username as reconciled_by_name FROM payment_reconciliations pr LEFT JOIN users u ON pr.reconciled_by = u.id WHERE pr.id = ? LIMIT 1");
+            $stmt->execute([$reconciliationId]);
+            $reconRecord = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Only commit if we started the transaction
+            if ($ownTransaction) {
+                $this->db->commit();
+            }
 
             return $this->response([
                 'status' => 'success',
-                'message' => 'Transaction reconciled successfully'
+                'message' => 'Transaction reconciled successfully',
+                'data' => $reconRecord
             ]);
         } catch (Exception $e) {
-            $this->db->rollBack();
+            // Only rollback if we started the transaction
+            if ($ownTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }

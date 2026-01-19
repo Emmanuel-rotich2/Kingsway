@@ -47,33 +47,194 @@ class ReportingManager
         try {
             $academicYear = $filters['academic_year'] ?? date('Y');
 
-            // Get fee collection summary
-            $stmt = $this->db->prepare("
-                SELECT 
+            // Get current term
+            $stmt = $this->db->query("SELECT id, name, term_number FROM academic_terms WHERE status = 'current' LIMIT 1");
+            $currentTerm = $stmt->fetch(PDO::FETCH_ASSOC);
+            $currentTermId = $currentTerm['id'] ?? null;
+            $currentTermName = $currentTerm['name'] ?? 'N/A';
+
+            // Get fee structure summary (total fees due and amount paid from obligations) - FULL YEAR
+            $stmt = $this->db->prepare(
+                "SELECT 
                     SUM(sfo.amount_due) as total_fees_due,
-                    SUM(sfb.total_paid) as total_collected,
-                    SUM(sfb.balance) as total_outstanding,
+                    SUM(sfo.amount_paid) as total_allocated,
+                    SUM(sfo.balance) as total_balance,
                     COUNT(DISTINCT sfo.student_id) as total_students
                 FROM student_fee_obligations sfo
-                LEFT JOIN student_fee_balances sfb ON sfo.student_id = sfb.student_id 
-                    AND sfo.academic_year = sfb.academic_year
-                WHERE sfo.academic_year = ?
-            ");
+                WHERE sfo.academic_year = ?"
+            );
             $stmt->execute([$academicYear]);
-            $feeData = $stmt->fetch(PDO::FETCH_ASSOC);
+            $feeStructure = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get payment statistics
+            // Get CURRENT TERM fee summary
+            $termFees = ['total_due' => 0, 'total_collected' => 0, 'outstanding' => 0];
+            if ($currentTermId) {
+                $stmt = $this->db->prepare(
+                    "SELECT 
+                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
+                        COALESCE(SUM(sfo.amount_paid), 0) as total_collected,
+                        COALESCE(SUM(sfo.balance), 0) as outstanding
+                    FROM student_fee_obligations sfo
+                    WHERE sfo.academic_year = ? AND sfo.term_id = ?"
+                );
+                $stmt->execute([$academicYear, $currentTermId]);
+                $termFees = $stmt->fetch(PDO::FETCH_ASSOC);
+            }
+
+            // Get ACTUAL cash collected from payment_transactions (source of truth for cash received)
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total_cash_collected
+                FROM payment_transactions
+                WHERE status = 'confirmed' 
+                  AND (academic_year = ? OR YEAR(created_at) = ?)"
+            );
+            $stmt->execute([$academicYear, $academicYear]);
+            $actualCollected = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // TODAY's collections
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' AND DATE(payment_date) = CURDATE()"
+            );
+            $stmt->execute();
+            $todayCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // THIS WEEK's collections (Monday to Sunday)
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' 
+                  AND YEARWEEK(payment_date, 1) = YEARWEEK(CURDATE(), 1)"
+            );
+            $stmt->execute();
+            $weekCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // THIS MONTH's collections
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' 
+                  AND YEAR(payment_date) = YEAR(CURDATE())
+                  AND MONTH(payment_date) = MONTH(CURDATE())"
+            );
+            $stmt->execute();
+            $monthCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // YESTERDAY's collections (for comparison)
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' AND DATE(payment_date) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)"
+            );
+            $stmt->execute();
+            $yesterdayCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // LAST WEEK's collections (for comparison)
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' 
+                  AND YEARWEEK(payment_date, 1) = YEARWEEK(DATE_SUB(CURDATE(), INTERVAL 1 WEEK), 1)"
+            );
+            $stmt->execute();
+            $lastWeekCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // LAST MONTH's collections (for comparison)
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    COALESCE(SUM(amount_paid), 0) as total,
+                    COUNT(*) as count
+                FROM payment_transactions
+                WHERE status = 'confirmed' 
+                  AND YEAR(payment_date) = YEAR(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))
+                  AND MONTH(payment_date) = MONTH(DATE_SUB(CURDATE(), INTERVAL 1 MONTH))"
+            );
+            $stmt->execute();
+            $lastMonthCollections = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Fee defaulters count (students with overdue balances)
+            $stmt = $this->db->prepare(
+                "SELECT COUNT(DISTINCT student_id) as count
+                FROM student_fee_obligations
+                WHERE academic_year = ? AND balance > 0 AND due_date < CURDATE()"
+            );
+            $stmt->execute([$academicYear]);
+            $defaulters = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Students with full payment (balance = 0 for current term)
+            $fullPaymentCount = 0;
+            if ($currentTermId) {
+                $stmt = $this->db->prepare(
+                    "SELECT COUNT(DISTINCT student_id) as count
+                    FROM student_fee_obligations
+                    WHERE academic_year = ? AND term_id = ?
+                    GROUP BY student_id
+                    HAVING SUM(balance) = 0"
+                );
+                $stmt->execute([$academicYear, $currentTermId]);
+                $fullPaymentCount = $stmt->rowCount();
+            }
+
+            // Use obligations data for consistent fee tracking
+            $totalDue = (float) ($feeStructure['total_fees_due'] ?? 0);
+            $totalAllocated = (float) ($feeStructure['total_allocated'] ?? 0);
+            $totalCashCollected = (float) ($actualCollected['total_cash_collected'] ?? 0);
+            $totalOutstanding = (float) ($feeStructure['total_balance'] ?? 0);
+
+            // Credit balance = cash received but not yet allocated (advance payments for future terms)
+            $creditBalance = $totalCashCollected - $totalAllocated;
+
+            // Get payment statistics (use 'confirmed' which is the actual status in the ENUM)
             $stmt = $this->db->prepare("
                 SELECT 
                     payment_method,
                     COUNT(*) as transaction_count,
-                    SUM(amount) as total_amount
+                    SUM(amount_paid) as total_amount
                 FROM payment_transactions
-                WHERE academic_year = ? AND status = 'completed'
+                WHERE academic_year = ? AND status IN ('confirmed', 'completed')
                 GROUP BY payment_method
             ");
             $stmt->execute([$academicYear]);
             $paymentMethods = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Average payment & counts for reconciliation (include 'confirmed' status)
+            $stmt = $this->db->prepare("SELECT AVG(amount_paid) as avg_amount, COUNT(*) as completed_count FROM payment_transactions WHERE status IN ('confirmed', 'completed') AND academic_year = ?");
+            $stmt->execute([$academicYear]);
+            $avgRow = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Unmatched MPESA summary (within academic year period, excluding reconciled ones)
+            $startDate = $academicYear . '-01-01';
+            $endDate = $academicYear . '-12-31';
+            $stmt = $this->db->prepare("
+                SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
+                FROM mpesa_transactions mt
+                LEFT JOIN payment_transactions pt ON mt.mpesa_code = pt.reference_no
+                WHERE pt.reference_no IS NULL 
+                  AND (mt.status IS NULL OR mt.status NOT IN ('reconciled', 'matched'))
+                  AND mt.transaction_date BETWEEN ? AND ?
+            ");
+            $stmt->execute([$startDate, $endDate]);
+            $um = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $totalCompleted = array_sum(array_column($paymentMethods, 'transaction_count'));
+            $reconciliationRate = 0;
+            if ($totalCompleted > 0) {
+                $reconciliationRate = (1 - ($um['unmatched_count'] / $totalCompleted)) * 100;
+                if ($reconciliationRate < 0)
+                    $reconciliationRate = 0;
+            }
 
             // Get expense summary
             $stmt = $this->db->prepare("
@@ -87,41 +248,95 @@ class ReportingManager
             $stmt->execute([$academicYear]);
             $expenseData = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            // Get budget utilization
-            $stmt = $this->db->prepare("
-                SELECT 
-                    SUM(bli.allocated_amount) as total_budget,
-                    SUM(COALESCE(e.amount, 0)) as total_spent
-                FROM budgets b
-                INNER JOIN budget_line_items bli ON b.id = bli.budget_id
-                LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
-                    AND e.status = 'approved'
-                WHERE b.fiscal_year = ? AND b.status = 'approved'
-            ");
-            $stmt->execute([$academicYear]);
-            $budgetData = $stmt->fetch(PDO::FETCH_ASSOC);
+            // Get budget utilization (optional - table may not exist in some environments)
+            try {
+                $stmt = $this->db->prepare("
+                    SELECT 
+                        SUM(bli.allocated_amount) as total_budget,
+                        SUM(COALESCE(e.amount, 0)) as total_spent
+                    FROM budgets b
+                    INNER JOIN budget_line_items bli ON b.id = bli.budget_id
+                    LEFT JOIN expenses e ON e.budget_line_item_id = bli.id 
+                        AND e.status = 'approved'
+                    WHERE b.fiscal_year = ? AND b.status = 'approved'
+                ");
+                $stmt->execute([$academicYear]);
+                $budgetData = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (\Exception $e) {
+                // Budgets table may be missing in light-weight or test DBs. Use safe defaults and continue.
+                $budgetData = ['total_budget' => 0, 'total_spent' => 0];
+                error_log('ReportingManager: budgets query failed - continuing with defaults: ' . $e->getMessage());
+            }
 
-            // Calculate key metrics
-            $collectionRate = $feeData['total_fees_due'] > 0
-                ? ($feeData['total_collected'] / $feeData['total_fees_due'] * 100)
+            // Calculate key metrics - use allocated amount for collection rate
+            $collectionRate = $totalDue > 0
+                ? ($totalAllocated / $totalDue * 100)
                 : 0;
 
             $budgetUtilization = ($budgetData['total_budget'] ?? 0) > 0
                 ? (($budgetData['total_spent'] ?? 0) / $budgetData['total_budget'] * 100)
                 : 0;
 
+            // Calculate term collection rate
+            $termCollectionRate = (float) ($termFees['total_due'] ?? 0) > 0
+                ? ((float) ($termFees['total_collected'] ?? 0) / (float) $termFees['total_due'] * 100)
+                : 0;
+
+            // Calculate percentage changes
+            $todayChange = (float) ($yesterdayCollections['total'] ?? 0) > 0
+                ? (((float) ($todayCollections['total'] ?? 0) - (float) $yesterdayCollections['total']) / (float) $yesterdayCollections['total'] * 100)
+                : 0;
+            $weekChange = (float) ($lastWeekCollections['total'] ?? 0) > 0
+                ? (((float) ($weekCollections['total'] ?? 0) - (float) $lastWeekCollections['total']) / (float) $lastWeekCollections['total'] * 100)
+                : 0;
+            $monthChange = (float) ($lastMonthCollections['total'] ?? 0) > 0
+                ? (((float) ($monthCollections['total'] ?? 0) - (float) $lastMonthCollections['total']) / (float) $lastMonthCollections['total'] * 100)
+                : 0;
+
             return formatResponse(true, [
                 'fees' => [
-                    'total_due' => (float) ($feeData['total_fees_due'] ?? 0),
-                    'total_collected' => (float) ($feeData['total_collected'] ?? 0),
-                    'total_outstanding' => (float) ($feeData['total_outstanding'] ?? 0),
+                    // Year totals
+                    'total_due' => $totalDue,
+                    'total_collected' => $totalAllocated,
+                    'total_cash_received' => $totalCashCollected,
+                    'total_outstanding' => $totalOutstanding,
+                    'credit_balance' => $creditBalance,
                     'collection_rate' => round($collectionRate, 2),
-                    'student_count' => (int) ($feeData['total_students'] ?? 0)
+                    'student_count' => (int) ($feeStructure['total_students'] ?? 0),
+                    // Current term
+                    'term_due' => (float) ($termFees['total_due'] ?? 0),
+                    'term_collected' => (float) ($termFees['total_collected'] ?? 0),
+                    'term_outstanding' => (float) ($termFees['outstanding'] ?? 0),
+                    'term_collection_rate' => round($termCollectionRate, 2),
+                    'current_term_name' => $currentTermName,
+                    // Student metrics
+                    'defaulters_count' => (int) ($defaulters['count'] ?? 0),
+                    'full_payment_count' => $fullPaymentCount
+                ],
+                'collections' => [
+                    // Today
+                    'today_total' => (float) ($todayCollections['total'] ?? 0),
+                    'today_count' => (int) ($todayCollections['count'] ?? 0),
+                    'today_change' => round($todayChange, 1),
+                    // This week
+                    'week_total' => (float) ($weekCollections['total'] ?? 0),
+                    'week_count' => (int) ($weekCollections['count'] ?? 0),
+                    'week_change' => round($weekChange, 1),
+                    // This month
+                    'month_total' => (float) ($monthCollections['total'] ?? 0),
+                    'month_count' => (int) ($monthCollections['count'] ?? 0),
+                    'month_change' => round($monthChange, 1),
+                    // Yesterday (for reference)
+                    'yesterday_total' => (float) ($yesterdayCollections['total'] ?? 0)
                 ],
                 'payments' => [
                     'by_method' => $paymentMethods,
                     'total_transactions' => array_sum(array_column($paymentMethods, 'transaction_count')),
-                    'total_amount' => array_sum(array_column($paymentMethods, 'total_amount'))
+                    'total_amount' => array_sum(array_column($paymentMethods, 'total_amount')),
+                    'avg_amount' => (float) ($avgRow['avg_amount'] ?? 0),
+                    'unreconciled_count' => (int) ($um['unmatched_count'] ?? 0),
+                    'unreconciled_total' => (float) ($um['unmatched_total'] ?? 0),
+                    'reconciliation_rate' => round($reconciliationRate, 2)
                 ],
                 'expenses' => [
                     'total_count' => (int) ($expenseData['total_expenses'] ?? 0),
@@ -133,7 +348,8 @@ class ReportingManager
                     'total_spent' => (float) ($budgetData['total_spent'] ?? 0),
                     'utilization_rate' => round($budgetUtilization, 2)
                 ],
-                'academic_year' => $academicYear
+                'academic_year' => $academicYear,
+                'current_term_id' => $currentTermId
             ]);
 
         } catch (Exception $e) {
@@ -149,13 +365,14 @@ class ReportingManager
     public function getFeeCollectionTrends($filters = [])
     {
         try {
+            // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
             $sql = "SELECT 
                         DATE_FORMAT(payment_date, '%Y-%m') as month,
                         COUNT(*) as transaction_count,
-                        SUM(amount) as total_collected,
-                        AVG(amount) as average_amount
+                        SUM(amount_paid) as total_collected,
+                        AVG(amount_paid) as average_amount
                     FROM payment_transactions
-                    WHERE status = 'completed'";
+                    WHERE status IN ('completed', 'confirmed')";
 
             $params = [];
 
@@ -183,6 +400,27 @@ class ReportingManager
     }
 
     /**
+     * Get recent payment transactions
+     * @param int $limit Number of recent transactions to return
+     * @return array Response with recent transactions
+     */
+    public function getRecentTransactions($limit = 10)
+    {
+        try {
+            $limit = (int) $limit;
+            // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
+            $stmt = $this->db->prepare("SELECT pt.id, pt.reference_no as reference, pt.payment_date, pt.payment_method as method, pt.amount_paid as amount, CONCAT(COALESCE(s.first_name,''),' ',COALESCE(s.last_name,'')) as student_name FROM payment_transactions pt LEFT JOIN students s ON s.id = pt.student_id WHERE pt.status IN ('completed', 'confirmed') ORDER BY pt.payment_date DESC LIMIT ?");
+            $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['recent_transactions' => $rows]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get recent transactions: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Get outstanding fees aging report
      * @param int $academicYear Academic year
      * @return array Response with aging data
@@ -190,8 +428,8 @@ class ReportingManager
     public function getOutstandingFeesAging($academicYear)
     {
         try {
-            $stmt = $this->db->prepare("
-                SELECT 
+            $stmt = $this->db->prepare(
+                "SELECT 
                     CASE 
                         WHEN DATEDIFF(NOW(), sfo.due_date) <= 30 THEN '0-30 days'
                         WHEN DATEDIFF(NOW(), sfo.due_date) <= 60 THEN '31-60 days'
@@ -199,10 +437,9 @@ class ReportingManager
                         ELSE 'Over 90 days'
                     END as aging_bracket,
                     COUNT(DISTINCT sfo.student_id) as student_count,
-                    SUM(sfb.balance) as total_outstanding
+                    SUM(sfo.balance) as total_outstanding
                 FROM student_fee_obligations sfo
-                INNER JOIN student_fee_balances sfb ON sfo.student_id = sfb.student_id
-                WHERE sfo.academic_year = ? AND sfb.balance > 0
+                WHERE sfo.academic_year = ? AND sfo.balance > 0
                 GROUP BY aging_bracket
                 ORDER BY 
                     CASE aging_bracket
@@ -210,8 +447,8 @@ class ReportingManager
                         WHEN '31-60 days' THEN 2
                         WHEN '61-90 days' THEN 3
                         ELSE 4
-                    END
-            ");
+                    END"
+            );
 
             $stmt->execute([$academicYear]);
             $aging = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -338,7 +575,7 @@ class ReportingManager
             // Calculate total inflows (payments received)
             $stmt = $this->db->prepare("
                 SELECT 
-                    SUM(amount) as total_inflow,
+                    SUM(amount_paid) as total_inflow,
                     COUNT(*) as inflow_count
                 FROM payment_transactions
                 WHERE payment_date BETWEEN ? AND ?
@@ -484,6 +721,268 @@ class ReportingManager
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'Failed to get class fee collection report: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get pivot table: Collections by Class
+     * @param int $academicYear
+     * @param int|null $termId
+     * @return array
+     */
+    public function getPivotByClass($academicYear = null, $termId = null)
+    {
+        try {
+            $academicYear = $academicYear ?? date('Y');
+
+            $sql = "SELECT 
+                        c.name as class_name,
+                        sl.name as level_name,
+                        COUNT(DISTINCT s.id) as student_count,
+                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
+                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
+                        COALESCE(SUM(sfo.balance), 0) as balance,
+                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+                    FROM students s
+                    JOIN class_streams cs ON s.stream_id = cs.id
+                    JOIN classes c ON cs.class_id = c.id
+                    JOIN school_levels sl ON c.level_id = sl.id
+                    LEFT JOIN student_fee_obligations sfo ON s.id = sfo.student_id AND sfo.academic_year = ?";
+
+            $params = [$academicYear];
+
+            if ($termId) {
+                $sql .= " AND sfo.term_id = ?";
+                $params[] = $termId;
+            }
+
+            $sql .= " WHERE s.status = 'active'
+                      GROUP BY c.id, c.name, sl.name
+                      ORDER BY sl.id, c.name";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['pivot_by_class' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get pivot by class: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get pivot table: Collections by Payment Method
+     * @param int $academicYear
+     * @param int|null $termId
+     * @return array
+     */
+    public function getPivotByPaymentMethod($academicYear = null, $termId = null)
+    {
+        try {
+            $academicYear = $academicYear ?? date('Y');
+
+            $sql = "SELECT 
+                        COALESCE(pt.payment_method, 'Unknown') as payment_method,
+                        COUNT(*) as transaction_count,
+                        COALESCE(SUM(pt.amount_paid), 0) as total_amount,
+                        ROUND(AVG(pt.amount_paid), 2) as avg_amount,
+                        MIN(pt.amount_paid) as min_amount,
+                        MAX(pt.amount_paid) as max_amount
+                    FROM payment_transactions pt
+                    WHERE pt.status = 'confirmed'
+                      AND (pt.academic_year = ? OR YEAR(pt.created_at) = ?)";
+
+            $params = [$academicYear, $academicYear];
+
+            if ($termId) {
+                $sql .= " AND pt.term_id = ?";
+                $params[] = $termId;
+            }
+
+            $sql .= " GROUP BY pt.payment_method ORDER BY total_amount DESC";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['pivot_by_method' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get pivot by method: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get pivot table: Collections by Student Type (Day/Boarder)
+     * @param int $academicYear
+     * @param int|null $termId
+     * @return array
+     */
+    public function getPivotByStudentType($academicYear = null, $termId = null)
+    {
+        try {
+            $academicYear = $academicYear ?? date('Y');
+
+            $sql = "SELECT 
+                        st.name as student_type,
+                        COUNT(DISTINCT s.id) as student_count,
+                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
+                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
+                        COALESCE(SUM(sfo.balance), 0) as balance,
+                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+                    FROM students s
+                    JOIN student_types st ON s.student_type_id = st.id
+                    LEFT JOIN student_fee_obligations sfo ON s.id = sfo.student_id AND sfo.academic_year = ?";
+
+            $params = [$academicYear];
+
+            if ($termId) {
+                $sql .= " AND sfo.term_id = ?";
+                $params[] = $termId;
+            }
+
+            $sql .= " WHERE s.status = 'active'
+                      GROUP BY st.id, st.name
+                      ORDER BY st.id";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['pivot_by_type' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get pivot by student type: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get pivot table: Daily Collections for current month
+     * @return array
+     */
+    public function getPivotDailyCollections()
+    {
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    DATE(pt.payment_date) as date,
+                    DAYNAME(pt.payment_date) as day_name,
+                    COUNT(*) as transaction_count,
+                    COALESCE(SUM(pt.amount_paid), 0) as total_amount
+                FROM payment_transactions pt
+                WHERE pt.status = 'confirmed'
+                  AND YEAR(pt.payment_date) = YEAR(CURDATE())
+                  AND MONTH(pt.payment_date) = MONTH(CURDATE())
+                GROUP BY DATE(pt.payment_date), DAYNAME(pt.payment_date)
+                ORDER BY date DESC"
+            );
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['pivot_daily' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get daily collections: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get pivot table: Fee Type Breakdown
+     * @param int $academicYear
+     * @param int|null $termId
+     * @return array
+     */
+    public function getPivotByFeeType($academicYear = null, $termId = null)
+    {
+        try {
+            $academicYear = $academicYear ?? date('Y');
+
+            $sql = "SELECT 
+                        ft.name as fee_type,
+                        COUNT(DISTINCT sfo.student_id) as student_count,
+                        COALESCE(SUM(sfo.amount_due), 0) as total_due,
+                        COALESCE(SUM(sfo.amount_paid), 0) as total_paid,
+                        COALESCE(SUM(sfo.balance), 0) as balance,
+                        ROUND(COALESCE(SUM(sfo.amount_paid), 0) / NULLIF(COALESCE(SUM(sfo.amount_due), 0), 0) * 100, 1) as collection_rate
+                    FROM student_fee_obligations sfo
+                    JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
+                    JOIN fee_types ft ON fsd.fee_type_id = ft.id
+                    WHERE sfo.academic_year = ?";
+
+            $params = [$academicYear];
+
+            if ($termId) {
+                $sql .= " AND sfo.term_id = ?";
+                $params[] = $termId;
+            }
+
+            $sql .= " GROUP BY ft.id, ft.name ORDER BY total_due DESC";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['pivot_by_fee_type' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get pivot by fee type: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get top fee defaulters
+     * @param int $limit
+     * @param int $academicYear
+     * @return array
+     */
+    public function getTopDefaulters($limit = 20, $academicYear = null)
+    {
+        try {
+            $academicYear = $academicYear ?? date('Y');
+            $limit = (int) $limit;
+
+            $stmt = $this->db->prepare(
+                "SELECT 
+                    s.id as student_id,
+                    s.admission_no,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    c.name as class_name,
+                    st.name as student_type,
+                    SUM(sfo.amount_due) as total_due,
+                    SUM(sfo.amount_paid) as total_paid,
+                    SUM(sfo.balance) as balance,
+                    MIN(sfo.due_date) as oldest_due_date,
+                    DATEDIFF(CURDATE(), MIN(sfo.due_date)) as days_overdue,
+                    -- Parent/Guardian contact information
+                    p.id as parent_id,
+                    CONCAT(p.first_name, ' ', p.last_name) as parent_name,
+                    p.phone_1 as parent_phone,
+                    p.phone_2 as parent_phone_alt,
+                    p.email as parent_email,
+                    sp.relationship as parent_relationship,
+                    sp.is_primary_contact
+                FROM students s
+                JOIN class_streams cs ON s.stream_id = cs.id
+                JOIN classes c ON cs.class_id = c.id
+                JOIN student_types st ON s.student_type_id = st.id
+                JOIN student_fee_obligations sfo ON s.id = sfo.student_id
+                -- Join with parent information (get primary contact first, then any parent)
+                LEFT JOIN student_parents sp ON s.id = sp.student_id
+                LEFT JOIN parents p ON sp.parent_id = p.id AND p.status = 'active'
+                WHERE s.status = 'active'
+                  AND sfo.academic_year = ?
+                  AND sfo.balance > 0
+                GROUP BY s.id, s.admission_no, s.first_name, s.last_name, c.name, st.name,
+                         p.id, p.first_name, p.last_name, p.phone_1, p.phone_2, p.email,
+                         sp.relationship, sp.is_primary_contact
+                HAVING balance > 0
+                ORDER BY balance DESC, is_primary_contact DESC
+                LIMIT ?"
+            );
+            $stmt->bindValue(1, $academicYear, PDO::PARAM_INT);
+            $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+            $stmt->execute();
+            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, ['top_defaulters' => $data]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get top defaulters: ' . $e->getMessage());
         }
     }
 }

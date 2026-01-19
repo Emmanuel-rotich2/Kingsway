@@ -322,7 +322,7 @@ class AttendanceController extends BaseController
             $classRow = $classQuery->fetch(\PDO::FETCH_ASSOC);
             $classId = $classRow['class_id'] ?? null;
 
-            $markedBy = $_SESSION['user_id'] ?? 1;
+            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
             $created = 0;
             $updated = 0;
 
@@ -482,7 +482,7 @@ class AttendanceController extends BaseController
             $date = $data['date'] ?? date('Y-m-d');
             $attendance = $data['attendance'] ?? [];
             $termId = $data['term_id'] ?? 7;
-            $markedBy = $_SESSION['user_id'] ?? 1;
+            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
 
             if (!$sessionId) {
                 return $this->badRequest('Session ID is required');
@@ -685,7 +685,7 @@ class AttendanceController extends BaseController
             $sessionId = $data['session_id'] ?? null;
             $date = $data['date'] ?? date('Y-m-d');
             $attendance = $data['attendance'] ?? [];
-            $markedBy = $_SESSION['user_id'] ?? 1;
+            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
 
             if (!$dormitoryId || !$sessionId) {
                 return $this->badRequest('Dormitory ID and Session ID are required');
@@ -914,7 +914,7 @@ class AttendanceController extends BaseController
 
             $status = $data['status'] ?? null;
             $rejectionReason = $data['rejection_reason'] ?? null;
-            $approvedBy = $_SESSION['user_id'] ?? 1;
+            $approvedBy = $_SERVER['auth_user']['user_id'] ?? 1;
 
             if (!in_array($status, ['approved', 'rejected', 'cancelled'])) {
                 return $this->badRequest('Invalid status');
@@ -1015,7 +1015,7 @@ class AttendanceController extends BaseController
         try {
             $date = $data['date'] ?? date('Y-m-d');
             $attendance = $data['attendance'] ?? [];
-            $markedBy = $_SESSION['user_id'] ?? 1;
+            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
 
             if (empty($attendance)) {
                 return $this->badRequest('No attendance data provided');

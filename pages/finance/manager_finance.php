@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/manager-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/manager-theme.css">
 
 <div class="manager-layout">
     <!-- Collapsible Sidebar -->
@@ -21,19 +21,19 @@
         <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
         
         <nav class="sidebar-nav">
-            <a href="/pages/dashboard.php" class="nav-item" title="Dashboard">
+            <a href="/Kingsway/home.php?route=dashboard" class="nav-item" title="Dashboard">
                 <span class="nav-icon">🏠</span>
                 <span class="nav-text">Dashboard</span>
             </a>
-            <a href="/pages/manage_finance.php" class="nav-item active" title="Finance">
+            <a href="/Kingsway/home.php?route=manage_finance" class="nav-item active" title="Finance">
                 <span class="nav-icon">💰</span>
                 <span class="nav-text">Finance</span>
             </a>
-            <a href="/pages/manage_fees.php" class="nav-item" title="Fees">
+            <a href="/Kingsway/home.php?route=manage_fees" class="nav-item" title="Fees">
                 <span class="nav-icon">🧾</span>
                 <span class="nav-text">Fees</span>
             </a>
-            <a href="/pages/finance_reports.php" class="nav-item" title="Reports">
+            <a href="/Kingsway/home.php?route=finance_reports" class="nav-item" title="Reports">
                 <span class="nav-icon">📊</span>
                 <span class="nav-text">Reports</span>
             </a>

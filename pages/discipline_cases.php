@@ -1,30 +1,17 @@
 <?php
 /**
- * Discipline Cases - Role-Based Router
- * 
- * Routes to appropriate template based on user role category:
- * - admin: Full case management with all columns and actions
- * - manager: Standard case management for department
- * - operator: Report cases for own students, view own reports
- * - viewer: Read-only discipline history for students/parents
+ * Discipline Cases - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
 
-session_start();
-require_once __DIR__ . '/../config/permissions.php';
+// Default template (will be overridden by JavaScript)
+$template = 'discipline/manager_discipline.php'; // Default fallback
 
-// Get role category for current user
-$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
-
-// Template mapping by role category
-$templateMap = [
-    'admin' => 'discipline/admin_discipline.php',
-    'manager' => 'discipline/manager_discipline.php',
-    'operator' => 'discipline/operator_discipline.php',
-    'viewer' => 'discipline/viewer_discipline.php'
-];
-
-// Default to viewer if category not found
-$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+// Include the template (JavaScript will replace content based on role)
+include __DIR__ . '/' . $template;
+exit;
+?>
 
 // Include the appropriate template
 include __DIR__ . '/' . $template;

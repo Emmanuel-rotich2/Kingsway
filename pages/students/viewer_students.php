@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/viewer-theme.css">
 
 <div class="viewer-layout">
     <!-- Header -->
@@ -31,7 +31,7 @@
     </main>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

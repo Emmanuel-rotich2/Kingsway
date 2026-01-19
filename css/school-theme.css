@@ -398,6 +398,33 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Accounts & Cash small tweaks */
+.bank-account-item {
+    display: block;
+    padding: 0.5rem 0.75rem;
+    border-radius: var(--radius-sm);
+    margin-bottom: 0.25rem;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.bank-account-item:hover {
+    background: var(--primary-light);
+    cursor: pointer;
+    transform: translateY(-1px);
+}
+
+.account-balance {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* No data placeholder styling */
+.no-data td {
+    color: var(--text-secondary);
+    font-style: italic;
+}
     font-size: 1.25rem;
     margin-bottom: var(--spacing-md);
 }
@@ -826,6 +853,77 @@ a:hover {
     100% { background-position: 200% 0; }
 }
 
+/* Spin animation for refresh icons */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spin-animation {
+    animation: spin 1s linear infinite;
+}
+
+/* KPI update flash animation */
+@keyframes kpiFlash {
+    0% {
+        background-color: transparent;
+    }
+
+    50% {
+        background-color: rgba(34, 197, 94, 0.15);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
+@keyframes kpiValuePulse {
+    0% {
+        transform: scale(1);
+        color: inherit;
+    }
+
+    50% {
+        transform: scale(1.05);
+        color: var(--green-600);
+    }
+
+    100% {
+        transform: scale(1);
+        color: inherit;
+    }
+}
+
+.kpi-flash {
+    animation: kpiFlash 0.5s ease-out;
+}
+
+.kpi-updated {
+    animation: kpiValuePulse 0.5s ease-out;
+}
+
+/* Live status indicator pulse */
+@keyframes livePulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}
+
+.badge.bg-success {
+    animation: livePulse 2s ease-in-out infinite;
+}
 /* Animation classes */
 .animate-fade { animation: fadeIn var(--transition-normal) ease forwards; }
 .animate-slide-up { animation: slideUp var(--transition-normal) ease forwards; }

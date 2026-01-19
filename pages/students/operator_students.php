@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/operator-theme.css">
 
 <div class="operator-layout">
     <!-- Mini Sidebar -->
@@ -92,7 +92,7 @@
     </main>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

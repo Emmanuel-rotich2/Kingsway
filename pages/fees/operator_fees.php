@@ -11,15 +11,15 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/operator-theme.css">
 
 <div class="operator-layout">
     <!-- Icon-only Sidebar -->
     <aside class="operator-sidebar">
-        <a href="/pages/dashboard.php" class="nav-icon-item" title="Dashboard">🏠</a>
-        <a href="/pages/manage_fees.php" class="nav-icon-item active" title="Fees">🧾</a>
-        <a href="/pages/all_students.php" class="nav-icon-item" title="Students">👨‍🎓</a>
+        <a href="/Kingsway/home.php?route=dashboard" class="nav-icon-item" title="Dashboard">🏠</a>
+        <a href="/Kingsway/home.php?route=manage_fees" class="nav-icon-item active" title="Fees">🧾</a>
+        <a href="/Kingsway/home.php?route=all_students" class="nav-icon-item" title="Students">👨‍🎓</a>
     </aside>
 
     <!-- Main Content -->

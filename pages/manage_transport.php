@@ -1,23 +1,14 @@
 <?php
 /**
- * Manage Transport Page - Role-Based Router
- * Routes to appropriate template based on user role category
+ * Manage Transport Page - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
 
-require_once __DIR__ . '/../config/permissions.php';
+// Default template (will be overridden by JavaScript)
+$template = 'transport/manager_transport.php'; // Default fallback
 
-session_start();
-$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
-
-// Route to role-specific template
-$templateMap = [
-    'admin' => 'transport/admin_transport.php',
-    'manager' => 'transport/manager_transport.php',
-    'operator' => 'transport/operator_transport.php',
-    'viewer' => 'transport/viewer_transport.php'
-];
-
-$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+// Include the template (JavaScript will replace content based on role)
 include __DIR__ . '/' . $template;
 exit;
 ?>

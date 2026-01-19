@@ -1,30 +1,17 @@
 <?php
 /**
- * Manage Communications - Role-Based Router
- * 
- * Routes to appropriate template based on user role category:
- * - admin: Full featured with all channels, campaigns, cost tracking
- * - manager: Standard with SMS/Email, compose, basic stats
- * - operator: Minimal view, can message own class only
- * - viewer: Read-only inbox for students/parents
+ * Manage Communications - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
 
-session_start();
-require_once __DIR__ . '/../config/permissions.php';
+// Default template (will be overridden by JavaScript)
+$template = 'communications/manager_communications.php'; // Default fallback
 
-// Get role category for current user
-$roleCategory = getRoleCategory($_SESSION['role'] ?? 'Student');
-
-// Template mapping by role category
-$templateMap = [
-    'admin' => 'communications/admin_communications.php',
-    'manager' => 'communications/manager_communications.php',
-    'operator' => 'communications/operator_communications.php',
-    'viewer' => 'communications/viewer_communications.php'
-];
-
-// Default to viewer if category not found
-$template = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+// Include the template (JavaScript will replace content based on role)
+include __DIR__ . '/' . $template;
+exit;
+?>
 
 // Include the appropriate template
 include __DIR__ . '/' . $template;

@@ -4,91 +4,95 @@ if (typeof API_BASE_URL === 'undefined') {
 }
 
 // Token refresh tracking to prevent duplicate refresh requests
-let isRefreshingToken = false;
-let refreshTokenPromise = null;
+if (typeof isRefreshingToken === "undefined") {
+  var isRefreshingToken = false;
+}
+if (typeof refreshTokenPromise === "undefined") {
+  var refreshTokenPromise = null;
+}
 
 // Notification types
 const NOTIFICATION_TYPES = {
-    SUCCESS: 'success',
-    ERROR: 'error',
-    WARNING: 'warning',
-    INFO: 'info'
+  SUCCESS: "success",
+  ERROR: "error",
+  WARNING: "warning",
+  INFO: "info",
 };
 
 // Icons for different notification types
 const NOTIFICATION_ICONS = {
-    success: 'bi-check-circle',
-    error: 'bi-x-circle',
-    warning: 'bi-exclamation-triangle',
-    info: 'bi-info-circle'
+  success: "bi-check-circle",
+  error: "bi-x-circle",
+  warning: "bi-exclamation-triangle",
+  info: "bi-info-circle",
 };
 
 // Show notification using Bootstrap modal
 function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
-    const modal = document.getElementById('notificationModal');
-    const modalContent = modal.querySelector('.modal-content');
-    const icon = modal.querySelector('.notification-icon i');
-    const messageDiv = modal.querySelector('.notification-message');
+  const modal = document.getElementById("notificationModal");
+  const modalContent = modal.querySelector(".modal-content");
+  const icon = modal.querySelector(".notification-icon i");
+  const messageDiv = modal.querySelector(".notification-message");
 
-    // Remove existing notification classes
-    modalContent.classList.remove(
-        'notification-success',
-        'notification-error',
-        'notification-warning',
-        'notification-info'
-    );
+  // Remove existing notification classes
+  modalContent.classList.remove(
+    "notification-success",
+    "notification-error",
+    "notification-warning",
+    "notification-info",
+  );
 
-    // Add appropriate notification class
-    modalContent.classList.add(`notification-${type}`);
+  // Add appropriate notification class
+  modalContent.classList.add(`notification-${type}`);
 
-    // Set icon
-    icon.className = `bi ${NOTIFICATION_ICONS[type]}`;
+  // Set icon
+  icon.className = `bi ${NOTIFICATION_ICONS[type]}`;
 
-    // Set message
-    messageDiv.textContent = message;
+  // Set message
+  messageDiv.textContent = message;
 
-    // Show modal
-    const bsModal = new bootstrap.Modal(modal);
-    bsModal.show();
+  // Show modal
+  const bsModal = new bootstrap.Modal(modal);
+  bsModal.show();
 }
 
 // Handle API Response
 function handleApiResponse(response, showSuccess = false) {
-    if (response.status === 'success') {
-        // Disabled automatic success notifications - let components handle their own
-        // if (showSuccess && response.message) {
-        //     showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
-        // }
-        // For sidebar endpoint, return the entire response
-        if (response.data?.sidebar !== undefined) {
-            return response;
-        }
-        // For other endpoints, return just the data
-        return response.data !== undefined ? response.data : response;
-    } else {
-        const error = new Error(response.message || 'API call failed');
-        error.response = response;
-        throw error;
+  if (response.status === "success") {
+    // Disabled automatic success notifications - let components handle their own
+    // if (showSuccess && response.message) {
+    //     showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
+    // }
+    // For sidebar endpoint, return the entire response
+    if (response.data?.sidebar !== undefined) {
+      return response;
     }
+    // For other endpoints, return just the data
+    return response.data !== undefined ? response.data : response;
+  } else {
+    const error = new Error(response.message || "API call failed");
+    error.response = response;
+    throw error;
+  }
 }
 
 // Handle API Error
 function handleApiError(error) {
-    console.error('API Error:', error);
-    // Don't show notification here - let caller decide if they want to notify user
-    throw error;
+  console.error("API Error:", error);
+  // Don't show notification here - let caller decide if they want to notify user
+  throw error;
 }
 
 // Download file helper
 async function downloadFile(blob, filename) {
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
 }
 
 // ============================================================================
@@ -208,11 +212,17 @@ const AuthContext = (() => {
 
     // Store dashboard info
     if (fullResponse?.dashboard) {
-      localStorage.setItem(
-        "dashboard_info",
-        JSON.stringify(fullResponse.dashboard)
-      );
-      console.log("Dashboard info stored:", fullResponse.dashboard);
+      // Normalize dashboard key to ensure it's a route name
+      const dashboardInfo = { ...fullResponse.dashboard };
+      if (dashboardInfo.key) {
+        // Extract route from URLs like "home.php?route=dashboard" or "?route=dashboard"
+        const routeMatch = dashboardInfo.key.match(/[?&]route=([^&]*)/);
+        if (routeMatch) {
+          dashboardInfo.key = decodeURIComponent(routeMatch[1]);
+        }
+      }
+      localStorage.setItem("dashboard_info", JSON.stringify(dashboardInfo));
+      console.log("Dashboard info stored:", dashboardInfo);
     } else {
       console.warn("No dashboard info found in response");
     }
@@ -463,6 +473,7 @@ const ENDPOINT_PERMISSIONS = {
 
   // Finance
   "/finance/index": "finance_view",
+  "/finance": "finance_view",
   "/finance/payroll": {
     GET: "finance_view",
     POST: "finance_create",
@@ -756,7 +767,9 @@ async function apiCall(
     const fetchOptions = {
       method: method,
       // Include credentials to ensure proper session handling
-      credentials: options.credentials || "include",
+      credentials:
+        options.credentials ||
+        (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
         // Add Authorization header if token exists
@@ -914,7 +927,7 @@ window.API = {
           `User logged in: ${
             userData.username
           } with ${AuthContext.getPermissionCount()} permissions`,
-          `Roles: ${AuthContext.getRoles().join(", ")}`
+          `Roles: ${AuthContext.getRoles().join(", ")}`,
         );
 
         // Navigate to user's default dashboard
@@ -922,9 +935,9 @@ window.API = {
         console.log("Dashboard info for navigation:", dashboardInfo);
 
         let redirectUrl;
-        if (dashboardInfo && dashboardInfo.url) {
-          // Dashboard URL uses underscore format: manage_students
-          redirectUrl = "/Kingsway/home.php?route=" + dashboardInfo.url;
+        if (dashboardInfo && dashboardInfo.key) {
+          // Use the normalized key (route name)
+          redirectUrl = "/Kingsway/home.php?route=" + dashboardInfo.key;
         } else {
           // Fallback to home page which will redirect to appropriate dashboard
           redirectUrl = "/Kingsway/home.php";
@@ -947,7 +960,7 @@ window.API = {
             {},
             {
               isRefreshAttempt: true, // Skip token refresh on logout
-            }
+            },
           );
         }
       } catch (error) {
@@ -976,7 +989,7 @@ window.API = {
         {},
         {
           isRefreshAttempt: true, // Skip token refresh check to avoid recursion
-        }
+        },
       );
       if (response && response.token) {
         localStorage.setItem("token", response.token);
@@ -1244,7 +1257,7 @@ window.API = {
     getAdmissionWorkflowStatus: async (studentId) =>
       apiCall(
         `/students/admission-workflow-status?student_id=${studentId}`,
-        "GET"
+        "GET",
       ),
 
     // Transfer workflow
@@ -1268,7 +1281,7 @@ window.API = {
     getTransferWorkflowStatus: async (transferId) =>
       apiCall(
         `/students/transfer-workflow-status?transfer_id=${transferId}`,
-        "GET"
+        "GET",
       ),
     getTransferHistory: async (studentId) =>
       apiCall(`/students/transfer-history?student_id=${studentId}`, "GET"),
@@ -1349,7 +1362,7 @@ window.API = {
         "POST",
         formData,
         {},
-        { isFile: true }
+        { isFile: true },
       ),
     deleteDocument: async (documentId) =>
       apiCall(`/students/documents-delete/${documentId}`, "DELETE"),
@@ -1385,7 +1398,7 @@ window.API = {
         "GET",
         null,
         {},
-        { isDownload: true }
+        { isDownload: true },
       ),
 
     // Academic Year
@@ -1433,9 +1446,9 @@ window.API = {
     searchFamilyGroups: async (searchTerm, limit = 50, offset = 0) =>
       apiCall(
         `/students/family-groups/search?q=${encodeURIComponent(
-          searchTerm
+          searchTerm,
         )}&limit=${limit}&offset=${offset}`,
-        "GET"
+        "GET",
       ),
     getFamilyGroupStats: async () =>
       apiCall("/students/family-groups/stats", "GET"),
@@ -1470,7 +1483,7 @@ window.API = {
     getAvailableStudentsForParent: async (parentId) =>
       apiCall(
         `/students/parents/available-students?parent_id=${parentId}`,
-        "GET"
+        "GET",
       ),
     getStudentsWithoutParents: async () =>
       apiCall("/students/without-parents", "GET"),
@@ -1578,7 +1591,7 @@ window.API = {
       apiCall(
         "/academic/year-transition-migrate-competency-baselines",
         "POST",
-        data
+        data,
       ),
     validateReadiness: async (data) =>
       apiCall("/academic/year-transition-validate-readiness", "POST", data),
@@ -1769,28 +1782,28 @@ window.API = {
         `/attendance/student-history?student_id=${studentId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getStudentSummary: async (studentId, params) =>
       apiCall(
         `/attendance/student-summary?student_id=${studentId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getClassAttendance: async (classId, params) =>
       apiCall(
         `/attendance/class-attendance?class_id=${classId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getStudentPercentage: async (studentId, params) =>
       apiCall(
         `/attendance/student-percentage?student_id=${studentId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getChronicAbsentees: async (params) =>
       apiCall("/attendance/chronic-student-absentees", "GET", null, params),
@@ -1801,28 +1814,28 @@ window.API = {
         `/attendance/staff-history?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getStaffSummary: async (staffId, params) =>
       apiCall(
         `/attendance/staff-summary?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getDepartmentAttendance: async (departmentId, params) =>
       apiCall(
         `/attendance/department-attendance?department_id=${departmentId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getStaffPercentage: async (staffId, params) =>
       apiCall(
         `/attendance/staff-percentage?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getChronicStaffAbsentees: async (params) =>
       apiCall("/attendance/chronic-staff-absentees", "GET", null, params),
@@ -1969,7 +1982,7 @@ window.API = {
         "POST",
         formData,
         {},
-        { isFile: true }
+        { isFile: true },
       ),
     verifyDocument: async (data) =>
       apiCall("/admission/verify-document", "POST", data),
@@ -2116,7 +2129,7 @@ window.API = {
         "POST",
         formData,
         {},
-        { isFile: true }
+        { isFile: true },
       ),
     deleteAttachment: async (id) =>
       apiCall(`/communications/attachment/${id}`, "DELETE"),
@@ -2185,6 +2198,12 @@ window.API = {
       }),
     getUnreadCount: async () =>
       apiCall("/communications/communication?status=unread", "GET"),
+
+    // Fee reminder SMS/WhatsApp
+    sendFeeReminder: async (data) =>
+      apiCall("/communications/fee-reminder", "POST", data),
+    sendBulkFeeReminders: async (data) =>
+      apiCall("/communications/fee-reminder-bulk", "POST", data),
     getTemplates: async () => apiCall("/communications/template", "GET"),
     saveTemplate: async (data) =>
       apiCall("/communications/template", "POST", data),
@@ -2192,7 +2211,8 @@ window.API = {
 
   // Finance endpoints
   finance: {
-    index: async () => apiCall("/finance/index", "GET"),
+    // Default to listing payments for dashboard/list views
+    index: async () => apiCall("/finance?type=payments", "GET"),
     get: async (id = null) =>
       id ? apiCall(`/finance/${id}`, "GET") : apiCall("/finance", "GET"),
     create: async (data) => apiCall("/finance", "POST", data),
@@ -2223,7 +2243,7 @@ window.API = {
         `/finance/payrolls-staff-payments?payroll_id=${payrollId}`,
         "GET",
         null,
-        params
+        params,
       ),
     createDraftPayroll: async (data) =>
       apiCall("/finance/payrolls-create-draft", "POST", data),
@@ -2309,8 +2329,12 @@ window.API = {
         `/finance/students-payment-history?student_id=${studentId}`,
         "GET",
         null,
-        params
+        params,
       ),
+    getStudentFeeStatement: async (studentId, params = {}) =>
+      apiCall(`/finance/students/fee-statement/${studentId}`, "GET", null, params),
+    getStudentBalance: async (studentId) =>
+      apiCall(`/finance/students/balance/${studentId}`, "GET"),
 
     // Reports
     generatePayrollReport: async (data) =>
@@ -2320,7 +2344,7 @@ window.API = {
         "/finance/reports-compare-yearly-collections",
         "GET",
         null,
-        params
+        params,
       ),
 
     // Legacy support
@@ -2363,7 +2387,7 @@ window.API = {
         `/inventory/items-history?item_id=${itemId}`,
         "GET",
         null,
-        params
+        params,
       ),
 
     // Categories
@@ -2654,14 +2678,14 @@ window.API = {
         `/staff/payroll-payslip?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getPayrollHistory: async (staffId, params) =>
       apiCall(
         `/staff/payroll-history?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getAllowances: async (staffId) =>
       apiCall(`/staff/payroll-allowances?staff_id=${staffId}`, "GET"),
@@ -2679,7 +2703,7 @@ window.API = {
         "GET",
         null,
         {},
-        { isDownload: true }
+        { isDownload: true },
       ),
     downloadPayslip: async (staffId, params) =>
       apiCall(
@@ -2687,7 +2711,7 @@ window.API = {
         "GET",
         null,
         params,
-        { isDownload: true }
+        { isDownload: true },
       ),
     exportHistory: async (staffId, params) =>
       apiCall(
@@ -2695,7 +2719,7 @@ window.API = {
         "GET",
         null,
         params,
-        { isDownload: true }
+        { isDownload: true },
       ),
 
     // Staff Children (for fee deductions)
@@ -2710,14 +2734,14 @@ window.API = {
     calculateChildFeeDeductions: async (staffId, month, year) =>
       apiCall(
         `/staff/children-calculate-deductions?staff_id=${staffId}&month=${month}&year=${year}`,
-        "GET"
+        "GET",
       ),
 
     // Detailed Payslips
     generateDetailedPayslip: async (staffId, month, year) =>
       apiCall(
         `/staff/payroll-detailed-payslip?staff_id=${staffId}&month=${month}&year=${year}`,
-        "GET"
+        "GET",
       ),
     downloadDetailedPayslip: async (staffId, month, year) =>
       apiCall(
@@ -2725,7 +2749,7 @@ window.API = {
         "GET",
         null,
         {},
-        { isDownload: true }
+        { isDownload: true },
       ),
 
     // Performance
@@ -2734,21 +2758,21 @@ window.API = {
         `/staff/performance-review-history?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     generatePerformanceReport: async (staffId, params) =>
       apiCall(
         `/staff/performance-generate-report?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
     getAcademicKPISummary: async (staffId, params) =>
       apiCall(
         `/staff/performance-academic-kpi-summary?staff_id=${staffId}`,
         "GET",
         null,
-        params
+        params,
       ),
 
     // Legacy support
@@ -2947,7 +2971,7 @@ window.API = {
     getSubjectTeachingLoad: async (subjectId) =>
       apiCall(
         `/schedules/subject-teaching-load?subject_id=${subjectId}`,
-        "GET"
+        "GET",
       ),
     getAllActivitySchedules: async (params) =>
       apiCall("/schedules/all-activity-schedules", "GET", null, params),
@@ -2988,7 +3012,7 @@ window.API = {
     getWorkflowStatus: async (workflowId) =>
       apiCall(
         `/schedules/scheduling-workflow-status?workflow_id=${workflowId}`,
-        "GET"
+        "GET",
       ),
     listWorkflows: async (params) =>
       apiCall("/schedules/list-scheduling-workflows", "GET", null, params),
@@ -3251,6 +3275,46 @@ window.API = {
     // Bank webhook
     bankWebhook: async (data) =>
       apiCall("/payments/bank-webhook", "POST", data),
+
+    // Unmatched M-Pesa payments (for reconciliation)
+    getUnmatchedMpesa: async (params = {}) =>
+      apiCall("/payments/unmatched-mpesa", "GET", null, params),
+
+    // Reconcile M-Pesa payment (with optional student_id to allocate to fees)
+    reconcileMpesa: async (
+      mpesaId,
+      bankStatementRef = "",
+      notes = "",
+      studentId = null,
+    ) =>
+      apiCall("/payments/reconcile-mpesa", "POST", {
+        mpesa_id: mpesaId,
+        bank_statement_ref: bankStatementRef,
+        notes: notes,
+        student_id: studentId,
+      }),
+
+    // Get M-Pesa reconciliation history
+    getMpesaReconcileHistory: async (mpesaId) =>
+      apiCall(
+        `/payments/mpesa-reconcile-history?mpesa_id=${encodeURIComponent(mpesaId)}`,
+        "GET",
+      ),
+  },
+
+  // Accounts endpoints (bank accounts, transactions)
+  accounts: {
+    // Get all bank accounts
+    getBankAccounts: async (params = {}) =>
+      apiCall("/accounts/bank-accounts", "GET", null, params),
+
+    // Get transactions for a specific bank account (or all if no bankId)
+    getBankTransactions: async (bankId = null, params = {}) => {
+      const url = bankId
+        ? `/accounts/bank-transactions?bank_id=${encodeURIComponent(bankId)}`
+        : `/accounts/bank-transactions`;
+      return apiCall(url, "GET", null, params);
+    },
   },
 
   // System endpoints
@@ -3612,6 +3676,58 @@ window.API = {
     getDirectorRisks: async () => {
       return await apiCall("/dashboard/director/risks", "GET");
     },
+
+    // School Accountant endpoints (role 10)
+    getAccountantFinancial: async (params = {}) => {
+      return await apiCall(
+        "/dashboard/accountant/financial",
+        "GET",
+        null,
+        params,
+      );
+    },
+
+    getAccountantPayments: async (params = {}) => {
+      return await apiCall(
+        "/dashboard/accountant/payments",
+        "GET",
+        null,
+        params,
+      );
+    },
+
+    /**
+     * Get accountant alerts (fee defaulters, reconciliation issues, etc.)
+     * @param {Object} params - Optional filters (severity, limit, etc.)
+     */
+    getAccountantAlerts: async (params = {}) => {
+      return await apiCall("/alerts", "GET", null, params);
+    },
+
+    /**
+     * Get unmatched M-Pesa payments for reconciliation
+     * @param {Object} params - Optional filters (date_from, date_to, etc.)
+     */
+    getAccountantUnmatchedPayments: async (params = {}) => {
+      return await apiCall("/payments/unmatched-mpesa", "GET", null, params);
+    },
+
+    /**
+     * Get bank accounts with balances
+     * @param {Object} params - Optional filters
+     */
+    getAccountantBankAccounts: async (params = {}) => {
+      return await apiCall("/accounts/bank-accounts", "GET", null, params);
+    },
+
+    /**
+     * Get full accountant dashboard data in a single API call (optimized)
+     * Returns: financial, payments, alerts, bankAccounts, unmatchedPayments
+     */
+    getAccountantFull: async (params = {}) => {
+      return await apiCall("/dashboard/accountant/full", "GET", null, params);
+    },
+
     getDirectorAnnouncements: async () => {
       return await apiCall("/dashboard/director/announcements", "GET");
     },
@@ -3698,7 +3814,7 @@ window.API = {
       const params = search ? `?search=${encodeURIComponent(search)}` : "";
       return await apiCall(
         `/dashboard/school-admin/staff-directory${params}`,
-        "GET"
+        "GET",
       );
     },
 
@@ -3709,7 +3825,7 @@ window.API = {
     getSchoolAdminClassDistribution: async (filter = "all") => {
       return await apiCall(
         `/dashboard/school-admin/class-distribution?filter=${filter}`,
-        "GET"
+        "GET",
       );
     },
 
@@ -3720,7 +3836,7 @@ window.API = {
     getSchoolAdminAttendanceTrend: async (weeks = 4) => {
       return await apiCall(
         `/dashboard/school-admin/attendance-trend?weeks=${weeks}`,
-        "GET"
+        "GET",
       );
     },
 

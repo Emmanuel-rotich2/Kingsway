@@ -64,7 +64,16 @@ function getRequestBody(): array
  */
 function getAuthenticatedUser(): array
 {
-    // Check session first
+    // Check JWT auth_user first (stateless)
+    if (isset($_SERVER['auth_user'])) {
+        $user = $_SERVER['auth_user'];
+        return [
+            'user_id' => (int) ($user['user_id'] ?? 1),
+            'role_id' => (int) ($user['roles'][0]['id'] ?? 1)
+        ];
+    }
+
+    // Fallback to session for backward compatibility (should be removed)
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
@@ -76,8 +85,11 @@ function getAuthenticatedUser(): array
         ];
     }
 
-    // TODO: Check JWT token if session not available
-    // This would integrate with existing auth middleware
+    // Return default values if no auth found
+    return [
+        'user_id' => 1,
+        'role_id' => 1
+    ];
 
     return [
         'user_id' => null,

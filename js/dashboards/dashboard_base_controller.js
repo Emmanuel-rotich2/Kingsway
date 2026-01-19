@@ -167,19 +167,42 @@ const dashboardBaseController = {
      * Render summary cards section
      */
     renderSummaryCards: function() {
-        const cardsContainer = document.createElement('div');
-        cardsContainer.className = 'row g-3 mb-4';
-        cardsContainer.id = 'summaryCardsContainer';
-        
-        // Render each card
-        Object.values(this.state.summaryCards).forEach(card => {
-            if (!card) return;
-            const cardHTML = this.createCardHTML(card);
-            cardsContainer.innerHTML += cardHTML;
+      const cardsContainer = document.createElement("div");
+      cardsContainer.className = "row g-3 mb-4";
+      cardsContainer.id = "summaryCardsContainer";
+
+      // Render each card
+      Object.values(this.state.summaryCards).forEach((card) => {
+        if (!card) return;
+        const cardHTML = this.createCardHTML(card);
+        cardsContainer.innerHTML += cardHTML;
+      });
+
+      const mainContent = document.getElementById("mainContent");
+      if (mainContent) mainContent.appendChild(cardsContainer);
+
+      // Attach click handlers for any cards that declare a data-route
+      try {
+        const routedCards = cardsContainer.querySelectorAll("[data-route]");
+        routedCards.forEach((el) => {
+          el.removeEventListener("click", el._routeHandler);
+          const handler = (ev) => {
+            ev.preventDefault();
+            const route = el.getAttribute("data-route");
+            if (route && typeof window.navigateToRoute === "function") {
+              window.navigateToRoute(route);
+              window.history.pushState({}, "", "?route=" + route);
+            } else if (route) {
+              // Fallback to direct page navigation
+              window.location.href = `/Kingsway/pages/${route}.php`;
+            }
+          };
+          el._routeHandler = handler;
+          el.addEventListener("click", handler);
         });
-        
-        const mainContent = document.getElementById('mainContent');
-        if (mainContent) mainContent.appendChild(cardsContainer);
+      } catch (e) {
+        console.warn("Failed to attach card route handlers", e);
+      }
     },
     
     /**
@@ -189,24 +212,36 @@ const dashboardBaseController = {
         const colWidth = 12 / (Object.keys(this.state.summaryCards).length || 4); // Auto-width
         const iconClass = card.icon || 'bi-graph-up';
         const colorClass = `bg-${card.color || 'primary'}`;
-        
+        const wrapperStart = card.route
+          ? `<a href="#" data-route="${card.route}" class="card-link text-decoration-none">`
+          : `<div class="card border-0 shadow-sm h-100">`;
+        const wrapperEnd = card.route ? `</a>` : `</div>`;
+
         return `
             <div class="col-md-6 col-lg-${colWidth}">
-                <div class="card border-0 shadow-sm h-100">
+                ${wrapperStart}
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <h6 class="card-title text-muted text-uppercase fs-7 fw-600">${card.title}</h6>
-                                <h2 class="card-text fw-bold mb-2">${card.value}</h2>
-                                <p class="card-text text-muted small mb-1">${card.subtitle}</p>
-                                <p class="card-text text-secondary fs-8">${card.secondary || ''}</p>
+                                <h6 class="card-title text-muted text-uppercase fs-7 fw-600">${
+                                  card.title
+                                }</h6>
+                                <h2 class="card-text fw-bold mb-2">${
+                                  card.value
+                                }</h2>
+                                <p class="card-text text-muted small mb-1">${
+                                  card.subtitle
+                                }</p>
+                                <p class="card-text text-secondary fs-8">${
+                                  card.secondary || ""
+                                }</p>
                             </div>
-                            <div class="text-${card.color || 'primary'} fs-2">
+                            <div class="text-${card.color || "primary"} fs-2">
                                 <i class="bi ${iconClass}"></i>
                             </div>
                         </div>
                     </div>
-                </div>
+                ${wrapperEnd}
             </div>
         `;
     },

@@ -22,17 +22,9 @@
 // Include permissions helper
 require_once __DIR__ . '/../config/permissions.php';
 
-// Get user's role category
-session_start();
-$userRole = $_SESSION['role'] ?? 'guest';
-$roleCategory = getRoleCategory($userRole);
+// Default template (will be overridden by JavaScript)
+$templatePath = __DIR__ . '/admissions/manager_admissions.php'; // Default fallback
 
-// Include role-specific template
-$templatePath = __DIR__ . "/admissions/{$roleCategory}_admissions.php";
-
-if (file_exists($templatePath)) {
-    include $templatePath;
-} else {
-    // Fallback to viewer template
-    include __DIR__ . '/admissions/viewer_admissions.php';
-}
+// Include the template (JavaScript will replace content based on role)
+include $templatePath;
+exit;

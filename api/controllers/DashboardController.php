@@ -712,6 +712,121 @@ class DashboardController extends BaseController
         }
     }
 
+    // ============= ACCOUNTANT ENDPOINTS (ROLE 10) =============
+
+    /**
+     * GET /api/dashboard/accountant/financial
+     * Accountant-only: Comprehensive financial dashboard (cards, budget, payments summary)
+     * Supports pivot parameter for pivot table data:
+     *   - pivot=pivot-class: Collections by class
+     *   - pivot=pivot-type: Collections by student type
+     *   - pivot=pivot-method: Collections by payment method
+     *   - pivot=pivot-fee-type: Collections by fee type
+     *   - pivot=pivot-daily: Daily collections for current month
+     *   - pivot=top-defaulters: Top fee defaulters
+     */
+    public function getAccountantFinancial($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 10) {
+            return $this->forbidden('Accountant access only');
+        }
+        try {
+            $filters = $_GET ?? [];
+            $financeService = new \App\API\Modules\finance\FinanceService();
+            $reporting = $financeService->getReportingManager();
+
+            // Check if pivot parameter is provided
+            $pivotType = $filters['pivot'] ?? null;
+
+            if ($pivotType) {
+                // Return pivot table data
+                $academicYear = $filters['academic_year'] ?? date('Y');
+                $termId = $filters['term_id'] ?? null;
+
+                switch ($pivotType) {
+                    case 'pivot-class':
+                        $result = $reporting->getPivotByClass($academicYear, $termId);
+                        break;
+                    case 'pivot-type':
+                        $result = $reporting->getPivotByStudentType($academicYear, $termId);
+                        break;
+                    case 'pivot-method':
+                        $result = $reporting->getPivotByPaymentMethod($academicYear);
+                        break;
+                    case 'pivot-fee-type':
+                        $result = $reporting->getPivotByFeeType($academicYear, $termId);
+                        break;
+                    case 'pivot-daily':
+                        $result = $reporting->getPivotDailyCollections();
+                        break;
+                    case 'top-defaulters':
+                        $limit = isset($filters['limit']) ? (int) $filters['limit'] : 20;
+                        $result = $reporting->getTopDefaulters($limit, $academicYear);
+                        break;
+                    default:
+                        return $this->badRequest("Invalid pivot type: $pivotType");
+                }
+
+                if (isset($result['status']) && $result['status'] === 'error') {
+                    return $this->serverError($result['message'] ?? 'Failed to get pivot data');
+                }
+
+                return $this->success($result['data'] ?? $result, "Pivot data ($pivotType) retrieved");
+            }
+
+            // Standard financial dashboard
+            $result = $reporting->getFinancialDashboard($filters);
+
+            if (isset($result['status']) && $result['status'] === 'error') {
+                return $this->serverError($result['message'] ?? 'Failed to generate financial dashboard');
+            }
+
+            // Return the raw data payload (ReportingManager returns formatResponse-style array)
+            return $this->success($result['data'] ?? $result, $result['message'] ?? 'Financial dashboard retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch accountant financial data: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/dashboard/accountant/payments
+     * Accountant-only: Payments and transaction-level data
+     */
+    public function getAccountantPayments($id = null, $data = [], $segments = [])
+    {
+        if ($this->getUserRole() !== 10) {
+            return $this->forbidden('Accountant access only');
+        }
+        try {
+            $filters = $_GET ?? [];
+            $financeService = new \App\API\Modules\finance\FinanceService();
+            $reporting = $financeService->getReportingManager();
+
+            // Trends
+            $trends = $reporting->getFeeCollectionTrends($filters);
+            if (isset($trends['status']) && $trends['status'] === 'error') {
+                return $this->serverError($trends['message'] ?? 'Failed to fetch payments trends');
+            }
+
+            // Recent transactions
+            $limit = isset($filters['limit']) ? (int) $filters['limit'] : 10;
+            $recent = $reporting->getRecentTransactions($limit);
+            if (isset($recent['status']) && $recent['status'] === 'error') {
+                return $this->serverError($recent['message'] ?? 'Failed to fetch recent transactions');
+            }
+
+            // Combine into a single payload
+            $payload = array_merge(
+                $trends['data'] ?? [],
+                $recent['data'] ?? []
+            );
+
+            return $this->success($payload, 'Payments data retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to fetch accountant payments data: ' . $e->getMessage());
+        }
+    }
+
     /**
      * GET /api/dashboard/headteacher/pending-admissions
      * Headteacher-only: List of pending admission applications

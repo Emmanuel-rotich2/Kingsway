@@ -10,11 +10,13 @@ class AuthMiddleware
     // Static test token for local/dev testing (header: X-Test-Token)
     const TEST_USER = [
         'user_id' => 2,
-        'username' => 'director',
-        'email' => 'john@yahoo.com',
-        'role_ids' => [3],
-        'display_name' => 'John Director',
-        'permissions' => ['*']
+        'username' => 'accountant',
+        'email' => 'accountant@school.com',
+        'role_ids' => [10],
+        'roles' => [['id' => 10, 'name' => 'School Accountant']],
+        'display_name' => 'Test Accountant',
+        'permissions' => ['*'],
+        'effective_permissions' => ['*', 'finance.view', 'finance.manage', 'finance.reconcile', 'payments.view', 'payments.reconcile']
     ];
     /**
      * Handle JWT validation and attach user info to $_SERVER['auth_user']

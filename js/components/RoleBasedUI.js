@@ -1423,6 +1423,9 @@ const RoleBasedUI = (() => {
     showElement,
     disableUnauthorized,
 
+    // Layout
+    applyLayout,
+
     // Debug
     debug,
 

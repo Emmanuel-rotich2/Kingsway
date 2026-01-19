@@ -14,34 +14,34 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/admin-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="/Kingsway/css/roles/admin-theme.css">
 
 <div class="admin-layout">
     <!-- Full Sidebar -->
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
+            <img src="/Kingsway/images/logo.png" alt="Kingsway Academy">
             <h3>Kingsway Academy</h3>
         </div>
 
         <nav class="sidebar-nav">
             <div class="nav-section">
                 <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="nav-item">🏠 Dashboard</a>
-                <a href="/pages/manage_finance.php" class="nav-item active">💰 Finance</a>
-                <a href="/pages/manage_fees.php" class="nav-item">🧾 Fees</a>
+                <a href="/Kingsway/home.php?route=dashboard" class="nav-item">🏠 Dashboard</a>
+                <a href="/Kingsway/home.php?route=manage_finance" class="nav-item active">💰 Finance</a>
+                <a href="/Kingsway/home.php?route=manage_fees" class="nav-item">🧾 Fees</a>
             </div>
             <div class="nav-section">
                 <span class="nav-section-title">Reports</span>
-                <a href="/pages/finance_reports.php" class="nav-item">📊 Finance Reports</a>
-                <a href="/pages/budget_overview.php" class="nav-item">📈 Budget Overview</a>
-                <a href="/pages/financial_reports.php" class="nav-item">📉 Financial Analysis</a>
+                <a href="/Kingsway/home.php?route=finance_reports" class="nav-item">📊 Finance Reports</a>
+                <a href="/Kingsway/home.php?route=budget_overview" class="nav-item">📈 Budget Overview</a>
+                <a href="/Kingsway/home.php?route=financial_reports" class="nav-item">📉 Financial Analysis</a>
             </div>
             <div class="nav-section">
                 <span class="nav-section-title">Operations</span>
-                <a href="/pages/fee_defaulters.php" class="nav-item">⚠️ Fee Defaulters</a>
-                <a href="/pages/finance_approvals.php" class="nav-item">✅ Approvals</a>
+                <a href="/Kingsway/home.php?route=fee_defaulters" class="nav-item">⚠️ Fee Defaulters</a>
+                <a href="/Kingsway/home.php?route=finance_approvals" class="nav-item">✅ Approvals</a>
             </div>
         </nav>
 
