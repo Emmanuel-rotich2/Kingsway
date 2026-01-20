@@ -299,3 +299,165 @@ function sanitizeInput($data) {
     
     return $data;
 }
+
+/**
+ * Determine the best available column from a list of candidates for a given table.
+ * Caches results to avoid repeated DESCRIBE calls.
+ * Supports in-process caching (default) and optional DB-backed cross-process caching (via schema_discovery_cache table).
+ *
+ * @param string $table Table name
+ * @param array $candidates Ordered list of candidate column names
+ * @param int $ttlSeconds TTL in seconds for cache validity (default 300)
+ * @param bool $useDbCache Whether to store/read discovery results in DB for cross-process caching
+ * @return string|null
+ */
+function getPreferredColumnName(string $table, array $candidates = ['amount_paid', 'amount'], int $ttlSeconds = 300, bool $useDbCache = false)
+{
+    static $cache = [];
+    $key = $table . ':' . implode(',', $candidates);
+
+    // In-memory cached value with timestamp
+    if (isset($cache[$key]) && isset($cache[$key]['ts']) && (time() - $cache[$key]['ts']) < $ttlSeconds) {
+        return $cache[$key]['col'];
+    }
+
+    // Try DB-backed cache if requested
+    $lookupKey = md5($key);
+    if ($useDbCache) {
+        try {
+            $db = \App\Database\Database::getInstance()->getConnection();
+            $stmt = $db->prepare("SELECT columns_json, UNIX_TIMESTAMP(updated_at) as updated_ts FROM schema_discovery_cache WHERE lookup_key = ? LIMIT 1");
+            $stmt->execute([$lookupKey]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if ($row && ($row['updated_ts'] !== null) && (time() - (int) $row['updated_ts']) < $ttlSeconds) {
+                $cols = json_decode($row['columns_json'], true) ?? [];
+                foreach ($candidates as $col) {
+                    if (in_array($col, $cols, true)) {
+                        $cache[$key] = ['col' => $col, 'ts' => time()];
+                        return $col;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // DB cache not available — fall through to discovery
+        }
+    }
+
+    // Fallback: perform SHOW COLUMNS discovery
+    try {
+        $db = \App\Database\Database::getInstance()->getConnection();
+        $foundCols = [];
+        foreach ($candidates as $col) {
+            $stmt = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+            $stmt->execute([$col]);
+            if ($stmt->fetch()) {
+                $foundCols[] = $col;
+            }
+        }
+
+        if (!empty($foundCols)) {
+            // persist to DB if requested
+            if ($useDbCache) {
+                try {
+                    $colsJson = json_encode($foundCols);
+                    $up = $db->prepare("INSERT INTO schema_discovery_cache (lookup_key, table_name, candidates, columns_json, updated_at) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE columns_json = VALUES(columns_json), updated_at = NOW()");
+                    $up->execute([$lookupKey, $table, implode(',', $candidates), $colsJson]);
+                } catch (\Exception $e) {
+                    // ignore persistence errors
+                }
+            }
+
+            $first = $foundCols[0];
+            $cache[$key] = ['col' => $first, 'ts' => time()];
+            return $first;
+        }
+    } catch (\Exception $e) {
+        // ignore discovery errors
+    }
+
+    // Nothing found
+    $cache[$key] = ['col' => null, 'ts' => time()];
+    return null;
+}
+
+/**
+ * Build a SQL COALESCE expression using only columns that actually exist on the table.
+ * If none of the candidates exist, returns the provided default (string).
+ * Example: sql_coalesce_existing_columns('payment_transactions', ['amount_paid','amount'], '0')
+ * -> "COALESCE(`amount_paid`,`amount`, 0)"
+ *
+ * @param string $table
+ * @param array $candidates
+ * @param string $default
+ * @param int $ttlSeconds TTL in seconds for cache validity (default 300)
+ * @param bool $useDbCache Whether to use DB-backed cache
+ * @return string
+ */
+function sql_coalesce_existing_columns(string $table, array $candidates = ['amount_paid', 'amount'], string $default = '0', int $ttlSeconds = 300, bool $useDbCache = false)
+{
+    static $cache = [];
+    $key = $table . ':' . implode(',', $candidates) . ':' . $default;
+    if (isset($cache[$key]) && (time() - $cache[$key]['ts']) < $ttlSeconds) {
+        return $cache[$key]['expr'];
+    }
+
+    $cols = [];
+    try {
+        $db = \App\Database\Database::getInstance()->getConnection();
+
+        // Use DB-backed discovery if requested
+        if ($useDbCache) {
+            $lookupKey = md5($table . ':' . implode(',', $candidates));
+            try {
+                $stmt = $db->prepare("SELECT columns_json, UNIX_TIMESTAMP(updated_at) as updated_ts FROM schema_discovery_cache WHERE lookup_key = ? LIMIT 1");
+                $stmt->execute([$lookupKey]);
+                $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+                if ($row && ($row['updated_ts'] !== null) && (time() - (int) $row['updated_ts']) < $ttlSeconds) {
+                    $existing = json_decode($row['columns_json'], true) ?? [];
+                    foreach ($existing as $col) {
+                        $cols[] = "`$col`";
+                    }
+                }
+            } catch (\Exception $e) {
+                // ignore and do discovery below
+            }
+        }
+
+        // If no columns from DB cache or DB cache not used, perform SHOW COLUMNS
+        if (empty($cols)) {
+            $foundCols = [];
+            foreach ($candidates as $col) {
+                $stmt = $db->prepare("SHOW COLUMNS FROM `$table` LIKE ?");
+                $stmt->execute([$col]);
+                if ($stmt->fetch()) {
+                    $foundCols[] = $col;
+                    $cols[] = "`$col`";
+                }
+            }
+
+            // persist discovery to DB if requested
+            if ($useDbCache && !empty($foundCols)) {
+                try {
+                    $lookupKey = md5($table . ':' . implode(',', $candidates));
+                    $colsJson = json_encode($foundCols);
+                    $up = $db->prepare("INSERT INTO schema_discovery_cache (lookup_key, table_name, candidates, columns_json, updated_at) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE columns_json = VALUES(columns_json), updated_at = NOW()");
+                    $up->execute([$lookupKey, $table, implode(',', $candidates), $colsJson]);
+                } catch (\Exception $e) {
+                    // ignore persistence errors
+                }
+            }
+        }
+    } catch (\Exception $e) {
+        // ignore
+    }
+
+    if (empty($cols)) {
+        $expr = $default;
+        $cache[$key] = ['expr' => $expr, 'ts' => time()];
+        return $expr;
+    }
+
+    $expr = "COALESCE(" . implode(',', $cols) . ", $default)";
+    $cache[$key] = ['expr' => $expr, 'ts' => time()];
+    return $expr;
+}

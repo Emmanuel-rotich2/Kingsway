@@ -1,0 +1,370 @@
+/**
+ * Kingsway Academy - Viewer Theme
+ * For: Student, Parent, Guardian, Intern/Student Teacher
+ * 
+ * Features:
+ * - NO sidebar (fullscreen content)
+ * - Single card or minimal stat display
+ * - Simple list view (no complex tables)
+ * - Read-only (no action buttons)
+ * - Clean, minimal, distraction-free
+ * - No animations (fast loading focus)
+ * - Cream/neutral color scheme
+ */
+
+@import '../school-theme.css';
+
+/* Viewer-specific overrides */
+:root {
+    --primary: var(--green-600);
+    --accent: var(--gold-500);
+    --bg-primary: var(--cream-50);
+}
+
+/* === LAYOUT - No sidebar, full width === */
+.viewer-layout {
+    min-height: 100vh;
+    background: var(--bg-primary);
+}
+
+/* === HEADER - Clean minimal === */
+.viewer-header {
+    background: var(--bg-header);
+    padding: var(--spacing-md) var(--spacing-lg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-light);
+    box-shadow: var(--shadow-sm);
+}
+
+.viewer-header .logo-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.viewer-header .logo-title img {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+}
+
+.viewer-header .logo-title span {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+}
+
+.viewer-header .page-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--green-700);
+}
+
+.viewer-user-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.viewer-user-info .user-name {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.viewer-user-info .user-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--green-500), var(--green-700));
+    color: var(--text-inverse);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.75rem;
+}
+
+
+/* === MAIN CONTENT === */
+.viewer-main {
+    padding: var(--spacing-lg);
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+/* === SINGLE STAT CARD === */
+.viewer-summary-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-light);
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+}
+
+.viewer-summary-card .summary-icon {
+    width: 60px;
+    height: 60px;
+    margin: 0 auto var(--spacing-md);
+    border-radius: var(--radius-full);
+    background: linear-gradient(135deg, var(--green-100), var(--green-200));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    color: var(--green-700);
+}
+
+.viewer-summary-card .summary-value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: var(--green-700);
+    line-height: 1;
+    margin-bottom: var(--spacing-xs);
+}
+
+.viewer-summary-card .summary-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+
+/* === SIMPLE LIST VIEW (not a table) === */
+.viewer-list-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+}
+
+.viewer-list-header {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.viewer-list-header .list-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.viewer-list-header .list-count {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    background: var(--cream-200);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+}
+
+/* Simple list items */
+.viewer-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.viewer-list-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.viewer-list-item:last-child {
+    border-bottom: none;
+}
+
+.viewer-list-item .item-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    background: var(--cream-100);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: var(--spacing-md);
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.viewer-list-item .item-content {
+    flex: 1;
+}
+
+.viewer-list-item .item-title {
+    font-weight: 500;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.viewer-list-item .item-subtitle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.viewer-list-item .item-status {
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.viewer-list-item .item-status.status-active {
+    background: var(--green-100);
+    color: var(--green-800);
+}
+
+.viewer-list-item .item-status.status-pending {
+    background: var(--gold-100);
+    color: var(--gold-800);
+}
+
+.viewer-list-item .item-status.status-completed {
+    background: var(--gray-100);
+    color: var(--gray-600);
+}
+
+/* Empty state */
+.viewer-empty-state {
+    padding: var(--spacing-xxl);
+    text-align: center;
+}
+
+.viewer-empty-state .empty-icon {
+    font-size: 3rem;
+    color: var(--gray-300);
+    margin-bottom: var(--spacing-md);
+}
+
+.viewer-empty-state .empty-text {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+}
+
+
+/* === INFORMATION CARDS === */
+.viewer-info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.viewer-info-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+}
+
+.viewer-info-card .info-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-xs);
+}
+
+.viewer-info-card .info-value {
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+
+/* === NOTICE/ALERT BANNER === */
+.viewer-notice {
+    background: linear-gradient(135deg, var(--gold-50), var(--gold-100));
+    border: 1px solid var(--gold-300);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-sm);
+}
+
+.viewer-notice .notice-icon {
+    color: var(--gold-600);
+    flex-shrink: 0;
+}
+
+.viewer-notice .notice-content .notice-title {
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--gold-900);
+    margin-bottom: 2px;
+}
+
+.viewer-notice .notice-content .notice-text {
+    font-size: 0.8rem;
+    color: var(--gold-700);
+}
+
+
+/* === NO BUTTONS, NO ACTIONS === */
+/* Viewer role is read-only */
+
+
+/* === FOOTER === */
+.viewer-footer {
+    text-align: center;
+    padding: var(--spacing-lg);
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+
+
+/* === NO ANIMATIONS FOR VIEWER === */
+/* Keep it fast and simple */
+
+
+/* === RESPONSIVE === */
+@media (max-width: 768px) {
+    .viewer-main {
+        padding: var(--spacing-md);
+    }
+    
+    .viewer-info-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .viewer-summary-card {
+        padding: var(--spacing-lg);
+    }
+    
+    .viewer-summary-card .summary-value {
+        font-size: 2rem;
+    }
+    
+    .viewer-header {
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+    
+    .viewer-header .page-title {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .viewer-list-item {
+        flex-wrap: wrap;
+    }
+    
+    .viewer-list-item .item-status {
+        margin-top: var(--spacing-sm);
+        margin-left: calc(36px + var(--spacing-md));
+    }
+}

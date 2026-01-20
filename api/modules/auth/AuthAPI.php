@@ -58,10 +58,17 @@ class AuthAPI extends BaseAPI
                 return false;
             }
 
-            // Also verify role_sidebar_menus has data
+            // Consider the database config available if either per-role sidebar mappings exist
+            // OR role->dashboard mappings exist (role_dashboards). Some deployments use one or the other.
             $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_sidebar_menus");
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return ($result['cnt'] ?? 0) > 0;
+            $roleSidebarCount = (int) ($result['cnt'] ?? 0);
+
+            $stmt = $this->db->query("SELECT COUNT(*) as cnt FROM role_dashboards");
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $roleDashboardsCount = (int) ($result['cnt'] ?? 0);
+
+            return ($roleSidebarCount > 0) || ($roleDashboardsCount > 0);
         } catch (\Exception $e) {
             return false;
         }
@@ -266,10 +273,13 @@ class AuthAPI extends BaseAPI
 
             return $loginData;
         }
-        // If not successful, return error
+        // If not successful, return error (include debug info in dev)
         return [
             'status' => 'error',
-            'message' => $result['message'] ?? 'Login failed'
+            'message' => $result['error'] ?? $result['message'] ?? 'Login failed',
+            'data' => [
+                'debug' => $result
+            ]
         ];
     }
 
@@ -283,7 +293,72 @@ class AuthAPI extends BaseAPI
         string $token
     ): array {
         $userId = $userData['id'];
+
+        // Ensure roles and permissions are present on $userData (some code paths return bare user row)
+        if (empty($userData['roles'])) {
+            $rolesRes = $this->userRoleManager->getUserRoles($userId);
+            $userData['roles'] = $rolesRes['data'] ?? [];
+        }
+        if (empty($userData['permissions'])) {
+            $permsRes = $this->userPermissionManager->getEffectivePermissions($userId);
+            $userData['permissions'] = $permsRes['data'] ?? [];
+        }
+
         $userPermissions = array_column($userData['permissions'] ?? [], 'code');
+
+        // Add default role permissions for well-known roles (e.g., Accountant role id 10)
+        if (in_array(10, $roleIds, true)) {
+            $userPermissions = array_values(array_unique(array_merge($userPermissions, $this->getDefaultRolePermissions(10))));
+        }
+
+        // NOTE: We no longer add Headteacher (role 5) wholesale to a Deputy's
+        // effective roles when delegation exists. Delegation is performed at
+        // the per-menu-item level (see `role_delegations_items`). MenuBuilderService
+        // will include only explicitly delegated items for a role. This prevents
+        // accidental sharing of the entire sidebar and avoids duplicate dashboard
+        // entries between Headteacher and Deputy roles.
+
+        // Merge delegated permissions (per-item) into effective permissions so
+        // that delegated menu items that require permissions are accessible.
+        $delegatedPermissions = [];
+        // If roleIds wasn't provided (some callers), derive from userData
+        if (empty($roleIds)) {
+            $roleIds = [];
+            foreach ($userData['roles'] as $r) {
+                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
+            }
+            $roleIds = array_values(array_filter(array_unique($roleIds)));
+        }
+        try {
+            // Role-level per-item delegations (backwards compatible)
+            foreach ($roleIds as $rid) {
+                $delegatedItems = $this->getMenuBuilder()->getDelegatedMenuItemsForRole($rid);
+                foreach ($delegatedItems as $dItem) {
+                    if (!empty($dItem['route_name'])) {
+                        $reqPerms = $this->getConfigService()->getPermissionsForRouteName($dItem['route_name']);
+                        foreach ($reqPerms as $rp) {
+                            $delegatedPermissions[] = $rp['name'];
+                        }
+                    }
+                }
+            }
+
+            // User-level per-item delegations (preferred)
+            $userDelegatedItems = $this->getMenuBuilder()->getDelegatedMenuItemsForUser($userId);
+            foreach ($userDelegatedItems as $dItem) {
+                if (!empty($dItem['route_name'])) {
+                    $reqPerms = $this->getConfigService()->getPermissionsForRouteName($dItem['route_name']);
+                    foreach ($reqPerms as $rp) {
+                        $delegatedPermissions[] = $rp['name'];
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // If config service or delegations table not present, skip silently
+        }
+
+        // Effective permissions for filtering the sidebar
+        $effectivePermissions = array_values(array_unique(array_merge($userPermissions, $delegatedPermissions)));
 
         try {
             // Build sidebar from database using MenuBuilderService
@@ -292,40 +367,179 @@ class AuthAPI extends BaseAPI
                 $sidebarItems = $this->getMenuBuilder()->buildSidebarForMultipleRoles(
                     $userId,
                     $roleIds,
-                    $userPermissions
+                    $effectivePermissions
                 );
             } else {
                 // Single role: get menu for that role
                 $sidebarItems = $this->getMenuBuilder()->buildSidebarForUser(
                     $userId,
                     $primaryRoleId ?? 0,
-                    $userPermissions
+                    $effectivePermissions
                 );
             }
 
-            // Get default route for the role from database
-            $defaultRoute = $this->getDefaultRouteForRole($primaryRoleId ?? 0);
+            // Resolve dashboard strictly by the user's primary role to avoid cross-role defaults
+            $defaultRoute = null;
+            $dashboardInfo = null;
 
-            // Get dashboard info from database (simple, no widgets - frontend handles display)
-            $dashboardInfo = $this->getConfigService()->getDashboardForRole($primaryRoleId ?? 0);
+            // First, try to get an explicit database mapping for this role
+            try {
+                $dashboardInfo = $this->getConfigService()->getDashboardForRole($primaryRoleId ?? 0);
+                // Normalize dashboard info to ensure name is route key, not full URL
+                $dashboardInfo = $this->normalizeDashboardInfo($dashboardInfo);
+            } catch (\Exception $e) {
+                // Could be missing role_dashboards table or other DB issue
+                error_log('getDashboardForRole failed: ' . $e->getMessage());
+                $dashboardInfo = null;
+            }
 
-            // Generate refresh token
+            // If database mapping not available, try to derive a dashboard key for the role using DashboardRouter
+            if (empty($dashboardInfo)) {
+                try {
+                    $roleForDashboard = $primaryRoleId ?? ($primaryRole ?? (!empty($userRoles) ? $userRoles[0] : null));
+                    if ($roleForDashboard !== null) {
+                        $dashboardKey = \DashboardRouter::getDashboardForRole($roleForDashboard);
+                        if (!empty($dashboardKey)) {
+                            // Attempt to read dashboard record by name
+                            $dashboardInfo = $this->getConfigService()->getDashboardByName($dashboardKey);
+                            $dashboardInfo = $this->normalizeDashboardInfo($dashboardInfo);
+                            $defaultRoute = $dashboardKey;
+                        }
+                    }
+                } catch (\Exception $e) {
+                    error_log('DashboardRouter fallback failed: ' . $e->getMessage());
+                }
+            }
+
+            // If still no dashboard info, try to find a dashboard by role name (useful when role_dashboards table is absent)
+            if (empty($dashboardInfo) && !empty($userData['roles'])) {
+                $firstRoleName = is_array($userData['roles'][0]) ? ($userData['roles'][0]['name'] ?? null) : $userData['roles'][0];
+                if (!empty($firstRoleName)) {
+                    try {
+                        $found = $this->getConfigService()->findDashboardForRoleName($firstRoleName);
+                        if (!empty($found)) {
+                            $dashboardInfo = $this->normalizeDashboardInfo($found);
+                            $defaultRoute = $found['name'];
+                        }
+                    } catch (\Exception $e) {
+                        // ignore
+                    }
+                }
+            }
+
+            // Still no dashboard info? fall back to a safe default (system default dashboard)
+            if (empty($dashboardInfo)) {
+                $defaultRoute = $defaultRoute ?? \DashboardRouter::getDefaultDashboard();
+                $dashboardInfo = [
+                    'name' => $defaultRoute,
+                    'display_name' => ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $defaultRoute)))
+                ];
+            }
+
+            // Ensure defaultRoute is set (route name/key)
+            $defaultRoute = $dashboardInfo['name'] ?? $defaultRoute ?? \DashboardRouter::getDefaultDashboard();
+
+            // Normalize user permissions to codes and merge delegated permissions
+            $userData = $this->normalizeUserPermissions($userData);
+            $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
+
+            // Add default role permissions for known roles (e.g., Accountant role id 10)
+            if (in_array(10, $roleIds, true)) {
+                $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'], $this->getDefaultRolePermissions(10))));
+            }
+
+            // Generate refresh token and set it as HttpOnly secure cookie (do not return in body)
             $refreshToken = $this->generateRefreshToken($userId);
+            if ($refreshToken) {
+                // Set cookie for secure contexts; SameSite=Lax for compatibility
+                $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+                setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
+                // Also set SameSite attribute if PHP < 7.3 doesn't support options array
+                header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+            }
+
+            // Determine the role to resolve dashboard for (prefer primary role id)
+            $roleForDashboard = $primaryRoleId ?? ($primaryRole ?? (!empty($userRoles) ? $userRoles[0] : null));
+            if ($roleForDashboard !== null) {
+                $resolvedKey = $dashboardInfo['name'] ?? \DashboardRouter::getDashboardForRole($roleForDashboard);
+            } else {
+                $resolvedKey = $dashboardInfo['name'] ?? \DashboardRouter::getDefaultDashboard();
+            }
+
+            // Normalize resolvedKey to ensure it's a route name, not full URL
+            if (preg_match('/[?&]route=([^&]*)/', $resolvedKey, $matches)) {
+                $resolvedKey = $matches[1];
+            }
+
+            $resolvedUrl = $dashboardInfo['route'] ?? ('?route=' . $resolvedKey);
+            $resolvedLabel = $dashboardInfo['display_name'] ?? ($dashboardInfo['title'] ?? ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $resolvedKey))));
+
+            // If we fell back to system default and role is known, try to find a role-specific dashboard by name
+            if ($resolvedKey === \DashboardRouter::getDefaultDashboard() && $roleForDashboard !== null) {
+                // Try to determine role name from the provided context (prefer userData.roles)
+                $roleName = null;
+                if (!empty($userData['roles'])) {
+                    $firstRole = $userData['roles'][0];
+                    if (is_array($firstRole) && !empty($firstRole['name'])) {
+                        $roleName = $firstRole['name'];
+                    } elseif (is_string($firstRole)) {
+                        $roleName = $firstRole;
+                    }
+                }
+                // Fallback to roleForDashboard if it is a string (rare)
+                if (empty($roleName) && is_string($roleForDashboard)) {
+                    $roleName = $roleForDashboard;
+                }
+                if (!empty($roleName)) {
+                    $found = $this->getConfigService()->findDashboardForRoleName($roleName);
+                    if (!empty($found)) {
+                        $resolvedKey = $found['name'];
+                        $resolvedUrl = $found['route'] ?? ('?route=' . $resolvedKey);
+                        $resolvedLabel = $found['display_name'] ?? ($found['title'] ?? $resolvedLabel);
+                    }
+                }
+            }
+
+            // Add dashboard as first menu item
+            $dashboardMenuItem = [
+                'id' => 'dashboard_' . $primaryRoleId,
+                'label' => $resolvedLabel,
+                'icon' => 'bi-house-door',
+                'url' => $resolvedUrl,
+                'route_url' => $resolvedUrl,
+                'domain' => 'SCHOOL',
+                'display_order' => -200,
+                'subitems' => [],
+                'show_badge' => false,
+                'badge_source' => null,
+                'badge_color' => 'danger',
+                'open_in_new_tab' => false,
+                'requires_confirmation' => false,
+                'confirmation_message' => null,
+                'css_class' => null,
+                'tooltip' => null
+            ];
+            array_unshift($sidebarItems, $dashboardMenuItem);
+
+            // Final normalization of dashboard key
+            if (preg_match('/[?&]route=([^&]*)/', $resolvedKey, $matches)) {
+                $resolvedKey = $matches[1];
+            }
 
             return [
                 'status' => 'success',
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
-                    'refresh_token' => $refreshToken,
                     'token_expires_in' => JWT_EXPIRY,
                     'user' => $userData,
-                    'sidebar_items' => $sidebarItems,
+                    'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                     'dashboard' => [
-                        'key' => $dashboardInfo['name'] ?? 'home',
-                        'url' => $defaultRoute,
-                        'label' => $dashboardInfo['title'] ?? 'Dashboard'
+                        'key' => $resolvedKey,
+                        'url' => $resolvedUrl,
+                        'label' => $resolvedLabel
                     ],
+                    'delegated_permissions' => array_values(array_unique($delegatedPermissions)),
                     'config_source' => 'database'
                 ]
             ];
@@ -385,6 +599,28 @@ class AuthAPI extends BaseAPI
     }
 
     /**
+     * Normalize dashboard info to ensure name contains route key, not full URL
+     */
+    private function normalizeDashboardInfo(?array $dashboardInfo): ?array
+    {
+        if (!$dashboardInfo) {
+            return null;
+        }
+
+        // If route contains a full URL with route parameter, extract the route name
+        if (isset($dashboardInfo['route']) && preg_match('/[?&]route=([^&]*)/', $dashboardInfo['route'], $matches)) {
+            $dashboardInfo['name'] = $matches[1];
+        }
+
+        // Also check if name itself is a full URL and extract route
+        if (isset($dashboardInfo['name']) && preg_match('/[?&]route=([^&]*)/', $dashboardInfo['name'], $matches)) {
+            $dashboardInfo['name'] = $matches[1];
+        }
+
+        return $dashboardInfo;
+    }
+
+    /**
      * Build login response using file-based config (legacy fallback)
      */
     private function buildLoginResponseFromFiles(
@@ -403,15 +639,22 @@ class AuthAPI extends BaseAPI
         $defaultDashboard = null;
         $dashboardKey = null;
 
-        // Get dashboard key using DashboardRouter
-        if ($primaryRole) {
-            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+        // Get dashboard key using DashboardRouter (prefer role ID if available)
+        if ($primaryRoleId) {
+            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRoleId);
 
             // Try to get menu items using role ID as key
+            $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+            $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
+        } elseif ($primaryRole) {
+            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+
+            // Fall back to role name lookup if role ID wasn't provided
             if ($primaryRoleId) {
                 $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
                 $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
             }
+        }
 
             // If no items for primary role, combine from all roles
             if (empty($sidebarItems) && !empty($roleIds)) {
@@ -449,8 +692,7 @@ class AuthAPI extends BaseAPI
                 }
             }
 
-            error_log("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
-        }
+        error_log("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
 
         // If no sidebar items found, try to get first accessible dashboard
         if (empty($sidebarItems)) {
@@ -460,22 +702,73 @@ class AuthAPI extends BaseAPI
             }
         }
 
-        // Generate refresh token
+        // Normalize user permissions and merge any role-specific defaults
+        $userData = $this->normalizeUserPermissions($userData);
+        if ($primaryRoleId === 10) {
+            $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $this->getDefaultRolePermissions(10))));
+        }
+
+        // Generate refresh token and set as HttpOnly cookie (do not return in body)
         $refreshToken = $this->generateRefreshToken($userData['id']);
+        if ($refreshToken) {
+            $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+            setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
+            header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+        }
+
+        // Determine dashboard details
+        $dashboardKeyResolved = $dashboardKey ?? \DashboardRouter::getDashboardForRole($primaryRoleId ?? $primaryRole);
+
+        // Normalize dashboard key to ensure it's a route name, not full URL
+        if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
+            $dashboardKeyResolved = $matches[1];
+        }
+        $dashboardLabel = (
+            ($defaultDashboard['label'] ?? null) ? $defaultDashboard['label'] : (
+                (($dbDash = $this->getConfigService()->getDashboardByName($dashboardKeyResolved)) && !empty($dbDash['display_name']))
+                ? $dbDash['display_name']
+                : ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $dashboardKeyResolved)))
+            )
+        );
+
+        // Add dashboard as first menu item
+        $dashboardMenuItem = [
+            'id' => 'dashboard_' . $primaryRoleId,
+            'label' => $dashboardLabel,
+            'icon' => 'bi-house-door',
+            'url' => '?route=' . $dashboardKeyResolved,
+            'route_url' => '?route=' . $dashboardKeyResolved,
+            'domain' => 'SCHOOL',
+            'display_order' => -200,
+            'subitems' => [],
+            'show_badge' => false,
+            'badge_source' => null,
+            'badge_color' => 'danger',
+            'open_in_new_tab' => false,
+            'requires_confirmation' => false,
+            'confirmation_message' => null,
+            'css_class' => null,
+            'tooltip' => null
+        ];
+        array_unshift($sidebarItems, $dashboardMenuItem);
+
+        // Final normalization of dashboard key
+        if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
+            $dashboardKeyResolved = $matches[1];
+        }
 
         return [
             'status' => 'success',
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
-                'refresh_token' => $refreshToken,
                 'token_expires_in' => JWT_EXPIRY,
                 'user' => $userData,
-                'sidebar_items' => $sidebarItems,
+                'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                 'dashboard' => [
-                    'key' => $dashboardKey ?? 'home',
-                    'url' => $dashboardKey ?? 'home',
-                    'label' => $defaultDashboard['label'] ?? ucwords(str_replace('_', ' ', $primaryRole ?? 'Dashboard'))
+                    'key' => $dashboardKeyResolved,
+                    'url' => '?route=' . $dashboardKeyResolved,
+                    'label' => $dashboardLabel
                 ],
                 'config_source' => 'file'
             ]
@@ -663,5 +956,100 @@ class AuthAPI extends BaseAPI
             $parsed = str_replace('{{' . $key . '}}', $value, $parsed);
         }
         return $parsed;
+    }
+
+    /**
+     * Normalize user permissions payload to a flat list of permission codes
+     */
+    private function normalizeUserPermissions(array $userData): array
+    {
+        $perms = $userData['permissions'] ?? [];
+        $codes = [];
+        foreach ($perms as $p) {
+            if (is_array($p)) {
+                $codes[] = $p['code'] ?? $p['permission_code'] ?? null;
+            } else {
+                $codes[] = $p;
+            }
+        }
+        $codes = array_values(array_filter(array_unique($codes)));
+        $userData['permissions'] = $codes;
+        return $userData;
+    }
+
+    /**
+     * Return default role permissions for well-known roles
+     */
+    private function getDefaultRolePermissions(int $roleId): array
+    {
+        switch ($roleId) {
+            case 10: // Accountant
+                return [
+                    'finance_view',
+                    'manage_payments',
+                    'bank_accounts_view',
+                    'bank_transactions_view',
+                    'mpesa_view',
+                    'payroll_view',
+                    'payslips_view',
+                    'vendors_manage',
+                    'purchase_orders_manage',
+                    'finance_reports_view',
+                    'fee_structure_manage'
+                ];
+            default:
+                return [];
+        }
+    }
+
+    /**
+     * Normalize sidebar item URLs: convert 'home.php?route=xyz' to 'xyz' recursively
+     */
+    private function normalizeSidebarItems(array $items): array
+    {
+        $normalized = [];
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                $normalized[] = $item;
+                continue;
+            }
+            $it = $item;
+            $url = $it['url'] ?? null;
+            if ($url && is_string($url)) {
+                // handle full query string: home.php?route=...
+                if (strpos($url, 'route=') !== false) {
+                    $parts = parse_url($url);
+                    if (isset($parts['query'])) {
+                        parse_str($parts['query'], $qs);
+                        if (!empty($qs['route'])) {
+                            $it['url'] = $qs['route'];
+                        }
+                    } else {
+                        // fallback: extract after 'route='
+                        $pos = strpos($url, 'route=');
+                        if ($pos !== false) {
+                            $it['url'] = substr($url, $pos + strlen('route='));
+                        }
+                    }
+                }
+
+                // handle legacy file-based pages (e.g., /pages/bank_accounts.php or pages/bank_accounts.php)
+                if (strpos($url, 'pages/') !== false) {
+                    $base = basename($url); // e.g., bank_accounts.php
+                    $base = preg_replace('/\.php$/i', '', $base);
+                    if ($base) {
+                        $it['url'] = $base;
+                    }
+                }
+            }
+
+            // Recursively normalize subitems
+            if (!empty($it['subitems']) && is_array($it['subitems'])) {
+                $it['subitems'] = $this->normalizeSidebarItems($it['subitems']);
+            }
+
+            $normalized[] = $it;
+        }
+        return $normalized;
     }
 }

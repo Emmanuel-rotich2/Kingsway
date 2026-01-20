@@ -1213,15 +1213,23 @@ class FinanceAPI extends BaseAPI
                                 CONCAT(st.first_name, ' ', st.last_name) AS student_name,
                                 c.name AS class_name,
                                 cs.name AS stream_name,
-                                COALESCE(sfb.total_fees, 0) AS total_fees,
-                                COALESCE(sfb.total_paid, 0) AS total_paid,
-                                COALESCE(sfb.balance, 0) AS fee_balance
+                                (
+                                    SELECT COALESCE(SUM(amount_due),0) FROM student_fee_obligations sfo2
+                                    WHERE sfo2.student_id = st.id AND sfo2.academic_year = YEAR(CURDATE())
+                                ) AS total_fees,
+                                (
+                                    SELECT COALESCE(SUM(amount_paid),0) FROM student_fee_obligations sfo3
+                                    WHERE sfo3.student_id = st.id AND sfo3.academic_year = YEAR(CURDATE())
+                                ) AS total_paid,
+                                (
+                                    SELECT COALESCE(SUM(balance),0) FROM student_fee_obligations sfo4
+                                    WHERE sfo4.student_id = st.id AND sfo4.academic_year = YEAR(CURDATE())
+                                ) AS fee_balance
                             FROM staff_children sc
                             JOIN students st ON sc.student_id = st.id
                             LEFT JOIN class_streams cs ON st.stream_id = cs.id
                             LEFT JOIN classes c ON cs.class_id = c.id
-                            LEFT JOIN student_fee_balances sfb ON st.id = sfb.student_id 
-                                AND sfb.academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)
+                            -- use obligations table to derive fees for the current academic year
                             WHERE sc.staff_id = ? AND st.status = 'active'
                             ORDER BY st.first_name";
             $childrenStmt = $this->db->prepare($childrenSql);
@@ -1689,31 +1697,30 @@ class FinanceAPI extends BaseAPI
         $deductions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($deductions as $deduction) {
-            // Record payment transaction for each child
-            $paymentSql = "INSERT INTO payment_transactions 
-                           (student_id, amount, payment_method, payment_reference, transaction_date, status, notes)
-                           VALUES (?, ?, 'salary_deduction', ?, NOW(), 'confirmed', ?)";
-            $paymentStmt = $this->db->prepare($paymentSql);
-            $paymentStmt->execute([
-                $deduction['student_id'],
-                $deduction['deducted_amount'],
-                "SALARY-" . $deduction['payroll_period'] . "-" . $payrollId,
-                "Deducted from staff salary for period " . $deduction['payroll_period']
-            ]);
+            // Get parent_id for this student (usually the staff member)
+            $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = ? LIMIT 1");
+            $parentStmt->execute([$deduction['student_id']]);
+            $parentRow = $parentStmt->fetch(PDO::FETCH_ASSOC);
+            $parentId = $parentRow ? $parentRow['parent_id'] : null;
 
-            // Update student fee balance
-            $balanceSql = "UPDATE student_fee_balances 
-                           SET total_paid = total_paid + ?, 
-                               balance = balance - ?,
-                               updated_at = NOW()
-                           WHERE student_id = ? 
-                           AND academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)";
-            $balanceStmt = $this->db->prepare($balanceSql);
-            $balanceStmt->execute([
+            // Generate receipt number
+            $receiptNo = "SALARY-" . $deduction['payroll_period'] . "-" . $payrollId;
+            $notes = "Deducted from staff salary for period " . $deduction['payroll_period'];
+
+            // Use sp_process_student_payment to properly allocate to fee obligations
+            $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $spStmt->execute([
+                $deduction['student_id'],
+                $parentId,
                 $deduction['deducted_amount'],
-                $deduction['deducted_amount'],
-                $deduction['student_id']
+                'salary_deduction',
+                $receiptNo,
+                $receiptNo,
+                1, // received_by = system
+                date('Y-m-d H:i:s'),
+                $notes
             ]);
+            $spStmt->closeCursor();
         }
     }
 }

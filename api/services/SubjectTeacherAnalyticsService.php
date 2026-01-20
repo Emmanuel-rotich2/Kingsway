@@ -23,7 +23,9 @@ class SubjectTeacherAnalyticsService
                        IFNULL(ROUND(COUNT(DISTINCT s.id)/NULLIF(COUNT(DISTINCT c.id),0),0),0) as average_class_size
                 FROM classes c
                 JOIN class_assignments ca ON ca.class_id = c.id
-                LEFT JOIN students s ON s.class_id = c.id AND s.status = 'active'
+                -- Students are associated via streams; join class_streams then students by stream_id
+                LEFT JOIN class_streams cs2 ON cs2.class_id = c.id
+                LEFT JOIN students s ON s.stream_id = cs2.id AND s.status = 'active'
                 WHERE ca.user_id = ? AND ca.role = 'subject_teacher'";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
@@ -38,11 +40,13 @@ class SubjectTeacherAnalyticsService
     public function getSectionsStats()
     {
         // Query DB for sections/streams taught by this subject teacher
-        $sql = "SELECT COUNT(DISTINCT section) as total_sections, 
-                       GROUP_CONCAT(DISTINCT form) as forms_taught, 
-                       COUNT(DISTINCT stream) as streams_count
-                FROM class_assignments
-                WHERE user_id = ? AND role = 'subject_teacher'";
+        $sql = "SELECT COUNT(DISTINCT cs.id) as total_sections, 
+                       GROUP_CONCAT(DISTINCT c.name) as forms_taught, 
+                       COUNT(DISTINCT cs.id) as streams_count
+                FROM class_assignments ca
+                JOIN class_streams cs ON cs.id = ca.stream
+                JOIN classes c ON cs.class_id = c.id
+                WHERE ca.user_id = ? AND ca.role = 'subject_teacher'";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         $forms = isset($row['forms_taught']) ? explode(',', $row['forms_taught']) : [];
@@ -56,20 +60,30 @@ class SubjectTeacherAnalyticsService
 
     public function getAssessmentsDueStats()
     {
-        // Query DB for pending assessments to mark
+        // Query DB for pending assessments that belong to classes/subjects assigned to this teacher
         $sql = "SELECT COUNT(*) as pending_assessments,
-                       SUM(CASE WHEN due_date >= CURDATE() AND due_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as due_soon,
-                       SUM(CASE WHEN due_date < CURDATE() THEN 1 ELSE 0 END) as overdue,
-                       SUM(students_count) as total_students_assessed
-                FROM assessments
-                WHERE teacher_id = ? AND status = 'pending'";
+                       SUM(CASE WHEN a.assessment_date >= CURDATE() AND a.assessment_date <= DATE_ADD(CURDATE(), INTERVAL 3 DAY) THEN 1 ELSE 0 END) as due_soon,
+                       SUM(CASE WHEN a.assessment_date < CURDATE() THEN 1 ELSE 0 END) as overdue
+                FROM assessments a
+                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                WHERE a.status = 'pending'";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
+
+        // Count distinct students covered by these pending assessments (based on assessment_results)
+        $studentCountSql = "SELECT COUNT(DISTINCT ar.student_id) as total_students_assessed
+                            FROM assessment_results ar
+                            JOIN assessments a ON ar.assessment_id = a.id
+                            JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                            WHERE a.status = 'pending'";
+        $scStmt = $this->db->query($studentCountSql, [$this->userId]);
+        $scRow = $scStmt->fetch();
+
         return [
             'pending_assessments' => (int) ($row['pending_assessments'] ?? 0),
             'due_soon' => (int) ($row['due_soon'] ?? 0),
             'overdue' => (int) ($row['overdue'] ?? 0),
-            'total_students_assessed' => (int) ($row['total_students_assessed'] ?? 0),
+            'total_students_assessed' => (int) ($scRow['total_students_assessed'] ?? 0),
             'card_type' => 'assessments_due'
         ];
     }
@@ -78,11 +92,13 @@ class SubjectTeacherAnalyticsService
     {
         // Query DB for assessments graded this week
         $sql = "SELECT COUNT(*) as graded_this_week,
-                       IFNULL(AVG(score),0) as average_score,
-                       SUM(CASE WHEN score >= 70 THEN 1 ELSE 0 END) as high_performers,
-                       SUM(CASE WHEN score < 40 THEN 1 ELSE 0 END) as low_performers
-                FROM assessment_results
-                WHERE teacher_id = ? AND WEEK(graded_at) = WEEK(CURDATE())";
+                       IFNULL(AVG(marks_obtained),0) as average_score,
+                       SUM(CASE WHEN marks_obtained >= 70 THEN 1 ELSE 0 END) as high_performers,
+                       SUM(CASE WHEN marks_obtained < 40 THEN 1 ELSE 0 END) as low_performers
+                FROM assessment_results ar
+                JOIN assessments a ON ar.assessment_id = a.id
+                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                WHERE WEEK(ar.submitted_at) = WEEK(CURDATE()) AND ar.is_submitted = 1";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         return [
@@ -96,13 +112,15 @@ class SubjectTeacherAnalyticsService
 
     public function getExamsStats()
     {
-        // Query DB for upcoming exams
+        // Query DB for upcoming exams scoped to this teacher via assignments
         $sql = "SELECT COUNT(*) as scheduled_exams,
-                       MIN(DATEDIFF(exam_date, CURDATE())) as next_exam_days,
-                       COUNT(DISTINCT form) as forms_with_exams,
+                       MIN(DATEDIFF(es.exam_date, CURDATE())) as next_exam_days,
+                       COUNT(DISTINCT c.id) as forms_with_exams,
                        COUNT(*) as total_exam_sessions
-                FROM exams
-                WHERE teacher_id = ? AND exam_date >= CURDATE()";
+                FROM exam_schedules es
+                JOIN class_assignments ca ON ca.class_id = es.class_id AND (ca.subject_id IS NULL OR ca.subject_id = es.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                JOIN classes c ON es.class_id = c.id
+                WHERE es.exam_date >= CURDATE()";
         $stmt = $this->db->query($sql, [$this->userId]);
         $row = $stmt->fetch();
         return [
@@ -137,9 +155,10 @@ class SubjectTeacherAnalyticsService
     public function getPendingAssessments()
     {
         // Query DB for pending assessments list
-        $sql = "SELECT id, class, title, students, due_date
-                FROM assessments
-                WHERE teacher_id = ? AND status = 'pending'";
+        $sql = "SELECT a.id, a.class_id as class, a.title, a.assessment_date as due_date
+                FROM assessments a
+                JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                WHERE a.status = 'pending'";
         $stmt = $this->db->query($sql, [$this->userId]);
         $data = $stmt->fetchAll();
         $total = count($data);
@@ -151,10 +170,12 @@ class SubjectTeacherAnalyticsService
 
     public function getExamSchedule()
     {
-        // Query DB for upcoming exam schedule
-        $sql = "SELECT id, class, date, time, room
-                FROM exams
-                WHERE teacher_id = ? AND date >= CURDATE()";
+        // Query DB for upcoming exam schedule scoped to this teacher via assignments
+        $sql = "SELECT es.id, es.class_id as class, es.exam_date as date, es.start_time as time, es.room_id as room
+                FROM exam_schedules es
+                JOIN class_assignments ca ON ca.class_id = es.class_id AND (ca.subject_id IS NULL OR ca.subject_id = es.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                WHERE es.exam_date >= CURDATE()
+                ORDER BY es.exam_date, es.start_time";
         $stmt = $this->db->query($sql, [$this->userId]);
         $data = $stmt->fetchAll();
         $total = count($data);
@@ -175,13 +196,13 @@ class SubjectTeacherAnalyticsService
                             WHEN c.name = cs.stream_name THEN c.name
                             ELSE CONCAT(c.name, ' ', COALESCE(cs.stream_name, ''))
                         END as class_name,
-                        AVG(ar.score) as average_score
+                        AVG(ar.marks_obtained) as average_score
                     FROM assessment_results ar
                     JOIN assessments a ON ar.assessment_id = a.id
                     JOIN students s ON ar.student_id = s.id
                     JOIN class_streams cs ON s.stream_id = cs.id
                     JOIN classes c ON cs.class_id = c.id
-                    WHERE a.teacher_id = ?
+                    JOIN class_assignments ca ON ca.class_id = c.id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
                     GROUP BY c.id, c.name, cs.stream_name
                     ORDER BY average_score DESC
                     LIMIT 10";
@@ -209,14 +230,15 @@ class SubjectTeacherAnalyticsService
     {
         try {
             $sql = "SELECT 
-                        DATE_FORMAT(a.graded_at, '%Y-%m') as month,
-                        AVG(ar.score) as average_score,
-                        COUNT(*) as assessments_count
+                        DATE_FORMAT(ar.submitted_at, '%Y-%m') as month,
+                        AVG(ar.marks_obtained) as average_score,
+                        COUNT(DISTINCT a.id) as assessments_count
                     FROM assessment_results ar
                     JOIN assessments a ON ar.assessment_id = a.id
-                    WHERE a.teacher_id = ? 
-                        AND a.graded_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                    GROUP BY DATE_FORMAT(a.graded_at, '%Y-%m')
+                    JOIN class_assignments ca ON ca.class_id = a.class_id AND (ca.subject_id IS NULL OR ca.subject_id = a.subject_id) AND ca.role = 'subject_teacher' AND ca.user_id = ?
+                    WHERE ar.is_submitted = 1 
+                        AND ar.submitted_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
+                    GROUP BY DATE_FORMAT(ar.submitted_at, '%Y-%m')
                     ORDER BY month ASC";
             $stmt = $this->db->query($sql, [$this->userId]);
             $rows = $stmt->fetchAll();

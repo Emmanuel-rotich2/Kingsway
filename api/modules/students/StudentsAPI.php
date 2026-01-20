@@ -2452,7 +2452,7 @@ class StudentsAPI extends BaseAPI
 
     protected function getCurrentUserId()
     {
-        return $_SESSION['user_id'] ?? $this->user_id ?? 1;
+        return $_SERVER['auth_user']['user_id'] ?? $this->user_id ?? 1;
     }
 
     // ========================================================================

@@ -68,8 +68,6 @@ $roles = [$main_role];
         </div>
     </div>
 
-    <?php include __DIR__ . '/layouts/app_layout.php'; ?>
-
     <!-- Application Scripts -->
     <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/components/ActionButtons.js?v=<?php echo time(); ?>"></script>
@@ -78,7 +76,8 @@ $roles = [$main_role];
     <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>
     <script src="/Kingsway/js/index.js?v=<?php echo time(); ?>"></script>
-    
+
+    <?php include __DIR__ . '/layouts/app_layout.php'; ?>
     <script>
         // JWT-based authentication check (stateless)
         document.addEventListener('DOMContentLoaded', function () {
@@ -119,15 +118,37 @@ $roles = [$main_role];
                             const stack = Array.isArray(items) ? items.slice() : (items?.data || []);
                             while (stack.length) {
                                 const it = stack.pop();
-                                if (it?.url) allowed.add(String(it.url));
+                                if (it?.url) {
+                                    // Extract route from url like "home.php?route=manage_fee_structure"
+                                    const url = String(it.url);
+                                    const routeMatch = url.match(/[?&]route=([^&]*)/);
+                                    if (routeMatch) {
+                                        allowed.add(decodeURIComponent(routeMatch[1]));
+                                    } else {
+                                        allowed.add(url);
+                                    }
+                                }
                                 if (Array.isArray(it?.subitems)) {
                                     for (const sub of it.subitems) stack.push(sub);
                                 }
                             }
+                            // Also allow the user's assigned dashboard route
+                            const dashboardInfo = AuthContext.getDashboardInfo();
+                            if (dashboardInfo?.key) {
+                                allowed.add(dashboardInfo.key);
+                            }
                             if (route && !allowed.has(route)) {
                                 console.warn('Route not permitted by server-filtered sidebar. Redirecting.');
-                                const first = [...allowed][0] || (AuthContext.getDashboardInfo()?.url) || 'home';
-                                window.location.replace(`/Kingsway/home.php?route=${first}`);
+                                // Choose first allowed route that is non-empty; fall back to dashboard or 'home'
+                                const firstCandidate = [...allowed].find(r => !!r && r.length > 0);
+                                const first = firstCandidate || (dashboardInfo?.key) || 'home';
+                                // Avoid redirecting to the same route or to an empty route to prevent loop
+                                if (first && first !== route) {
+                                    // window.location.replace(`/Kingsway/home.php?route=${first}`);
+                                    console.warn('Redirect disabled for debugging');
+                                } else {
+                                    console.warn('No valid redirect route found; staying on current page to avoid redirect loop.');
+                                }
                             }
                         } catch (e) {
                             console.warn('Sidebar route guard failed:', e);

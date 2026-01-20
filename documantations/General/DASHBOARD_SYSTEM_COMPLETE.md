@@ -106,7 +106,8 @@ The Kingsway School Management System now has a fully functional, dynamic, permi
 2. `director_owner_dashboard.php` - Director/Owner
 3. `school_administrative_officer_dashboard.php` - School Administrative Officer
 4. `headteacher_dashboard.php` - Headteacher
-5. `deputy_headteacher_dashboard.php` - Deputy Headteacher
+5. `deputy_head_academic_dashboard.php` - Deputy Head - Academic
+5a. `deputy_head_discipline_dashboard.php` - Deputy Head - Discipline
 6. `class_teacher_dashboard.php` - Class Teacher
 7. `subject_teacher_dashboard.php` - Subject Teacher
 8. `intern_student_teacher_dashboard.php` - Intern/Student Teacher

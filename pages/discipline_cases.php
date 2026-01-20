@@ -1,13 +1,23 @@
 <?php
 /**
- * Discipline Cases Page
- * 
- * Purpose: Manage student discipline cases
- * Features:
- * - Log discipline incidents
- * - Track case status and resolution
- * - Generate conduct reports
+ * Discipline Cases - Stateless JWT-based Router
+ *
+ * Uses JavaScript to determine user role from JWT token and load appropriate template
  */
+
+// Default template (will be overridden by JavaScript)
+$template = 'discipline/manager_discipline.php'; // Default fallback
+
+// Include the template (JavaScript will replace content based on role)
+include __DIR__ . '/' . $template;
+exit;
+?>
+
+// Include the appropriate template
+include __DIR__ . '/' . $template;
+exit;
+
+// Legacy template below (kept for reference, not executed)
 ?>
 
 <div class="container-fluid py-4">

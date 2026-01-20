@@ -449,6 +449,23 @@ class UsersAPI extends BaseAPI
 
     }
 
+    // Add staff record for an existing user (useful when user exists but staff row is missing)
+    public function addStaffForUser($userId, $staffInfo, $roleIds = [])
+    {
+        try {
+            $this->db->beginTransaction();
+            $staffId = $this->addToStaffTable($userId, $staffInfo, $roleIds);
+            $this->db->commit();
+            if ($staffId) {
+                return ['success' => true, 'staff_id' => $staffId];
+            }
+            return ['success' => false, 'error' => 'Failed to add staff record'];
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+    }
+
     public function bulkCreate($data)
     {
         // Create multiple users with automatic role/permission assignment in a transaction
@@ -1145,11 +1162,28 @@ class UsersAPI extends BaseAPI
             }
 
             // Generate next KWPS staff number (KWPS001, KWPS002, etc.)
-            $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
-            $maxStmt->execute();
-            $result = $maxStmt->fetch(PDO::FETCH_ASSOC);
-            $nextNum = (int) ($result['max_num'] ?? 0) + 1;
-            $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+            // Use a named MySQL GET_LOCK to serialize generation and avoid race conditions or gaps when multiple processes create staff concurrently.
+            $staffNo = $staffInfo['staff_no'] ?? null;
+            if (empty($staffNo)) {
+                $lockRes = $this->db->query("SELECT GET_LOCK('kwps_staff_no', 10) AS got_lock");
+                $gotLock = $lockRes ? (int) $lockRes->fetch(PDO::FETCH_ASSOC)['got_lock'] : 0;
+                if (!$gotLock) {
+                    throw new Exception('Could not acquire lock to generate staff_no');
+                }
+                try {
+                    $maxStmt = $this->db->prepare('SELECT MAX(CAST(SUBSTRING(staff_no, 5) AS UNSIGNED)) as max_num FROM staff WHERE staff_no LIKE "KWPS%"');
+                    $maxStmt->execute();
+                    $result = $maxStmt->fetch(PDO::FETCH_ASSOC);
+                    $nextNum = (int) ($result['max_num'] ?? 0) + 1;
+                    $staffNo = 'KWPS' . str_pad($nextNum, 3, '0', STR_PAD_LEFT);
+                } finally {
+                    // Always release the lock
+                    $this->db->query("SELECT RELEASE_LOCK('kwps_staff_no')");
+                }
+            } else {
+                // Normalize provided staff_no
+                $staffNo = strtoupper($staffNo);
+            }
 
             // Insert staff record with all determined fields
             $sql = 'INSERT INTO staff (user_id, staff_type_id, staff_category_id, staff_no, first_name, last_name, department_id, supervisor_id, position, employment_date, contract_type, nssf_no, kra_pin, nhif_no, bank_account, salary, gender, marital_status, tsc_no, address, profile_pic_url, documents_folder, status, date_of_birth, created_at, updated_at) 

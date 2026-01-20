@@ -375,6 +375,28 @@ abstract class BaseController
         return $this->user['user_id'] ?? $this->user['id'] ?? null;
     }
 
+    /**
+     * Get the user's primary role ID (first role in the list)
+     * For backwards compatibility with checks like getUserRole() !== 10
+     * 
+     * @return int|null The first role ID or null if no roles
+     */
+    protected function getUserRole()
+    {
+        $roleIds = $this->getUserRoleIds();
+        return !empty($roleIds) ? $roleIds[0] : null;
+    }
+
+    /**
+     * Check if user has a specific role ID (supports multiple roles)
+     * @param int $roleId The role ID to check
+     * @return bool True if user has this role
+     */
+    protected function hasRoleId($roleId)
+    {
+        return in_array((int) $roleId, $this->getUserRoleIds());
+    }
+
     protected function getDb()
     {
         return $this->db;
@@ -383,6 +405,124 @@ abstract class BaseController
     protected function getModule()
     {
         return $this->module;
+    }
+
+    /**
+     * Extract role IDs from user's JWT token
+     * JWT stores roles as objects like [{id:10, name:"Accountant"}]
+     * This method returns an array of role IDs: [10, 5, 3]
+     * 
+     * @return array Array of role IDs (integers)
+     */
+    protected function getUserRoleIds()
+    {
+        $roles = $this->user['roles'] ?? [];
+        if (empty($roles)) {
+            return [];
+        }
+
+        // If roles are already numeric IDs, return as-is
+        if (isset($roles[0]) && is_numeric($roles[0])) {
+            return array_map('intval', $roles);
+        }
+
+        // Extract 'id' from role objects
+        $roleIds = [];
+        foreach ($roles as $role) {
+            if (is_array($role) && isset($role['id'])) {
+                $roleIds[] = (int) $role['id'];
+            } elseif (is_object($role) && isset($role->id)) {
+                $roleIds[] = (int) $role->id;
+            }
+        }
+        return $roleIds;
+    }
+
+    /**
+     * Extract role names from user's JWT token
+     * @return array Array of role names (strings)
+     */
+    protected function getUserRoleNames()
+    {
+        $roles = $this->user['roles'] ?? [];
+        if (empty($roles)) {
+            return [];
+        }
+
+        // If roles are already strings, return as-is
+        if (isset($roles[0]) && is_string($roles[0])) {
+            return $roles;
+        }
+
+        // Extract 'name' from role objects
+        $roleNames = [];
+        foreach ($roles as $role) {
+            if (is_array($role) && isset($role['name'])) {
+                $roleNames[] = strtolower($role['name']);
+            } elseif (is_object($role) && isset($role->name)) {
+                $roleNames[] = strtolower($role->name);
+            }
+        }
+        return $roleNames;
+    }
+
+    /**
+     * Check if user has a specific role by ID or name
+     * @param int|string $roleIdOrName Role ID (int) or role name (string)
+     * @return bool
+     */
+    protected function userHasRole($roleIdOrName)
+    {
+        if (is_numeric($roleIdOrName)) {
+            return in_array((int) $roleIdOrName, $this->getUserRoleIds());
+        }
+        return in_array(strtolower($roleIdOrName), $this->getUserRoleNames());
+    }
+
+    /**
+     * Check if user has a specific permission
+     * @param string $permission Permission name
+     * @return bool
+     */
+    protected function userHasPermission($permission)
+    {
+        $perms = $this->user['effective_permissions'] ?? [];
+        return in_array($permission, $perms) || in_array('*', $perms);
+    }
+
+    /**
+     * Check if user has any of the specified permissions or roles
+     * @param array $permissions Permission names
+     * @param array $roleIds Role IDs
+     * @param array $roleNames Role names
+     * @return bool
+     */
+    protected function userHasAny($permissions = [], $roleIds = [], $roleNames = [])
+    {
+        // Check permissions
+        foreach ($permissions as $perm) {
+            if ($this->userHasPermission($perm)) {
+                return true;
+            }
+        }
+
+        // Check role IDs
+        $userRoleIds = $this->getUserRoleIds();
+        foreach ($roleIds as $rid) {
+            if (in_array((int) $rid, $userRoleIds)) {
+                return true;
+            }
+        }
+
+        // Check role names
+        $userRoleNames = $this->getUserRoleNames();
+        foreach ($roleNames as $rname) {
+            if (in_array(strtolower($rname), $userRoleNames)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // ========================================================================

@@ -1,9 +1,5 @@
 <?php
-session_start();
-if (!isset($_SESSION['user_id'])) {
-    header('Location: /Kingsway/index.php');
-    exit;
-}
+// Authentication handled by JWT middleware and JavaScript
 $pageTitle = 'Uniform Sales Management';
 $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
 ?>

@@ -417,7 +417,7 @@ class AdmissionController extends BaseController
             $db = $this->db;
 
             // Get the user's role from auth context
-            $userRole = $_SESSION['role'] ?? $data['role'] ?? 'guest';
+            $userRole = $_SERVER['auth_user']['roles'][0]['name'] ?? $data['role'] ?? 'guest';
 
             $notifications = [
                 'pending_tasks' => [],

@@ -1,0 +1,11 @@
+201	all_students	home.php?route=all_students
+100004	bank_accounts	home.php?route=bank_accounts
+100005	bank_transactions	home.php?route=bank_transactions
+156	manage_fee_structure	/pages/manage_fee_structure.php
+56	manage_payments	home.php?route=manage_payments
+100006	mpesa_settlements	home.php?route=mpesa_settlements
+58	payroll	home.php?route=payroll
+100003	petty_cash	home.php?route=petty_cash
+100002	purchase_orders	home.php?route=purchase_orders
+100000	unmatched_payments	home.php?route=unmatched_payments
+100001	vendors	home.php?route=vendors

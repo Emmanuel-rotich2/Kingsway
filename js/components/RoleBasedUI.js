@@ -739,6 +739,624 @@ const RoleBasedUI = (() => {
     return hasAnyRole(actionConfig.roles);
   }
 
+  // ============== LAYOUT & THEME CONFIGURATION ==============
+
+  /**
+   * Role category to layout configuration mapping
+   * Defines the visual layout, components, and behaviors per role category
+   */
+  const LAYOUT_CONFIG = {
+    admin: {
+      themeClass: "admin-layout",
+      sidebarWidth: "280px",
+      sidebarStyle: "full", // full, compact, mini, hidden
+      gridColumns: 4,
+      showCharts: true,
+      chartCount: 3,
+      tableColumns: "all",
+      tableActions: ["view", "edit", "delete", "export", "bulk"],
+      headerActions: ["filters", "export", "create"],
+      animations: "full",
+      cssFile: "/css/roles/admin-theme.css",
+    },
+    manager: {
+      themeClass: "manager-layout",
+      sidebarWidth: "80px",
+      sidebarStyle: "compact",
+      gridColumns: 3,
+      showCharts: true,
+      chartCount: 2,
+      tableColumns: "standard",
+      tableActions: ["view", "edit", "export"],
+      headerActions: ["export", "create"],
+      animations: "moderate",
+      cssFile: "/css/roles/manager-theme.css",
+    },
+    operator: {
+      themeClass: "operator-layout",
+      sidebarWidth: "60px",
+      sidebarStyle: "mini",
+      gridColumns: 2,
+      showCharts: false,
+      chartCount: 0,
+      tableColumns: "essential",
+      tableActions: ["view"],
+      headerActions: [],
+      animations: "subtle",
+      cssFile: "/css/roles/operator-theme.css",
+    },
+    viewer: {
+      themeClass: "viewer-layout",
+      sidebarWidth: "0px",
+      sidebarStyle: "hidden",
+      gridColumns: 1,
+      showCharts: false,
+      chartCount: 0,
+      tableColumns: "minimal",
+      tableActions: [],
+      headerActions: [],
+      animations: "none",
+      cssFile: "/css/roles/viewer-theme.css",
+    },
+  };
+
+  /**
+   * Mapping of roles to layout categories
+   */
+  const ROLE_TO_LAYOUT = {
+    // Admin category
+    "System Administrator": "admin",
+    Director: "admin",
+    "Director/Owner": "admin",
+    Headteacher: "admin",
+    "School Administrator": "admin",
+    "School Administrative Officer": "admin",
+    admin: "admin",
+
+    // Manager category
+    "Deputy Head - Academic": "manager",
+    "Deputy Head - Discipline & Boarding": "manager",
+    "HOD - Languages": "manager",
+    "HOD - Science": "manager",
+    "HOD - Mathematics": "manager",
+    "HOD - Humanities": "manager",
+    "HOD - Creative Arts": "manager",
+    "HOD - Technical Subjects": "manager",
+    "HOD - Talent Development": "manager",
+    "HOD - Food & Nutrition": "manager",
+    "Senior Accountant": "manager",
+    "Inventory Manager": "manager",
+    "Boarding Master/Matron": "manager",
+    Librarian: "manager",
+
+    // Operator category
+    "Class Teacher": "operator",
+    "Subject Teacher": "operator",
+    Accountant: "operator",
+    "Secretary/Receptionist": "operator",
+    Chaplain: "operator",
+    "Games Master/Mistress": "operator",
+    Driver: "operator",
+    Cateress: "operator",
+    "Kitchen Staff": "operator",
+    "Security Personnel": "operator",
+    "Janitor/Groundsman": "operator",
+    Nurse: "operator",
+    Staff: "operator",
+
+    // Viewer category
+    "Intern/Student Teacher": "viewer",
+    Student: "viewer",
+    Parent: "viewer",
+    Guardian: "viewer",
+  };
+
+  /**
+   * Get the layout category for current user
+   * @returns {string} 'admin', 'manager', 'operator', or 'viewer'
+   */
+  function getLayoutCategory() {
+    const userRoles = getUserRoles();
+
+    // Priority order: admin > manager > operator > viewer
+    const categoryPriority = ["admin", "manager", "operator", "viewer"];
+
+    for (const category of categoryPriority) {
+      for (const role of userRoles) {
+        const roleCategory = ROLE_TO_LAYOUT[role];
+        if (roleCategory === category) {
+          return category;
+        }
+      }
+    }
+
+    return "viewer"; // Default fallback
+  }
+
+  /**
+   * Get layout configuration for current user
+   * @returns {Object} Layout configuration object
+   */
+  function getLayoutConfig() {
+    const category = getLayoutCategory();
+    return LAYOUT_CONFIG[category] || LAYOUT_CONFIG.viewer;
+  }
+
+  /**
+   * Apply role-based theme and layout
+   * Dynamically loads the appropriate CSS and applies layout classes
+   */
+  function applyLayout() {
+    const config = getLayoutConfig();
+    const category = getLayoutCategory();
+
+    // Remove any existing layout classes
+    document.body.classList.remove(
+      "admin-layout",
+      "manager-layout",
+      "operator-layout",
+      "viewer-layout"
+    );
+
+    // Add the appropriate layout class
+    document.body.classList.add(config.themeClass);
+
+    // Set CSS custom properties
+    document.documentElement.style.setProperty(
+      "--sidebar-width",
+      config.sidebarWidth
+    );
+    document.documentElement.style.setProperty(
+      "--grid-columns",
+      config.gridColumns
+    );
+
+    // Load role-specific CSS if not already loaded
+    loadThemeCSS(config.cssFile);
+
+    console.log(`[RoleBasedUI] Applied ${category} layout`);
+
+    return config;
+  }
+
+  /**
+   * Load theme CSS file dynamically
+   * @param {string} cssFile - Path to CSS file
+   */
+  function loadThemeCSS(cssFile) {
+    const existingLink = document.querySelector(`link[href="${cssFile}"]`);
+    if (existingLink) return;
+
+    // First ensure base theme is loaded
+    const baseTheme = "/css/school-theme.css";
+    if (!document.querySelector(`link[href="${baseTheme}"]`)) {
+      const baseLink = document.createElement("link");
+      baseLink.rel = "stylesheet";
+      baseLink.href = baseTheme;
+      document.head.appendChild(baseLink);
+    }
+
+    // Then load role-specific theme
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = cssFile;
+    link.setAttribute("data-role-theme", "true");
+    document.head.appendChild(link);
+  }
+
+  /**
+   * Render statistics cards based on role layout
+   * @param {Array} stats - Array of stat objects {icon, value, label, change}
+   * @param {HTMLElement} container - Target container
+   */
+  function renderStatsGrid(stats, container) {
+    const config = getLayoutConfig();
+    const category = getLayoutCategory();
+    const maxCards = config.gridColumns;
+    const displayStats = stats.slice(0, maxCards);
+
+    container.innerHTML = "";
+    container.className = `${category}-stats`;
+
+    displayStats.forEach((stat, index) => {
+      const card = document.createElement("div");
+
+      if (category === "viewer") {
+        card.className = "viewer-summary-card";
+        card.innerHTML = `
+          <div class="summary-icon">${stat.icon || "📊"}</div>
+          <div class="summary-value">${stat.value}</div>
+          <div class="summary-label">${stat.label}</div>
+        `;
+      } else {
+        card.className = `${category}-stat-card`;
+        card.innerHTML = `
+          <div class="stat-icon">${stat.icon || "📈"}</div>
+          <div class="stat-content">
+            <div class="stat-value">${stat.value}</div>
+            <div class="stat-label">${stat.label}</div>
+            ${
+              config.gridColumns > 2 && stat.change !== undefined
+                ? `
+              <div class="stat-change ${
+                stat.change >= 0 ? "positive" : "negative"
+              }">
+                ${stat.change >= 0 ? "↑" : "↓"} ${Math.abs(stat.change)}%
+              </div>
+            `
+                : ""
+            }
+          </div>
+        `;
+      }
+
+      container.appendChild(card);
+    });
+  }
+
+  /**
+   * Render data table based on role layout
+   * @param {Object} options - { title, columns, data, idField }
+   * @param {HTMLElement} container - Target container
+   */
+  function renderRoleTable(options, container) {
+    const config = getLayoutConfig();
+    const category = getLayoutCategory();
+    const {
+      title,
+      columns,
+      data,
+      idField = "id",
+      module = "general",
+    } = options;
+
+    // Determine visible columns based on role
+    let visibleColumns = columns;
+    if (config.tableColumns === "standard") {
+      visibleColumns = columns.slice(0, 7);
+    } else if (config.tableColumns === "essential") {
+      visibleColumns = columns.slice(0, 4);
+    } else if (config.tableColumns === "minimal") {
+      visibleColumns = columns.slice(0, 2);
+    }
+
+    container.innerHTML = "";
+    container.className = `${category}-table-card`;
+
+    let html = `
+      <div class="${category}-table-header">
+        <span class="table-title">${title}</span>
+        ${
+          config.tableActions.includes("export")
+            ? `<button class="btn btn-outline btn-sm export-btn">Export</button>`
+            : ""
+        }
+      </div>
+    `;
+
+    // Filters (for non-viewer roles)
+    if (category !== "viewer") {
+      html += `
+        <div class="${category}-filters">
+          <input type="text" class="search-input form-control" 
+                 placeholder="Search..." id="tableSearch">
+          ${
+            config.tableActions.includes("bulk")
+              ? `
+            <div class="bulk-actions" style="display:none;">
+              <span class="selected-count">0 selected</span>
+              <button class="btn btn-danger btn-sm bulk-delete-btn">Delete Selected</button>
+            </div>
+          `
+              : ""
+          }
+        </div>
+      `;
+    }
+
+    // Table
+    html += `<table class="${category}-data-table">`;
+    html += "<thead><tr>";
+
+    if (config.tableActions.includes("bulk")) {
+      html += '<th><input type="checkbox" class="select-all"></th>';
+    }
+
+    visibleColumns.forEach((col) => {
+      html += `<th>${col.label}</th>`;
+    });
+
+    if (config.tableActions.length > 0) {
+      html += "<th>Actions</th>";
+    }
+
+    html += "</tr></thead><tbody>";
+
+    data.forEach((row) => {
+      const rowId = row[idField] || "";
+      html += `<tr data-id="${rowId}">`;
+
+      if (config.tableActions.includes("bulk")) {
+        html += `<td><input type="checkbox" class="row-select" data-id="${rowId}"></td>`;
+      }
+
+      visibleColumns.forEach((col) => {
+        const value = row[col.key] ?? "";
+        html += `<td>${
+          col.render ? col.render(value, row) : escapeHtml(value)
+        }</td>`;
+      });
+
+      if (config.tableActions.length > 0) {
+        html += `<td class="${category}-row-actions">`;
+        config.tableActions.forEach((action) => {
+          if (action === "bulk") return; // Skip bulk, handled separately
+          html += `<button class="action-btn ${action}-btn" data-action="${action}" data-id="${rowId}" title="${capitalize(
+            action
+          )}">
+            ${getActionIcon(action)}
+          </button>`;
+        });
+        html += "</td>";
+      }
+
+      html += "</tr>";
+    });
+
+    html += "</tbody></table>";
+    container.innerHTML = html;
+
+    // Attach event handlers
+    attachTableHandlers(container, options);
+  }
+
+  /**
+   * Get icon for table action
+   */
+  function getActionIcon(action) {
+    const icons = {
+      view: "👁️",
+      edit: "✏️",
+      delete: "🗑️",
+      export: "📤",
+    };
+    return icons[action] || "•";
+  }
+
+  /**
+   * Capitalize first letter
+   */
+  function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1);
+  }
+
+  /**
+   * Escape HTML to prevent XSS
+   */
+  function escapeHtml(str) {
+    if (typeof str !== "string") return str;
+    return str.replace(
+      /[&<>"']/g,
+      (m) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;",
+        }[m])
+    );
+  }
+
+  /**
+   * Attach event handlers to rendered table
+   */
+  function attachTableHandlers(container, options) {
+    // Search
+    const searchInput = container.querySelector("#tableSearch");
+    if (searchInput) {
+      searchInput.addEventListener("input", (e) => {
+        const query = e.target.value.toLowerCase();
+        container.querySelectorAll("tbody tr").forEach((row) => {
+          const text = row.textContent.toLowerCase();
+          row.style.display = text.includes(query) ? "" : "none";
+        });
+      });
+    }
+
+    // Select all
+    const selectAll = container.querySelector(".select-all");
+    if (selectAll) {
+      selectAll.addEventListener("change", (e) => {
+        container.querySelectorAll(".row-select").forEach((cb) => {
+          cb.checked = e.target.checked;
+        });
+        updateBulkActions(container);
+      });
+    }
+
+    // Row selection
+    container.querySelectorAll(".row-select").forEach((cb) => {
+      cb.addEventListener("change", () => updateBulkActions(container));
+    });
+
+    // Action buttons
+    container.querySelectorAll(".action-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const action = e.target.closest(".action-btn").dataset.action;
+        const id = e.target.closest(".action-btn").dataset.id;
+
+        if (options.onAction) {
+          options.onAction(action, id);
+        } else {
+          console.log(`Action: ${action} on ID: ${id}`);
+        }
+      });
+    });
+  }
+
+  /**
+   * Update bulk actions visibility and count
+   */
+  function updateBulkActions(container) {
+    const selected = container.querySelectorAll(".row-select:checked").length;
+    const bulkActions = container.querySelector(".bulk-actions");
+    if (bulkActions) {
+      bulkActions.style.display = selected > 0 ? "flex" : "none";
+      const count = bulkActions.querySelector(".selected-count");
+      if (count) count.textContent = `${selected} selected`;
+    }
+  }
+
+  /**
+   * Render simple list view for viewer role
+   * @param {Array} items - Array of { title, subtitle, icon, status }
+   * @param {HTMLElement} container - Target container
+   */
+  function renderSimpleList(items, container) {
+    container.className = "viewer-list-card";
+
+    let html = `
+      <div class="viewer-list-header">
+        <span class="list-title">Items</span>
+        <span class="list-count">${items.length}</span>
+      </div>
+      <ul class="viewer-list">
+    `;
+
+    if (items.length === 0) {
+      html += `
+        <div class="viewer-empty-state">
+          <div class="empty-icon">📭</div>
+          <div class="empty-text">No items to display</div>
+        </div>
+      `;
+    } else {
+      items.forEach((item) => {
+        html += `
+          <li class="viewer-list-item">
+            <div class="item-icon">${item.icon || "📄"}</div>
+            <div class="item-content">
+              <div class="item-title">${escapeHtml(item.title)}</div>
+              ${
+                item.subtitle
+                  ? `<div class="item-subtitle">${escapeHtml(
+                      item.subtitle
+                    )}</div>`
+                  : ""
+              }
+            </div>
+            ${
+              item.status
+                ? `<span class="item-status status-${item.status}">${item.status}</span>`
+                : ""
+            }
+          </li>
+        `;
+      });
+    }
+
+    html += "</ul>";
+    container.innerHTML = html;
+  }
+
+  /**
+   * Render sidebar navigation based on role
+   * @param {Array} navItems - Array of { icon, label, url, active }
+   * @param {HTMLElement} container - Sidebar container
+   */
+  function renderSidebar(navItems, container) {
+    const config = getLayoutConfig();
+    const category = getLayoutCategory();
+
+    if (config.sidebarStyle === "hidden") {
+      container.style.display = "none";
+      return;
+    }
+
+    container.className = `${category}-sidebar`;
+
+    const showLabels = config.sidebarStyle === "full";
+    const userInitials =
+      window.userInitials || AuthContext.getUser()?.name?.charAt(0) || "U";
+
+    let html = `
+      <div class="logo-section">
+        <img src="/images/logo.png" alt="Kingsway">
+        ${showLabels ? '<span class="logo-text">Kingsway</span>' : ""}
+      </div>
+      <nav class="${category}-nav">
+    `;
+
+    navItems.forEach((item) => {
+      html += `
+        <a href="${item.url}" 
+           class="${category}-nav-item ${item.active ? "active" : ""}"
+           data-tooltip="${item.label}">
+          <span class="nav-icon">${item.icon}</span>
+          ${showLabels ? `<span class="nav-label">${item.label}</span>` : ""}
+        </a>
+      `;
+    });
+
+    html += `
+      </nav>
+      <div class="user-avatar" title="Profile">${userInitials}</div>
+    `;
+
+    container.innerHTML = html;
+  }
+
+  /**
+   * Render page header based on role
+   * @param {Object} options - { title, breadcrumb }
+   * @param {HTMLElement} container - Header container
+   */
+  function renderPageHeader(options, container) {
+    const config = getLayoutConfig();
+    const category = getLayoutCategory();
+    const { title, breadcrumb = [] } = options;
+
+    container.className = `${category}-header`;
+
+    let html = "";
+
+    // Breadcrumb (admin only)
+    if (category === "admin" && breadcrumb.length > 0) {
+      html += '<div class="breadcrumb">';
+      breadcrumb.forEach((crumb, i) => {
+        html += `<a href="${crumb.url || "#"}">${escapeHtml(crumb.label)}</a>`;
+        if (i < breadcrumb.length - 1) html += "<span>/</span>";
+      });
+      html += "</div>";
+    }
+
+    html += `<h1 class="page-title">${escapeHtml(title)}</h1>`;
+
+    // Header actions based on role
+    if (config.headerActions.length > 0) {
+      html += `<div class="${category}-header-actions">`;
+
+      if (config.headerActions.includes("filters")) {
+        html += `<button class="btn btn-outline btn-sm filter-btn">🔍 Filters</button>`;
+      }
+      if (config.headerActions.includes("export")) {
+        html += `<button class="btn btn-outline btn-sm export-btn">📤 Export</button>`;
+      }
+      if (config.headerActions.includes("create")) {
+        html += `<button class="btn btn-primary ${
+          category === "admin" ? "" : "btn-sm"
+        } create-btn">➕ Create New</button>`;
+      }
+
+      html += "</div>";
+    }
+
+    container.innerHTML = html;
+  }
+
+  // ============== END LAYOUT & THEME CONFIGURATION ==============
+
   /**
    * Disable elements that user doesn't have permission for (instead of hiding)
    * @param {HTMLElement} container - Container element
@@ -804,6 +1422,9 @@ const RoleBasedUI = (() => {
     hideElement,
     showElement,
     disableUnauthorized,
+
+    // Layout
+    applyLayout,
 
     // Debug
     debug,

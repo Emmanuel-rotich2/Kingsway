@@ -233,6 +233,269 @@ class CommunicationsAPI extends BaseAPI
     }
 
     /**
+     * Send Fee Reminder SMS/WhatsApp
+     * Mapped to: POST /communications/fee-reminder
+     * 
+     * Sends a fee payment reminder to a parent about their child's outstanding balance
+     * 
+     * @param array $data Contains student_id, phone, message, type (sms/whatsapp), balance, student_name
+     * @return array
+     */
+    public function sendFeeReminder($data = [])
+    {
+        // Get from JSON body if not passed
+        if (empty($data)) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+        }
+
+        $studentId = $data['student_id'] ?? null;
+        $phone = $data['phone'] ?? null;
+        $message = $data['message'] ?? null;
+        $type = $data['type'] ?? 'sms';
+        $balance = $data['balance'] ?? 0;
+        $studentName = $data['student_name'] ?? 'Student';
+
+        // Validate required fields
+        if (empty($phone) || empty($message)) {
+            return [
+                'status' => 'error',
+                'message' => 'Phone number and message are required',
+                'data' => null
+            ];
+        }
+
+        // Clean phone number (ensure proper format)
+        $phone = $this->formatPhoneNumber($phone);
+
+        // Send using the SMS gateway
+        $gateway = new \App\API\Services\sms\SMSGateway();
+
+        try {
+            if ($type === 'whatsapp') {
+                $result = $gateway->sendWhatsApp($phone, $message);
+            } else {
+                $result = $gateway->send($phone, $message);
+            }
+
+            // Handle both boolean and array responses
+            $success = false;
+            if (is_bool($result)) {
+                $success = $result === true;
+            } else if (is_array($result) && isset($result['status']) && $result['status'] === 'success') {
+                $success = true;
+            }
+
+            if ($success) {
+                // Store in communications table with sent status
+                $comm = $this->manager->createCommunication([
+                    'type' => $type,
+                    'subject' => 'Fee Reminder: ' . $studentName,
+                    'body' => $message,
+                    'recipients' => [$phone],
+                    'status' => 'sent',
+                    'metadata' => json_encode([
+                        'student_id' => $studentId,
+                        'student_name' => $studentName,
+                        'balance' => $balance,
+                        'reminder_type' => 'fee'
+                    ])
+                ]);
+
+                // Log fee reminder activity
+                $this->logFeeReminderActivity($studentId, $phone, $balance, $type, 'sent');
+
+                return [
+                    'status' => 'success',
+                    'message' => ucfirst($type) . ' fee reminder sent successfully to ' . $phone,
+                    'communication_id' => $comm['id'] ?? null,
+                    'data' => [
+                        'phone' => $phone,
+                        'student_id' => $studentId,
+                        'student_name' => $studentName,
+                        'balance' => $balance,
+                        'type' => $type
+                    ]
+                ];
+            } else {
+                // Store failed attempt
+                $this->manager->createCommunication([
+                    'type' => $type,
+                    'subject' => 'Fee Reminder: ' . $studentName,
+                    'body' => $message,
+                    'recipients' => [$phone],
+                    'status' => 'failed'
+                ]);
+
+                // Log failed attempt
+                $this->logFeeReminderActivity($studentId, $phone, $balance, $type, 'failed');
+
+                return [
+                    'status' => 'error',
+                    'message' => 'Failed to send ' . $type . ' reminder. Please try again.',
+                    'data' => null
+                ];
+            }
+        } catch (\Exception $e) {
+            error_log("Fee Reminder Error: " . $e->getMessage());
+            return [
+                'status' => 'error',
+                'message' => 'Error sending fee reminder: ' . $e->getMessage(),
+                'data' => null
+            ];
+        }
+    }
+
+    /**
+     * Send Bulk Fee Reminders
+     * Mapped to: POST /communications/fee-reminder-bulk
+     * 
+     * Sends fee reminders to multiple parents at once
+     * 
+     * @param array $data Contains students array, message_template, type
+     * @return array
+     */
+    public function sendBulkFeeReminders($data = [])
+    {
+        // Get from JSON body if not passed
+        if (empty($data)) {
+            $input = file_get_contents('php://input');
+            $data = json_decode($input, true) ?? [];
+        }
+
+        $students = $data['students'] ?? [];
+        $messageTemplate = $data['message_template'] ?? '';
+        $type = $data['type'] ?? 'sms';
+
+        if (empty($students)) {
+            return [
+                'status' => 'error',
+                'message' => 'No students provided for bulk reminders',
+                'data' => null
+            ];
+        }
+
+        $sent = 0;
+        $failed = [];
+        $results = [];
+
+        foreach ($students as $student) {
+            $studentId = $student['student_id'] ?? null;
+            $phone = $student['phone'] ?? null;
+            $balance = $student['balance'] ?? 0;
+            $studentName = $student['student_name'] ?? 'Student';
+
+            if (empty($phone)) {
+                $failed[] = [
+                    'student_id' => $studentId,
+                    'student_name' => $studentName,
+                    'reason' => 'No phone number'
+                ];
+                continue;
+            }
+
+            // Replace placeholders in message template
+            $message = str_replace(
+                ['{student_name}', '{balance}', '{amount}'],
+                [$studentName, number_format($balance, 2), number_format($balance, 2)],
+                $messageTemplate
+            );
+
+            // Send individual reminder
+            $result = $this->sendFeeReminder([
+                'student_id' => $studentId,
+                'phone' => $phone,
+                'message' => $message,
+                'type' => $type,
+                'balance' => $balance,
+                'student_name' => $studentName
+            ]);
+
+            if ($result['status'] === 'success') {
+                $sent++;
+                $results[] = [
+                    'student_id' => $studentId,
+                    'student_name' => $studentName,
+                    'phone' => $phone,
+                    'status' => 'sent'
+                ];
+            } else {
+                $failed[] = [
+                    'student_id' => $studentId,
+                    'student_name' => $studentName,
+                    'reason' => $result['message']
+                ];
+            }
+        }
+
+        return [
+            'status' => $sent > 0 ? 'success' : 'error',
+            'message' => $sent > 0
+                ? "Successfully sent $sent of " . count($students) . " fee reminders"
+                : 'Failed to send any fee reminders',
+            'sent_count' => $sent,
+            'failed_count' => count($failed),
+            'failed' => $failed,
+            'results' => $results
+        ];
+    }
+
+    /**
+     * Format phone number for SMS/WhatsApp
+     * Ensures proper country code format
+     * 
+     * @param string $phone
+     * @return string
+     */
+    private function formatPhoneNumber($phone)
+    {
+        // Remove all non-numeric characters
+        $phone = preg_replace('/[^0-9]/', '', $phone);
+
+        // Handle Kenya phone numbers
+        if (strlen($phone) === 9 && preg_match('/^[7]/', $phone)) {
+            $phone = '254' . $phone;
+        } else if (strlen($phone) === 10 && preg_match('/^0/', $phone)) {
+            $phone = '254' . substr($phone, 1);
+        }
+
+        return $phone;
+    }
+
+    /**
+     * Log fee reminder activity for audit/tracking
+     * 
+     * @param int $studentId
+     * @param string $phone
+     * @param float $balance
+     * @param string $type
+     * @param string $status
+     */
+    private function logFeeReminderActivity($studentId, $phone, $balance, $type, $status)
+    {
+        try {
+            $sql = "INSERT INTO system_logs (log_type, action, entity_type, entity_id, details, ip_address, created_at) 
+                    VALUES ('fee_reminder', :action, 'student', :student_id, :details, :ip, NOW())";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                'action' => $type . '_reminder_' . $status,
+                'student_id' => $studentId,
+                'details' => json_encode([
+                    'phone' => $phone,
+                    'balance' => $balance,
+                    'type' => $type,
+                    'status' => $status
+                ]),
+                'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown'
+            ]);
+        } catch (\Exception $e) {
+            // Log error but don't fail the main operation
+            error_log("Fee Reminder Log Error: " . $e->getMessage());
+        }
+    }
+
+    /**
      * Send SMS using a template category and variables.
      * @param array $recipients
      * @param array $variables

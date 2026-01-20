@@ -502,7 +502,9 @@ class UsersController extends BaseController
                 if ($result['success']) {
                     return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
                 } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
+                    // Include validation errors in response data if available
+                    $errorData = $result['errors'] ?? null;
+                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed', $errorData);
                 }
             }
             return $this->success($result);

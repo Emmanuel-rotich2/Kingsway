@@ -25,16 +25,29 @@
         let html = '';
 
         menuItems.forEach(item => {
-            if (!item) return;
+          if (!item) return;
 
-            const hasSubitems = item.subitems && Array.isArray(item.subitems) && item.subitems.length > 0;
-            const itemId = btoa(item.label || '').replace(/=/g, ''); // Use base64 hash for unique ID
-            const icon = item.icon || 'bi-circle';
-            const route = item.url || '#';
+          const hasSubitems =
+            item.subitems &&
+            Array.isArray(item.subitems) &&
+            item.subitems.length > 0;
+          const itemId = btoa(item.label || "").replace(/=/g, ""); // Use base64 hash for unique ID
+          const icon = item.icon || "bi-circle";
+          // Prefer canonical route name when url contains a route query
+          const rawUrl = item.url || "#";
+          let route = rawUrl;
+          try {
+            if (rawUrl && rawUrl.indexOf("route=") !== -1) {
+              // extract the route value from home.php?route=...
+              route = decodeURIComponent(rawUrl.split("route=")[1] || rawUrl);
+            }
+          } catch (e) {
+            route = rawUrl;
+          }
 
-            if (hasSubitems) {
-                // Menu item with subitems (collapsible)
-                html += `
+          if (hasSubitems) {
+            // Menu item with subitems (collapsible)
+            html += `
                     <a href="#submenu-${itemId}"
                        class="list-group-item list-group-item-action d-flex justify-content-between align-items-center sidebar-toggle"
                        data-bs-toggle="collapse"
@@ -42,37 +55,51 @@
                        aria-controls="submenu-${itemId}">
                         <span>
                             <i class="${icon} me-2"></i>
-                            <span class="sidebar-text">${escapeHtml(item.label)}</span>
+                            <span class="sidebar-text">${escapeHtml(
+                              item.label
+                            )}</span>
                         </span>
                         <i class="fas fa-chevron-down small"></i>
                     </a>
                     <div class="collapse" id="submenu-${itemId}" data-bs-parent="#sidebarMenu">
                 `;
 
-                // Render subitems
-                item.subitems.forEach(subitem => {
-                    if (!subitem) return;
-                    const subIcon = subitem.icon || 'bi-dot';
-                    const subRoute = subitem.url || '#';
-                    
-                    html += `
-                        <a href="#" data-route="${escapeHtml(subRoute)}" class="list-group-item list-group-item-action ps-5 sidebar-link">
+            // Render subitems
+            item.subitems.forEach((subitem) => {
+              if (!subitem) return;
+              const subIcon = subitem.icon || "bi-dot";
+              const subRaw = subitem.url || "#";
+              let subRoute = subRaw;
+              if (subRaw && subRaw.indexOf("route=") !== -1) {
+                subRoute = decodeURIComponent(
+                  subRaw.split("route=")[1] || subRaw
+                );
+              }
+
+              html += `
+                        <a href="#" data-route="${escapeHtml(
+                          subRoute
+                        )}" class="list-group-item list-group-item-action ps-5 sidebar-link">
                             <i class="${subIcon} me-2"></i>
                             ${escapeHtml(subitem.label)}
                         </a>
                     `;
-                });
+            });
 
-                html += `</div>`;
-            } else {
-                // Simple menu item (no subitems)
-                html += `
-                    <a href="#" data-route="${escapeHtml(route)}" class="list-group-item list-group-item-action sidebar-link">
+            html += `</div>`;
+          } else {
+            // Simple menu item (no subitems)
+            html += `
+                    <a href="#" data-route="${escapeHtml(
+                      route
+                    )}" class="list-group-item list-group-item-action sidebar-link">
                         <i class="${icon} me-2"></i>
-                        <span class="sidebar-text">${escapeHtml(item.label)}</span>
+                        <span class="sidebar-text">${escapeHtml(
+                          item.label
+                        )}</span>
                     </a>
                 `;
-            }
+          }
         });
 
         sidebarMenu.innerHTML = html;
@@ -91,15 +118,27 @@
             link.addEventListener('click', function(e) {
                 e.preventDefault();
                 const route = this.getAttribute('data-route');
-                
+
                 if (route && route !== '#') {
-                    // Remove active class from all links
-                    document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
-                    // Add active class to clicked link
-                    this.classList.add('active');
-                    
-                    // Direct navigation to route (no flash, no loading state)
-                    window.location.href = `/Kingsway/home.php?route=${route}`;
+                  // Remove active class from all links
+                  document
+                    .querySelectorAll(".sidebar-link")
+                    .forEach((l) => l.classList.remove("active"));
+                  // Add active class to clicked link
+                  this.classList.add("active");
+                  // Navigate safely:
+                  // - if the route already looks like a path (starts with 'home.php' or '/'), navigate to it directly
+                  // - otherwise build the query string `home.php?route=<route>`
+                  if (route.startsWith("home.php") || route.startsWith("/")) {
+                    window.location.href = `/Kingsway/${route.replace(
+                      /^\/+/,
+                      ""
+                    )}`;
+                  } else {
+                    window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(
+                      route
+                    )}`;
+                  }
                 }
             });
         });

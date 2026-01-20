@@ -1,0 +1,445 @@
+/**
+ * Kingsway Academy - Manager Theme
+ * For: Deputy Heads, HODs, Accountant, Inventory Manager, Boarding Master
+ * 
+ * Features:
+ * - Compact sidebar with essential navigation
+ * - 3-column stat grid
+ * - Limited charts (2 instead of 3)
+ * - View/Edit actions only (no delete, no bulk)
+ * - Standard card views
+ * - Moderate animations
+ * - Teal-green primary with gold accents
+ */
+
+@import '../school-theme.css';
+
+/* Manager-specific overrides */
+:root {
+    --sidebar-width: 80px;
+    --sidebar-expanded: 240px;
+    --primary: var(--green-700);
+    --primary-light: var(--green-50);
+    --primary-dark: var(--green-900);
+    --bg-sidebar: var(--green-800);
+}
+
+/* === LAYOUT === */
+.manager-layout {
+    display: grid;
+    grid-template-columns: var(--sidebar-width) 1fr;
+    min-height: 100vh;
+    transition: grid-template-columns var(--transition-normal);
+}
+
+.manager-layout.sidebar-expanded {
+    grid-template-columns: var(--sidebar-expanded) 1fr;
+}
+
+/* === SIDEBAR - Compact/Expandable === */
+.manager-sidebar {
+    background: var(--bg-sidebar);
+    color: var(--text-inverse);
+    position: fixed;
+    width: var(--sidebar-width);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    transition: width var(--transition-normal);
+    z-index: 100;
+    overflow: hidden;
+}
+
+.manager-sidebar:hover,
+.manager-sidebar.expanded {
+    width: var(--sidebar-expanded);
+}
+
+.manager-sidebar .logo-section {
+    padding: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 70px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.manager-sidebar .logo-section img {
+    height: 40px;
+    width: 40px;
+    border-radius: var(--radius-sm);
+}
+
+.manager-sidebar .school-name {
+    display: none;
+    font-weight: 700;
+    font-size: 0.9rem;
+    color: var(--gold-400);
+    margin-left: var(--spacing-md);
+    white-space: nowrap;
+}
+
+.manager-sidebar:hover .school-name,
+.manager-sidebar.expanded .school-name {
+    display: block;
+}
+
+/* Navigation */
+.manager-nav {
+    flex: 1;
+    padding: var(--spacing-md) 0;
+    overflow-y: auto;
+}
+
+.manager-nav-item {
+    display: flex;
+    align-items: center;
+    padding: var(--spacing-md);
+    color: rgba(255,255,255,0.7);
+    transition: all var(--transition-fast);
+    border-left: 3px solid transparent;
+    gap: var(--spacing-md);
+    white-space: nowrap;
+}
+
+.manager-nav-item i {
+    width: 24px;
+    min-width: 24px;
+    text-align: center;
+    font-size: 1.1rem;
+}
+
+.manager-nav-item span {
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.manager-sidebar:hover .manager-nav-item span,
+.manager-sidebar.expanded .manager-nav-item span {
+    opacity: 1;
+}
+
+.manager-nav-item:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--text-inverse);
+}
+
+.manager-nav-item.active {
+    color: var(--gold-400);
+    border-left-color: var(--gold-500);
+    background: rgba(255,255,255,0.1);
+}
+
+/* User section - compact */
+.manager-sidebar .user-section {
+    padding: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.manager-sidebar .user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    background: var(--gold-500);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    color: var(--green-900);
+    font-size: 0.875rem;
+}
+
+.manager-sidebar .user-info {
+    display: none;
+    margin-left: var(--spacing-md);
+}
+
+.manager-sidebar:hover .user-info,
+.manager-sidebar.expanded .user-info {
+    display: block;
+}
+
+
+/* === MAIN CONTENT === */
+.manager-main {
+    margin-left: var(--sidebar-width);
+    background: var(--bg-primary);
+    min-height: 100vh;
+    transition: margin-left var(--transition-normal);
+}
+
+/* === HEADER - Standard === */
+.manager-header {
+    background: var(--bg-header);
+    padding: var(--spacing-md) var(--spacing-xl);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+}
+
+.manager-header .page-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Header actions - Create and Export only */
+.manager-header-actions {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+
+/* === CONTENT === */
+.manager-content {
+    padding: var(--spacing-lg);
+    animation: fadeIn var(--transition-normal) ease;
+}
+
+/* === STATS - 3 columns for manager === */
+.manager-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.manager-stat-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    transition: all var(--transition-fast);
+}
+
+.manager-stat-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.manager-stat-card .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.manager-stat-card:nth-child(1) .stat-icon { background: var(--green-100); color: var(--green-700); }
+.manager-stat-card:nth-child(2) .stat-icon { background: var(--gold-100); color: var(--gold-700); }
+.manager-stat-card:nth-child(3) .stat-icon { background: var(--cream-400); color: var(--gold-800); }
+
+.manager-stat-card .stat-content {
+    flex: 1;
+}
+
+.manager-stat-card .stat-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1;
+}
+
+.manager-stat-card .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: var(--spacing-xs);
+}
+
+
+/* === CHARTS - 2 charts for manager === */
+.manager-charts {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.manager-chart-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+}
+
+.manager-chart-card .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+}
+
+.manager-chart-card .chart-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+
+/* === TABLE - Standard columns === */
+.manager-table-card {
+    background: var(--bg-card);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border-light);
+    overflow: hidden;
+}
+
+.manager-table-header {
+    padding: var(--spacing-md) var(--spacing-lg);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.manager-table-header .table-title {
+    font-weight: 600;
+}
+
+/* Standard filters */
+.manager-filters {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background: var(--cream-50);
+    border-bottom: 1px solid var(--border-light);
+    display: flex;
+    gap: var(--spacing-md);
+    align-items: center;
+}
+
+.manager-filters .search-input {
+    flex: 1;
+    max-width: 300px;
+}
+
+.manager-filters select {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    font-size: 0.875rem;
+}
+
+/* Table with standard columns (7 columns) */
+.manager-data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.manager-data-table th {
+    background: var(--cream-100);
+    padding: var(--spacing-sm) var(--spacing-md);
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.manager-data-table td {
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--border-light);
+    font-size: 0.875rem;
+}
+
+.manager-data-table tbody tr:hover {
+    background: var(--cream-50);
+}
+
+/* Row actions - View and Edit only */
+.manager-row-actions {
+    display: flex;
+    gap: var(--spacing-xs);
+}
+
+.manager-row-actions .action-btn {
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    border: none;
+    cursor: pointer;
+    background: transparent;
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+}
+
+.manager-row-actions .action-btn:hover {
+    color: var(--primary);
+    background: var(--green-50);
+}
+
+
+/* === ANIMATIONS - Moderate === */
+.manager-stats > * {
+    opacity: 0;
+    animation: slideUp 0.4s ease forwards;
+}
+
+.manager-stats > *:nth-child(1) { animation-delay: 0.1s; }
+.manager-stats > *:nth-child(2) { animation-delay: 0.15s; }
+.manager-stats > *:nth-child(3) { animation-delay: 0.2s; }
+
+.manager-charts > * {
+    opacity: 0;
+    animation: fadeIn 0.4s ease forwards;
+    animation-delay: 0.3s;
+}
+
+.manager-table-card {
+    opacity: 0;
+    animation: fadeIn 0.4s ease forwards;
+    animation-delay: 0.4s;
+}
+
+
+/* === RESPONSIVE === */
+@media (max-width: 1200px) {
+    .manager-stats {
+        grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .manager-charts {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .manager-sidebar {
+        display: none;
+    }
+    
+    .manager-main {
+        margin-left: 0;
+    }
+    
+    .manager-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .manager-filters {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .manager-filters .search-input {
+        max-width: none;
+    }
+}
