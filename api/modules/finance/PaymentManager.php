@@ -53,7 +53,9 @@ class PaymentManager
                 return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
             }
 
-            $this->db->beginTransaction();
+            // NOTE: Do NOT use $this->db->beginTransaction() here
+            // The stored procedure sp_process_student_payment manages its own transaction
+            // Nested transactions cause "There is no active transaction" errors
 
             // Verify student exists
             $stmt = $this->db->prepare("SELECT id FROM students WHERE id = ?");
@@ -61,7 +63,6 @@ class PaymentManager
             $studentRow = $stmt->fetch();
 
             if (!$studentRow) {
-                $this->db->rollBack();
                 return formatResponse(false, null, 'Student not found');
             }
 
@@ -82,6 +83,7 @@ class PaymentManager
             $receiptNo = $data['receipt_no'] ?? 'RCP-' . date('Ymdhis') . '-' . $data['student_id'];
 
             // Call stored procedure to process payment (requires 9 arguments)
+            // The stored procedure handles its own transaction (START TRANSACTION / COMMIT / ROLLBACK)
             $stmt = $this->db->prepare("
                 CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
@@ -111,7 +113,6 @@ class PaymentManager
             $paymentId = $paymentResult['id'] ?? null;
 
             if (!$paymentId) {
-                $this->db->rollBack();
                 return formatResponse(false, null, 'Payment was processed but ID could not be retrieved');
             }
 
@@ -125,7 +126,7 @@ class PaymentManager
                 $this->recordBankTransaction($paymentId, $data['bank_data']);
             }
 
-            $this->db->commit();
+            // No need for $this->db->commit() - the stored procedure already committed
 
             return formatResponse(true, [
                 'payment_id' => $paymentId,
@@ -133,9 +134,7 @@ class PaymentManager
             ]);
 
         } catch (Exception $e) {
-            if ($this->db->inTransaction()) {
-                $this->db->rollBack();
-            }
+            // No need to rollback - the stored procedure handles its own rollback on error
             return formatResponse(false, null, 'Failed to process payment: ' . $e->getMessage());
         }
     }

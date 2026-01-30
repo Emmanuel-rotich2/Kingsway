@@ -95,6 +95,28 @@ async function downloadFile(blob, filename) {
   document.body.removeChild(a);
 }
 
+// Safely read and parse JSON responses with clearer errors
+async function readJsonSafely(response, context = "API") {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `${context} did not return JSON (${response.status}). Content-Type: ${contentType || "unknown"}. ` +
+        `Response: ${text.substring(0, 200)}`
+    );
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(
+      `${context} returned invalid JSON (${response.status}). ` +
+        `Response: ${text.substring(0, 200)}`
+    );
+  }
+}
+
 // ============================================================================
 // AUTHENTICATION & AUTHORIZATION SYSTEM
 // ============================================================================
@@ -664,7 +686,7 @@ async function refreshAccessToken() {
         return false;
       }
 
-      const result = await response.json();
+      const result = await readJsonSafely(response, "Token refresh");
 
       if (result.status === "success" && result.data.token) {
         // Store new tokens
@@ -814,15 +836,6 @@ async function apiCall(
       }
     }
 
-    // If not JSON, throw a clear error
-    const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("application/json")) {
-      const text = await response.text();
-      throw new Error(
-        "API did not return JSON. Response: " + text.substring(0, 200)
-      );
-    }
-
     // Handle file downloads
     if (options.isDownload) {
       if (!response.ok) {
@@ -838,7 +851,7 @@ async function apiCall(
     }
 
     // Handle regular JSON responses
-    const result = await response.json();
+    const result = await readJsonSafely(response, `API ${method} ${endpoint}`);
     const handled = handleApiResponse(result, options.showSuccess !== false);
 
     // Auto-invalidate cached data on mutations
