@@ -1,4 +1,5 @@
 <?php
+<<<<<<< Updated upstream
 /**
  * Manage Students Page
  * HTML structure only - all logic in js/pages/students.js (studentsManagementController)
@@ -517,10 +518,177 @@ $admissionNumber = generateAdmissionNumber();
                                     <option value="">-- Select --</option>
                                     <option value="male">Male</option>
                                     <option value="female">Female</option>
+=======
+// manage_students.php - API-driven dashboard with modals and dynamic tables
+// This is the template pattern for all main pages
+?>
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Students</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .main-content { padding: 2rem; }
+        .filter-panel { background-color: #f8f9fa; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem; }
+        .stat-card { box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15); }
+        .table-wrapper { background: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); }
+        .sortable-header.cursor-pointer { cursor: pointer; }
+        .sortable-header.cursor-pointer:hover { background-color: #e9ecef; }
+        .empty-state { text-align: center; padding: 4rem 2rem; color: #6c757d; }
+        .empty-state i { font-size: 3rem; opacity: 0.3; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid main-content">
+        <!-- Page Header -->
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h2><i class="bi bi-people"></i> Manage Students</h2>
+                <p class="text-muted">View, create, edit, and manage all student records</p>
+            </div>
+            <div class="col-md-4 text-end">
+                <button class="btn btn-primary" id="createStudentBtn">
+                    <i class="bi bi-plus-circle"></i> Add Student
+                </button>
+            </div>
+        </div>
+
+        <!-- Statistics Row -->
+        <div class="row mb-4" id="statsContainer">
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">Total Students</h6>
+                        <h3 class="mb-0" id="totalStudents">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">Active Students</h6>
+                        <h3 class="mb-0" id="activeStudents">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">By Gender (M/F)</h6>
+                        <h3 class="mb-0" id="genderBreakdown">0/0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stat-card">
+                    <div class="card-body">
+                        <h6 class="text-muted mb-1">Avg. Attendance</h6>
+                        <h3 class="mb-0" id="avgAttendance">0%</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Panel -->
+        <div class="filter-panel">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <input type="text" id="searchInput" class="form-control" placeholder="Search by name, admission number...">
+                </div>
+                <div class="col-md-3">
+                    <select id="classFilter" class="form-select">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="statusFilter" class="form-select">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-outline-secondary w-100" id="resetFilters">Reset</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Data Table -->
+        <div class="table-wrapper">
+            <div id="studentTable"></div>
+        </div>
+    </div>
+
+    <!-- Create/Edit Student Modal -->
+    <div id="studentModal" class="modal fade" tabindex="-1" data-bs-backdrop="static">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="studentModalTitle">Add Student</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="studentForm" novalidate>
+                    <div class="modal-body">
+                        <!-- Personal Information -->
+                        <h6 class="mb-3 mt-3">Personal Information</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">First Name <span class="text-danger">*</span></label>
+                                <input type="text" name="first_name" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Last Name <span class="text-danger">*</span></label>
+                                <input type="text" name="last_name" class="form-control" required>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" name="email" class="form-control">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Phone</label>
+                                <input type="tel" name="phone" class="form-control">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Date of Birth</label>
+                                <input type="date" name="date_of_birth" class="form-control">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Gender</label>
+                                <select name="gender" class="form-select">
+                                    <option value="">Select Gender</option>
+                                    <option value="M">Male</option>
+                                    <option value="F">Female</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Academic Information -->
+                        <h6 class="mb-3 mt-4">Academic Information</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Admission Number <span class="text-danger">*</span></label>
+                                <input type="text" name="admission_number" class="form-control" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Class <span class="text-danger">*</span></label>
+                                <select name="class_id" class="form-select" id="classSelect" required>
+                                    <option value="">Select Class</option>
+>>>>>>> Stashed changes
                                 </select>
                             </div>
                         </div>
                         <div class="row">
+<<<<<<< Updated upstream
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Primary Phone <span class="text-danger">*</span></label>
                                 <input type="tel" id="parentPhone1" class="form-control" placeholder="+254...">
@@ -613,3 +781,55 @@ $admissionNumber = generateAdmissionNumber();
 
 <!-- Link Controller Script -->
 <script src="/Kingsway/js/pages/manage_students.js"></script>
+=======
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Stream</label>
+                                <select name="stream_id" class="form-select">
+                                    <option value="">Select Stream</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Status <span class="text-danger">*</span></label>
+                                <select name="status" class="form-select" required>
+                                    <option value="active">Active</option>
+                                    <option value="inactive">Inactive</option>
+                                    <option value="suspended">Suspended</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary" id="submitBtn">Save Student</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Student Detail Modal -->
+    <div id="viewStudentModal" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Student Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="viewStudentContent">
+                    <!-- Content loaded dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/Kingsway/js/api.js"></script>
+    <script src="/Kingsway/js/components/DataTable.js"></script>
+    <script src="/Kingsway/js/components/ModalForm.js"></script>
+    <script src="/Kingsway/js/components/ActionButtons.js"></script>
+    <script src="/Kingsway/js/components/UIComponents.js"></script>
+    <script src="/Kingsway/js/pages/students.js"></script>
+</body>
+</html>
+>>>>>>> Stashed changes

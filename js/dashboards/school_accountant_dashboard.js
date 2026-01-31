@@ -1584,32 +1584,57 @@ schoolAccountantDashboardController.submitPayment = async function (data) {
     '<span class="spinner-border spinner-border-sm me-1"></span>Recording...';
 
   try {
+    // Get current user for received_by field
+    const currentUser =
+      typeof getCurrentUser === "function" ? getCurrentUser() : null;
+    const receivedBy = currentUser?.id || currentUser?.user_id || null;
+
+    console.log("🔍 Payment submission data:", {
+      student_id: data.studentId,
+      amount: Number(amount),
+      payment_date: paymentDate,
+      payment_method: method,
+      reference_no: reference || "(empty)",
+      received_by: receivedBy,
+      notes: notes || "(empty)",
+    });
+
     const response = await API.finance.create({
       student_id: data.studentId,
       amount: Number(amount),
       payment_date: paymentDate,
       payment_method: method,
-      reference_no: reference,
-      term_id: termId || null,
-      notes: notes,
+      reference_no: reference || null,
+      received_by: receivedBy,
+      notes: notes || null,
       type: "payment",
     });
 
-    if (response.status === "success" || response.success || response.id) {
+    console.log("✅ Payment response:", response);
+
+    if (
+      response.status === "success" ||
+      response.success ||
+      response.id ||
+      response.payment_id
+    ) {
       alert("Payment recorded successfully!");
       bootstrap.Modal.getInstance(
         document.getElementById("recordPaymentModal"),
       ).hide();
       // Refresh dashboard data
-      this.loadData();
+      await this.loadDashboardData();
     } else {
+      console.error("❌ Payment failed:", response);
       alert(
         "Failed to record payment: " + (response.message || "Unknown error"),
       );
     }
   } catch (error) {
-    console.error("Payment record error:", error);
-    alert("Failed to record payment. Please try again.");
+    console.error("❌ Payment record error:", error);
+    // Show more detailed error message
+    const errorMsg = error.message || error.toString();
+    alert("Failed to record payment. Error: " + errorMsg);
   } finally {
     submitBtn.disabled = false;
     submitBtn.innerHTML = originalText;

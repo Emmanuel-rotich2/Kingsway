@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 use App\API\Modules\finance\FinanceAPI;
 use App\API\Modules\finance\PaymentReconciliationAPI;
 use Exception;
+use App\Database\Database;
 
 /**
  * FinanceController - REST endpoints for all finance operations
@@ -587,6 +588,94 @@ class FinanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * GET /api/finance/fee-structures/list
+     * Get fee structures with permission-aware filtering
+     */
+    public function getFeesStructuresList($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $page = $filters['page'] ?? 1;
+        $limit = $filters['limit'] ?? 20;
+
+        $result = $this->api->listFeeStructures($filters, $page, $limit);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fee-structures/{id}
+     * Get a specific fee structure with details
+     */
+    public function getFeeStructuresGet($id = null, $data = [], $segments = [])
+    {
+        $structureId = $id ?? $data['id'] ?? null;
+
+        if ($structureId === null) {
+            return $this->badRequest('Fee structure ID is required');
+        }
+
+        $result = $this->api->getFeeStructure($structureId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fee-structures
+     * Create a new fee structure
+     */
+    public function postFeesStructures($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createFeeStructure($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/finance/fee-structures/{id}
+     * Update a fee structure
+     */
+    public function putFeeStructures($id = null, $data = [], $segments = [])
+    {
+        $structureId = $id ?? $data['id'] ?? null;
+
+        if ($structureId === null) {
+            return $this->badRequest('Fee structure ID is required');
+        }
+
+        $result = $this->api->updateFeeStructure($structureId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/finance/fee-structures/{id}
+     * Delete a fee structure
+     */
+    public function deleteFeeStructures($id = null, $data = [], $segments = [])
+    {
+        $structureId = $id ?? $data['id'] ?? null;
+
+        if ($structureId === null) {
+            return $this->badRequest('Fee structure ID is required');
+        }
+
+        $result = $this->api->deleteFeeStructure($structureId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fee-structures/{id}/duplicate
+     * Duplicate a fee structure for a new academic year
+     */
+    public function postFeeStructuresDuplicate($id = null, $data = [], $segments = [])
+    {
+        $structureId = $id ?? $data['id'] ?? null;
+
+        if ($structureId === null) {
+            return $this->badRequest('Fee structure ID is required');
+        }
+
+        $result = $this->api->duplicateFeeStructure($structureId, $data);
+        return $this->handleResponse($result);
+    }
+
     // ========================================
     // SECTION 5: Student Payment History & Fee Statement
     // ========================================
@@ -651,7 +740,7 @@ class FinanceController extends BaseController
     private function getCurrentAcademicYear()
     {
         try {
-            $db = \Database::getInstance();
+            $db = Database::getInstance();
             $stmt = $db->prepare("SELECT year FROM academic_years WHERE is_current = 1 LIMIT 1");
             $stmt->execute();
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);

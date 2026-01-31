@@ -1,211 +1,173 @@
 <?php
 /**
- * Manage Fee Structure Page
- * Displays fee structures for different school levels, years, terms, and classes
- * HTML structure only - logic will be in js/pages/feeStructure.js
- * Embedded in app_layout.php
+ * Fee Structure Page - JWT-Based Router
+ * 
+ * STATELESS ARCHITECTURE:
+ * - NO PHP sessions (compatible with load balancing across 10 servers)
+ * - User role determined from JWT token in localStorage via JavaScript
+ * - Template loaded client-side based on role from AuthContext
+ * 
+ * Role-to-Template Mapping:
+ * - director_owner, school_admin, system_administrator → admin template
+ * - accountant, bursar, school_accountant → accountant template
+ * - headteacher, deputy_headteacher, hod → viewer template
+ * 
+ * This file is included by app_layout.php and renders within the main content area
  */
 ?>
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-info text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-file-invoice-dollar"></i> Fee Structure Management</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="addFeeStructureBtn" data-permission="fees_create">
-                    <i class="bi bi-plus-circle"></i> Add Fee Structure
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="exportFeesBtn">
-                    <i class="bi bi-download"></i> Export
-                </button>
-            </div>
-        </div>
+<!-- Loading state while determining user role -->
+<div id="fee-structure-loading" style="padding: 40px; text-align: center;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
     </div>
-
-    <div class="card-body">
-        <!-- Fee Overview Cards -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Fee Structures</h6>
-                        <h3 class="text-primary mb-0" id="totalFeeStructures">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Active Structures</h6>
-                        <h3 class="text-success mb-0" id="activeFeeStructures">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Expected Revenue</h6>
-                        <h3 class="text-info mb-0" id="expectedRevenue">KES 0</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Filters -->
-        <div class="row mb-3">
-            <div class="col-md-3">
-                <input type="text" class="form-control" id="feeSearch" placeholder="Search fee structures...">
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="levelFilter">
-                    <option value="">All Levels</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="classFilter">
-                    <option value="">All Classes</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="termFilter">
-                    <option value="">All Terms</option>
-                    <option value="1">Term 1</option>
-                    <option value="2">Term 2</option>
-                    <option value="3">Term 3</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <select class="form-select" id="yearFilter">
-                    <option value="">All Years</option>
-                </select>
-            </div>
-            <div class="col-md-1">
-                <select class="form-select" id="statusFilter">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- Fee Structures Table -->
-        <div class="table-responsive">
-            <table class="table table-hover" id="feeStructuresTable">
-                <thead class="table-light">
-                    <tr>
-                        <th>Fee Name</th>
-                        <th>School Level</th>
-                        <th>Class</th>
-                        <th>Term</th>
-                        <th>Year</th>
-                        <th>Amount (KES)</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Dynamic content -->
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <nav>
-            <ul class="pagination justify-content-center" id="feeStructuresPagination">
-                <!-- Dynamic pagination -->
-            </ul>
-        </nav>
-    </div>
+    <p class="mt-3">Loading fee structure interface...</p>
 </div>
 
-<!-- Fee Structure Modal -->
-<div class="modal fade" id="feeStructureModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">Fee Structure Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="feeStructureForm">
-                    <input type="hidden" id="fee_structure_id">
+<!-- Container where the correct template will be loaded -->
+<div id="fee-structure-content" style="display: none;"></div>
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Fee Name*</label>
-                            <input type="text" class="form-control" id="fee_name" required>
-                        </div>
+<script>
+    /**
+     * Fee Structure Page - JWT-Based Client-Side Router
+     * 
+     * STATELESS ARCHITECTURE:
+     * - Reads user role from JWT token in localStorage (AuthContext)
+     * - Loads appropriate template client-side
+     * - NO server-side sessions
+     */
 
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Fee Type*</label>
-                            <select class="form-select" id="fee_type" required>
-                                <option value="">Select Type</option>
-                                <option value="tuition">Tuition Fee</option>
-                                <option value="examination">Examination Fee</option>
-                                <option value="activity">Activity Fee</option>
-                                <option value="boarding">Boarding Fee</option>
-                                <option value="transport">Transport Fee</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                    </div>
+    (function () {
+        // Ensure AuthContext is loaded
+        if (typeof AuthContext === 'undefined') {
+            console.error('AuthContext not found - cannot determine user role');
+            document.getElementById('fee-structure-loading').innerHTML =
+                '<div class="alert alert-danger">Authentication system not loaded. Please refresh the page.</div>';
+            return;
+        }
 
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">School Level*</label>
-                            <select class="form-select" id="fee_level" required></select>
-                        </div>
+        // Check authentication
+        if (!AuthContext.isAuthenticated()) {
+            console.warn('User not authenticated - redirecting to login');
+            window.location.href = '/Kingsway/index.php';
+            return;
+        }
 
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Class*</label>
-                            <select class="form-select" id="fee_class" required></select>
-                        </div>
+        // Get user from JWT token (stored in localStorage)
+        const user = AuthContext.getUser();
 
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Term*</label>
-                            <select class="form-select" id="fee_term" required>
-                                <option value="">Select Term</option>
-                                <option value="1">Term 1</option>
-                                <option value="2">Term 2</option>
-                                <option value="3">Term 3</option>
-                            </select>
-                        </div>
+        // Extract role name from JWT (roles is an array of role objects)
+        let userRoleName = null;
+        if (user && user.roles && user.roles.length > 0) {
+            const firstRole = user.roles[0];
+            // Handle both { name: 'Role Name' } and 'Role Name' formats
+            const roleName = typeof firstRole === 'string' ? firstRole : (firstRole.name || firstRole);
+            userRoleName = String(roleName).toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
+        }
 
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Academic Year*</label>
-                            <input type="text" class="form-control" id="fee_academic_year" placeholder="2025" required>
-                        </div>
-                    </div>
+        if (!userRoleName) {
+            console.error('User role not found in JWT token. User object:', user);
+            document.getElementById('fee-structure-loading').innerHTML =
+                '<div class="alert alert-danger">User role not found. Please log in again.</div>';
+            return;
+        }
 
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Amount (KES)*</label>
-                            <input type="number" class="form-control" id="fee_amount" step="0.01" required>
-                        </div>
+        console.log('Fee Structure - User roles from JWT:', user.roles);
+        console.log('Fee Structure - Normalized role:', userRoleName);
 
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Status*</label>
-                            <select class="form-select" id="fee_status" required>
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                            </select>
-                        </div>
-                    </div>
+        // Map roles to template files
+        const roleTemplateMap = {
+            // Admin roles - Full management interface
+            'director': 'admin_fee_structure.php',
+            'director_owner': 'admin_fee_structure.php',
+            'school_admin': 'admin_fee_structure.php',
+            'system_administrator': 'admin_fee_structure.php',
 
-                    <div class="mb-3">
-                        <label class="form-label">Description</label>
-                        <textarea class="form-control" id="fee_description" rows="3"></textarea>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveFeeStructureBtn">Save Fee Structure</button>
-            </div>
-        </div>
-    </div>
-</div>
+            // Accountant roles - Revenue and payment tracking
+            'accountant': 'accountant_fee_structure.php',
+            'school_accountant': 'accountant_fee_structure.php',
+            'bursar': 'accountant_fee_structure.php',
+
+            // Viewer roles - Read-only oversight
+            'headteacher': 'viewer_fee_structure.php',
+            'deputy_headteacher': 'viewer_fee_structure.php',
+            'hod': 'viewer_fee_structure.php',
+
+            // Limited access roles
+            'teacher': 'viewer_fee_structure.php',
+            'parent': 'viewer_fee_structure.php',
+            'student': 'viewer_fee_structure.php'
+        };
+
+        // Determine which template to load
+        const templateFile = roleTemplateMap[userRoleName];
+
+        if (!templateFile) {
+            console.error('No template found for role:', userRoleName);
+            const roleDisplayName = (user.roles && user.roles[0]) ?
+                (typeof user.roles[0] === 'string' ? user.roles[0] : user.roles[0].name) :
+                'Unknown';
+            document.getElementById('fee-structure-loading').innerHTML =
+                '<div class="alert alert-danger">' +
+                '<i class="bi bi-shield-exclamation me-2"></i>' +
+                'Access denied: Your role (' + roleDisplayName + ') does not have permission to view fee structures.' +
+                '</div>';
+            return;
+        }
+
+        // Load the appropriate template
+        const templatePath = '/Kingsway/pages/fee_structure/' + templateFile;
+
+        console.log('Fee Structure - Loading template:', templatePath);
+
+        // Fetch and inject the template
+        fetch(templatePath)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Template not found: ' + templatePath);
+                }
+                return response.text();
+            })
+            .then(html => {
+                // Hide loading, show content
+                document.getElementById('fee-structure-loading').style.display = 'none';
+                const container = document.getElementById('fee-structure-content');
+                container.innerHTML = html;
+                container.style.display = 'block';
+
+                // Extract and execute scripts from the template
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = html;
+                const scripts = tempDiv.querySelectorAll('script');
+
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    if (script.src) {
+                        newScript.src = script.src;
+                        newScript.async = false;
+                    } else {
+                        newScript.textContent = script.textContent;
+                    }
+                    document.body.appendChild(newScript);
+                });
+
+                const roleDisplayName = (user.roles && user.roles[0]) ?
+                    (typeof user.roles[0] === 'string' ? user.roles[0] : user.roles[0].name) :
+                    'Unknown';
+                console.log('Fee Structure - Template loaded successfully for role:', roleDisplayName);
+            })
+            .catch(error => {
+                console.error('Failed to load template:', error);
+                document.getElementById('fee-structure-loading').innerHTML =
+                    '<div class="alert alert-warning">' +
+                    '<i class="bi bi-exclamation-triangle me-2"></i>' +
+                    'Template not found for your role. Please contact system administrator.' +
+                    '<br><small>Error: ' + error.message + '</small>' +
+                    '</div>';
+            });
+    })();
+</script>
+
 
 <script>
     // Initialize fee structure management when page loads

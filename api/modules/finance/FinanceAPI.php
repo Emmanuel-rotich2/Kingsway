@@ -1144,6 +1144,412 @@ class FinanceAPI extends BaseAPI
     }
 
     // ========================================================================
+    // FEE STRUCTURES - Permission-Aware Access
+    // ========================================================================
+
+    /**
+     * List fee structures with permission-aware filtering
+     * Each role sees only structures relevant to them
+     */
+    public function listFeeStructures($filters = [], $page = 1, $limit = 20)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+            $userRole = $this->getUserRole($userId);
+
+            // Apply permission-based filtering
+            $enhancedFilters = $this->applyFeeStructurePermissions($filters, $userRole, $userId);
+
+            return $this->feeManager->listFeeStructures($enhancedFilters, $page, $limit);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get a specific fee structure
+     */
+    public function getFeeStructure($structureId)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+            $userRole = $this->getUserRole($userId);
+
+            // Check permission to view this structure
+            if (!$this->canViewFeeStructure($structureId, $userRole, $userId)) {
+                return formatResponse(false, null, 'Access denied to this fee structure');
+            }
+
+            return $this->feeManager->getFeeStructure($structureId);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Create a new fee structure
+     */
+    public function createFeeStructure($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            // Only admin, director, and accountants can create fee structures
+            if (!$this->hasPermission($userId, 'fees_create')) {
+                return formatResponse(false, null, 'You do not have permission to create fee structures');
+            }
+
+            // Add created_by user ID
+            $data['created_by'] = $userId;
+
+            return $this->feeManager->createFeeStructure($data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Update a fee structure
+     */
+    public function updateFeeStructure($structureId, $data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            // Only admin, director, and accountants can update fee structures
+            if (!$this->hasPermission($userId, 'fees_edit')) {
+                return formatResponse(false, null, 'You do not have permission to edit fee structures');
+            }
+
+            // Check if user can edit this specific structure
+            if (!$this->canEditFeeStructure($structureId, $userId)) {
+                return formatResponse(false, null, 'You cannot edit this fee structure');
+            }
+
+            $data['updated_by'] = $userId;
+
+            return $this->feeManager->updateFeeStructure($structureId, $data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Delete a fee structure
+     */
+    public function deleteFeeStructure($structureId)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            // Only admin and director can delete fee structures
+            if (!$this->hasPermission($userId, 'fees_delete')) {
+                return formatResponse(false, null, 'You do not have permission to delete fee structures');
+            }
+
+            // Check if user can delete this specific structure
+            if (!$this->canDeleteFeeStructure($structureId, $userId)) {
+                return formatResponse(false, null, 'You cannot delete this fee structure');
+            }
+
+            $this->logAction('delete_fee_structure', $structureId, "Deleted fee structure ID: $structureId", $userId);
+
+            return $this->feeManager->deleteFeeStructure($structureId);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Duplicate a fee structure for a new academic year
+     */
+    public function duplicateFeeStructure($structureId, $data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            // Only admin, director, and accountants can duplicate fee structures
+            if (!$this->hasPermission($userId, 'fees_create')) {
+                return formatResponse(false, null, 'You do not have permission to duplicate fee structures');
+            }
+
+            $data['created_by'] = $userId;
+
+            return $this->feeManager->duplicateFeeStructure($structureId, $data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Helper: Apply permission-based filtering to fee structures
+     */
+    private function applyFeeStructurePermissions($filters, $userRole, $userId)
+    {
+        switch ($userRole) {
+            case 'student':
+                // Students see only their class's fee structure
+                $userClassId = $this->getStudentClassId($userId);
+                if ($userClassId) {
+                    $filters['class_id'] = $userClassId;
+                }
+                break;
+
+            case 'parent':
+                // Parents see only their children's class fee structures
+                $childClassIds = $this->getParentChildrenClassIds($userId);
+                if (!empty($childClassIds)) {
+                    $filters['class_ids'] = $childClassIds;
+                }
+                break;
+
+            case 'teacher':
+                // Teachers see fee structures for classes they teach
+                $classIds = $this->getTeacherClassIds($userId);
+                if (!empty($classIds)) {
+                    $filters['class_ids'] = $classIds;
+                }
+                break;
+
+            case 'school_admin':
+            case 'accountant':
+            case 'director_owner':
+            case 'headteacher':
+                // Admin and accountants see all structures
+                break;
+
+            default:
+                // Default: restrict access
+                $filters['limit'] = 0;
+        }
+
+        return $filters;
+    }
+
+    /**
+     * Helper: Check if user can view a fee structure
+     */
+    private function canViewFeeStructure($structureId, $userRole, $userId)
+    {
+        // Admin/Director/Accountant can view all
+        if (in_array($userRole, ['school_admin', 'director_owner', 'accountant', 'headteacher'])) {
+            return true;
+        }
+
+        // Get the class ID for this structure
+        try {
+            $stmt = $this->db->prepare("SELECT class_id FROM fee_structures_detailed WHERE id = ?");
+            $stmt->execute([$structureId]);
+            $structure = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$structure) {
+                return false;
+            }
+
+            switch ($userRole) {
+                case 'student':
+                    $userClassId = $this->getStudentClassId($userId);
+                    return $userClassId === $structure['class_id'];
+
+                case 'parent':
+                    $childClassIds = $this->getParentChildrenClassIds($userId);
+                    return in_array($structure['class_id'], $childClassIds);
+
+                case 'teacher':
+                    $classIds = $this->getTeacherClassIds($userId);
+                    return in_array($structure['class_id'], $classIds);
+
+                default:
+                    return false;
+            }
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Helper: Check if user can edit a fee structure
+     */
+    private function canEditFeeStructure($structureId, $userId)
+    {
+        try {
+            // Check if user has fees_edit permission
+            if (!$this->hasPermission($userId, 'fees_edit')) {
+                return false;
+            }
+
+            // If structure is active, check if user is director
+            $stmt = $this->db->prepare("SELECT status FROM fee_structures_detailed WHERE id = ?");
+            $stmt->execute([$structureId]);
+            $structure = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$structure) {
+                return false;
+            }
+
+            // If active, only director can edit
+            if ($structure['status'] === 'active') {
+                $userRole = $this->getUserRole($userId);
+                return $userRole === 'director_owner';
+            }
+
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Helper: Check if user can delete a fee structure
+     */
+    private function canDeleteFeeStructure($structureId, $userId)
+    {
+        try {
+            // Only directors can delete
+            $userRole = $this->getUserRole($userId);
+            if ($userRole !== 'director_owner') {
+                return false;
+            }
+
+            // Cannot delete if structure is active
+            $stmt = $this->db->prepare("SELECT status FROM fee_structures_detailed WHERE id = ?");
+            $stmt->execute([$structureId]);
+            $structure = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return $structure && $structure['status'] !== 'active';
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Helper: Get student's class ID
+     */
+    private function getStudentClassId($userId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT cs.class_id 
+                FROM students s
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                WHERE s.user_id = ?
+            ");
+            $stmt->execute([$userId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result ? $result['class_id'] : null;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Helper: Get parent's children's class IDs
+     */
+    private function getParentChildrenClassIds($userId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT cs.class_id 
+                FROM students s
+                LEFT JOIN parents p ON s.id = p.student_id
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                WHERE p.user_id = ?
+            ");
+            $stmt->execute([$userId]);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return array_filter(array_map(function ($r) {
+                return $r['class_id']; }, $results));
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    /**
+     * Helper: Get teacher's class IDs
+     */
+    private function getTeacherClassIds($userId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT cs.class_id 
+                FROM staff st
+                LEFT JOIN staff_classes scs ON st.id = scs.staff_id
+                LEFT JOIN class_streams cs ON scs.stream_id = cs.id
+                WHERE st.user_id = ?
+            ");
+            $stmt->execute([$userId]);
+            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return array_filter(array_map(function ($r) {
+                return $r['class_id']; }, $results));
+        } catch (Exception $e) {
+            return [];
+        }
+    }
+
+    // ========================================================================
+    // PERMISSION & ROLE HELPER METHODS
+    // ========================================================================
+
+    /**
+     * Get user's primary role
+     * 
+     * @param int $userId User ID
+     * @return string|null Role name or null if not found
+     */
+    protected function getUserRole($userId)
+    {
+        try {
+            $sql = "SELECT r.name FROM users u
+                    JOIN user_roles ur ON u.id = ur.user_id
+                    JOIN roles r ON ur.role_id = r.id
+                    WHERE u.id = ?
+                    ORDER BY ur.created_at ASC
+                    LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result ? $result['name'] : null;
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Check if user has a specific permission
+     * Uses database RBAC system
+     * 
+     * @param int $userId User ID
+     * @param string $permissionCode Permission code to check
+     * @return bool True if user has permission
+     */
+    protected function hasPermission($userId, $permissionCode)
+    {
+        try {
+            // Try using the database function if it exists
+            $sql = "SELECT fn_has_permission(?, ?) as has_perm";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$userId, $permissionCode]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return (bool) ($result['has_perm'] ?? false);
+        } catch (Exception $e) {
+            // Fallback: check role-based permissions
+            try {
+                $sql = "SELECT COUNT(*) as count FROM role_permissions rp
+                        JOIN user_roles ur ON rp.role_id = ur.role_id
+                        JOIN permissions p ON rp.permission_id = p.id
+                        WHERE ur.user_id = ? AND p.code = ?";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$userId, $permissionCode]);
+                $result = $stmt->fetch(PDO::FETCH_ASSOC);
+                return (bool) ($result['count'] > 0);
+            } catch (Exception $e2) {
+                // If all else fails, deny access (secure by default)
+                return false;
+            }
+        }
+    }
+
+    // ========================================================================
     // STAFF CHILDREN FEE DEDUCTIONS - Payroll Integration
     // ========================================================================
 
