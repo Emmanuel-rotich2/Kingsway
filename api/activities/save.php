@@ -1,76 +1,66 @@
 <?php
-/**
- * ============================================================================
- * ⚠️  DEPRECATED - DO NOT USE THIS FILE
- * ============================================================================
- * 
- * This file has been migrated to the proper architecture.
- * 
- * WHAT CHANGED:
- * -------------
- * Your original code here had several issues:
- *   ❌ Used mysqli ($conn) instead of PDO (Database singleton)
- *   ❌ No authentication - anyone can create/modify activities
- *   ❌ No input validation or sanitization
- *   ❌ No audit trail (who created/modified what)
- *   ❌ Mixed database drivers (mysqli vs PDO used elsewhere)
- * 
- * WHERE THE CODE NOW LIVES:
- * -------------------------
- * 
- * The activities module ALREADY EXISTS with proper architecture!
- * 
- * 1. BUSINESS LOGIC → api/modules/activities/ActivitiesManager.php
- *    - createActivity($data, $userId) → With validation & logging
- *    - updateActivity($id, $data, $userId) → With permission checks
- * 
- * 2. HTTP HANDLING → api/controllers/ActivitiesController.php
- *    - postActivities() → POST /api/?route=activities
- *    - putActivities()  → PUT /api/?route=activities/{id}
- * 
- * 3. FRONTEND → js/api.js (window.API.activities)
- *    - window.API.activities.create(data)
- *    - window.API.activities.update(id, data)
- * 
- * CORRECT USAGE IN FRONTEND JS:
- * -----------------------------
- * 
- *   // ❌ OLD WAY (wrong)
- *   fetch('api/activities/save.php', {
- *     method: 'POST',
- *     body: formData
- *   });
- *   
- *   // ✅ NEW WAY (correct)
- *   // For CREATE:
- *   const response = await window.API.activities.create({
- *     name: 'Football Match',
- *     category: 'sports',
- *     activity_date: '2026-01-15',
- *     participants: 22,
- *     status: 'scheduled',
- *     description: 'Inter-house competition'
- *   });
- *   
- *   // For UPDATE:
- *   const response = await window.API.activities.update(activityId, {
- *     status: 'completed'
- *   });
- * 
- * ============================================================================
- */
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
+use \Firebase\JWT\JWT;
+use \Firebase\JWT\Key;
 
-header('HTTP/1.1 410 Gone');
 header('Content-Type: application/json');
-echo json_encode([
-    'status' => 'error',
-    'message' => 'This endpoint is deprecated. Use POST/PUT /api/?route=activities instead.',
-    'new_endpoints' => [
-        'create' => 'POST /api/?route=activities',
-        'update' => 'PUT /api/?route=activities/{id}'
-    ],
-    'frontend_usage' => [
-        'create' => 'window.API.activities.create(data)',
-        'update' => 'window.API.activities.update(id, data)'
-    ]
-]);
+
+// JWT check
+$headers = getallheaders();
+if(!isset($headers['Authorization'])){
+    http_response_code(401); echo json_encode(['error'=>'Authorization header missing']); exit;
+}
+$jwt = str_replace('Bearer ','',$headers['Authorization']);
+try {
+    $decoded = JWT::decode($jwt, new Key(JWT_SECRET,'HS256'));
+    $userId = $decoded->id;
+} catch(Exception $e){
+    http_response_code(401); echo json_encode(['error'=>'Invalid token']); exit;
+}
+
+// Read input
+$data = json_decode(file_get_contents('php://input'), true);
+$id = $data['id'] ?? null;
+
+try {
+    if($id){ // Update
+        $stmt = $conn->prepare("UPDATE activities SET 
+            title=:title, description=:description, category_id=:category_id,
+            start_date=:start_date, end_date=:end_date, status=:status,
+            max_participants=:max_participants, target_audience=:target_audience
+            WHERE id=:id
+        ");
+        $stmt->execute([
+            'title'=>$data['title'],
+            'description'=>$data['description'],
+            'category_id'=>$data['category_id'],
+            'start_date'=>$data['start_date'],
+            'end_date'=>$data['end_date'],
+            'status'=>$data['status'],
+            'max_participants'=>$data['max_participants'] ?? null,
+            'target_audience'=>$data['target_audience'] ?? '',
+            'id'=>$id
+        ]);
+    } else { // Insert
+        $stmt = $conn->prepare("INSERT INTO activities 
+            (title, description, category_id, start_date, end_date, status, max_participants, started_by, target_audience)
+            VALUES (:title,:description,:category_id,:start_date,:end_date,:status,:max_participants,:started_by,:target_audience)
+        ");
+        $stmt->execute([
+            'title'=>$data['title'],
+            'description'=>$data['description'],
+            'category_id'=>$data['category_id'],
+            'start_date'=>$data['start_date'],
+            'end_date'=>$data['end_date'],
+            'status'=>$data['status'],
+            'max_participants'=>$data['max_participants'] ?? null,
+            'started_by'=>$userId,
+            'target_audience'=>$data['target_audience'] ?? ''
+        ]);
+    }
+    echo json_encode(['success'=>true]);
+} catch(PDOException $e){
+    http_response_code(500);
+    echo json_encode(['error'=>$e->getMessage()]);
+}

@@ -6,27 +6,29 @@ use \Firebase\JWT\Key;
 
 header('Content-Type: application/json');
 
-// JWT check
+// JWT validation
 $headers = getallheaders();
 if(!isset($headers['Authorization'])){
-    http_response_code(401); echo json_encode(['error'=>'Authorization header missing']); exit;
+    http_response_code(401);
+    echo json_encode(['error'=>'Authorization header missing']); exit;
 }
 $jwt = str_replace('Bearer ','',$headers['Authorization']);
 try {
     $decoded = JWT::decode($jwt,new Key(JWT_SECRET,'HS256'));
 } catch(Exception $e){
-    http_response_code(401); echo json_encode(['error'=>'Invalid token']); exit;
-}
-
-$id = $_GET['id'] ?? null;
-if(!$id){
-    http_response_code(400); echo json_encode(['error'=>'Activity ID required']); exit;
+    http_response_code(401);
+    echo json_encode(['error'=>'Invalid token']); exit;
 }
 
 try {
-    $stmt = $conn->prepare("DELETE FROM activities WHERE id=:id");
-    $stmt->execute(['id'=>$id]);
-    echo json_encode(['success'=>true]);
+    $stmt = $conn->query("
+        SELECT a.*, c.name AS category_name
+        FROM activities a
+        LEFT JOIN categories c ON a.category_id = c.id
+        ORDER BY a.start_date DESC
+    ");
+    $activities = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    echo json_encode(['activities'=>$activities]);
 } catch(PDOException $e){
     http_response_code(500);
     echo json_encode(['error'=>$e->getMessage()]);
