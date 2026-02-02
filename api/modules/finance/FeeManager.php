@@ -217,9 +217,13 @@ class FeeManager
             $offset = ($page - 1) * $limit;
 
             $sql = "SELECT fs.*, sl.name as level_name, sl.code as level_code,
+                           at.name as term_name,
+                           ft.id as fee_type_id, ft.name as fee_name, ft.category as fee_category,
                            COUNT(DISTINCT sfo.student_id) as student_count
                     FROM fee_structures_detailed fs
                     LEFT JOIN school_levels sl ON fs.level_id = sl.id
+                    LEFT JOIN academic_terms at ON fs.term_id = at.id
+                    LEFT JOIN fee_types ft ON fs.fee_type_id = ft.id
                     LEFT JOIN student_fee_obligations sfo ON fs.id = sfo.fee_structure_detail_id
                     WHERE 1=1";
 
@@ -233,6 +237,23 @@ class FeeManager
             if (!empty($filters['level_id'])) {
                 $sql .= " AND fs.level_id = ?";
                 $params[] = $filters['level_id'];
+            }
+
+            $termId = $filters['term_id'] ?? $filters['term'] ?? null;
+            if (!empty($termId)) {
+                $sql .= " AND fs.term_id = ?";
+                $params[] = $termId;
+            }
+
+            if (!empty($filters['class_id'])) {
+                $sql .= " AND fs.level_id = (SELECT level_id FROM classes WHERE id = ?)";
+                $params[] = $filters['class_id'];
+            }
+
+            if (!empty($filters['class_ids']) && is_array($filters['class_ids'])) {
+                $placeholders = implode(',', array_fill(0, count($filters['class_ids']), '?'));
+                $sql .= " AND fs.level_id IN (SELECT level_id FROM classes WHERE id IN ($placeholders))";
+                $params = array_merge($params, $filters['class_ids']);
             }
 
             if (!empty($filters['status'])) {
@@ -264,6 +285,17 @@ class FeeManager
             }
             if (!empty($filters['level_id'])) {
                 $countSql .= " AND fs.level_id = ?";
+            }
+            $termId = $filters['term_id'] ?? $filters['term'] ?? null;
+            if (!empty($termId)) {
+                $countSql .= " AND fs.term_id = ?";
+            }
+            if (!empty($filters['class_id'])) {
+                $countSql .= " AND fs.level_id = (SELECT level_id FROM classes WHERE id = ?)";
+            }
+            if (!empty($filters['class_ids']) && is_array($filters['class_ids'])) {
+                $placeholders = implode(',', array_fill(0, count($filters['class_ids']), '?'));
+                $countSql .= " AND fs.level_id IN (SELECT level_id FROM classes WHERE id IN ($placeholders))";
             }
             if (!empty($filters['status'])) {
                 $countSql .= " AND fs.status = ?";
@@ -1334,6 +1366,122 @@ class FeeManager
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'Failed to get annual summary: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete a fee structure
+     * @param int $structureId Fee structure ID
+     * @return array Response
+     */
+    public function deleteFeeStructure($structureId)
+    {
+        try {
+            // Check if structure is in use
+            $stmt = $this->db->prepare("
+                SELECT COUNT(*) as count
+                FROM student_fee_obligations
+                WHERE fee_structure_detail_id = ?
+            ");
+            $stmt->execute([$structureId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($result['count'] > 0) {
+                return formatResponse(false, null, 'Cannot delete: Fee structure is in use by ' . $result['count'] . ' student(s)');
+            }
+
+            // Delete fee items first
+            $stmt = $this->db->prepare("DELETE FROM fee_structures WHERE fee_structure_detail_id = ?");
+            $stmt->execute([$structureId]);
+
+            // Delete the structure
+            $stmt = $this->db->prepare("DELETE FROM fee_structures_detailed WHERE id = ?");
+            $stmt->execute([$structureId]);
+
+            return formatResponse(true, null, 'Fee structure deleted successfully');
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to delete fee structure: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Duplicate a fee structure for a new academic year
+     * @param int $sourceStructureId Source structure ID
+     * @param array $data Target year and optional price adjustment
+     * @return array Response with new structure ID
+     */
+    public function duplicateFeeStructure($sourceStructureId, $data)
+    {
+        try {
+            $targetYear = $data['target_academic_year'] ?? null;
+            $priceAdjustment = floatval($data['price_adjustment'] ?? 0);
+
+            if ($targetYear === null) {
+                return formatResponse(false, null, 'Target academic year is required');
+            }
+
+            // Get source structure
+            $stmt = $this->db->prepare("SELECT * FROM fee_structures_detailed WHERE id = ?");
+            $stmt->execute([$sourceStructureId]);
+            $sourceStructure = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$sourceStructure) {
+                return formatResponse(false, null, 'Source fee structure not found');
+            }
+
+            // Create new structure record
+            $multiplier = (100 + $priceAdjustment) / 100;
+
+            $stmt = $this->db->prepare("
+                INSERT INTO fee_structures_detailed 
+                (class_id, level_id, academic_year, status, created_by, created_at)
+                VALUES (?, ?, ?, ?, ?, NOW())
+            ");
+            $stmt->execute([
+                $sourceStructure['class_id'],
+                $sourceStructure['level_id'],
+                $targetYear,
+                'draft',
+                $data['created_by'] ?? null
+            ]);
+
+            $newStructureId = $this->db->lastInsertId();
+
+            // Copy fee items with price adjustment
+            $stmt = $this->db->prepare("
+                SELECT * FROM fee_structures WHERE fee_structure_detail_id = ?
+            ");
+            $stmt->execute([$sourceStructureId]);
+            $feeItems = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $insertStmt = $this->db->prepare("
+                INSERT INTO fee_structures 
+                (fee_structure_detail_id, name, code, amount, description)
+                VALUES (?, ?, ?, ?, ?)
+            ");
+
+            foreach ($feeItems as $item) {
+                $newAmount = $item['amount'] * $multiplier;
+                $insertStmt->execute([
+                    $newStructureId,
+                    $item['name'],
+                    $item['code'],
+                    $newAmount,
+                    $item['description']
+                ]);
+            }
+
+            return formatResponse(true, [
+                'new_structure_id' => $newStructureId,
+                'source_structure_id' => $sourceStructureId,
+                'target_academic_year' => $targetYear,
+                'price_adjustment' => $priceAdjustment,
+                'items_copied' => count($feeItems)
+            ], 'Fee structure duplicated successfully');
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to duplicate fee structure: ' . $e->getMessage());
         }
     }
 }

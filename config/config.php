@@ -210,4 +210,3 @@ $SCHOOL_LEVELS = [
     'Upper Primary',
     'Junior Secondary'
 ];
-
