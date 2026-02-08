@@ -28,23 +28,27 @@ const studentsManagementController = {
   loadInitialData: async function () {
     try {
       // Load classes
-      const classesResp = await window.API.apiCall(
-        "/academic/classes-list",
-        "GET"
-      );
-      if (classesResp && Array.isArray(classesResp)) {
-        this.data.classes = classesResp;
+      const classesResp = await window.API.academic.listClasses();
+      const classes = this.unwrapList(classesResp);
+      if (classes.length) {
+        this.data.classes = classes;
         this.populateClassDropdowns();
       }
 
       // Load student types
-      const typesResp = await window.API.apiCall(
-        "/academic/student-types",
-        "GET"
-      );
-      if (typesResp && typesResp.data) {
-        this.data.studentTypes = typesResp.data;
+      const typesResp = await window.API.finance.listStudentTypes();
+      const studentTypes = this.unwrapList(typesResp);
+      if (studentTypes.length) {
+        this.data.studentTypes = studentTypes;
         this.populateStudentTypeDropdown();
+      }
+
+      // Load streams for filter dropdown
+      const streamsResp = await window.API.academic.listStreams();
+      const streams = this.unwrapList(streamsResp);
+      if (streams.length) {
+        this.data.streams = streams;
+        this.populateStreamFilter();
       }
 
       // Load existing parents for dropdown
@@ -56,9 +60,10 @@ const studentsManagementController = {
 
   loadExistingParents: async function () {
     try {
-      const resp = await window.API.apiCall("/parents/list", "GET");
-      if (resp && resp.data) {
-        this.data.parents = resp.data;
+      const resp = await window.API.students.getParentsList();
+      const parents = this.unwrapList(resp);
+      if (parents.length) {
+        this.data.parents = parents;
         this.populateParentsDropdown();
       }
     } catch (error) {
@@ -102,6 +107,24 @@ const studentsManagementController = {
     });
   },
 
+  populateStreamFilter: function () {
+    const select = document.getElementById("streamFilter");
+    if (!select) return;
+
+    const firstOpt = select.options[0];
+    select.innerHTML = "";
+    select.appendChild(firstOpt);
+
+    this.data.streams.forEach((stream) => {
+      const opt = document.createElement("option");
+      opt.value = stream.id;
+      opt.textContent = `${stream.class_name || ""} ${
+        stream.stream_name || stream.name || ""
+      }`.trim();
+      select.appendChild(opt);
+    });
+  },
+
   populateParentsDropdown: function () {
     const select = document.getElementById("existingParentId");
     if (!select) return;
@@ -130,13 +153,13 @@ const studentsManagementController = {
     if (!classId) return;
 
     try {
-      const resp = await window.API.apiCall(
-        `/academic/streams?class_id=${classId}`,
-        "GET"
-      );
-      if (resp && resp.data) {
-        this.data.streams = resp.data;
-        resp.data.forEach((stream) => {
+      const resp = await window.API.academic.listStreams({
+        class_id: classId,
+      });
+      const streams = this.unwrapList(resp);
+      if (streams.length) {
+        this.data.streams = streams;
+        streams.forEach((stream) => {
           const opt = document.createElement("option");
           opt.value = stream.id;
           opt.textContent = stream.stream_name || stream.name;
@@ -161,17 +184,27 @@ const studentsManagementController = {
       const classFilter = document.getElementById("classFilter")?.value;
       if (classFilter) params.append("class_id", classFilter);
 
+      const streamFilter = document.getElementById("streamFilter")?.value;
+      if (streamFilter) params.append("stream_id", streamFilter);
+
+      const genderFilter = document.getElementById("genderFilter")?.value;
+      if (genderFilter) params.append("gender", genderFilter);
+
       const statusFilter = document.getElementById("statusFilter")?.value;
       if (statusFilter) params.append("status", statusFilter);
+
+      const feeStatus = document.getElementById("feeStatusFilter")?.value;
+      if (feeStatus) params.append("fee_status", feeStatus);
 
       const resp = await window.API.apiCall(
         `/students/student?${params.toString()}`,
         "GET"
       );
 
-      if (resp && resp.data) {
-        this.data.students = resp.data.students || resp.data;
-        this.data.pagination = resp.data.pagination || this.data.pagination;
+      const payload = this.unwrapPayload(resp);
+      if (payload) {
+        this.data.students = payload.students || payload;
+        this.data.pagination = payload.pagination || this.data.pagination;
         this.renderTable();
         this.updateStatistics();
       }
@@ -498,8 +531,7 @@ const studentsManagementController = {
       studentData.parent_id = existingParentId;
       studentData.parent_info = {
         parent_id: existingParentId,
-        first_name: "Existing", // Backend will use parent_id to look up
-        phone_1: "existing", // Placeholder to pass validation
+        relationship: document.getElementById("guardianRelationship").value,
       };
     }
 
@@ -553,14 +585,16 @@ const studentsManagementController = {
             `/students/student/${id}`,
             "PUT",
             formData,
-            true
+            {},
+            { isFile: true }
           );
         } else {
           response = await window.API.apiCall(
             "/students/student",
             "POST",
             formData,
-            true
+            {},
+            { isFile: true }
           );
         }
       } else {
@@ -579,17 +613,11 @@ const studentsManagementController = {
         }
       }
 
-      if (response && (response.status === "success" || response.success)) {
-        this.showSuccess(
-          id ? "Student updated successfully" : "Student created successfully"
-        );
-        bootstrap.Modal.getInstance(
-          document.getElementById("studentModal")
-        ).hide();
-        await this.loadStudents();
-      } else {
-        this.showError(response?.message || "Failed to save student");
-      }
+      this.showSuccess(
+        id ? "Student updated successfully" : "Student created successfully"
+      );
+      bootstrap.Modal.getInstance(document.getElementById("studentModal")).hide();
+      await this.loadStudents();
     } catch (error) {
       console.error("Save error:", error);
       this.showError(error.message || "Failed to save student");
@@ -599,8 +627,9 @@ const studentsManagementController = {
   editStudent: async function (id) {
     try {
       const resp = await window.API.apiCall(`/students/student/${id}`, "GET");
-      if (resp && resp.data) {
-        this.showStudentModal(resp.data);
+      const payload = this.unwrapPayload(resp);
+      if (payload) {
+        this.showStudentModal(payload);
       }
     } catch (error) {
       this.showError("Failed to load student details");
@@ -610,8 +639,9 @@ const studentsManagementController = {
   viewStudent: async function (id) {
     try {
       const resp = await window.API.apiCall(`/students/student/${id}`, "GET");
-      if (resp && resp.data) {
-        const student = resp.data;
+      const payload = this.unwrapPayload(resp);
+      if (payload) {
+        const student = payload;
         const content = document.getElementById("viewStudentContent");
         content.innerHTML = `
                     <div class="row">
@@ -693,16 +723,9 @@ const studentsManagementController = {
     if (!confirm("Are you sure you want to delete this student?")) return;
 
     try {
-      const resp = await window.API.apiCall(
-        `/students/student/${id}`,
-        "DELETE"
-      );
-      if (resp && (resp.status === "success" || resp.success)) {
-        this.showSuccess("Student deleted successfully");
-        await this.loadStudents();
-      } else {
-        this.showError(resp?.message || "Failed to delete student");
-      }
+      await window.API.apiCall(`/students/student/${id}`, "DELETE");
+      this.showSuccess("Student deleted successfully");
+      await this.loadStudents();
     } catch (error) {
       this.showError("Failed to delete student");
     }
@@ -730,11 +753,20 @@ const studentsManagementController = {
     this.loadStudents();
   },
 
+  filterByFeeStatus: function (value) {
+    this.loadStudents();
+  },
+
   // Bulk import
   showBulkImportModal: function () {
     const modal = new bootstrap.Modal(
       document.getElementById("bulkImportModal")
     );
+    const results = document.getElementById("bulkImportResults");
+    if (results) {
+      results.style.display = "none";
+      results.innerHTML = "";
+    }
     modal.show();
   },
 
@@ -755,22 +787,41 @@ const studentsManagementController = {
 
     try {
       const resp = await window.API.apiCall(
-        "/students/bulk/create",
+        "/students/bulk-create",
         "POST",
         formData,
-        true
+        {},
+        { isFile: true }
       );
-      if (resp && resp.status === "success") {
+
+      this.renderBulkImportResults(resp);
+
+      const hasErrors = Array.isArray(resp?.errors) && resp.errors.length > 0;
+      const hasWarnings =
+        Array.isArray(resp?.warnings) && resp.warnings.length > 0;
+      const hasDuplicates =
+        Array.isArray(resp?.duplicates) && resp.duplicates.length > 0;
+
+      if (hasErrors) {
+        this.showError(
+          "Import completed with errors. Review the details below."
+        );
+      } else if (hasWarnings || hasDuplicates) {
+        this.showSuccess(
+          "Import completed with warnings. Review the details below."
+        );
+      } else {
         this.showSuccess("Students imported successfully");
         bootstrap.Modal.getInstance(
           document.getElementById("bulkImportModal")
         ).hide();
-        await this.loadStudents();
-      } else {
-        this.showError(resp?.message || "Import failed");
       }
+
+      await this.loadStudents();
     } catch (error) {
-      this.showError("Failed to import students");
+      const errorData = error?.response?.data || {};
+      this.renderBulkImportResults(errorData, true);
+      this.showError(error.message || "Failed to import students");
     }
   },
 
@@ -784,6 +835,87 @@ const studentsManagementController = {
 
   downloadTemplate: function () {
     window.open("/Kingsway/templates/student_import_template.csv", "_blank");
+  },
+
+  renderBulkImportResults: function (result, isError = false) {
+    const container = document.getElementById("bulkImportResults");
+    if (!container) return;
+
+    const payload = this.unwrapPayload(result) || {};
+    const errors = payload?.errors || [];
+    const warnings = payload?.warnings || [];
+    const duplicates = payload?.duplicates || [];
+    const processed = payload?.processed ?? payload?.insert?.processed ?? null;
+
+    const summaryItems = [];
+    if (processed !== null) summaryItems.push(`<strong>${processed}</strong> processed`);
+    summaryItems.push(`<strong>${errors.length}</strong> errors`);
+    summaryItems.push(`<strong>${warnings.length}</strong> warnings`);
+    summaryItems.push(`<strong>${duplicates.length}</strong> duplicates`);
+
+    const renderList = (items, title, color) => {
+      if (!items.length) return "";
+      const rows = items
+        .map(
+          (item) => `
+            <tr>
+              <td>${item.row || "-"}</td>
+              <td>${item.admission_no || "-"}</td>
+              <td>${item.message || item.error || "-"}</td>
+            </tr>
+          `
+        )
+        .join("");
+      return `
+        <div class="mt-3">
+          <h6 class="text-${color} mb-2">${title} (${items.length})</h6>
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:80px;">Row</th>
+                  <th style="width:160px;">Admission No</th>
+                  <th>Details</th>
+                </tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    };
+
+    container.innerHTML = `
+      <div class="alert ${isError ? "alert-danger" : "alert-info"} mb-2">
+        <i class="bi bi-info-circle me-1"></i>
+        ${summaryItems.join(" | ")}
+      </div>
+      ${renderList(errors, "Errors", "danger")}
+      ${renderList(warnings, "Warnings", "warning")}
+      ${renderList(duplicates, "Duplicates", "secondary")}
+    `;
+    container.style.display = "block";
+  },
+
+  unwrapList: function (response, key) {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.data)) return response.data;
+    if (response.data && Array.isArray(response.data.data))
+      return response.data.data;
+    if (key && response.data && Array.isArray(response.data[key]))
+      return response.data[key];
+    if (key && response.data && response.data.data && Array.isArray(response.data.data[key]))
+      return response.data.data[key];
+    if (key && Array.isArray(response[key])) return response[key];
+    return [];
+  },
+
+  unwrapPayload: function (response) {
+    if (!response) return response;
+    if (response.status && response.data !== undefined) return response.data;
+    if (response.data && response.data.data !== undefined) return response.data.data;
+    return response;
   },
 
   attachEventListeners: function () {

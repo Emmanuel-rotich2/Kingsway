@@ -13,6 +13,7 @@
  */
 ?>
 
+<div class="viewer-layout" data-user-role="viewer">
 <!-- Fee Structure Viewer Content -->
 
 <!-- Page Header -->
@@ -62,7 +63,7 @@
 <!-- Chart -->
 <div class="card mb-3">
     <div class="card-body">
-        <h5 class="card-title"><i class="bi bi-bar-chart"></i> Fee Structure Distribution by Class</h5>
+        <h5 class="card-title"><i class="bi bi-bar-chart"></i> Fee Structure Distribution by Level</h5>
         <canvas id="feeDistributionChart" height="300"></canvas>
     </div>
 </div>
@@ -90,8 +91,8 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <select class="form-select form-select-sm" id="classFilter">
-                    <option value="">All Classes</option>
+                <select class="form-select form-select-sm" id="studentTypeFilter">
+                    <option value="">All Student Types</option>
                 </select>
             </div>
             <div class="col-md-3">
@@ -113,7 +114,7 @@
                     <tr>
                         <th>Academic Year</th>
                         <th>Level</th>
-                        <th>Class</th>
+                        <th>Student Type</th>
                         <th>Term</th>
                         <th>Total Fees</th>
                         <th>Students</th>
@@ -240,3 +241,4 @@
         }
     });
 </script>
+</div>

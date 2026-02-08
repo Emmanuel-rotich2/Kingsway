@@ -34,12 +34,48 @@ class StudentsAPI extends BaseAPI
             [$page, $limit, $offset] = $this->getPaginationParams();
             [$search, $sort, $order] = $this->getSearchParams();
 
-            $where = '';
+            $conditions = [];
             $bindings = [];
             if (!empty($search)) {
-                $where = "WHERE s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?";
+                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
                 $searchTerm = "%$search%";
                 $bindings = [$searchTerm, $searchTerm, $searchTerm];
+            }
+
+            // Optional filters
+            $classId = $params['class_id'] ?? $_GET['class_id'] ?? null;
+            if (!empty($classId)) {
+                $conditions[] = "cs.class_id = ?";
+                $bindings[] = $classId;
+            }
+
+            $streamId = $params['stream_id'] ?? $_GET['stream_id'] ?? null;
+            if (!empty($streamId)) {
+                $conditions[] = "s.stream_id = ?";
+                $bindings[] = $streamId;
+            }
+
+            $status = $params['status'] ?? $_GET['status'] ?? null;
+            if (!empty($status)) {
+                $conditions[] = "s.status = ?";
+                $bindings[] = $status;
+            }
+
+            $gender = $params['gender'] ?? $_GET['gender'] ?? null;
+            if (!empty($gender)) {
+                $conditions[] = "s.gender = ?";
+                $bindings[] = $gender;
+            }
+
+            $studentTypeId = $params['student_type_id'] ?? $_GET['student_type_id'] ?? null;
+            if (!empty($studentTypeId)) {
+                $conditions[] = "s.student_type_id = ?";
+                $bindings[] = $studentTypeId;
+            }
+
+            $where = '';
+            if (!empty($conditions)) {
+                $where = "WHERE " . implode(' AND ', $conditions);
             }
 
             // Get total count
@@ -58,6 +94,7 @@ class StudentsAPI extends BaseAPI
             $sql = "
                 SELECT 
                     s.*,
+                    cs.class_id as class_id,
                     c.name as class_name,
                     cs.stream_name
                 FROM students s
@@ -97,6 +134,7 @@ class StudentsAPI extends BaseAPI
             $sql = "
                 SELECT 
                     s.*,
+                    cs.class_id as class_id,
                     c.name as class_name,
                     cs.stream_name
                 FROM students s
@@ -138,11 +176,17 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // parent_info must include at least first_name and phone_1 or email
-            if (empty($data['parent_info']['first_name']) || (empty($data['parent_info']['phone_1']) && empty($data['parent_info']['email']))) {
+            // parent_info must include either a parent_id or basic contact info
+            $parentInfo = $data['parent_info'] ?? [];
+            $hasParentId = !empty($parentInfo['parent_id']);
+            if (
+                !$hasParentId &&
+                (empty($parentInfo['first_name']) ||
+                    (empty($parentInfo['phone_1']) && empty($parentInfo['email'])))
+            ) {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'Parent information must include parent first name and either phone_1 or email'
+                    'message' => 'Parent information must include parent_id or parent first name and either phone_1 or email'
                 ], 400);
             }
 
@@ -309,7 +353,7 @@ class StudentsAPI extends BaseAPI
         $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
         $academicYearId = $stmt->fetchColumn();
 
-        $stmt = $this->db->query("SELECT id FROM terms WHERE is_current = 1 LIMIT 1");
+        $stmt = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1");
         $termId = $stmt->fetchColumn();
 
         // Record in payment_transactions
@@ -515,6 +559,25 @@ class StudentsAPI extends BaseAPI
 
     private function addParent($studentId, $parentData)
     {
+        if (!empty($parentData['parent_id'])) {
+            $parentId = (int) $parentData['parent_id'];
+            $stmt = $this->db->prepare("SELECT id FROM parents WHERE id = ? LIMIT 1");
+            $stmt->execute([$parentId]);
+            if (!$stmt->fetch()) {
+                throw new Exception('Parent not found for provided parent_id');
+            }
+
+            $sql = "SELECT id FROM student_parents WHERE student_id = ? AND parent_id = ? LIMIT 1";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$studentId, $parentId]);
+            if (!$stmt->fetch()) {
+                $sql = "INSERT INTO student_parents (student_id, parent_id) VALUES (?, ?)";
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute([$studentId, $parentId]);
+            }
+            return;
+        }
+
         // Validate gender if provided
         if (isset($parentData['gender']) && !in_array($parentData['gender'], ['male', 'female', 'other'])) {
             throw new Exception('Invalid gender value. Must be: male, female, or other');
@@ -643,59 +706,41 @@ class StudentsAPI extends BaseAPI
 
     private function getAttendanceRecord($id, $params)
     {
-        try {
-            $month = isset($params['month']) ? $params['month'] : date('m');
-            $year = isset($params['year']) ? $params['year'] : date('Y');
+        $month = isset($params['month']) ? $params['month'] : date('m');
+        $year = isset($params['year']) ? $params['year'] : date('Y');
 
-            $sql = "
-                SELECT * FROM student_attendance
-                WHERE student_id = ? AND MONTH(date) = ? AND YEAR(date) = ?
-                ORDER BY date DESC
-            ";
+        $sql = "
+            SELECT * FROM student_attendance
+            WHERE student_id = ? AND MONTH(date) = ? AND YEAR(date) = ?
+            ORDER BY date DESC
+        ";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $month, $year]);
-            $attendance = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response([
-                'status' => 'success',
-                'data' => $attendance
-            ]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$id, $month, $year]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     private function getAcademicPerformance($id, $params)
     {
-        try {
-            $term = isset($params['term']) ? $params['term'] : CURRENT_TERM;
-            $year = isset($params['year']) ? $params['year'] : CURRENT_YEAR;
+        $term = isset($params['term']) ? $params['term'] : CURRENT_TERM;
+        $year = isset($params['year']) ? $params['year'] : CURRENT_YEAR;
 
-            $sql = "
-                SELECT 
-                    ar.*,
-                    la.name as subject_name,
-                    a.assessment_type,
-                    a.max_marks
-                FROM assessment_results ar
-                JOIN assessments a ON ar.assessment_id = a.id
-                JOIN learning_areas la ON a.learning_area_id = la.id
-                WHERE ar.student_id = ? AND a.term = ? AND a.year = ?
-                ORDER BY la.name, a.assessment_date
-            ";
+        $sql = "
+            SELECT 
+                ar.*,
+                la.name as subject_name,
+                a.assessment_type,
+                a.max_marks
+            FROM assessment_results ar
+            JOIN assessments a ON ar.assessment_id = a.id
+            JOIN learning_areas la ON a.learning_area_id = la.id
+            WHERE ar.student_id = ? AND a.term = ? AND a.year = ?
+            ORDER BY la.name, a.assessment_date
+        ";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id, $term, $year]);
-            $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return $this->response([
-                'status' => 'success',
-                'data' => $results
-            ]);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$id, $term, $year]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     private function getFeeStatement($id)
@@ -941,6 +986,14 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
+            $status = $data['status'] ?? 'pending';
+            if (!in_array($status, ['pending', 'resolved', 'escalated'])) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Invalid status value. Must be: pending, resolved, or escalated'
+                ], 400);
+            }
+
             $sql = "
                 INSERT INTO student_discipline (
                     student_id,
@@ -949,7 +1002,7 @@ class StudentsAPI extends BaseAPI
                     severity,
                     action_taken,
                     status
-                ) VALUES (?, ?, ?, ?, ?, 'pending')
+                ) VALUES (?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -958,7 +1011,8 @@ class StudentsAPI extends BaseAPI
                 $data['incident_date'],
                 $data['description'],
                 $data['severity'],
-                $data['action_taken'] ?? null
+                $data['action_taken'] ?? null,
+                $status
             ]);
 
             $caseId = $this->db->lastInsertId();
@@ -1100,22 +1154,24 @@ class StudentsAPI extends BaseAPI
         }
     }
 
-    public function getAttendance($id) {
+    public function getAttendance($id, $params = []) {
         try {
+            $params = array_merge($_GET ?? [], $params ?? []);
             return $this->response([
                 'status' => 'success',
-                'data' => $this->getAttendanceRecord($id, [])
+                'data' => $this->getAttendanceRecord($id, $params)
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
     }
 
-    public function getPerformance($id) {
+    public function getPerformance($id, $params = []) {
         try {
+            $params = array_merge($_GET ?? [], $params ?? []);
             return $this->response([
                 'status' => 'success',
-                'data' => $this->getAcademicPerformance($id, [])
+                'data' => $this->getAcademicPerformance($id, $params)
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -1132,6 +1188,29 @@ class StudentsAPI extends BaseAPI
                 'data' => [
                     'summary' => $summary,
                     'statement' => $statement
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getQrInfo($id) {
+        try {
+            $stmt = $this->db->prepare("SELECT id, admission_no, qr_code_path FROM students WHERE id = ?");
+            $stmt->execute([$id]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$student) {
+                return $this->response(['status' => 'error', 'message' => 'Student not found'], 404);
+            }
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'student_id' => $student['id'],
+                    'admission_no' => $student['admission_no'],
+                    'qr_code_path' => $student['qr_code_path']
                 ]
             ]);
         } catch (Exception $e) {
@@ -1218,48 +1297,422 @@ class StudentsAPI extends BaseAPI
 
     public function bulkCreate($data) {
         try {
-            if (empty($data['file'])) {
+            $rows = [];
+            if (!empty($data['file'])) {
+                $bulkHelper = new \App\API\Includes\BulkOperationsHelper($this->db);
+                $result = $bulkHelper->processUploadedFile($data['file']);
+                if ($result['status'] === 'error') {
+                    return $this->response($result, 400);
+                }
+                $rows = $result['data'] ?? [];
+            } elseif (!empty($data['students']) && is_array($data['students'])) {
+                $rows = $data['students'];
+            } else {
                 return $this->response([
                     'status' => 'error',
-                    'message' => 'No file uploaded'
+                    'message' => 'No file uploaded or students payload provided'
+                ], 400);
+            }
+
+            if (empty($rows)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No student rows found'
+                ], 400);
+            }
+
+            // Build stream lookup map (class + stream name => stream_id)
+            $streamLookup = [];
+            $classStreams = [];
+            $classDisplayNames = [];
+            $stmt = $this->db->query("
+                SELECT cs.id, cs.stream_name, c.name AS class_name
+                FROM class_streams cs
+                JOIN classes c ON cs.class_id = c.id
+            ");
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                $classKey = strtolower(trim((string) $r['class_name']));
+                $streamKey = strtolower(trim((string) $r['stream_name']));
+                $streamLookup[$classKey . '|' . $streamKey] = (int) $r['id'];
+                $classStreams[$classKey][] = [
+                    'id' => (int) $r['id'],
+                    'name' => $r['stream_name']
+                ];
+                $classDisplayNames[$classKey] = $r['class_name'];
+            }
+            $classDefaultStreams = [];
+            foreach ($classStreams as $classKey => $streams) {
+                if (count($streams) === 1) {
+                    $classDefaultStreams[$classKey] = $streams[0];
+                    $streamLookup[$classKey . '|'] = $streams[0]['id'];
+                }
+            }
+
+            // Student type lookup
+            $studentTypeLookup = [];
+            $typeStmt = $this->db->query("SELECT id, code, name FROM student_types WHERE status = 'active'");
+            foreach ($typeStmt->fetchAll(PDO::FETCH_ASSOC) as $t) {
+                $studentTypeLookup[strtolower($t['code'])] = (int) $t['id'];
+                $studentTypeLookup[strtolower($t['name'])] = (int) $t['id'];
+            }
+
+            $updateExisting = !empty($data['update_existing']) && (int) $data['update_existing'] === 1;
+            $existingStmt = $this->db->query("SELECT admission_no FROM students");
+            $existingAdmissions = array_flip(array_map('strtolower', $existingStmt->fetchAll(PDO::FETCH_COLUMN)));
+
+            $processedData = [];
+            $errors = [];
+            $warnings = [];
+            $duplicates = [];
+            $seenAdmissions = [];
+            $rowIndex = 1;
+
+            $normalizeKey = function ($key) {
+                $key = strtolower(trim((string) $key));
+                $key = preg_replace('/[^a-z0-9]+/', '_', $key);
+                return trim($key, '_');
+            };
+
+            $normalizeDate = function ($value, $fieldLabel, $rowIndex, $admissionNo) use (&$errors, &$warnings) {
+                if ($value === null || $value === '') {
+                    return null;
+                }
+
+                if (is_numeric($value)) {
+                    $num = floatval($value);
+                    if ($num < 1 || $num > 60000) {
+                        $errors[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => "Invalid {$fieldLabel} value. Expected YYYY-MM-DD."
+                        ];
+                        return null;
+                    }
+
+                    try {
+                        $dt = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($num);
+                        $formatted = $dt->format('Y-m-d');
+                        $warnings[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => "{$fieldLabel} was an Excel date number and was converted to {$formatted}"
+                        ];
+                        return $formatted;
+                    } catch (Exception $e) {
+                        $errors[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => "Invalid {$fieldLabel} value. Expected YYYY-MM-DD."
+                        ];
+                        return null;
+                    }
+                }
+
+                $value = trim((string) $value);
+                if (!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/', $value)) {
+                    $errors[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $admissionNo,
+                        'message' => "Invalid {$fieldLabel} format. Use YYYY-MM-DD."
+                    ];
+                    return null;
+                }
+
+                $dt = \DateTime::createFromFormat('Y-m-d', $value);
+                $dateErrors = \DateTime::getLastErrors();
+                if ($dt === false || $dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0) {
+                    $errors[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $admissionNo,
+                        'message' => "Invalid {$fieldLabel} date. Use YYYY-MM-DD."
+                    ];
+                    return null;
+                }
+
+                return $dt->format('Y-m-d');
+            };
+
+            foreach ($rows as $row) {
+                $rowIndex++;
+                $normalized = [];
+                foreach ($row as $k => $v) {
+                    $nk = $normalizeKey($k);
+                    $normalized[$nk] = is_string($v) ? trim($v) : $v;
+                }
+
+                // Map common header variants to canonical fields
+                $map = [
+                    'admission_number' => 'admission_no',
+                    'admissionno' => 'admission_no',
+                    'admission_no' => 'admission_no',
+                    'firstname' => 'first_name',
+                    'first_name' => 'first_name',
+                    'middlename' => 'middle_name',
+                    'middle_name' => 'middle_name',
+                    'lastname' => 'last_name',
+                    'last_name' => 'last_name',
+                    'surname' => 'last_name',
+                    'dateofbirth' => 'date_of_birth',
+                    'dob' => 'date_of_birth',
+                    'date_of_birth' => 'date_of_birth',
+                    'gender' => 'gender',
+                    'sex' => 'gender',
+                    'stream_id' => 'stream_id',
+                    'stream' => 'stream_name',
+                    'stream_name' => 'stream_name',
+                    'class' => 'class_name',
+                    'class_name' => 'class_name',
+                    'student_type_id' => 'student_type_id',
+                    'student_type' => 'student_type',
+                    'student_type_code' => 'student_type',
+                    'boarding_status' => 'student_type',
+                    'admission_date' => 'admission_date',
+                    'date_of_admission' => 'admission_date',
+                    'assessment_number' => 'assessment_number',
+                    'nemis_number' => 'nemis_number',
+                    'status' => 'status',
+                    'blood_group' => 'blood_group',
+                    'is_sponsored' => 'is_sponsored',
+                    'sponsor_name' => 'sponsor_name',
+                    'sponsor_type' => 'sponsor_type',
+                    'sponsor_waiver_percentage' => 'sponsor_waiver_percentage'
+                ];
+
+                $canon = [];
+                foreach ($normalized as $k => $v) {
+                    $ck = $map[$k] ?? $k;
+                    $canon[$ck] = $v;
+                }
+
+                // Required fields
+                $admissionNo = $canon['admission_no'] ?? null;
+                if (empty($admissionNo)) {
+                    $admissionNo = $this->generateAdmissionNumber();
+                }
+
+                $admKey = strtolower($admissionNo);
+                if (isset($seenAdmissions[$admKey])) {
+                    $duplicates[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $admissionNo,
+                        'message' => 'Duplicate admission_no in file; row skipped'
+                    ];
+                    continue;
+                }
+                $seenAdmissions[$admKey] = true;
+
+                $firstName = $canon['first_name'] ?? null;
+                $lastName = $canon['last_name'] ?? null;
+                $dob = $canon['date_of_birth'] ?? null;
+                $gender = $canon['gender'] ?? null;
+                $admissionDate = $canon['admission_date'] ?? date('Y-m-d');
+
+                if (empty($firstName) || empty($lastName) || empty($dob) || empty($gender)) {
+                    $errors[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $admissionNo,
+                        'message' => 'Missing required fields: first_name, last_name, date_of_birth, gender'
+                    ];
+                    continue;
+                }
+
+                $normalizedDob = $normalizeDate($dob, 'date_of_birth', $rowIndex, $admissionNo);
+                if ($normalizedDob === null) {
+                    continue;
+                }
+                $dob = $normalizedDob;
+
+                // Normalize gender
+                $genderVal = strtolower(trim((string) $gender));
+                if (in_array($genderVal, ['m', 'male'])) {
+                    $genderVal = 'male';
+                } elseif (in_array($genderVal, ['f', 'female'])) {
+                    $genderVal = 'female';
+                } elseif (!in_array($genderVal, ['male', 'female', 'other'])) {
+                    $genderVal = 'other';
+                }
+
+                // Resolve stream_id
+                $streamId = $canon['stream_id'] ?? null;
+                if (!empty($streamId) && is_numeric($streamId)) {
+                    $streamId = (int) $streamId;
+                } else {
+                    $classNameRaw = trim((string) ($canon['class_name'] ?? ''));
+                    $streamNameRaw = trim((string) ($canon['stream_name'] ?? ''));
+                    $className = strtolower($classNameRaw);
+                    $streamName = strtolower($streamNameRaw);
+
+                    if ($className === '' && $streamName === '') {
+                        $errors[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => 'Missing class_name and stream_name'
+                        ];
+                        continue;
+                    }
+
+                    if ($streamName !== '') {
+                        if ($className === '') {
+                            $errors[] = [
+                                'row' => $rowIndex,
+                                'admission_no' => $admissionNo,
+                                'message' => 'stream_name provided without class_name'
+                            ];
+                            continue;
+                        }
+                        $key = $className . '|' . $streamName;
+                        $streamId = $streamLookup[$key] ?? null;
+                        if (empty($streamId)) {
+                            $errors[] = [
+                                'row' => $rowIndex,
+                                'admission_no' => $admissionNo,
+                                'message' => "Stream '{$streamNameRaw}' not found for class '{$classNameRaw}'"
+                            ];
+                            continue;
+                        }
+                    } else {
+                        if (isset($classDefaultStreams[$className])) {
+                            $streamId = $classDefaultStreams[$className]['id'];
+                            $displayClass = $classDisplayNames[$className] ?? $classNameRaw;
+                            $warnings[] = [
+                                'row' => $rowIndex,
+                                'admission_no' => $admissionNo,
+                                'message' => "Stream not provided for class '{$displayClass}'. Defaulted to '{$classDefaultStreams[$className]['name']}'."
+                            ];
+                        } elseif (isset($classStreams[$className])) {
+                            $displayClass = $classDisplayNames[$className] ?? $classNameRaw;
+                            $errors[] = [
+                                'row' => $rowIndex,
+                                'admission_no' => $admissionNo,
+                                'message' => "Class '{$displayClass}' has multiple streams. Provide stream_name."
+                            ];
+                            continue;
+                        } else {
+                            $errors[] = [
+                                'row' => $rowIndex,
+                                'admission_no' => $admissionNo,
+                                'message' => "Class '{$classNameRaw}' not found"
+                            ];
+                            continue;
+                        }
+                    }
+                }
+
+                if (empty($streamId)) {
+                    $errors[] = [
+                        'row' => $rowIndex,
+                        'admission_no' => $admissionNo,
+                        'message' => 'Missing or invalid stream_id (or class/stream name)'
+                    ];
+                    continue;
+                }
+
+                // Resolve student_type_id
+                $studentTypeId = $canon['student_type_id'] ?? null;
+                if (!empty($studentTypeId) && is_numeric($studentTypeId)) {
+                    $studentTypeId = (int) $studentTypeId;
+                } else {
+                    $stypeRaw = strtolower(trim((string) ($canon['student_type'] ?? '')));
+                    if (empty($stypeRaw)) {
+                        $studentTypeId = 1;
+                    } else {
+                        $stypeRaw = str_replace(['boarder', 'boarding'], ['board', 'board'], $stypeRaw);
+                        $studentTypeId = $studentTypeLookup[$stypeRaw] ?? $studentTypeLookup[strtoupper($stypeRaw)] ?? null;
+                        if ($studentTypeId === null) {
+                            if (in_array($stypeRaw, ['day', 'day_scholar'], true)) {
+                                $studentTypeId = 1;
+                            } elseif (in_array($stypeRaw, ['board', 'full_boarder'], true)) {
+                                $studentTypeId = 2;
+                            } elseif (in_array($stypeRaw, ['weekly', 'weekly_boarder'], true)) {
+                                $studentTypeId = 3;
+                            } else {
+                                $studentTypeId = 1;
+                            }
+                        }
+                    }
+                }
+
+                $status = $canon['status'] ?? 'active';
+                $status = in_array($status, ['active', 'inactive', 'graduated', 'transferred', 'suspended']) ? $status : 'active';
+
+                $isSponsored = !empty($canon['is_sponsored']) ? 1 : 0;
+                $sponsorWaiverPct = $canon['sponsor_waiver_percentage'] ?? 0;
+                if ($isSponsored && $sponsorWaiverPct === '') {
+                    $sponsorWaiverPct = 0;
+                }
+
+                // Skip duplicates when update_existing is false
+                if (!$updateExisting) {
+                    if (isset($existingAdmissions[$admKey])) {
+                        $duplicates[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => 'Admission number already exists; row skipped'
+                        ];
+                        continue;
+                    }
+                    $existingAdmissions[$admKey] = true;
+                } else {
+                    if (isset($existingAdmissions[$admKey])) {
+                        $duplicates[] = [
+                            'row' => $rowIndex,
+                            'admission_no' => $admissionNo,
+                            'message' => 'Admission number exists; record will be updated'
+                        ];
+                    }
+                }
+
+                $processedData[] = [
+                    'admission_no' => $admissionNo,
+                    'first_name' => $firstName,
+                    'middle_name' => $canon['middle_name'] ?? null,
+                    'last_name' => $lastName,
+                    'date_of_birth' => $dob,
+                    'gender' => $genderVal,
+                    'stream_id' => $streamId,
+                    'student_type_id' => $studentTypeId,
+                    'admission_date' => $admissionDate,
+                    'assessment_number' => $canon['assessment_number'] ?? null,
+                    'assessment_status' => $canon['assessment_status'] ?? 'not_assigned',
+                    'nemis_number' => $canon['nemis_number'] ?? null,
+                    'nemis_status' => $canon['nemis_status'] ?? 'not_assigned',
+                    'status' => $status,
+                    'photo_url' => $canon['photo_url'] ?? null,
+                    'qr_code_path' => $canon['qr_code_path'] ?? null,
+                    'is_sponsored' => $isSponsored,
+                    'sponsor_name' => $canon['sponsor_name'] ?? null,
+                    'sponsor_type' => $canon['sponsor_type'] ?? null,
+                    'sponsor_waiver_percentage' => $sponsorWaiverPct,
+                    'blood_group' => $canon['blood_group'] ?? null
+                ];
+            }
+
+            if (empty($processedData)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'No valid student rows to import',
+                    'data' => [
+                        'errors' => $errors,
+                        'warnings' => $warnings,
+                        'duplicates' => $duplicates
+                    ]
                 ], 400);
             }
 
             $bulkHelper = new \App\API\Includes\BulkOperationsHelper($this->db);
-            $result = $bulkHelper->processUploadedFile($data['file']);
-
-            if ($result['status'] === 'error') {
-                return $this->response($result, 400);
-            }
-
-            // Process each student
-            $processedData = [];
-            foreach ($result['data'] as $row) {
-                // Generate admission number if not provided
-                if (empty($row['admission_number'])) {
-                    $row['admission_number'] = $this->generateAdmissionNumber();
-                }
-                
-                // Add required fields
-                $row['status'] = 'active';
-                $row['created_at'] = date('Y-m-d H:i:s');
-                
-                $processedData[] = $row;
-            }
-
-            // Perform bulk insert
-            $uniqueColumns = ['admission_number', 'email'];
+            $uniqueColumns = $updateExisting ? ['admission_no'] : [];
             $insertResult = $bulkHelper->bulkInsert('students', $processedData, $uniqueColumns);
-
-            // Generate QR codes for new students
-            foreach ($processedData as $student) {
-                $this->generateQRCode($student['id']);
-            }
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Bulk student creation completed',
-                'data' => $insertResult
+                'data' => [
+                    'insert' => $insertResult,
+                    'processed' => count($processedData),
+                    'errors' => $errors,
+                    'warnings' => $warnings,
+                    'duplicates' => $duplicates
+                ]
             ]);
 
         } catch (Exception $e) {
@@ -1283,11 +1736,19 @@ class StudentsAPI extends BaseAPI
                 return $this->response($result, 400);
             }
 
+            // Normalize admission_number -> admission_no if provided
+            foreach ($result['data'] as &$row) {
+                if (isset($row['admission_number']) && !isset($row['admission_no'])) {
+                    $row['admission_no'] = $row['admission_number'];
+                    unset($row['admission_number']);
+                }
+            }
+
             // Update students
             $updateResult = $bulkHelper->bulkUpdate(
                 'students',
                 $result['data'],
-                'admission_number'
+                'admission_no'
             );
 
             return $this->response([
@@ -1889,6 +2350,131 @@ class StudentsAPI extends BaseAPI
         }
     }
 
+    public function listDisciplineCases($params = [])
+    {
+        try {
+            [$page, $limit, $offset] = $this->getPaginationParams();
+            [$search] = $this->getSearchParams();
+
+            $search = $params['search'] ?? $_GET['search'] ?? $search ?? null;
+            $status = $params['status'] ?? $_GET['status'] ?? null;
+            $severity = $params['severity'] ?? $_GET['severity'] ?? null;
+            $classId = $params['class_id'] ?? $_GET['class_id'] ?? null;
+
+            $conditions = [];
+            $bindings = [];
+
+            if (!empty($search)) {
+                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR sd.description LIKE ?)";
+                $term = "%{$search}%";
+                $bindings = array_merge($bindings, [$term, $term, $term, $term]);
+            }
+
+            if (!empty($status)) {
+                $conditions[] = "sd.status = ?";
+                $bindings[] = $status;
+            }
+
+            if (!empty($severity)) {
+                $conditions[] = "sd.severity = ?";
+                $bindings[] = $severity;
+            }
+
+            if (!empty($classId)) {
+                $conditions[] = "c.id = ?";
+                $bindings[] = $classId;
+            }
+
+            $where = !empty($conditions) ? "WHERE " . implode(' AND ', $conditions) : "";
+
+            $countSql = "
+                SELECT COUNT(*)
+                FROM student_discipline sd
+                JOIN students s ON sd.student_id = s.id
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                {$where}
+            ";
+            $stmt = $this->db->prepare($countSql);
+            $stmt->execute($bindings);
+            $total = (int) $stmt->fetchColumn();
+
+            $sql = "
+                SELECT 
+                    sd.*,
+                    s.admission_no,
+                    s.first_name,
+                    s.last_name,
+                    s.gender,
+                    cs.stream_name,
+                    c.name AS class_name
+                FROM student_discipline sd
+                JOIN students s ON sd.student_id = s.id
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                {$where}
+                ORDER BY sd.incident_date DESC, sd.id DESC
+                LIMIT ? OFFSET ?
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
+            $cases = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $summaryStmt = $this->db->query("
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) as resolved,
+                    SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated
+                FROM student_discipline
+            ");
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [
+                'total' => 0,
+                'pending' => 0,
+                'resolved' => 0,
+                'escalated' => 0
+            ];
+
+            $termCount = 0;
+            $termStmt = $this->db->query("
+                SELECT start_date, end_date FROM academic_terms 
+                WHERE status = 'current'
+                ORDER BY start_date DESC
+                LIMIT 1
+            ");
+            $term = $termStmt->fetch(PDO::FETCH_ASSOC);
+            if ($term) {
+                $stmt = $this->db->prepare("
+                    SELECT COUNT(*) FROM student_discipline 
+                    WHERE incident_date BETWEEN ? AND ?
+                ");
+                $stmt->execute([$term['start_date'], $term['end_date']]);
+                $termCount = (int) $stmt->fetchColumn();
+            }
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'cases' => $cases,
+                    'pagination' => [
+                        'page' => $page,
+                        'limit' => $limit,
+                        'total' => $total
+                    ],
+                    'summary' => [
+                        'total' => (int) $summary['total'],
+                        'pending' => (int) $summary['pending'],
+                        'resolved' => (int) $summary['resolved'],
+                        'escalated' => (int) $summary['escalated'],
+                        'term' => $termCount
+                    ]
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function getTransferHistory($id)
     {
         try {
@@ -1918,6 +2504,45 @@ class StudentsAPI extends BaseAPI
                 ORDER BY approval_date DESC
             ");
             $stmt->execute([$id]);
+            $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return $this->response([
+                'status' => 'success',
+                'data' => $history
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getEnrollmentHistory($studentId)
+    {
+        try {
+            $sql = "
+                SELECT
+                    ce.id AS enrollment_id,
+                    ce.student_id,
+                    ce.academic_year_id,
+                    ay.year_code,
+                    ay.year_name,
+                    ce.class_id,
+                    c.name AS class_name,
+                    ce.stream_id,
+                    cs.stream_name,
+                    ce.enrollment_status,
+                    ce.enrollment_date,
+                    ce.promotion_status,
+                    ce.promotion_date
+                FROM class_enrollments ce
+                LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
+                LEFT JOIN classes c ON ce.class_id = c.id
+                LEFT JOIN class_streams cs ON ce.stream_id = cs.id
+                WHERE ce.student_id = ?
+                ORDER BY ay.start_date DESC, ce.enrollment_date DESC, ce.id DESC
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$studentId]);
             $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -3261,4 +3886,3 @@ class StudentsAPI extends BaseAPI
     }
 
 }
-

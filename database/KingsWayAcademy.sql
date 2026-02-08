@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Jan 19, 2026 at 01:38 AM
+-- Generation Time: Feb 05, 2026 at 10:21 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -7035,7 +7035,6 @@ DELIMITER ;
 -- Table structure for table `academic_terms`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `academic_terms`;
@@ -7569,7 +7568,6 @@ TRUNCATE TABLE `admission_documents`;
 -- Table structure for table `albums`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `albums`;
@@ -8231,7 +8229,6 @@ TRUNCATE TABLE `assessment_types`;
 -- Table structure for table `assessment_type_classifications`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `assessment_type_classifications`;
@@ -8274,7 +8271,6 @@ INSERT IGNORE INTO `assessment_type_classifications` (`id`, `code`, `name`, `des
 -- Table structure for table `attendance_sessions`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `attendance_sessions`;
@@ -8478,7 +8474,6 @@ INSERT IGNORE INTO `audit_logs` (`id`, `action`, `entity`, `entity_id`, `user_id
 -- Table structure for table `audit_trail`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `audit_trail`;
@@ -9324,7 +9319,6 @@ TRUNCATE TABLE `auth_sessions`;
 -- Table structure for table `backup_role_sidebar_menus_teacher_duplicates`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `backup_role_sidebar_menus_teacher_duplicates`;
@@ -9361,7 +9355,6 @@ INSERT IGNORE INTO `backup_role_sidebar_menus_teacher_duplicates` (`id`, `role_i
 -- Table structure for table `backup_sidebar_menu_items_teacher_duplicates`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `backup_sidebar_menu_items_teacher_duplicates`;
@@ -10493,7 +10486,6 @@ INSERT IGNORE INTO `communication_recipients` (`id`, `communication_id`, `recipi
 -- Table structure for table `communication_templates`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `communication_templates`;
@@ -10564,7 +10556,6 @@ INSERT IGNORE INTO `communication_templates` (`id`, `name`, `template_type`, `ca
 -- Table structure for table `communication_workflow_instances`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `communication_workflow_instances`;
@@ -10750,7 +10741,6 @@ TRUNCATE TABLE `config_sync_log`;
 -- Table structure for table `contact_directory`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `contact_directory`;
@@ -10855,7 +10845,6 @@ TRUNCATE TABLE `conversation_participants`;
 -- Table structure for table `core_competencies`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `core_competencies`;
@@ -10903,7 +10892,6 @@ INSERT IGNORE INTO `core_competencies` (`id`, `code`, `name`, `description`, `gr
 -- Table structure for table `core_values`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `core_values`;
@@ -11176,7 +11164,6 @@ INSERT IGNORE INTO `dashboards` (`id`, `name`, `display_name`, `description`, `d
 -- Table structure for table `dashboards_backup_deputy_headteacher_20260111`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `dashboards_backup_deputy_headteacher_20260111`;
@@ -11214,7 +11201,6 @@ INSERT IGNORE INTO `dashboards_backup_deputy_headteacher_20260111` (`id`, `name`
 -- Table structure for table `deduction_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `deduction_types`;
@@ -11271,7 +11257,6 @@ INSERT IGNORE INTO `deduction_types` (`id`, `code`, `name`, `description`, `cate
 -- Table structure for table `delegation_audit`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `delegation_audit`;
@@ -11550,7 +11535,6 @@ INSERT IGNORE INTO `departments` (`id`, `name`, `code`, `description`, `head_id`
 -- Table structure for table `department_accounts`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `department_accounts`;
@@ -11600,7 +11584,6 @@ INSERT IGNORE INTO `department_accounts` (`id`, `department_id`, `amount`, `allo
 -- Table structure for table `department_budget_proposals`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `department_budget_proposals`;
@@ -11656,7 +11639,6 @@ INSERT IGNORE INTO `department_budget_proposals` (`id`, `department_id`, `title`
 -- Table structure for table `department_fund_requests`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `department_fund_requests`;
@@ -11931,7 +11913,6 @@ DELIMITER ;
 -- Table structure for table `equipment_maintenance_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `equipment_maintenance_types`;
@@ -12135,7 +12116,6 @@ DELIMITER ;
 -- Table structure for table `external_inbound_messages`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `external_inbound_messages`;
@@ -12380,10 +12360,47 @@ TRUNCATE TABLE `fee_reminders`;
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `fee_invoices`
+--
+-- Creation: Feb 06, 2026 at 12:28 AM
+--
+
+DROP TABLE IF EXISTS `fee_invoices`;
+CREATE TABLE IF NOT EXISTS `fee_invoices` (
+  `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `student_id` int(10) UNSIGNED NOT NULL,
+  `academic_year_id` int(10) UNSIGNED NOT NULL,
+  `term_id` int(10) UNSIGNED NOT NULL,
+  `total_amount` decimal(12,2) NOT NULL,
+  `amount_paid` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `balance` decimal(12,2) NOT NULL DEFAULT 0.00,
+  `status` enum('pending','partial','paid','cancelled') NOT NULL DEFAULT 'pending',
+  `due_date` date DEFAULT NULL,
+  `generated_by` int(10) UNSIGNED DEFAULT NULL,
+  `generated_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_student_term` (`student_id`,`academic_year_id`,`term_id`),
+  KEY `idx_student` (`student_id`),
+  KEY `idx_year_term` (`academic_year_id`,`term_id`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- RELATIONSHIPS FOR TABLE `fee_invoices`:
+--
+
+--
+-- Truncate table before insert `fee_invoices`
+--
+
+TRUNCATE TABLE `fee_invoices`;
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `fee_structures`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `fee_structures`;
@@ -12838,7 +12855,6 @@ TRUNCATE TABLE `fee_transition_history`;
 -- Table structure for table `fee_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `fee_types`;
@@ -13163,7 +13179,6 @@ TRUNCATE TABLE `forum_posts`;
 -- Table structure for table `forum_threads`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `forum_threads`;
@@ -13281,7 +13296,6 @@ INSERT IGNORE INTO `grade_rules` (`id`, `scale_id`, `grade_code`, `grade_name`, 
 -- Table structure for table `grading_comments`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `grading_comments`;
@@ -13323,7 +13337,6 @@ INSERT IGNORE INTO `grading_comments` (`id`, `grade_code`, `comment`, `created_a
 -- Table structure for table `grading_scales`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `grading_scales`;
@@ -13510,7 +13523,6 @@ INSERT IGNORE INTO `internal_conversations` (`id`, `title`, `conversation_type`,
 -- Table structure for table `internal_messages`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `internal_messages`;
@@ -14689,7 +14701,6 @@ DELIMITER ;
 -- Table structure for table `learning_areas`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `learning_areas`;
@@ -14806,7 +14817,6 @@ TRUNCATE TABLE `learning_outcomes`;
 -- Table structure for table `leave_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `leave_types`;
@@ -15655,7 +15665,6 @@ TRUNCATE TABLE `parent_communication_preferences`;
 -- Table structure for table `parent_portal_messages`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `parent_portal_messages`;
@@ -15810,7 +15819,6 @@ TRUNCATE TABLE `payment_allocations`;
 -- Table structure for table `payment_allocations_detailed`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:37 AM
 --
 
 DROP TABLE IF EXISTS `payment_allocations_detailed`;
@@ -15826,7 +15834,7 @@ CREATE TABLE IF NOT EXISTS `payment_allocations_detailed` (
   KEY `idx_payment` (`payment_transaction_id`),
   KEY `idx_obligation` (`student_fee_obligation_id`),
   KEY `idx_allocated_by` (`allocated_by`)
-) ENGINE=InnoDB AUTO_INCREMENT=16 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=61 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payment_allocations_detailed`:
@@ -15856,7 +15864,52 @@ INSERT IGNORE INTO `payment_allocations_detailed` (`id`, `payment_transaction_id
 (12, 1130, 848, 3500.00, '2026-01-19 00:37:28', 1, NULL),
 (13, 1130, 849, 3000.00, '2026-01-19 00:37:28', 1, NULL),
 (14, 1130, 850, 4500.00, '2026-01-19 00:37:28', 1, NULL),
-(15, 1130, 851, 4000.00, '2026-01-19 00:37:28', 1, NULL);
+(15, 1130, 851, 4000.00, '2026-01-19 00:37:28', 1, NULL),
+(16, 1132, 1017, 35400.00, '2026-01-19 01:03:14', 1, NULL),
+(17, 1132, 1018, 3500.00, '2026-01-19 01:03:14', 1, NULL),
+(18, 1132, 1019, 3000.00, '2026-01-19 01:03:14', 1, NULL),
+(19, 1132, 1020, 4500.00, '2026-01-19 01:03:14', 1, NULL),
+(20, 1132, 1021, 4000.00, '2026-01-19 01:03:14', 1, NULL),
+(21, 1132, 1026, 4000.00, '2026-01-19 01:03:14', 1, NULL),
+(22, 1132, 1025, 4500.00, '2026-01-19 01:03:14', 1, NULL),
+(23, 1132, 1024, 3000.00, '2026-01-19 01:03:14', 1, NULL),
+(24, 1132, 1023, 3500.00, '2026-01-19 01:03:14', 1, NULL),
+(25, 1132, 1022, 50400.00, '2026-01-19 01:03:14', 1, NULL),
+(26, 1132, 1027, 50400.00, '2026-01-19 01:03:14', 1, NULL),
+(27, 1132, 1028, 3500.00, '2026-01-19 01:03:14', 1, NULL),
+(28, 1132, 1029, 3000.00, '2026-01-19 01:03:14', 1, NULL),
+(29, 1132, 1030, 4500.00, '2026-01-19 01:03:14', 1, NULL),
+(30, 1132, 1031, 4000.00, '2026-01-19 01:03:14', 1, NULL),
+(31, 1133, 867, 35400.00, '2026-01-28 18:57:15', 1, NULL),
+(32, 1133, 868, 3500.00, '2026-01-28 18:57:15', 1, NULL),
+(33, 1133, 869, 3000.00, '2026-01-28 18:57:15', 1, NULL),
+(34, 1133, 870, 4500.00, '2026-01-28 18:57:15', 1, NULL),
+(35, 1133, 871, 4000.00, '2026-01-28 18:57:15', 1, NULL),
+(36, 1133, 876, 4000.00, '2026-01-28 18:57:15', 1, NULL),
+(37, 1133, 875, 4500.00, '2026-01-28 18:57:15', 1, NULL),
+(38, 1133, 874, 3000.00, '2026-01-28 18:57:15', 1, NULL),
+(39, 1133, 873, 3500.00, '2026-01-28 18:57:15', 1, NULL),
+(40, 1133, 872, 50400.00, '2026-01-28 18:57:15', 1, NULL),
+(41, 1133, 877, 50400.00, '2026-01-28 18:57:15', 1, NULL),
+(42, 1133, 878, 3500.00, '2026-01-28 18:57:15', 1, NULL),
+(43, 1133, 879, 3000.00, '2026-01-28 18:57:15', 1, NULL),
+(44, 1133, 880, 4500.00, '2026-01-28 18:57:15', 1, NULL),
+(45, 1133, 881, 4000.00, '2026-01-28 18:57:15', 1, NULL),
+(46, 1135, 852, 35400.00, '2026-01-28 19:04:33', 1, NULL),
+(47, 1135, 853, 3500.00, '2026-01-28 19:04:33', 1, NULL),
+(48, 1135, 854, 3000.00, '2026-01-28 19:04:33', 1, NULL),
+(49, 1135, 855, 4500.00, '2026-01-28 19:04:33', 1, NULL),
+(50, 1135, 856, 4000.00, '2026-01-28 19:04:33', 1, NULL),
+(51, 1135, 861, 4000.00, '2026-01-28 19:04:33', 1, NULL),
+(52, 1135, 860, 4500.00, '2026-01-28 19:04:33', 1, NULL),
+(53, 1135, 859, 3000.00, '2026-01-28 19:04:33', 1, NULL),
+(54, 1135, 858, 3500.00, '2026-01-28 19:04:33', 1, NULL),
+(55, 1135, 857, 50400.00, '2026-01-28 19:04:33', 1, NULL),
+(56, 1135, 862, 50400.00, '2026-01-28 19:04:33', 1, NULL),
+(57, 1135, 863, 3500.00, '2026-01-28 19:04:33', 1, NULL),
+(58, 1135, 864, 3000.00, '2026-01-28 19:04:33', 1, NULL),
+(59, 1135, 865, 4500.00, '2026-01-28 19:04:33', 1, NULL),
+(60, 1135, 866, 4000.00, '2026-01-28 19:04:33', 1, NULL);
 
 --
 -- Triggers `payment_allocations_detailed`
@@ -15936,7 +15989,6 @@ TRUNCATE TABLE `payment_reconciliations`;
 -- Table structure for table `payment_transactions`
 --
 -- Creation: Jan 19, 2026 at 12:33 AM
--- Last update: Jan 19, 2026 at 12:37 AM
 --
 
 DROP TABLE IF EXISTS `payment_transactions`;
@@ -15972,7 +16024,7 @@ CREATE TABLE IF NOT EXISTS `payment_transactions` (
   KEY `idx_payment_confirmed` (`status`,`academic_year`),
   KEY `fk_payment_fee_structure` (`fee_structure_detail_id`),
   KEY `fk_payment_term` (`term_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1132 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1136 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `payment_transactions`:
@@ -16106,7 +16158,11 @@ INSERT IGNORE INTO `payment_transactions` (`id`, `student_id`, `academic_year`, 
 (1128, 162, '2026', 7, NULL, NULL, NULL, 15000.00, '2026-01-08 00:00:00', 'mpesa', 'QB00000262M', 'RCP-2026-00162', NULL, 'confirmed', NULL, '2026-01-07 07:52:06', '2026-01-07 07:52:06'),
 (1129, 163, '2026', 7, NULL, NULL, NULL, 15000.00, '2026-01-08 00:00:00', 'mpesa', 'QB00000263M', 'RCP-2026-00163', NULL, 'confirmed', NULL, '2026-01-07 07:52:06', '2026-01-07 07:52:06'),
 (1130, 151, '2005', 7, NULL, NULL, 26, 200000.00, '2026-01-19 00:00:00', 'cash', '', 'RCP-20260119033728-151', 1, 'confirmed', '', '2026-01-19 00:37:28', '2026-01-19 00:37:28'),
-(1131, 151, '2005', 7, NULL, NULL, 26, 200000.00, '2026-01-19 00:00:00', 'cash', '', 'RCP-20260119033746-151', 1, 'confirmed', '', '2026-01-19 00:37:46', '2026-01-19 00:37:46');
+(1131, 151, '2005', 7, NULL, NULL, 26, 200000.00, '2026-01-19 00:00:00', 'cash', '', 'RCP-20260119033746-151', 1, 'confirmed', '', '2026-01-19 00:37:46', '2026-01-19 00:37:46'),
+(1132, 163, '2005', 7, NULL, NULL, 59, 200000.00, '2026-01-19 00:00:00', 'cash', NULL, 'RCP-20260119040314-163', 1, 'confirmed', NULL, '2026-01-19 01:03:14', '2026-01-19 01:03:14'),
+(1133, 153, '2005', 7, NULL, NULL, 24, 190000.00, '2026-01-28 00:00:00', 'cash', NULL, 'RCP-20260128095715-153', 1, 'confirmed', NULL, '2026-01-28 18:57:15', '2026-01-28 18:57:15'),
+(1134, 153, '2005', 7, NULL, NULL, 24, 190000.00, '2026-01-28 00:00:00', 'cash', NULL, 'RCP-20260128100333-153', 1, 'confirmed', NULL, '2026-01-28 19:03:33', '2026-01-28 19:03:33'),
+(1135, 152, '2005', 7, NULL, NULL, 57, 200000.00, '2026-01-28 00:00:00', 'cash', NULL, 'RCP-20260128100433-152', 1, 'confirmed', NULL, '2026-01-28 19:04:33', '2026-01-28 19:04:33');
 
 --
 -- Triggers `payment_transactions`
@@ -16138,7 +16194,6 @@ DELIMITER ;
 -- Table structure for table `payment_webhooks_log`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `payment_webhooks_log`;
@@ -16268,7 +16323,6 @@ INSERT IGNORE INTO `payment_webhooks_log` (`id`, `source`, `webhook_data`, `stat
 -- Table structure for table `payroll_configurations`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `payroll_configurations`;
@@ -16411,7 +16465,6 @@ TRUNCATE TABLE `payslip_items`;
 -- Table structure for table `pcis`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `pcis`;
@@ -16457,7 +16510,6 @@ INSERT IGNORE INTO `pcis` (`id`, `topic_code`, `topic_name`, `description`, `cat
 -- Table structure for table `performance_levels_cbc`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `performance_levels_cbc`;
@@ -16580,7 +16632,6 @@ TRUNCATE TABLE `performance_review_kpis`;
 -- Table structure for table `permissions`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `permissions`;
@@ -21376,7 +21427,7 @@ TRUNCATE TABLE `record_permissions`;
 -- Table structure for table `refresh_tokens`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:36 AM
+-- Last update: Feb 05, 2026 at 03:02 PM
 --
 
 DROP TABLE IF EXISTS `refresh_tokens`;
@@ -21392,7 +21443,7 @@ CREATE TABLE IF NOT EXISTS `refresh_tokens` (
   KEY `idx_user_id` (`user_id`),
   KEY `idx_expires_at` (`expires_at`),
   KEY `idx_revoked` (`revoked_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=298 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=331 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `refresh_tokens`:
@@ -21670,7 +21721,40 @@ INSERT IGNORE INTO `refresh_tokens` (`id`, `user_id`, `token`, `expires_at`, `cr
 (294, 9, '24b39e5086530321a8358decf63746bfd0a10ed67795f0d797b51aabfe8e26fe', '2026-01-24 07:33:21', '2026-01-17 07:33:21', NULL),
 (295, 5, 'd3b0e358287ee87d57f73fe8a3830230ec3c9643fd27b486a973b437eafef42f', '2026-01-24 07:35:35', '2026-01-17 07:35:35', NULL),
 (296, 9, '7a476579e06424822aec0f34e0593fbeb26a53de6c96b2d3c808d1d93043b9e8', '2026-01-24 07:36:32', '2026-01-17 07:36:32', NULL),
-(297, 9, 'a15d3c87244807a041c9a1d2d8c64e2a8abde917c4d1f74a18ce7fcdfeb3f647', '2026-01-26 00:36:49', '2026-01-19 00:36:49', NULL);
+(297, 9, 'a15d3c87244807a041c9a1d2d8c64e2a8abde917c4d1f74a18ce7fcdfeb3f647', '2026-01-26 00:36:49', '2026-01-19 00:36:49', NULL),
+(298, 9, 'a5e424cf316bc3fef88f5b40bb74b30cc74f0f9585a122859192d40b21bbcd66', '2026-01-26 01:02:13', '2026-01-19 01:02:13', NULL),
+(299, 9, 'd6a365b8648cdce06a11c59226f44f69e2c9b87458acd201c34781efcdac2935', '2026-02-04 18:55:36', '2026-01-28 18:55:36', NULL),
+(300, 9, '31c8fd9cd8c83f9c58259dfaaf233b06bcab74885a6058ea3c10d4a6980401d7', '2026-02-04 19:08:59', '2026-01-28 19:08:59', NULL),
+(301, 9, '82015ced24059e786ceefcf04572174207f296e097dbc1d58b801b30fd4457b1', '2026-02-04 19:48:03', '2026-01-28 19:48:03', NULL),
+(302, 9, 'ad9af40c934b4e7cf4179f26fbb02d8f58cc023e70aaa97ee14a89dde538f60f', '2026-02-06 20:22:56', '2026-01-30 20:22:56', NULL),
+(303, 2, '47b999785f5d494f7c0da81eb413ef0a878fe68713e4ad67f9944cf5cf12fded', '2026-02-06 20:23:27', '2026-01-30 20:23:27', NULL),
+(304, 9, '72b42c5cdfbb04dc5539c1466ff32cd7a60767cb48811d64dbd95dd1cf1a1d39', '2026-02-06 20:32:41', '2026-01-30 20:32:41', NULL),
+(305, 2, '64f94bd1ff0ccce952f361e2826c0e500cd05c88d253c182d88e926340e6c034', '2026-02-06 20:38:02', '2026-01-30 20:38:02', NULL),
+(306, 2, 'ebd0f7ff62e9a8a958921f601c5bfb6b99a6c0ffb886454b3a0ca3754db251b7', '2026-02-06 20:50:35', '2026-01-30 20:50:35', NULL),
+(307, 9, '24916af4b6693a4ae6f3fa43a7c33d60fc21d69b2099b60ec62926a1031e66fb', '2026-02-06 20:56:22', '2026-01-30 20:56:22', NULL),
+(308, 2, '1e5151e57908d0f5de41379fb28d60e204858bd8f389a30faa6244e82d9de3fc', '2026-02-06 20:59:39', '2026-01-30 20:59:39', NULL),
+(309, 9, '48e3d23529f53fa5ba4f48c251b11a74b97eb7cccae7a36c432942aa1daedbaa', '2026-02-06 21:30:30', '2026-01-30 21:30:30', NULL),
+(310, 2, '9338dd16ef18ea55763e0dc24be3431e5cf2aada5f53f2898e98167c864d097f', '2026-02-06 21:36:19', '2026-01-30 21:36:19', NULL),
+(311, 9, '27c9873c06e237edc817ee64f809af06c9fda56ff72b0f22559b43c033919195', '2026-02-06 22:01:00', '2026-01-30 22:01:00', NULL),
+(312, 9, 'd3c5145e16d6e85768ccf49fda13d07a0f94f54300c36b70d5ca0591614c16bd', '2026-02-06 22:12:31', '2026-01-30 22:12:31', NULL),
+(313, 9, '496aa5b8f8e3f63f2bffa043022c70fcc32d323390d0e49bf7ab193a9755ed44', '2026-02-06 22:18:31', '2026-01-30 22:18:31', NULL),
+(314, 9, '2ba260c3c803c83f4eff5c031106704c55a15bc958682a13412aaef854de7a1f', '2026-02-06 22:32:02', '2026-01-30 22:32:02', NULL),
+(315, 9, 'c8a8f3c6e70899ada7f2591e27a6894b1aa75180377912fc3552f4b9bc1414ff', '2026-02-06 22:35:49', '2026-01-30 22:35:49', NULL),
+(316, 9, '2555fc7b23e268c3a0bf3e58c2011e05acf41d0a13e5eec7853c8c8ee2d86fcc', '2026-02-06 22:40:24', '2026-01-30 22:40:24', NULL),
+(317, 9, '7aee7117afc14cb4883123efdb38bbb8bbafcd7916352687e1bbaf6b52591b62', '2026-02-06 22:43:00', '2026-01-30 22:43:00', NULL),
+(318, 9, 'f55ea530f75ac9d10e585eccde5419faf1d2ac4eca184dc4d8510048b2ebd760', '2026-02-06 22:51:24', '2026-01-30 22:51:24', NULL),
+(319, 9, 'cd00f93cd64058a35aceecd6747918ce36b05dfc08efc573ac8f895039b1745a', '2026-02-06 23:00:01', '2026-01-30 23:00:01', NULL),
+(320, 9, '17ed32574ff1768aecc2e07eecf485ebc2f5fcb920a8fbbc72f1fe27ec5b7986', '2026-02-06 23:06:43', '2026-01-30 23:06:43', NULL),
+(321, 9, 'fd77c2ebb98ab896799cb3bf00f47eb5e0275db089fb16931e17e1ded086cfef', '2026-02-06 23:08:34', '2026-01-30 23:08:34', NULL),
+(322, 9, '889fe4217fc53138a7cff2cd795a4adff54463b95e785494444ae367b2de4059', '2026-02-06 23:12:22', '2026-01-30 23:12:22', NULL),
+(323, 9, 'fe8e9b28a0d64231920b90e4a696ac2c22ae513cd3eef538c4d713cd971faf2a', '2026-02-06 23:16:47', '2026-01-30 23:16:47', NULL),
+(324, 9, '4207e22a783089d2092f189666ea8265dadc89bfc4b97e5ce952cfd9c14390a6', '2026-02-12 08:08:55', '2026-02-05 08:08:55', NULL),
+(325, 9, 'e3537fd8fd987f8b8bef22cdd3b66ef3840c7ade724316f06568a2a7cca6696a', '2026-02-12 08:09:30', '2026-02-05 08:09:30', NULL),
+(326, 9, '2a98eb10f0df69131f102d8592d6a99d0cffc248b1997b5a1b922fcc6861a254', '2026-02-12 08:16:08', '2026-02-05 08:16:08', NULL),
+(327, 9, '540faec2b64fc503db9d066c4ed5fb2008a1d2d2afdc7c1fa57890cb9ad947a2', '2026-02-12 08:16:54', '2026-02-05 08:16:54', NULL),
+(328, 9, '17c8ff1704a5bb88da83768b9826ecea0fc314236038f074c041794fcea711e2', '2026-02-12 09:26:55', '2026-02-05 09:26:55', NULL),
+(329, 9, '92e7d8400f6c631e4e2da96873eda4228cbe2487fcb54ef3d50f7928d1a251f5', '2026-02-12 09:29:04', '2026-02-05 09:29:04', NULL),
+(330, 9, '0803294e99a759e8751188d9f0c12b0d4202a4f27a620f932c0b09c2af09e828', '2026-02-12 15:02:31', '2026-02-05 15:02:31', NULL);
 
 -- --------------------------------------------------------
 
@@ -21716,7 +21800,6 @@ TRUNCATE TABLE `requisition_items`;
 -- Table structure for table `roles`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `roles`;
@@ -21779,7 +21862,6 @@ INSERT IGNORE INTO `roles` (`id`, `name`, `description`, `created_at`, `updated_
 -- Table structure for table `role_dashboards`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `role_dashboards`;
@@ -21831,7 +21913,6 @@ INSERT IGNORE INTO `role_dashboards` (`id`, `role_id`, `dashboard_id`, `is_prima
 -- Table structure for table `role_delegations`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `role_delegations`;
@@ -27381,7 +27462,6 @@ TRUNCATE TABLE `rooms`;
 -- Table structure for table `routes`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `routes`;
@@ -28055,7 +28135,6 @@ INSERT IGNORE INTO `school_configuration` (`id`, `school_name`, `school_code`, `
 -- Table structure for table `school_levels`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `school_levels`;
@@ -29033,7 +29112,6 @@ TRUNCATE TABLE `staff_allowances`;
 -- Table structure for table `staff_attendance`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_attendance`;
@@ -29200,7 +29278,6 @@ INSERT IGNORE INTO `staff_attendance` (`id`, `staff_id`, `date`, `status`, `chec
 -- Table structure for table `staff_categories`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_categories`;
@@ -29292,7 +29369,6 @@ TRUNCATE TABLE `staff_children`;
 -- Table structure for table `staff_child_fee_config`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_child_fee_config`;
@@ -29383,7 +29459,6 @@ TRUNCATE TABLE `staff_child_fee_deductions`;
 -- Table structure for table `staff_class_assignments`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_class_assignments`;
@@ -29570,7 +29645,6 @@ TRUNCATE TABLE `staff_duty_roster`;
 -- Table structure for table `staff_duty_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_duty_types`;
@@ -29616,7 +29690,6 @@ INSERT IGNORE INTO `staff_duty_types` (`id`, `code`, `name`, `description`, `col
 -- Table structure for table `staff_experience`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_experience`;
@@ -30048,7 +30121,6 @@ DELIMITER ;
 -- Table structure for table `staff_qualifications`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_qualifications`;
@@ -30101,7 +30173,6 @@ INSERT IGNORE INTO `staff_qualifications` (`id`, `staff_id`, `qualification_type
 -- Table structure for table `staff_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `staff_types`;
@@ -30504,7 +30575,6 @@ DELIMITER ;
 -- Table structure for table `student_attendance`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `student_attendance`;
@@ -30937,7 +31007,6 @@ DELIMITER ;
 -- Table structure for table `student_discipline`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `student_discipline`;
@@ -31048,7 +31117,6 @@ TRUNCATE TABLE `student_fee_carryover`;
 -- Table structure for table `student_fee_obligations`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:37 AM
 --
 
 DROP TABLE IF EXISTS `student_fee_obligations`;
@@ -31083,7 +31151,7 @@ CREATE TABLE IF NOT EXISTS `student_fee_obligations` (
   KEY `idx_term_balance` (`term_balance`),
   KEY `idx_is_sponsored` (`is_sponsored`),
   KEY `idx_due_date` (`due_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=1140 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1032 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `student_fee_obligations`:
@@ -31836,36 +31904,36 @@ INSERT IGNORE INTO `student_fee_obligations` (`id`, `student_id`, `academic_year
 (849, 151, '2026', 9, 189, 3000.00, 3000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:37:28'),
 (850, 151, '2026', 9, 190, 4500.00, 4500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:37:28'),
 (851, 151, '2026', 9, 191, 4000.00, 4000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:37:28'),
-(852, 152, '2026', 7, 42, 50400.00, 15000.00, 0.00, 'partial', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:30'),
-(853, 152, '2026', 7, 43, 3500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(854, 152, '2026', 7, 44, 3000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(855, 152, '2026', 7, 45, 4500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(856, 152, '2026', 7, 46, 4000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(857, 152, '2026', 8, 124, 50400.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(858, 152, '2026', 8, 125, 3500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(859, 152, '2026', 8, 126, 3000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(860, 152, '2026', 8, 127, 4500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(861, 152, '2026', 8, 128, 4000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(862, 152, '2026', 9, 187, 50400.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(863, 152, '2026', 9, 188, 3500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(864, 152, '2026', 9, 189, 3000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(865, 152, '2026', 9, 190, 4500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(866, 152, '2026', 9, 191, 4000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(867, 153, '2026', 7, 42, 50400.00, 15000.00, 0.00, 'partial', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:30'),
-(868, 153, '2026', 7, 43, 3500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(869, 153, '2026', 7, 44, 3000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(870, 153, '2026', 7, 45, 4500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(871, 153, '2026', 7, 46, 4000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(872, 153, '2026', 8, 124, 50400.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(873, 153, '2026', 8, 125, 3500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(874, 153, '2026', 8, 126, 3000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(875, 153, '2026', 8, 127, 4500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(876, 153, '2026', 8, 128, 4000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(877, 153, '2026', 9, 187, 50400.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(878, 153, '2026', 9, 188, 3500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(879, 153, '2026', 9, 189, 3000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(880, 153, '2026', 9, 190, 4500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(881, 153, '2026', 9, 191, 4000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
+(852, 152, '2026', 7, 42, 50400.00, 50400.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(853, 152, '2026', 7, 43, 3500.00, 3500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(854, 152, '2026', 7, 44, 3000.00, 3000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(855, 152, '2026', 7, 45, 4500.00, 4500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(856, 152, '2026', 7, 46, 4000.00, 4000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(857, 152, '2026', 8, 124, 50400.00, 50400.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(858, 152, '2026', 8, 125, 3500.00, 3500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(859, 152, '2026', 8, 126, 3000.00, 3000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(860, 152, '2026', 8, 127, 4500.00, 4500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(861, 152, '2026', 8, 128, 4000.00, 4000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(862, 152, '2026', 9, 187, 50400.00, 50400.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(863, 152, '2026', 9, 188, 3500.00, 3500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(864, 152, '2026', 9, 189, 3000.00, 3000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(865, 152, '2026', 9, 190, 4500.00, 4500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(866, 152, '2026', 9, 191, 4000.00, 4000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 19:04:33'),
+(867, 153, '2026', 7, 42, 50400.00, 50400.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(868, 153, '2026', 7, 43, 3500.00, 3500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(869, 153, '2026', 7, 44, 3000.00, 3000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(870, 153, '2026', 7, 45, 4500.00, 4500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(871, 153, '2026', 7, 46, 4000.00, 4000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(872, 153, '2026', 8, 124, 50400.00, 50400.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(873, 153, '2026', 8, 125, 3500.00, 3500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(874, 153, '2026', 8, 126, 3000.00, 3000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(875, 153, '2026', 8, 127, 4500.00, 4500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(876, 153, '2026', 8, 128, 4000.00, 4000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(877, 153, '2026', 9, 187, 50400.00, 50400.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(878, 153, '2026', 9, 188, 3500.00, 3500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(879, 153, '2026', 9, 189, 3000.00, 3000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(880, 153, '2026', 9, 190, 4500.00, 4500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
+(881, 153, '2026', 9, 191, 4000.00, 4000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-28 18:57:15'),
 (882, 154, '2026', 7, 42, 50400.00, 15000.00, 0.00, 'partial', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:30'),
 (883, 154, '2026', 7, 43, 3500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
 (884, 154, '2026', 7, 44, 3000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
@@ -32001,21 +32069,21 @@ INSERT IGNORE INTO `student_fee_obligations` (`id`, `student_id`, `academic_year
 (1014, 162, '2026', 9, 189, 3000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
 (1015, 162, '2026', 9, 190, 4500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
 (1016, 162, '2026', 9, 191, 4000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1017, 163, '2026', 7, 42, 50400.00, 15000.00, 0.00, 'partial', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:30'),
-(1018, 163, '2026', 7, 43, 3500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1019, 163, '2026', 7, 44, 3000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1020, 163, '2026', 7, 45, 4500.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1021, 163, '2026', 7, 46, 4000.00, 0.00, 0.00, 'pending', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1022, 163, '2026', 8, 124, 50400.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1023, 163, '2026', 8, 125, 3500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1024, 163, '2026', 8, 126, 3000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1025, 163, '2026', 8, 127, 4500.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1026, 163, '2026', 8, 128, 4000.00, 0.00, 0.00, 'pending', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1027, 163, '2026', 9, 187, 50400.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1028, 163, '2026', 9, 188, 3500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1029, 163, '2026', 9, 189, 3000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1030, 163, '2026', 9, 190, 4500.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29'),
-(1031, 163, '2026', 9, 191, 4000.00, 0.00, 0.00, 'pending', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 00:29:29');
+(1017, 163, '2026', 7, 42, 50400.00, 50400.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1018, 163, '2026', 7, 43, 3500.00, 3500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1019, 163, '2026', 7, 44, 3000.00, 3000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1020, 163, '2026', 7, 45, 4500.00, 4500.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1021, 163, '2026', 7, 46, 4000.00, 4000.00, 0.00, 'paid', '2026-02-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1022, 163, '2026', 8, 124, 50400.00, 50400.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1023, 163, '2026', 8, 125, 3500.00, 3500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1024, 163, '2026', 8, 126, 3000.00, 3000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1025, 163, '2026', 8, 127, 4500.00, 4500.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1026, 163, '2026', 8, 128, 4000.00, 4000.00, 0.00, 'paid', '2026-05-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1027, 163, '2026', 9, 187, 50400.00, 50400.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1028, 163, '2026', 9, 188, 3500.00, 3500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1029, 163, '2026', 9, 189, 3000.00, 3000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1030, 163, '2026', 9, 190, 4500.00, 4500.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14'),
+(1031, 163, '2026', 9, 191, 4000.00, 4000.00, 0.00, 'paid', '2026-09-15', 0.00, 0.00, 0.00, 0.00, 0, 0.00, 'pending', '2026-01-19 00:29:29', '2026-01-19 01:03:14');
 
 --
 -- Triggers `student_fee_obligations`
@@ -32045,7 +32113,6 @@ DELIMITER ;
 -- Table structure for table `student_fee_obligations_backup_20260112`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `student_fee_obligations_backup_20260112`;
@@ -32186,7 +32253,6 @@ INSERT IGNORE INTO `student_fee_obligations_backup_20260112` (`id`, `student_id`
 -- Table structure for table `student_parents`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `student_parents`;
@@ -32329,7 +32395,6 @@ INSERT IGNORE INTO `student_parents` (`id`, `student_id`, `parent_id`, `relation
 -- Table structure for table `student_payment_history_summary`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:37 AM
 --
 
 DROP TABLE IF EXISTS `student_payment_history_summary`;
@@ -32352,7 +32417,7 @@ CREATE TABLE IF NOT EXISTS `student_payment_history_summary` (
   KEY `idx_student` (`student_id`),
   KEY `idx_year_term` (`academic_year`,`term_id`),
   KEY `idx_balance` (`balance`)
-) ENGINE=InnoDB AUTO_INCREMENT=11 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `student_payment_history_summary`:
@@ -32371,7 +32436,10 @@ INSERT IGNORE INTO `student_payment_history_summary` (`id`, `student_id`, `acade
 (1, 101, '2001', 10, 0.00, 115500.00, 28, -115500.00, 0.00, 0.00, 115500.00, '2025-12-17 01:15:00', '2025-12-16 22:15:43'),
 (7, 102, '2001', 10, 0.00, 22500.00, 8, -22500.00, 0.00, 0.00, 22500.00, '2025-12-14 15:30:00', '2025-12-16 22:15:42'),
 (8, 103, '2001', 10, 0.00, 63000.00, 15, -63000.00, 0.00, 0.00, 63000.00, '2025-12-14 16:00:00', '2025-12-16 22:15:42'),
-(9, 151, '2005', 7, 0.00, 400000.00, 2, -400000.00, 400000.00, 0.00, 0.00, '2026-01-19 00:00:00', '2026-01-19 00:37:46');
+(9, 151, '2005', 7, 0.00, 400000.00, 2, -400000.00, 400000.00, 0.00, 0.00, '2026-01-19 00:00:00', '2026-01-19 00:37:46'),
+(11, 163, '2005', 7, 0.00, 200000.00, 1, -200000.00, 200000.00, 0.00, 0.00, '2026-01-19 00:00:00', '2026-01-19 01:03:14'),
+(12, 153, '2005', 7, 0.00, 380000.00, 2, -380000.00, 380000.00, 0.00, 0.00, '2026-01-28 00:00:00', '2026-01-28 19:03:33'),
+(14, 152, '2005', 7, 0.00, 200000.00, 1, -200000.00, 200000.00, 0.00, 0.00, '2026-01-28 00:00:00', '2026-01-28 19:04:33');
 
 -- --------------------------------------------------------
 
@@ -32431,7 +32499,6 @@ TRUNCATE TABLE `student_permissions`;
 -- Table structure for table `student_permission_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `student_permission_types`;
@@ -32613,7 +32680,6 @@ TRUNCATE TABLE `student_suspensions`;
 -- Table structure for table `student_types`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `student_types`;
@@ -32750,7 +32816,6 @@ TRUNCATE TABLE `system_alerts`;
 -- Table structure for table `system_events`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:37 AM
 --
 
 DROP TABLE IF EXISTS `system_events`;
@@ -32762,7 +32827,7 @@ CREATE TABLE IF NOT EXISTS `system_events` (
   PRIMARY KEY (`id`),
   KEY `event_type` (`event_type`),
   KEY `created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=522 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=571 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- RELATIONSHIPS FOR TABLE `system_events`:
@@ -33287,7 +33352,56 @@ INSERT IGNORE INTO `system_events` (`id`, `event_type`, `event_data`, `created_a
 (518, 'payment_allocated', '{\"obligation_id\": 849, \"amount\": 3000.00, \"payment_id\": 1130}', '2026-01-19 00:37:28'),
 (519, 'payment_allocated', '{\"obligation_id\": 850, \"amount\": 4500.00, \"payment_id\": 1130}', '2026-01-19 00:37:28'),
 (520, 'payment_allocated', '{\"obligation_id\": 851, \"amount\": 4000.00, \"payment_id\": 1130}', '2026-01-19 00:37:28'),
-(521, 'payment_received', '{\"payment_id\": 1131, \"student_id\": 151, \"parent_id\": 26, \"amount\": 200000.00, \"method\": \"cash\", \"reference\": \"\", \"receipt\": \"RCP-20260119033746-151\"}', '2026-01-19 00:37:46');
+(521, 'payment_received', '{\"payment_id\": 1131, \"student_id\": 151, \"parent_id\": 26, \"amount\": 200000.00, \"method\": \"cash\", \"reference\": \"\", \"receipt\": \"RCP-20260119033746-151\"}', '2026-01-19 00:37:46'),
+(522, 'payment_received', '{\"payment_id\": 1132, \"student_id\": 163, \"parent_id\": 59, \"amount\": 200000.00, \"method\": \"cash\", \"reference\": null, \"receipt\": \"RCP-20260119040314-163\"}', '2026-01-19 01:03:14'),
+(523, 'payment_allocated', '{\"obligation_id\": 1017, \"amount\": 35400.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(524, 'payment_allocated', '{\"obligation_id\": 1018, \"amount\": 3500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(525, 'payment_allocated', '{\"obligation_id\": 1019, \"amount\": 3000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(526, 'payment_allocated', '{\"obligation_id\": 1020, \"amount\": 4500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(527, 'payment_allocated', '{\"obligation_id\": 1021, \"amount\": 4000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(528, 'payment_allocated', '{\"obligation_id\": 1026, \"amount\": 4000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(529, 'payment_allocated', '{\"obligation_id\": 1025, \"amount\": 4500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(530, 'payment_allocated', '{\"obligation_id\": 1024, \"amount\": 3000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(531, 'payment_allocated', '{\"obligation_id\": 1023, \"amount\": 3500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(532, 'payment_allocated', '{\"obligation_id\": 1022, \"amount\": 50400.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(533, 'payment_allocated', '{\"obligation_id\": 1027, \"amount\": 50400.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(534, 'payment_allocated', '{\"obligation_id\": 1028, \"amount\": 3500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(535, 'payment_allocated', '{\"obligation_id\": 1029, \"amount\": 3000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(536, 'payment_allocated', '{\"obligation_id\": 1030, \"amount\": 4500.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(537, 'payment_allocated', '{\"obligation_id\": 1031, \"amount\": 4000.00, \"payment_id\": 1132}', '2026-01-19 01:03:14'),
+(538, 'payment_received', '{\"payment_id\": 1133, \"student_id\": 153, \"parent_id\": 24, \"amount\": 190000.00, \"method\": \"cash\", \"reference\": null, \"receipt\": \"RCP-20260128095715-153\"}', '2026-01-28 18:57:15'),
+(539, 'payment_allocated', '{\"obligation_id\": 867, \"amount\": 35400.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(540, 'payment_allocated', '{\"obligation_id\": 868, \"amount\": 3500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(541, 'payment_allocated', '{\"obligation_id\": 869, \"amount\": 3000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(542, 'payment_allocated', '{\"obligation_id\": 870, \"amount\": 4500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(543, 'payment_allocated', '{\"obligation_id\": 871, \"amount\": 4000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(544, 'payment_allocated', '{\"obligation_id\": 876, \"amount\": 4000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(545, 'payment_allocated', '{\"obligation_id\": 875, \"amount\": 4500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(546, 'payment_allocated', '{\"obligation_id\": 874, \"amount\": 3000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(547, 'payment_allocated', '{\"obligation_id\": 873, \"amount\": 3500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(548, 'payment_allocated', '{\"obligation_id\": 872, \"amount\": 50400.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(549, 'payment_allocated', '{\"obligation_id\": 877, \"amount\": 50400.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(550, 'payment_allocated', '{\"obligation_id\": 878, \"amount\": 3500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(551, 'payment_allocated', '{\"obligation_id\": 879, \"amount\": 3000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(552, 'payment_allocated', '{\"obligation_id\": 880, \"amount\": 4500.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(553, 'payment_allocated', '{\"obligation_id\": 881, \"amount\": 4000.00, \"payment_id\": 1133}', '2026-01-28 18:57:15'),
+(554, 'payment_received', '{\"payment_id\": 1134, \"student_id\": 153, \"parent_id\": 24, \"amount\": 190000.00, \"method\": \"cash\", \"reference\": null, \"receipt\": \"RCP-20260128100333-153\"}', '2026-01-28 19:03:33'),
+(555, 'payment_received', '{\"payment_id\": 1135, \"student_id\": 152, \"parent_id\": 57, \"amount\": 200000.00, \"method\": \"cash\", \"reference\": null, \"receipt\": \"RCP-20260128100433-152\"}', '2026-01-28 19:04:33'),
+(556, 'payment_allocated', '{\"obligation_id\": 852, \"amount\": 35400.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(557, 'payment_allocated', '{\"obligation_id\": 853, \"amount\": 3500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(558, 'payment_allocated', '{\"obligation_id\": 854, \"amount\": 3000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(559, 'payment_allocated', '{\"obligation_id\": 855, \"amount\": 4500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(560, 'payment_allocated', '{\"obligation_id\": 856, \"amount\": 4000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(561, 'payment_allocated', '{\"obligation_id\": 861, \"amount\": 4000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(562, 'payment_allocated', '{\"obligation_id\": 860, \"amount\": 4500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(563, 'payment_allocated', '{\"obligation_id\": 859, \"amount\": 3000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(564, 'payment_allocated', '{\"obligation_id\": 858, \"amount\": 3500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(565, 'payment_allocated', '{\"obligation_id\": 857, \"amount\": 50400.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(566, 'payment_allocated', '{\"obligation_id\": 862, \"amount\": 50400.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(567, 'payment_allocated', '{\"obligation_id\": 863, \"amount\": 3500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(568, 'payment_allocated', '{\"obligation_id\": 864, \"amount\": 3000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(569, 'payment_allocated', '{\"obligation_id\": 865, \"amount\": 4500.00, \"payment_id\": 1135}', '2026-01-28 19:04:33'),
+(570, 'payment_allocated', '{\"obligation_id\": 866, \"amount\": 4000.00, \"payment_id\": 1135}', '2026-01-28 19:04:33');
 
 -- --------------------------------------------------------
 
@@ -33295,7 +33409,6 @@ INSERT IGNORE INTO `system_events` (`id`, `event_type`, `event_data`, `created_a
 -- Table structure for table `system_policies`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `system_policies`;
@@ -33348,7 +33461,6 @@ INSERT IGNORE INTO `system_policies` (`id`, `name`, `display_name`, `rule_type`,
 -- Table structure for table `tax_brackets`
 --
 -- Creation: Jan 19, 2026 at 12:28 AM
--- Last update: Jan 19, 2026 at 12:28 AM
 --
 
 DROP TABLE IF EXISTS `tax_brackets`;
@@ -33550,7 +33662,6 @@ TRUNCATE TABLE `term_subject_scores`;
 -- Table structure for table `tmp_backup_role_dashboards`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `tmp_backup_role_dashboards`;
@@ -33876,7 +33987,6 @@ TRUNCATE TABLE `uniform_sales_summary`;
 -- Table structure for table `uniform_sizes`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `uniform_sizes`;
@@ -34006,7 +34116,6 @@ TRUNCATE TABLE `unit_topics`;
 -- Table structure for table `users`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `users`;
@@ -34232,7 +34341,6 @@ DELIMITER ;
 -- Table structure for table `user_delegations_items`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `user_delegations_items`;
@@ -34491,7 +34599,6 @@ TRUNCATE TABLE `user_login_attempts`;
 -- Table structure for table `user_permissions`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `user_permissions`;
@@ -34632,7 +34739,6 @@ INSERT IGNORE INTO `user_permissions` (`id`, `user_id`, `permission_id`, `permis
 -- Table structure for table `user_roles`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `user_roles`;
@@ -36470,7 +36576,6 @@ CREATE TABLE IF NOT EXISTS `v_user_security` (
 -- Table structure for table `workflow_definitions`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_definitions`;
@@ -36529,7 +36634,6 @@ INSERT IGNORE INTO `workflow_definitions` (`id`, `code`, `name`, `description`, 
 -- Table structure for table `workflow_history`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_history`;
@@ -36691,7 +36795,6 @@ INSERT IGNORE INTO `workflow_history` (`id`, `workflow_id`, `stage`, `action`, `
 -- Table structure for table `workflow_instances`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_instances`;
@@ -36755,7 +36858,6 @@ INSERT IGNORE INTO `workflow_instances` (`id`, `workflow_id`, `reference_type`, 
 -- Table structure for table `workflow_notifications`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_notifications`;
@@ -36808,7 +36910,6 @@ INSERT IGNORE INTO `workflow_notifications` (`id`, `instance_id`, `notification_
 -- Table structure for table `workflow_stages`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_stages`;
@@ -36915,7 +37016,6 @@ INSERT IGNORE INTO `workflow_stages` (`id`, `workflow_id`, `code`, `name`, `desc
 -- Table structure for table `workflow_stage_history`
 --
 -- Creation: Jan 19, 2026 at 12:29 AM
--- Last update: Jan 19, 2026 at 12:29 AM
 --
 
 DROP TABLE IF EXISTS `workflow_stage_history`;
@@ -44880,7 +44980,6 @@ TRUNCATE TABLE `pma__pdf_pages`;
 -- Table structure for table `pma__recent`
 --
 -- Creation: Oct 26, 2025 at 09:16 PM
--- Last update: Jan 19, 2026 at 12:31 AM
 --
 
 DROP TABLE IF EXISTS `pma__recent`;
@@ -45087,7 +45186,7 @@ TRUNCATE TABLE `pma__tracking`;
 -- Table structure for table `pma__userconfig`
 --
 -- Creation: Oct 26, 2025 at 09:16 PM
--- Last update: Jan 19, 2026 at 12:15 AM
+-- Last update: Feb 05, 2026 at 09:20 PM
 --
 
 DROP TABLE IF EXISTS `pma__userconfig`;
@@ -45112,7 +45211,7 @@ TRUNCATE TABLE `pma__userconfig`;
 --
 
 INSERT IGNORE INTO `pma__userconfig` (`username`, `timevalue`, `config_data`) VALUES
-('root', '2026-01-19 00:15:38', '{\"lang\":\"en_GB\",\"Console\\/Mode\":\"collapse\"}');
+('root', '2026-02-05 21:20:43', '{\"lang\":\"en_GB\",\"Console\\/Mode\":\"collapse\"}');
 
 -- --------------------------------------------------------
 

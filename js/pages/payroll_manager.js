@@ -487,6 +487,9 @@ const PayrollManagerController = {
         student_id: child.student_id,
         student_name: child.student_name,
         fee_balance: feeBalance,
+        gross_fee_amount: feeBalance,
+        fee_invoice_id: child.fee_invoice_id || child.invoice_id || null,
+        term_id: child.term_id || null,
         amount: child.fee_deduction_enabled ? defaultDeduction : 0,
         enabled: child.fee_deduction_enabled,
       });
@@ -762,6 +765,9 @@ const PayrollManagerController = {
           staff_child_id: d.staff_child_id,
           student_id: d.student_id,
           amount: d.amount,
+          fee_invoice_id: d.fee_invoice_id,
+          term_id: d.term_id,
+          gross_fee_amount: d.gross_fee_amount,
         }));
 
       const data = {

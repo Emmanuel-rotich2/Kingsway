@@ -79,10 +79,19 @@ class StaffAPI extends BaseAPI {
                     u.email,
                     u.status as user_status,
                     d.name as department_name,
-                    d.code as department_code
+                    d.code as department_code,
+                    d.name as department,
+                    st.name as staff_type_name,
+                    CASE s.staff_type_id
+                        WHEN 1 THEN 'teaching'
+                        WHEN 2 THEN 'non-teaching'
+                        WHEN 3 THEN 'admin'
+                        ELSE NULL
+                    END as staff_type
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN departments d ON s.department_id = d.id
+                LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 $where
                 ORDER BY $sort $order
                 LIMIT ? OFFSET ?
@@ -190,6 +199,22 @@ class StaffAPI extends BaseAPI {
                 $roleIds = [1];
             }
 
+            // Map staff_type string to staff_type_id if provided
+            $staffTypeId = null;
+            if (!empty($data['staff_type']) && empty($data['staff_type_id'])) {
+                $map = [
+                    'teaching' => 1,
+                    'non-teaching' => 2,
+                    'non_teaching' => 2,
+                    'admin' => 3,
+                    'administration' => 3
+                ];
+                $key = strtolower(trim((string) $data['staff_type']));
+                $staffTypeId = $map[$key] ?? null;
+            } elseif (!empty($data['staff_type_id'])) {
+                $staffTypeId = (int) $data['staff_type_id'];
+            }
+
             $staffInfo = array_filter([
                 'position' => $data['position'] ?? 'Staff',
                 'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
@@ -205,7 +230,8 @@ class StaffAPI extends BaseAPI {
                 'tsc_no' => $data['tsc_no'] ?? null,
                 'address' => $data['address'] ?? null,
                 'profile_pic_url' => $data['profile_pic_url'] ?? null,
-                'documents_folder' => $data['documents_folder'] ?? null
+                'documents_folder' => $data['documents_folder'] ?? null,
+                'staff_type_id' => $staffTypeId
             ], function ($v) {
                 return $v !== null && $v !== '';
             });
@@ -1092,10 +1118,19 @@ class StaffAPI extends BaseAPI {
                 u.email,
                 u.status as user_status,
                 d.name as department_name,
-                d.code as department_code
+                d.code as department_code,
+                d.name as department,
+                st.name as staff_type_name,
+                CASE s.staff_type_id
+                    WHEN 1 THEN 'teaching'
+                    WHEN 2 THEN 'non-teaching'
+                    WHEN 3 THEN 'admin'
+                    ELSE NULL
+                END as staff_type
             FROM staff s
             LEFT JOIN users u ON s.user_id = u.id
             LEFT JOIN departments d ON s.department_id = d.id
+            LEFT JOIN staff_types st ON s.staff_type_id = st.id
             WHERE s.id = ?
         ";
 

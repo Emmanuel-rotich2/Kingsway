@@ -14,6 +14,21 @@ const staffManagementController = {
     roles: [],
     currentFilters: {},
 
+    extractStaffList: function(response) {
+        if (!response) return [];
+        if (Array.isArray(response)) return response;
+        if (Array.isArray(response.staff)) return response.staff;
+        if (Array.isArray(response.data?.staff)) return response.data.staff;
+        if (Array.isArray(response.data)) return response.data;
+        return [];
+    },
+
+    extractStaffRecord: function(response) {
+        if (!response) return null;
+        if (response.data && !Array.isArray(response.data)) return response.data;
+        return response;
+    },
+
     init: async function() {
         try {
             await Promise.all([
@@ -31,7 +46,7 @@ const staffManagementController = {
     loadStaff: async function() {
         try {
             const response = await window.API.apiCall('/staff/index', 'GET');
-            this.allStaff = response.data || response || [];
+            this.allStaff = this.extractStaffList(response);
             this.filteredStaff = [...this.allStaff];
             this.renderStaffTables();
         } catch (error) {
@@ -43,7 +58,7 @@ const staffManagementController = {
         try {
             // Load all staff members as potential supervisors
             const response = await window.API.apiCall('/staff/index', 'GET');
-            const supervisors = response.data || response || [];
+            const supervisors = this.extractStaffList(response);
             const el = document.getElementById('staffSupervisor');
             if (el) {
                 el.innerHTML = '<option value="">-- Select Supervisor --</option>';
@@ -328,7 +343,8 @@ const staffManagementController = {
 
     viewStaff: async function(staffId) {
         try {
-            const staff = await window.API.apiCall(`/staff/staff/${staffId}`, 'GET');
+            const resp = await window.API.apiCall(`/staff/staff/${staffId}`, 'GET');
+            const staff = this.extractStaffRecord(resp);
             const photo = staff.profile_pic_url || '/Kingsway/images/default-avatar.png';
 
             const html = `
@@ -364,7 +380,8 @@ const staffManagementController = {
 
     editStaff: async function(staffId) {
         try {
-            const staff = await window.API.apiCall(`/staff/staff/${staffId}`, 'GET');
+            const resp = await window.API.apiCall(`/staff/staff/${staffId}`, 'GET');
+            const staff = this.extractStaffRecord(resp);
             this.showStaffModal(staff);
         } catch (error) {
             console.error('Error loading staff for edit:', error);

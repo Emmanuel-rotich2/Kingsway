@@ -476,6 +476,10 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "students_update",
     DELETE: "students_delete",
   },
+  "/students/bulk-create": "students_create",
+  "/students/bulk-update": "students_update",
+  "/students/bulk-delete": "students_delete",
+  "/students/bulk-promote": "students_update",
 
   // Academic
   "/academic/index": "academic_view",
@@ -510,6 +514,12 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "staff_update",
     DELETE: "staff_delete",
   },
+  "/staff/children-list": "staff_view",
+  "/staff/children-add": "staff_update",
+  "/staff/children-update": "staff_update",
+  "/staff/children-remove": "staff_update",
+  "/staff/children-fee-config": "staff_view",
+  "/staff/children-calculate-deductions": "staff_view",
 
   // Activities
   "/activities/index": "activities_view",
@@ -1174,6 +1184,25 @@ window.API = {
   students: {
     index: async () => apiCall("/students/index", "GET"),
 
+    // List helpers
+    list: async (params = {}) =>
+      apiCall("/students/student", "GET", null, params),
+    getAll: async (params = {}) => {
+      const resp = await apiCall("/students/student", "GET", null, params);
+      const payload = resp?.data?.data ?? resp?.data ?? resp;
+      const students =
+        payload?.students ??
+        payload?.data?.students ??
+        (Array.isArray(payload) ? payload : []);
+      const pagination = payload?.pagination ?? payload?.data?.pagination ?? {};
+      const total = pagination?.total ?? students.length;
+      const success =
+        resp?.status === "success" ||
+        payload?.status === "success" ||
+        payload?.status_code === 200;
+      return { success, data: students, pagination, total, raw: resp };
+    },
+
     // CRUD
     get: async (id = null) =>
       id
@@ -1215,6 +1244,18 @@ window.API = {
       id
         ? apiCall(`/students/statistics-get/${id}`, "GET")
         : apiCall("/students/statistics-get", "GET"),
+    getStats: async (params = {}) => {
+      const resp = await apiCall("/students/statistics-get", "GET", null, params);
+      const payload = resp?.data?.data ?? resp?.data ?? resp;
+      const stats = payload?.data ?? payload;
+      const success =
+        resp?.status === "success" ||
+        payload?.status === "success" ||
+        payload?.status_code === 200;
+      return { success, data: stats, raw: resp };
+    },
+    getEnrollmentHistory: async (studentId) =>
+      apiCall(`/students/enrollment-history/${studentId}`, "GET"),
 
     // Bulk operations
     bulkCreate: async (students) =>
@@ -1663,6 +1704,7 @@ window.API = {
       apiCall(`/academic/classes/delete/${id}`, "DELETE"),
     assignTeacher: async (data) =>
       apiCall("/academic/classes-assign-teacher", "POST", data),
+    listLevels: async () => apiCall("/academic/levels-list", "GET"),
     autoCreateStreams: async (data) =>
       apiCall("/academic/classes-auto-create-streams", "POST", data),
 
@@ -2243,6 +2285,10 @@ window.API = {
       apiCall("/finance/department-budgets-allocate", "POST", data),
     requestFunds: async (data) =>
       apiCall("/finance/department-budgets-request-funds", "POST", data),
+    getBudgetSummary: async (departmentId) =>
+      apiCall("/finance/department-budgets-summary", "GET", null, {
+        department_id: departmentId,
+      }),
 
     // Payrolls
     listPayrolls: async (params) =>
@@ -2318,6 +2364,18 @@ window.API = {
     sendNotification: async (data) =>
       apiCall("/finance/payments-send-notification", "POST", data),
 
+    // Expenses approvals
+    approveExpense: async (expenseId, notes = "") =>
+      apiCall("/finance/expenses-approve", "POST", {
+        expense_id: expenseId,
+        notes,
+      }),
+    rejectExpense: async (expenseId, reason = "") =>
+      apiCall("/finance/expenses-reject", "POST", {
+        expense_id: expenseId,
+        reason,
+      }),
+
     // Fees
     createAnnualStructure: async (data) =>
       apiCall("/finance/fees-create-annual-structure", "POST", data),
@@ -2335,6 +2393,19 @@ window.API = {
       apiCall("/finance/fees-pending-reviews", "GET"),
     getAnnualSummary: async (params) =>
       apiCall("/finance/fees-annual-summary", "GET", null, params),
+    updateAnnualStructure: async (data) =>
+      apiCall("/finance/fees-update-annual-structure", "POST", data),
+    deleteAnnualStructure: async (data) =>
+      apiCall("/finance/fees-delete-annual-structure", "POST", data),
+    listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
+    listStudentTypes: async () =>
+      apiCall("/finance/student-types-list", "GET"),
+    generateFeeInvoice: async (data) =>
+      apiCall("/finance/fee-invoices-generate", "POST", data),
+    generateFeeInvoicesBatch: async (data) =>
+      apiCall("/finance/fee-invoices-generate-batch", "POST", data),
+    getFeeInvoice: async (params) =>
+      apiCall("/finance/fee-invoices-get", "GET", null, params),
 
     // Students
     getStudentPaymentHistory: async (studentId, params) =>

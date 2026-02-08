@@ -95,6 +95,12 @@
             <div class="modal-body">
                 <form id="requestForm">
                     <div class="form-group">
+                        <label>Department *</label>
+                        <select class="form-select" id="request_department" required>
+                            <option value="">Select Department</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>Item/Resource *</label>
                         <input type="text" class="form-input" id="request_item" required>
                     </div>
@@ -120,8 +126,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="/js/pages/finance.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();
@@ -140,17 +146,8 @@
     }
     
     function submitRequest() {
-        // Submit resource request
-        const data = {
-            item: document.getElementById('request_item').value,
-            quantity: document.getElementById('request_quantity').value,
-            estimated_cost: document.getElementById('request_cost').value,
-            justification: document.getElementById('request_justification').value
-        };
-        
-        // Would call API.finance.submitResourceRequest(data)
-        console.log('Submitting request:', data);
-        alert('Request submitted successfully!');
-        closeModal('requestModal');
+        if (typeof FinanceController !== 'undefined') {
+            FinanceController.submitRequest();
+        }
     }
 </script>

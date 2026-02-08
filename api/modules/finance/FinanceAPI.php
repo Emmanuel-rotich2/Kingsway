@@ -229,6 +229,10 @@ class FinanceAPI extends BaseAPI
                 case 'expenses':
                     return $this->expenseManager->listExpenses($params);
 
+                // GENERAL TRANSACTIONS (manual income/expense entries)
+                case 'transactions':
+                    return $this->listFinancialTransactions($params);
+
                 // PAYROLL OPERATIONS
                 case 'payrolls':
                     return $this->listPayrolls($params);
@@ -340,6 +344,14 @@ class FinanceAPI extends BaseAPI
                     }
                     return $result;
 
+                // GENERAL TRANSACTIONS (manual income/expense)
+                case 'transaction':
+                    $result = $this->createFinancialTransaction($data);
+                    if ($result['status'] === 'success') {
+                        $this->logAction('record_transaction', $result['data']['transaction_id'] ?? null, 'Recorded transaction');
+                    }
+                    return $result;
+
                 // PAYROLL OPERATIONS
                 case 'payroll':
                     $result = $this->createPayrollDraft($data);
@@ -389,6 +401,14 @@ class FinanceAPI extends BaseAPI
                     }
                     return $result;
 
+                // GENERAL TRANSACTIONS
+                case 'transaction':
+                    $result = $this->updateFinancialTransaction($id, $data);
+                    if ($result['status'] === 'success') {
+                        $this->logAction('update_transaction', $id, 'Updated transaction');
+                    }
+                    return $result;
+
                 default:
                     throw new Exception("Invalid type: $type");
             }
@@ -419,6 +439,14 @@ class FinanceAPI extends BaseAPI
                     $result = $this->expenseManager->deleteExpense($id);
                     if ($result['status'] === 'success') {
                         $this->logAction('delete_expense', $id, 'Deleted expense');
+                    }
+                    return $result;
+
+                // GENERAL TRANSACTIONS
+                case 'transaction':
+                    $result = $this->deleteFinancialTransaction($id);
+                    if ($result['status'] === 'success') {
+                        $this->logAction('delete_transaction', $id, 'Deleted transaction');
                     }
                     return $result;
 
@@ -1043,6 +1071,53 @@ class FinanceAPI extends BaseAPI
         return $this->feeManager->createAnnualFeeStructure($data);
     }
 
+    public function listFeeTypes()
+    {
+        return $this->feeManager->listFeeTypes();
+    }
+
+    public function listStudentTypes()
+    {
+        return $this->feeManager->listStudentTypes();
+    }
+
+    public function updateAnnualFeeStructure($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            if (!$this->hasPermission($userId, 'fees_edit')) {
+                return formatResponse(false, null, 'You do not have permission to edit fee structures');
+            }
+
+            $data['updated_by'] = $userId;
+
+            return $this->feeManager->updateAnnualFeeStructure($data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteAnnualFeeStructure($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+
+            if (!$this->hasPermission($userId, 'fees_delete')) {
+                return formatResponse(false, null, 'You do not have permission to delete fee structures');
+            }
+
+            $userRole = $this->getUserRole($userId);
+            if ($userRole !== 'director_owner') {
+                return formatResponse(false, null, 'Only directors can delete fee structures');
+            }
+
+            return $this->feeManager->deleteAnnualFeeStructure($data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function reviewFeeStructure($data)
     {
         return $this->feeManager->reviewFeeStructure($data);
@@ -1276,6 +1351,67 @@ class FinanceAPI extends BaseAPI
             $data['created_by'] = $userId;
 
             return $this->feeManager->duplicateFeeStructure($structureId, $data);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ========================================================================
+    // FEE INVOICES
+    // ========================================================================
+
+    public function generateFeeInvoice($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+            if (!$this->hasPermission($userId, 'fees_create')) {
+                return formatResponse(false, null, 'You do not have permission to generate invoices');
+            }
+
+            $studentId = $data['student_id'] ?? null;
+            $academicYearId = $data['academic_year_id'] ?? null;
+            $termId = $data['term_id'] ?? null;
+
+            return $this->feeManager->generateStudentInvoice($studentId, $academicYearId, $termId, $userId);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function generateFeeInvoicesBatch($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+            if (!$this->hasPermission($userId, 'fees_create')) {
+                return formatResponse(false, null, 'You do not have permission to generate invoices');
+            }
+
+            $academicYearId = $data['academic_year_id'] ?? null;
+            $termId = $data['term_id'] ?? null;
+            $filters = [
+                'class_id' => $data['class_id'] ?? null,
+                'stream_id' => $data['stream_id'] ?? null
+            ];
+
+            return $this->feeManager->generateInvoicesForTerm($academicYearId, $termId, $filters, $userId);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getFeeInvoice($data)
+    {
+        try {
+            $userId = $this->getCurrentUserId();
+            if (!$this->hasPermission($userId, 'fees_view')) {
+                return formatResponse(false, null, 'You do not have permission to view invoices');
+            }
+
+            $studentId = $data['student_id'] ?? null;
+            $academicYearId = $data['academic_year_id'] ?? null;
+            $termId = $data['term_id'] ?? null;
+
+            return $this->feeManager->getStudentInvoice($studentId, $academicYearId, $termId);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -1608,7 +1744,11 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Staff not found', 404);
             }
 
-            // Get children with fee balances
+            $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
+            $termId = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1")->fetchColumn();
+            $invoiceWarnings = [];
+
+            // Get children with fee invoices (current term/year)
             $childrenSql = "SELECT 
                                 sc.id AS staff_child_id,
                                 sc.student_id,
@@ -1618,33 +1758,76 @@ class FinanceAPI extends BaseAPI
                                 st.admission_no,
                                 CONCAT(st.first_name, ' ', st.last_name) AS student_name,
                                 c.name AS class_name,
-                                cs.name AS stream_name,
-                                (
-                                    SELECT COALESCE(SUM(amount_due),0) FROM student_fee_obligations sfo2
-                                    WHERE sfo2.student_id = st.id AND sfo2.academic_year = YEAR(CURDATE())
-                                ) AS total_fees,
-                                (
-                                    SELECT COALESCE(SUM(amount_paid),0) FROM student_fee_obligations sfo3
-                                    WHERE sfo3.student_id = st.id AND sfo3.academic_year = YEAR(CURDATE())
-                                ) AS total_paid,
-                                (
-                                    SELECT COALESCE(SUM(balance),0) FROM student_fee_obligations sfo4
-                                    WHERE sfo4.student_id = st.id AND sfo4.academic_year = YEAR(CURDATE())
-                                ) AS fee_balance
+                                cs.stream_name AS stream_name,
+                                fi.id AS fee_invoice_id,
+                                fi.total_amount,
+                                fi.amount_paid,
+                                fi.balance AS fee_balance,
+                                fi.status AS invoice_status,
+                                fi.term_id,
+                                fi.academic_year_id
                             FROM staff_children sc
                             JOIN students st ON sc.student_id = st.id
                             LEFT JOIN class_streams cs ON st.stream_id = cs.id
                             LEFT JOIN classes c ON cs.class_id = c.id
-                            -- use obligations table to derive fees for the current academic year
+                            LEFT JOIN fee_invoices fi
+                                ON fi.student_id = st.id
+                                AND fi.academic_year_id = ?
+                                AND fi.term_id = ?
                             WHERE sc.staff_id = ? AND st.status = 'active'
                             ORDER BY st.first_name";
             $childrenStmt = $this->db->prepare($childrenSql);
-            $childrenStmt->execute([$staffId]);
+            $childrenStmt->execute([$academicYearId ?: 0, $termId ?: 0, $staffId]);
             $children = $childrenStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($academicYearId && $termId) {
+                foreach ($children as &$child) {
+                    if (empty($child['fee_invoice_id'])) {
+                        $gen = $this->feeManager->generateStudentInvoice(
+                            $child['student_id'],
+                            $academicYearId,
+                            $termId,
+                            $this->getCurrentUserId()
+                        );
+                        if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
+                            $invoice = $gen['data'] ?? [];
+                            $child['fee_invoice_id'] = $invoice['id'] ?? null;
+                            $child['total_amount'] = $invoice['total_amount'] ?? 0;
+                            $child['amount_paid'] = $invoice['amount_paid'] ?? 0;
+                            $child['fee_balance'] = $invoice['balance'] ?? 0;
+                            $child['invoice_status'] = $invoice['status'] ?? null;
+                            $child['term_id'] = $invoice['term_id'] ?? $termId;
+                            $child['academic_year_id'] = $invoice['academic_year_id'] ?? $academicYearId;
+                        } else {
+                            $invoiceWarnings[] = [
+                                'student_id' => $child['student_id'],
+                                'staff_child_id' => $child['staff_child_id'],
+                                'message' => $gen['message'] ?? 'Invoice not available'
+                            ];
+                        }
+                    }
+
+                    $child['fee_balance'] = floatval($child['fee_balance'] ?? 0);
+                    $child['term_id'] = $child['term_id'] ?? $termId;
+                    $child['academic_year_id'] = $child['academic_year_id'] ?? $academicYearId;
+                }
+                unset($child);
+            } else {
+                if (!empty($children)) {
+                    $invoiceWarnings[] = [
+                        'message' => 'Current academic year/term not configured; invoices unavailable'
+                    ];
+                }
+                foreach ($children as &$child) {
+                    $child['fee_balance'] = floatval($child['fee_balance'] ?? 0);
+                }
+                unset($child);
+            }
 
             $staff['children'] = $children;
             $staff['has_children'] = count($children) > 0;
             $staff['total_children_fees'] = array_sum(array_column($children, 'fee_balance'));
+            $staff['invoice_warnings'] = $invoiceWarnings;
 
             return formatResponse(true, $staff, 'Staff payroll details retrieved');
         } catch (Exception $e) {
@@ -1764,19 +1947,82 @@ class FinanceAPI extends BaseAPI
 
             // Record children fee deductions
             if (!empty($childrenDeductions)) {
+                $academicYearId = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1")->fetchColumn();
+                $termId = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1")->fetchColumn();
+
                 foreach ($childrenDeductions as $deduction) {
                     $studentId = $deduction['student_id'] ?? null;
                     $amount = floatval($deduction['amount'] ?? 0);
                     $staffChildId = $deduction['staff_child_id'] ?? null;
 
                     if ($studentId && $amount > 0) {
+                        $feeInvoiceId = $deduction['fee_invoice_id'] ?? $deduction['invoice_id'] ?? null;
+                        $dedTermId = $deduction['term_id'] ?? $termId;
+                        $grossFeeAmount = $deduction['gross_fee_amount'] ?? null;
+                        $staffDiscountPct = floatval($deduction['staff_discount_percentage'] ?? 0);
+                        $staffDiscountAmount = floatval($deduction['staff_discount_amount'] ?? 0);
+                        $sponsorWaiverAmount = floatval($deduction['sponsor_waiver_amount'] ?? 0);
+                        $deductibleAmount = floatval($deduction['deductible_amount'] ?? $amount);
+
+                        $invoiceRow = null;
+                        if ($feeInvoiceId) {
+                            $invStmt = $this->db->prepare("SELECT id, balance FROM fee_invoices WHERE id = ? LIMIT 1");
+                            $invStmt->execute([$feeInvoiceId]);
+                            $invoiceRow = $invStmt->fetch(PDO::FETCH_ASSOC);
+                            if (!$invoiceRow) {
+                                $feeInvoiceId = null;
+                            }
+                        }
+
+                        if (!$feeInvoiceId && $academicYearId && $dedTermId) {
+                            $invStmt = $this->db->prepare("
+                                SELECT id, balance FROM fee_invoices
+                                WHERE student_id = ? AND academic_year_id = ? AND term_id = ?
+                                LIMIT 1
+                            ");
+                            $invStmt->execute([$studentId, $academicYearId, $dedTermId]);
+                            $invoiceRow = $invStmt->fetch(PDO::FETCH_ASSOC);
+
+                            if (!$invoiceRow) {
+                                $gen = $this->feeManager->generateStudentInvoice(
+                                    $studentId,
+                                    $academicYearId,
+                                    $dedTermId,
+                                    $this->getCurrentUserId()
+                                );
+                                if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
+                                    $invoiceRow = $gen['data'] ?? null;
+                                }
+                            }
+
+                            if (!empty($invoiceRow)) {
+                                $feeInvoiceId = $invoiceRow['id'] ?? null;
+                            }
+                        }
+
+                        if ($grossFeeAmount === null) {
+                            $grossFeeAmount = !empty($invoiceRow) ? floatval($invoiceRow['balance'] ?? 0) : $amount;
+                        }
+
+                        $balance = max(0, $grossFeeAmount - $amount);
+
                         // Insert into staff_child_fee_deductions
                         $dedSql = "INSERT INTO staff_child_fee_deductions 
                                    (staff_child_id, staff_id, student_id, payslip_id, payroll_month, payroll_year,
-                                    gross_fee_amount, deductible_amount, deducted_amount, status)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+                                    term_id, fee_invoice_id, gross_fee_amount, staff_discount_percentage,
+                                    staff_discount_amount, sponsor_waiver_amount, deductible_amount,
+                                    deducted_amount, balance, status)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
                                    ON DUPLICATE KEY UPDATE 
+                                   term_id = VALUES(term_id),
+                                   fee_invoice_id = VALUES(fee_invoice_id),
+                                   gross_fee_amount = VALUES(gross_fee_amount),
+                                   staff_discount_percentage = VALUES(staff_discount_percentage),
+                                   staff_discount_amount = VALUES(staff_discount_amount),
+                                   sponsor_waiver_amount = VALUES(sponsor_waiver_amount),
+                                   deductible_amount = VALUES(deductible_amount),
                                    deducted_amount = VALUES(deducted_amount),
+                                   balance = VALUES(balance),
                                    status = 'pending',
                                    updated_at = NOW()";
                         $dedStmt = $this->db->prepare($dedSql);
@@ -1787,9 +2033,15 @@ class FinanceAPI extends BaseAPI
                             $payrollId,
                             $payrollMonth,
                             $payrollYear,
+                            $dedTermId,
+                            $feeInvoiceId,
+                            $grossFeeAmount,
+                            $staffDiscountPct,
+                            $staffDiscountAmount,
+                            $sponsorWaiverAmount,
+                            $deductibleAmount,
                             $amount,
-                            $amount,
-                            $amount
+                            $balance
                         ]);
                     }
                 }
@@ -2054,6 +2306,249 @@ class FinanceAPI extends BaseAPI
     }
 
     /**
+     * List general financial transactions (manual entries)
+     */
+    private function listFinancialTransactions($filters = [])
+    {
+        try {
+            $page = (int) ($filters['page'] ?? $_GET['page'] ?? 1);
+            $limit = (int) ($filters['limit'] ?? $_GET['limit'] ?? 50);
+            $limit = max(1, min($limit, 200));
+            $offset = ($page - 1) * $limit;
+
+            $sql = "SELECT ft.*, u.username as processed_by_name
+                    FROM financial_transactions ft
+                    LEFT JOIN users u ON ft.processed_by = u.id
+                    WHERE 1=1";
+            $params = [];
+
+            if (!empty($filters['transaction_type'])) {
+                $sql .= " AND ft.type = ?";
+                $params[] = $filters['transaction_type'];
+            }
+
+            if (!empty($filters['status'])) {
+                $sql .= " AND ft.status = ?";
+                $params[] = $filters['status'];
+            }
+
+            if (!empty($filters['payment_method'])) {
+                $sql .= " AND ft.payment_method = ?";
+                $params[] = $filters['payment_method'];
+            }
+
+            if (!empty($filters['date_from'])) {
+                $sql .= " AND ft.transaction_date >= ?";
+                $params[] = $filters['date_from'];
+            }
+
+            if (!empty($filters['date_to'])) {
+                $sql .= " AND ft.transaction_date <= ?";
+                $params[] = $filters['date_to'];
+            }
+
+            if (!empty($filters['search'])) {
+                $sql .= " AND (ft.reference_no LIKE ? OR ft.notes LIKE ?)";
+                $search = '%' . $filters['search'] . '%';
+                $params[] = $search;
+                $params[] = $search;
+            }
+
+            $sql .= " ORDER BY ft.transaction_date DESC LIMIT ? OFFSET ?";
+            $params[] = $limit;
+            $params[] = $offset;
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $countSql = "SELECT COUNT(*) FROM financial_transactions ft WHERE 1=1";
+            $countParams = array_slice($params, 0, -2);
+
+            if (!empty($filters['transaction_type'])) {
+                $countSql .= " AND ft.type = ?";
+            }
+            if (!empty($filters['status'])) {
+                $countSql .= " AND ft.status = ?";
+            }
+            if (!empty($filters['payment_method'])) {
+                $countSql .= " AND ft.payment_method = ?";
+            }
+            if (!empty($filters['date_from'])) {
+                $countSql .= " AND ft.transaction_date >= ?";
+            }
+            if (!empty($filters['date_to'])) {
+                $countSql .= " AND ft.transaction_date <= ?";
+            }
+            if (!empty($filters['search'])) {
+                $countSql .= " AND (ft.reference_no LIKE ? OR ft.notes LIKE ?)";
+            }
+
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($countParams);
+            $total = (int) $countStmt->fetchColumn();
+
+            return formatResponse(true, [
+                'transactions' => $rows,
+                'pagination' => [
+                    'total' => $total,
+                    'page' => $page,
+                    'limit' => $limit,
+                    'pages' => $limit > 0 ? (int) ceil($total / $limit) : 1
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Create a manual financial transaction
+     */
+    private function createFinancialTransaction($data)
+    {
+        try {
+            $transactionType = $data['transaction_type'] ?? $data['entry_type'] ?? null;
+            $amount = $data['amount'] ?? null;
+
+            if (empty($transactionType) || $amount === null) {
+                return formatResponse(false, null, 'transaction_type and amount are required');
+            }
+
+            $amount = floatval($amount);
+            if ($amount <= 0) {
+                return formatResponse(false, null, 'Amount must be greater than zero');
+            }
+
+            $transactionDate = $data['transaction_date'] ?? date('Y-m-d H:i:s');
+            $status = $data['status'] ?? 'completed';
+
+            $stmt = $this->db->prepare("
+                INSERT INTO financial_transactions
+                    (type, amount, payment_method, reference_no, status, transaction_date, processed_by, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            $stmt->execute([
+                $transactionType,
+                $amount,
+                $data['payment_method'] ?? null,
+                $data['reference_no'] ?? null,
+                $status,
+                $transactionDate,
+                $data['processed_by'] ?? $this->getCurrentUserId(),
+                $data['notes'] ?? null
+            ]);
+
+            return formatResponse(true, [
+                'transaction_id' => $this->db->lastInsertId()
+            ], 'Transaction recorded successfully');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Update a manual financial transaction
+     */
+    private function updateFinancialTransaction($transactionId, $data)
+    {
+        try {
+            if (empty($transactionId)) {
+                return formatResponse(false, null, 'Transaction ID is required');
+            }
+
+            $allowed = [
+                'transaction_type' => 'type',
+                'amount' => 'amount',
+                'payment_method' => 'payment_method',
+                'reference_no' => 'reference_no',
+                'status' => 'status',
+                'transaction_date' => 'transaction_date',
+                'notes' => 'notes'
+            ];
+
+            $updates = [];
+            $params = [];
+            foreach ($allowed as $inputKey => $column) {
+                if (array_key_exists($inputKey, $data)) {
+                    $updates[] = "{$column} = ?";
+                    $params[] = $data[$inputKey];
+                }
+            }
+
+            if (empty($updates)) {
+                return formatResponse(false, null, 'No valid fields to update');
+            }
+
+            $params[] = $transactionId;
+            $sql = "UPDATE financial_transactions SET " . implode(', ', $updates) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return formatResponse(true, ['transaction_id' => $transactionId], 'Transaction updated');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Delete a manual financial transaction
+     */
+    private function deleteFinancialTransaction($transactionId)
+    {
+        try {
+            if (empty($transactionId)) {
+                return formatResponse(false, null, 'Transaction ID is required');
+            }
+
+            $stmt = $this->db->prepare("DELETE FROM financial_transactions WHERE id = ?");
+            $stmt->execute([$transactionId]);
+
+            return formatResponse(true, ['transaction_id' => $transactionId], 'Transaction deleted');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Department budget summary for quick dashboards
+     */
+    public function getDepartmentBudgetSummary($departmentId)
+    {
+        try {
+            if (empty($departmentId)) {
+                return formatResponse(false, null, 'Department ID is required');
+            }
+
+            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM department_accounts WHERE department_id = ?");
+            $stmt->execute([$departmentId]);
+            $allocated = floatval($stmt->fetchColumn());
+
+            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status IN ('approved', 'paid')");
+            $stmt->execute([$departmentId]);
+            $spent = floatval($stmt->fetchColumn());
+
+            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status = 'pending'");
+            $stmt->execute([$departmentId]);
+            $pending = floatval($stmt->fetchColumn());
+
+            $available = $allocated - $spent;
+            $utilization = $allocated > 0 ? round(($spent / $allocated) * 100, 2) : 0;
+
+            return formatResponse(true, [
+                'department_id' => (int) $departmentId,
+                'allocated' => $allocated,
+                'spent' => $spent,
+                'pending' => $pending,
+                'available' => $available,
+                'utilization_percent' => $utilization
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
      * Mark payroll as paid and record children fee payments
      */
     public function markPayrollPaid($payrollId, $paymentRef = null)
@@ -2130,4 +2625,3 @@ class FinanceAPI extends BaseAPI
         }
     }
 }
-

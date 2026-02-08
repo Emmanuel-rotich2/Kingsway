@@ -180,80 +180,19 @@
     }
 </style>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();
-        loadFeeDetails();
-    });
-    
-    async function loadFeeDetails() {
-        try {
-            // Load fee details for current user
-            const response = await fetch('/api/?route=fees&action=my-balance');
-            const data = await response.json();
-            
-            if (data.success) {
-                const fee = data.data;
-                document.getElementById('currentTerm').textContent = fee.term_name || 'Current Term';
-                document.getElementById('totalFee').textContent = 'KES ' + formatNumber(fee.total_fee || 0);
-                document.getElementById('amountPaid').textContent = 'KES ' + formatNumber(fee.amount_paid || 0);
-                document.getElementById('balanceDue').textContent = 'KES ' + formatNumber(fee.balance || 0);
-                
-                // Update status badge
-                const statusEl = document.getElementById('feeStatus');
-                if (fee.balance <= 0) {
-                    statusEl.innerHTML = '<span class="status-badge paid">✅ Fully Paid</span>';
-                } else if (fee.amount_paid > 0) {
-                    statusEl.innerHTML = '<span class="status-badge partial">⚠️ Partial Payment</span>';
-                } else {
-                    statusEl.innerHTML = '<span class="status-badge overdue">❌ Outstanding</span>';
-                }
-            }
-            
-            // Load payment history
-            const historyResponse = await fetch('/api/?route=fees&action=my-payments');
-            const historyData = await historyResponse.json();
-            
-            const historyList = document.getElementById('paymentHistoryList');
-            if (historyData.success && historyData.data.length > 0) {
-                historyList.innerHTML = historyData.data.map(payment => `
-                    <div class="payment-item">
-                        <div>
-                            <div class="payment-date">${formatDate(payment.payment_date)}</div>
-                            <div class="payment-method">${escapeHtml(payment.payment_method)}</div>
-                        </div>
-                        <div class="payment-amount">KES ${formatNumber(payment.amount)}</div>
-                    </div>
-                `).join('');
-            } else {
-                historyList.innerHTML = '<div class="empty-item">No payment records found</div>';
-            }
-        } catch (error) {
-            console.error('Error loading fee details:', error);
+        if (typeof FinanceController !== 'undefined') {
+            FinanceController.init({ view: 'viewer' });
         }
-    }
-    
+    });
+
     function downloadStatement() {
-        window.open('/api/?route=fees&action=download-statement', '_blank');
-    }
-    
-    function formatNumber(num) {
-        return new Intl.NumberFormat('en-KE').format(num);
-    }
-    
-    function formatDate(dateStr) {
-        return new Date(dateStr).toLocaleDateString('en-KE', { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        });
-    }
-    
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/[&<>"']/g, m => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[m]));
+        if (typeof FinanceController !== 'undefined') {
+            FinanceController.downloadStatement();
+        }
     }
 </script>

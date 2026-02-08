@@ -13,6 +13,7 @@
  */
 ?>
 
+<div class="manager-layout" data-user-role="accountant">
 <!-- Fee Structure Accountant Content -->
 
 <!-- Page Header -->
@@ -72,7 +73,7 @@
     <div class="col-md-6">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-cash-coin"></i> Revenue vs Collections by Class</h5>
+                <h5 class="card-title"><i class="bi bi-cash-coin"></i> Revenue vs Collections by Level</h5>
                 <div style="position: relative; height: 300px; max-height: 300px; overflow: hidden;">
                     <canvas id="revenueCollectionsChart"></canvas>
                 </div>
@@ -111,8 +112,8 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <select class="form-select form-select-sm" id="classFilter">
-                    <option value="">All Classes</option>
+                <select class="form-select form-select-sm" id="studentTypeFilter">
+                    <option value="">All Student Types</option>
                 </select>
             </div>
             <div class="col-md-2">
@@ -152,16 +153,19 @@
                         <th style="width: 10%;">Academic Year</th>
                         <th style="width: 12%;">Term</th>
                         <th style="width: 15%;">School Level</th>
-                        <th style="width: 15%;">Classes</th>
-                        <th style="width: 12%;" class="text-end">Total Fees</th>
-                        <th style="width: 12%;" class="text-end">Expected</th>
-                        <th style="width: 12%;">Collection</th>
-                        <th style="width: 12%;">Actions</th>
+                        <th style="width: 12%;">Student Type</th>
+                        <th style="width: 10%;" class="text-end">Total Fees</th>
+                        <th style="width: 10%;" class="text-end">Expected</th>
+                        <th style="width: 10%;" class="text-end">Collected</th>
+                        <th style="width: 10%;" class="text-end">Outstanding</th>
+                        <th style="width: 10%;">Collection</th>
+                        <th style="width: 8%;">Status</th>
+                        <th style="width: 10%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="feeStructuresBody">
                     <tr>
-                        <td colspan="8" class="loading-row">Loading fee structures...</td>
+                        <td colspan="11" class="loading-row">Loading fee structures...</td>
                     </tr>
                 </tbody>
             </table>
@@ -367,3 +371,4 @@
         }
     });
 </script>
+</div>

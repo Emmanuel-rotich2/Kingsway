@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\finance\FinanceAPI;
 use App\API\Modules\finance\PaymentReconciliationAPI;
+use App\API\Modules\finance\ExpenseManager;
 use Exception;
 use App\Database\Database;
 
@@ -95,6 +96,48 @@ class FinanceController extends BaseController
     public function postDepartmentBudgetsRequestFunds($id = null, $data = [], $segments = [])
     {
         $result = $this->api->requestDepartmentFunds($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/department-budgets/summary
+     * Quick summary of department budget utilization
+     */
+    public function getDepartmentBudgetsSummary($id = null, $data = [], $segments = [])
+    {
+        $departmentId = $_GET['department_id'] ?? $data['department_id'] ?? $id ?? null;
+        if (!$departmentId) {
+            return $this->badRequest('department_id is required');
+        }
+        $result = $this->api->getDepartmentBudgetSummary($departmentId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/expenses/approve
+     */
+    public function postExpensesApprove($id = null, $data = [], $segments = [])
+    {
+        $expenseId = $data['expense_id'] ?? $id ?? null;
+        if (!$expenseId) {
+            return $this->badRequest('expense_id is required');
+        }
+        $manager = new ExpenseManager();
+        $result = $manager->approveExpense($expenseId, $this->getCurrentUserId(), $data['notes'] ?? null);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/expenses/reject
+     */
+    public function postExpensesReject($id = null, $data = [], $segments = [])
+    {
+        $expenseId = $data['expense_id'] ?? $id ?? null;
+        if (!$expenseId) {
+            return $this->badRequest('expense_id is required');
+        }
+        $manager = new ExpenseManager();
+        $result = $manager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason'] ?? 'Rejected');
         return $this->handleResponse($result);
     }
 
@@ -449,6 +492,38 @@ class FinanceController extends BaseController
     }
 
     // ========================================
+    // SECTION 2C: Fee Invoice Generation
+    // ========================================
+
+    /**
+     * POST /api/finance/fee-invoices/generate
+     */
+    public function postFeeInvoicesGenerate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->generateFeeInvoice($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fee-invoices/generate-batch
+     */
+    public function postFeeInvoicesGenerateBatch($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->generateFeeInvoicesBatch($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fee-invoices/get?student_id=X
+     */
+    public function getFeeInvoicesGet($id = null, $data = [], $segments = [])
+    {
+        $params = array_merge($_GET, $data);
+        $result = $this->api->getFeeInvoice($params);
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
     // SECTION 3: Payment & Receipt Operations
     // ========================================
 
@@ -502,6 +577,25 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 4: Fee Structure Operations
     // ========================================
+
+    /**
+     * GET /api/finance/fee-types-list
+     */
+    public function getFeeTypesList($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->listFeeTypes();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/student-types-list
+     */
+    public function getStudentTypesList($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->listStudentTypes();
+        return $this->handleResponse($result);
+    }
+
     /**
         
      * POST /api/finance/fees/create-annual-structure
@@ -545,6 +639,24 @@ class FinanceController extends BaseController
     public function postFeesRolloverStructure($id = null, $data = [], $segments = [])
     {
         $result = $this->api->rolloverFeeStructure($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees/update-annual-structure
+     */
+    public function postFeesUpdateAnnualStructure($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->updateAnnualFeeStructure($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees/delete-annual-structure
+     */
+    public function postFeesDeleteAnnualStructure($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteAnnualFeeStructure($data);
         return $this->handleResponse($result);
     }
 
