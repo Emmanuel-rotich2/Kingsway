@@ -19,6 +19,36 @@ const StaffChildrenController = {
     status: "",
   },
 
+  isSuccess: function (resp) {
+    return resp?.success === true || resp?.status === "success";
+  },
+
+  extractStaffList: function (resp) {
+    if (!resp) return [];
+    if (Array.isArray(resp)) return resp;
+    if (Array.isArray(resp.staff)) return resp.staff;
+    if (Array.isArray(resp.data?.staff)) return resp.data.staff;
+    if (Array.isArray(resp.data)) return resp.data;
+    return [];
+  },
+
+  extractStudentsList: function (resp) {
+    if (!resp) return [];
+    if (Array.isArray(resp)) return resp;
+    if (Array.isArray(resp.students)) return resp.students;
+    if (Array.isArray(resp.data?.students)) return resp.data.students;
+    if (Array.isArray(resp.data)) return resp.data;
+    return [];
+  },
+
+  extractChildrenList: function (resp) {
+    if (!resp) return [];
+    if (Array.isArray(resp.children)) return resp.children;
+    if (Array.isArray(resp.data?.children)) return resp.data.children;
+    if (Array.isArray(resp.data)) return resp.data;
+    return [];
+  },
+
   /**
    * Initialize the controller
    */
@@ -54,21 +84,21 @@ const StaffChildrenController = {
       ]);
 
       // Store fee configuration
-      if (feeConfig?.success) {
-        this.data.feeConfig = feeConfig.data;
+      if (this.isSuccess(feeConfig)) {
+        this.data.feeConfig = feeConfig.data || feeConfig;
         this.updateFeeConfigDisplay();
       }
 
       // Store staff list
-      if (staffList?.success) {
-        this.data.staffList = staffList.data || [];
+      if (this.isSuccess(staffList)) {
+        this.data.staffList = this.extractStaffList(staffList);
         this.populateStaffSelect();
         this.extractDepartments();
       }
 
       // Store student list
-      if (studentList?.success) {
-        this.data.studentList = studentList.data || [];
+      if (this.isSuccess(studentList)) {
+        this.data.studentList = this.extractStudentsList(studentList);
         this.populateStudentSelect();
       }
 
@@ -92,10 +122,15 @@ const StaffChildrenController = {
       for (const staff of this.data.staffList) {
         try {
           const response = await window.API.staff.getStaffChildren(staff.id);
-          if (response?.success && response.data?.length > 0) {
-            response.data.forEach((child) => {
+          if (this.isSuccess(response)) {
+            const children = this.extractChildrenList(response);
+            if (!children.length) return;
+            children.forEach((child) => {
+              child.id = child.staff_child_id || child.id;
               child.staff_name = `${staff.first_name} ${staff.last_name}`;
-              child.staff_department = staff.department || "General";
+              child.staff_department = staff.department_name || staff.department || "General";
+              child.fee_deduction_status =
+                child.fee_deduction_enabled == 1 ? "active" : "suspended";
               allChildren.push(child);
             });
           }
@@ -119,13 +154,13 @@ const StaffChildrenController = {
     const config = this.data.feeConfig;
     if (config) {
       document.getElementById("discount1stChild").textContent =
-        config.discount_1st_child || 50;
+        config.first_child_discount_percentage?.value || 50;
       document.getElementById("discount2ndChild").textContent =
-        config.discount_2nd_child || 40;
+        config.second_child_discount_percentage?.value || 40;
       document.getElementById("discount3rdChild").textContent =
-        config.discount_3rd_child_plus || 30;
+        config.third_child_discount_percentage?.value || 30;
       document.getElementById("maxDeductionPercent").textContent =
-        config.max_salary_deduction_percent || 30;
+        config.max_monthly_deduction_percentage?.value || 30;
     }
   },
 
@@ -141,7 +176,7 @@ const StaffChildrenController = {
       const option = document.createElement("option");
       option.value = staff.id;
       option.textContent = `${staff.first_name} ${staff.last_name} - ${
-        staff.department || "General"
+        staff.department_name || staff.department || "General"
       }`;
       select.appendChild(option);
     });
@@ -158,9 +193,12 @@ const StaffChildrenController = {
     this.data.studentList.forEach((student) => {
       const option = document.createElement("option");
       option.value = student.id;
+      const classLabel = student.class_name
+        ? `${student.class_name}${student.stream_name ? " " + student.stream_name : ""}`
+        : "N/A";
       option.textContent = `${student.first_name} ${student.last_name} (${
-        student.admission_number
-      }) - ${student.current_class || "N/A"}`;
+        student.admission_no || student.admission_number || "N/A"
+      }) - ${classLabel}`;
       select.appendChild(option);
     });
   },
@@ -170,7 +208,11 @@ const StaffChildrenController = {
    */
   extractDepartments: function () {
     const departments = [
-      ...new Set(this.data.staffList.map((s) => s.department).filter(Boolean)),
+      ...new Set(
+        this.data.staffList
+          .map((s) => s.department_name || s.department)
+          .filter(Boolean)
+      ),
     ];
     this.data.departments = departments;
 
@@ -235,7 +277,7 @@ const StaffChildrenController = {
     document.getElementById("staffSelect").value = child.staff_id;
     document.getElementById("studentSelect").value = child.student_id;
     document.getElementById("relationshipSelect").value =
-      child.relationship || "son";
+      child.relationship || "father";
     document.getElementById("deductionStatus").value =
       child.fee_deduction_status || "active";
     document.getElementById("childNotes").value = child.notes || "";
@@ -265,15 +307,20 @@ const StaffChildrenController = {
     const childOrder = existingChildren + 1;
 
     // Get discount rate based on child order
-    const config = this.data.feeConfig || {
-      discount_1st_child: 50,
-      discount_2nd_child: 40,
-      discount_3rd_child_plus: 30,
-    };
+    const config = this.data.feeConfig || {};
+    const first = parseFloat(
+      config.first_child_discount_percentage?.value || 50
+    );
+    const second = parseFloat(
+      config.second_child_discount_percentage?.value || 40
+    );
+    const third = parseFloat(
+      config.third_child_discount_percentage?.value || 30
+    );
     let discountRate;
-    if (childOrder === 1) discountRate = config.discount_1st_child;
-    else if (childOrder === 2) discountRate = config.discount_2nd_child;
-    else discountRate = config.discount_3rd_child_plus;
+    if (childOrder === 1) discountRate = first;
+    else if (childOrder === 2) discountRate = second;
+    else discountRate = third;
 
     document.getElementById("previewChildOrder").textContent =
       this.getOrdinal(childOrder) + " Child";
@@ -298,11 +345,16 @@ const StaffChildrenController = {
    */
   saveStaffChild: async function () {
     const id = document.getElementById("staffChildId").value;
+    const status = document.getElementById("deductionStatus").value;
+    const feeEnabled = status === "active" ? 1 : 0;
+    const feePercentage = status === "exempt" ? 0 : 100;
+
     const data = {
       staff_id: document.getElementById("staffSelect").value,
       student_id: document.getElementById("studentSelect").value,
       relationship: document.getElementById("relationshipSelect").value,
-      fee_deduction_status: document.getElementById("deductionStatus").value,
+      fee_deduction_enabled: feeEnabled,
+      fee_deduction_percentage: feePercentage,
       notes: document.getElementById("childNotes").value,
     };
 
@@ -314,7 +366,7 @@ const StaffChildrenController = {
         response = await window.API.staff.addStaffChild(data);
       }
 
-      if (response?.success) {
+      if (this.isSuccess(response)) {
         this.showSuccess(
           id ? "Staff child link updated" : "Child linked to staff successfully"
         );
@@ -345,7 +397,7 @@ const StaffChildrenController = {
 
     try {
       const response = await window.API.staff.removeStaffChild(id);
-      if (response?.success) {
+      if (this.isSuccess(response)) {
         this.showSuccess("Child link removed");
         await this.loadStaffChildren();
       } else {
@@ -393,8 +445,8 @@ const StaffChildrenController = {
         year
       );
 
-      if (response?.success) {
-        this.renderDeductionsTable(response.data);
+      if (this.isSuccess(response)) {
+        this.renderDeductionsTable(response.data || response);
       } else {
         document.getElementById(
           "staffDeductionsContainer"
@@ -413,7 +465,8 @@ const StaffChildrenController = {
    * Render deductions table
    */
   renderDeductionsTable: function (data) {
-    if (!data?.children || data.children.length === 0) {
+    const children = data?.children_breakdown || data?.children || [];
+    if (!children.length) {
       document.getElementById("staffDeductionsContainer").innerHTML =
         '<p class="text-muted text-center">No children linked to this staff member</p>';
       document.getElementById("deductionSummary").style.display = "none";
@@ -437,25 +490,25 @@ const StaffChildrenController = {
                 <tbody>
         `;
 
-    data.children.forEach((child) => {
+    children.forEach((child) => {
       html += `
                 <tr>
                     <td>${child.student_name}</td>
-                    <td>${child.class_name || "N/A"}</td>
+                    <td>${child.class || child.class_name || "N/A"}</td>
                     <td><span class="badge bg-info">${this.getOrdinal(
-                      child.child_order
+                      child.child_number || child.child_order
                     )}</span></td>
                     <td class="text-end">KES ${this.formatNumber(
-                      child.term_fees
+                      child.gross_fees ?? child.term_fees ?? 0
                     )}</td>
                     <td class="text-end text-success">${
-                      child.discount_percent
+                      child.staff_discount_percentage ?? child.discount_percent ?? 0
                     }%</td>
                     <td class="text-end text-success">KES ${this.formatNumber(
-                      child.discount_amount
+                      child.staff_discount_amount ?? child.discount_amount ?? 0
                     )}</td>
                     <td class="text-end">KES ${this.formatNumber(
-                      child.net_fee
+                      child.deductible_amount ?? child.net_fee ?? 0
                     )}</td>
                     <td class="text-end fw-bold">KES ${this.formatNumber(
                       child.monthly_deduction
@@ -468,17 +521,33 @@ const StaffChildrenController = {
     document.getElementById("staffDeductionsContainer").innerHTML = html;
 
     // Update summary
+    const totalFees = children.reduce(
+      (sum, c) => sum + (parseFloat(c.gross_fees ?? c.term_fees ?? 0) || 0),
+      0
+    );
+    const totalDiscount = children.reduce(
+      (sum, c) =>
+        sum +
+        (parseFloat(c.staff_discount_amount ?? c.discount_amount ?? 0) || 0),
+      0
+    );
+    const totalDeduction =
+      parseFloat(data.total_child_fee_deduction ?? 0) ||
+      children.reduce(
+        (sum, c) => sum + (parseFloat(c.monthly_deduction ?? 0) || 0),
+        0
+      );
+
     document.getElementById("summaryTotalFees").textContent =
-      "KES " + this.formatNumber(data.summary.total_fees);
+      "KES " + this.formatNumber(totalFees);
     document.getElementById("summaryTotalDiscount").textContent =
-      "KES " + this.formatNumber(data.summary.total_discount);
+      "KES " + this.formatNumber(totalDiscount);
     document.getElementById("summaryNetDeduction").textContent =
-      "KES " + this.formatNumber(data.summary.total_deduction);
-    document.getElementById("summaryCapped").textContent = data.summary.capped
-      ? "Yes (30% cap)"
+      "KES " + this.formatNumber(totalDeduction);
+    document.getElementById("summaryCapped").textContent = data.exceeded_limit
+      ? "Yes (cap applied)"
       : "No";
-    document.getElementById("summaryNetDeduction").className = data.summary
-      .capped
+    document.getElementById("summaryNetDeduction").className = data.exceeded_limit
       ? "text-warning"
       : "text-danger";
     document.getElementById("deductionSummary").style.display = "block";
@@ -500,7 +569,9 @@ const StaffChildrenController = {
         (c) =>
           (c.staff_name || "").toLowerCase().includes(search) ||
           (c.student_name || "").toLowerCase().includes(search) ||
-          (c.admission_number || "").toLowerCase().includes(search)
+          (c.admission_no || c.admission_number || "")
+            .toLowerCase()
+            .includes(search)
       );
     }
 
@@ -582,6 +653,10 @@ const StaffChildrenController = {
           exempt: "bg-info",
         };
 
+        const classLabel = child.class_name
+          ? `${child.class_name}${child.stream_name ? " " + child.stream_name : ""}`
+          : child.current_class || "N/A";
+
         html += `
                     <tr>
                         <td>
@@ -590,8 +665,8 @@ const StaffChildrenController = {
                               index + 1
                             )}</span>
                         </td>
-                        <td>${child.admission_number || "N/A"}</td>
-                        <td>${child.current_class || "N/A"}</td>
+                        <td>${child.admission_no || child.admission_number || "N/A"}</td>
+                        <td>${classLabel}</td>
                         <td><span class="text-capitalize">${
                           child.relationship || "N/A"
                         }</span></td>

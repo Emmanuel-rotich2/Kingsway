@@ -26,6 +26,10 @@ const AdmissionsController = {
     selectedApplication: null,
     userRole: null,
     isLoading: false,
+    referenceData: {
+      parents: [],
+      academicYears: [],
+    },
   },
 
   // Workflow stage configuration
@@ -92,6 +96,9 @@ const AdmissionsController = {
     // Setup event listeners
     this.setupEventListeners();
 
+    // Load reference data for forms
+    await this.loadReferenceData();
+
     // Load workflow queues
     await this.loadQueues();
 
@@ -128,6 +135,13 @@ const AdmissionsController = {
       if (e.target.closest(".admission-tab")) {
         const tab = e.target.closest(".admission-tab").dataset.tab;
         this.switchTab(tab);
+      }
+    });
+
+    // Special needs toggle
+    document.addEventListener("change", (e) => {
+      if (e.target && e.target.id === "hasSpecialNeeds") {
+        this.toggleSpecialNeeds(e.target.checked);
       }
     });
 
@@ -200,6 +214,122 @@ const AdmissionsController = {
   },
 
   /**
+   * Load reference data for forms (parents, academic years)
+   */
+  async loadReferenceData() {
+    await Promise.all([this.loadParents(), this.loadAcademicYears()]);
+  },
+
+  async loadParents() {
+    try {
+      if (!API?.students?.getParentsList) return;
+      const response = await API.students.getParentsList();
+      const parents = this.unwrapList(response, "parents");
+      this.state.referenceData.parents = parents;
+      this.populateParentSelect(parents);
+    } catch (error) {
+      console.warn("[AdmissionsController] Failed to load parents:", error);
+    }
+  },
+
+  async loadAcademicYears() {
+    try {
+      if (!API?.students?.getAllAcademicYears) return;
+      const response = await API.students.getAllAcademicYears();
+      const years = this.unwrapList(response, "academic_years");
+      this.state.referenceData.academicYears = years;
+      this.populateAcademicYearSelect(years);
+    } catch (error) {
+      console.warn(
+        "[AdmissionsController] Failed to load academic years:",
+        error
+      );
+    }
+  },
+
+  unwrapList(response, key) {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.data)) return response.data;
+    if (response.data && Array.isArray(response.data[key]))
+      return response.data[key];
+    if (Array.isArray(response[key])) return response[key];
+    return [];
+  },
+
+  unwrapPayload(response) {
+    if (!response) return response;
+    if (response.status && response.data !== undefined) return response.data;
+    if (response.data && response.data.data !== undefined) return response.data.data;
+    return response;
+  },
+
+  populateParentSelect(parents) {
+    const select = document.getElementById("parentSelect");
+    if (!select) return;
+    const options = parents
+      .map((parent) => {
+        const name = `${parent.first_name || ""} ${parent.last_name || ""}`.trim();
+        const contact = parent.phone_1 || parent.email || "No contact";
+        return `<option value="${parent.id}">${name || "Parent"} - ${contact}</option>`;
+      })
+      .join("");
+
+    select.innerHTML =
+      '<option value="">Select Parent/Guardian</option>' + options;
+  },
+
+  populateAcademicYearSelect(years) {
+    const select = document.getElementById("academicYearSelect");
+    if (!select) return;
+
+    let optionsHtml = '<option value="">Select Year</option>';
+    let hasCurrent = false;
+
+    years.forEach((year) => {
+      const yearCode = year.year_code || year.year_name || "";
+      let yearValue = year.academic_year || year.year || null;
+
+      if (!yearValue && yearCode) {
+        const parts = yearCode.split("/");
+        const candidate = parts[parts.length - 1];
+        yearValue = parseInt(candidate, 10) || null;
+      }
+
+      if (!yearValue && year.start_date) {
+        yearValue = new Date(year.start_date).getFullYear();
+      }
+
+      if (!yearValue) return;
+
+      const isCurrent = year.is_current === 1 || year.is_current === true;
+      if (isCurrent) hasCurrent = true;
+      optionsHtml += `<option value="${yearValue}"${
+        isCurrent ? " selected" : ""
+      }>${yearCode || yearValue}</option>`;
+    });
+
+    if (!optionsHtml.includes("option value=") || !years.length) {
+      const currentYear = new Date().getFullYear();
+      optionsHtml += `<option value="${currentYear}" selected>${currentYear}</option>`;
+      hasCurrent = true;
+    }
+
+    select.innerHTML = optionsHtml;
+
+    if (!hasCurrent && select.options.length > 1) {
+      select.selectedIndex = 1;
+    }
+  },
+
+  toggleSpecialNeeds(isChecked) {
+    const group = document.getElementById("specialNeedsDetailsGroup");
+    if (group) {
+      group.style.display = isChecked ? "" : "none";
+    }
+  },
+
+  /**
    * Load workflow queues from API
    */
   async loadQueues() {
@@ -208,17 +338,15 @@ const AdmissionsController = {
 
     try {
       const response = await API.admission.getQueues();
+      const payload = this.unwrapPayload(response);
 
-      if (response.success) {
-        this.state.queues = response.data.queues;
-        this.state.summary = response.data.summary;
+      if (payload && payload.queues) {
+        this.state.queues = payload.queues;
+        this.state.summary = payload.summary || {};
         this.updateTabBadges();
         this.renderCurrentQueue();
       } else {
-        showNotification(
-          "Failed to load admissions: " + (response.message || "Unknown error"),
-          "error"
-        );
+        showNotification("Failed to load admissions", "error");
       }
     } catch (error) {
       console.error("[AdmissionsController] Error loading queues:", error);
@@ -513,15 +641,16 @@ const AdmissionsController = {
   async viewApplication(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
+      const payload = this.unwrapPayload(response);
 
-      if (!response.success) {
+      if (!payload || !payload.application) {
         showNotification("Failed to load application details", "error");
         return;
       }
 
       const { application, documents, workflow_data, available_actions } =
-        response.data;
-      this.state.selectedApplication = response.data;
+        payload;
+      this.state.selectedApplication = payload;
 
       // Render in modal
       this.showApplicationModal(
@@ -705,6 +834,14 @@ const AdmissionsController = {
   openNewApplicationModal() {
     const modal = document.getElementById("newApplicationModal");
     if (modal) {
+      if (
+        !this.state.referenceData.parents.length ||
+        !this.state.referenceData.academicYears.length
+      ) {
+        this.loadReferenceData();
+      }
+      const checkbox = modal.querySelector("#hasSpecialNeeds");
+      this.toggleSpecialNeeds(checkbox?.checked);
       const bsModal = new bootstrap.Modal(modal);
       bsModal.show();
     }
@@ -720,18 +857,10 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.submitApplication(data);
-
-      if (response.success) {
-        showNotification("Application submitted successfully", "success");
-        this.closeModal("newApplicationModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to submit application",
-          "error"
-        );
-      }
+      await API.admission.submitApplication(data);
+      showNotification("Application submitted successfully", "success");
+      this.closeModal("newApplicationModal");
+      await this.loadQueues();
     } catch (error) {
       console.error(
         "[AdmissionsController] Error submitting application:",
@@ -749,12 +878,13 @@ const AdmissionsController = {
   async openVerifyDocumentsModal(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
-      if (!response.success) {
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
         showNotification("Failed to load documents", "error");
         return;
       }
 
-      const { application, documents } = response.data;
+      const { application, documents } = payload;
       const modal = document.getElementById("verifyDocumentsModal");
       if (!modal) return;
 
@@ -875,22 +1005,14 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.verifyDocument({
+      await API.admission.verifyDocument({
         application_id: applicationId,
         documents: documentStatuses,
         notes: formData.get("notes"),
       });
-
-      if (response.success) {
-        showNotification("Documents verified successfully", "success");
-        this.closeModal("verifyDocumentsModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to verify documents",
-          "error"
-        );
-      }
+      showNotification("Documents verified successfully", "success");
+      this.closeModal("verifyDocumentsModal");
+      await this.loadQueues();
     } catch (error) {
       console.error("[AdmissionsController] Error verifying documents:", error);
       showNotification("Error verifying documents", "error");
@@ -905,12 +1027,13 @@ const AdmissionsController = {
   async openScheduleInterviewModal(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
-      if (!response.success) {
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
         return;
       }
 
-      const { application } = response.data;
+      const { application } = payload;
 
       // Check if interview can be skipped
       const skipInterview = this.noInterviewGrades.some((g) =>
@@ -1003,18 +1126,10 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.scheduleInterview(data);
-
-      if (response.success) {
-        showNotification("Interview scheduled successfully", "success");
-        this.closeModal("scheduleInterviewModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to schedule interview",
-          "error"
-        );
-      }
+      await API.admission.scheduleInterview(data);
+      showNotification("Interview scheduled successfully", "success");
+      this.closeModal("scheduleInterviewModal");
+      await this.loadQueues();
     } catch (error) {
       console.error(
         "[AdmissionsController] Error scheduling interview:",
@@ -1032,12 +1147,13 @@ const AdmissionsController = {
   async openRecordInterviewModal(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
-      if (!response.success) {
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
         return;
       }
 
-      const { application, workflow_data } = response.data;
+      const { application, workflow_data } = payload;
       const modal = document.getElementById("recordInterviewModal");
       if (!modal) return;
 
@@ -1122,18 +1238,10 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.recordInterviewResults(data);
-
-      if (response.success) {
-        showNotification("Interview results recorded successfully", "success");
-        this.closeModal("recordInterviewModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to record results",
-          "error"
-        );
-      }
+      await API.admission.recordInterviewResults(data);
+      showNotification("Interview results recorded successfully", "success");
+      this.closeModal("recordInterviewModal");
+      await this.loadQueues();
     } catch (error) {
       console.error(
         "[AdmissionsController] Error recording interview results:",
@@ -1150,18 +1258,13 @@ const AdmissionsController = {
    */
   async autoQualify(applicationId) {
     try {
-      const response = await API.admission.recordInterviewResults({
+      await API.admission.recordInterviewResults({
         application_id: applicationId,
         result: "passed",
         notes: "Auto-qualified - interview not required for this grade level",
       });
-
-      if (response.success) {
-        showNotification("Applicant auto-qualified successfully", "success");
-        await this.loadQueues();
-      } else {
-        showNotification(response.message || "Failed to auto-qualify", "error");
-      }
+      showNotification("Applicant auto-qualified successfully", "success");
+      await this.loadQueues();
     } catch (error) {
       console.error("[AdmissionsController] Error auto-qualifying:", error);
       showNotification("Error auto-qualifying applicant", "error");
@@ -1174,27 +1277,27 @@ const AdmissionsController = {
   async openPlacementModal(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
-      if (!response.success) {
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
         return;
       }
 
-      const { application } = response.data;
+      const { application } = payload;
       const modal = document.getElementById("placementModal");
       if (!modal) return;
 
       // Load available classes for this grade
       let classesOptions = '<option value="">-- Select Class --</option>';
       try {
-        const classesResponse = (await API.classes?.list?.({
-          grade: application.grade_applying_for,
-        })) || { success: false };
-        if (classesResponse.success && classesResponse.data) {
-          classesOptions += classesResponse.data
+        const classesResponse = await API.academic.listClasses();
+        const classes = this.unwrapList(classesResponse);
+        if (classes.length) {
+          classesOptions += classes
             .map(
               (c) =>
-                `<option value="${c.id}">${c.class_name} (${
-                  c.current_enrollment || 0
+                `<option value="${c.id}">${c.name || c.class_name} (${
+                  c.student_count || 0
                 }/${c.capacity || "∞"})</option>`
             )
             .join("");
@@ -1266,18 +1369,10 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.generatePlacementOffer(data);
-
-      if (response.success) {
-        showNotification("Placement offer generated successfully", "success");
-        this.closeModal("placementModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to generate offer",
-          "error"
-        );
-      }
+      await API.admission.generatePlacementOffer(data);
+      showNotification("Placement offer generated successfully", "success");
+      this.closeModal("placementModal");
+      await this.loadQueues();
     } catch (error) {
       console.error(
         "[AdmissionsController] Error generating placement offer:",
@@ -1295,12 +1390,13 @@ const AdmissionsController = {
   async openPaymentModal(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
-      if (!response.success) {
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
         return;
       }
 
-      const { application, workflow_data } = response.data;
+      const { application, workflow_data } = payload;
       const modal = document.getElementById("paymentModal");
       if (!modal) return;
 
@@ -1390,18 +1486,10 @@ const AdmissionsController = {
     try {
       this.showButtonLoading(form.querySelector('[type="submit"]'));
 
-      const response = await API.admission.recordFeePayment(data);
-
-      if (response.success) {
-        showNotification("Payment recorded successfully", "success");
-        this.closeModal("paymentModal");
-        await this.loadQueues();
-      } else {
-        showNotification(
-          response.message || "Failed to record payment",
-          "error"
-        );
-      }
+      await API.admission.recordFeePayment(data);
+      showNotification("Payment recorded successfully", "success");
+      this.closeModal("paymentModal");
+      await this.loadQueues();
     } catch (error) {
       console.error("[AdmissionsController] Error recording payment:", error);
       showNotification("Error recording payment", "error");
@@ -1425,29 +1513,23 @@ const AdmissionsController = {
       const response = await API.admission.completeEnrollment({
         application_id: applicationId,
       });
+      const payload = this.unwrapPayload(response);
 
-      if (response.success) {
-        showNotification(
-          "Enrollment completed successfully! Student has been created.",
-          "success"
+      showNotification(
+        "Enrollment completed successfully! Student has been created.",
+        "success"
+      );
+      await this.loadQueues();
+
+      // Optionally redirect to student profile
+      if (payload?.student_id) {
+        const viewStudent = await this.confirm(
+          "View Student",
+          "Would you like to view the new student record?"
         );
-        await this.loadQueues();
-
-        // Optionally redirect to student profile
-        if (response.data?.student_id) {
-          const viewStudent = await this.confirm(
-            "View Student",
-            "Would you like to view the new student record?"
-          );
-          if (viewStudent) {
-            window.location.href = `/pages/student_profile.php?id=${response.data.student_id}`;
-          }
+        if (viewStudent) {
+          window.location.href = `/pages/student_profile.php?id=${payload.student_id}`;
         }
-      } else {
-        showNotification(
-          response.message || "Failed to complete enrollment",
-          "error"
-        );
       }
     } catch (error) {
       console.error(

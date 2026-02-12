@@ -86,6 +86,54 @@ class StudentsController extends BaseController
     }
 
     /* =====================================================
+     * BULK OPERATIONS
+     * ===================================================== */
+
+    /**
+     * POST /api/students/bulk-create
+     * Accepts multipart file upload (file) or JSON payload
+     */
+    public function postBulkCreate($id = null, $data = [], $segments = [])
+    {
+        if (!empty($_FILES['file'])) {
+            $data['file'] = $_FILES['file'];
+        }
+        $result = $this->api->bulkCreate($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/bulk-update
+     * Accepts multipart file upload (file) or JSON payload
+     */
+    public function postBulkUpdate($id = null, $data = [], $segments = [])
+    {
+        if (!empty($_FILES['file'])) {
+            $data['file'] = $_FILES['file'];
+        }
+        $result = $this->api->bulkUpdate($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/bulk-delete
+     */
+    public function postBulkDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->bulkDelete($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/bulk-promote
+     */
+    public function postBulkPromote($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->bulkPromoteStudents($data);
+        return $this->handleResponse($result);
+    }
+
+    /* =====================================================
      * MEDIA
      * ===================================================== */
 
@@ -280,6 +328,21 @@ class StudentsController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * GET /api/students/enrollment-history/{id}
+     */
+    public function getEnrollmentHistory($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $result = $this->api->getEnrollmentHistory($studentId);
+        return $this->handleResponse($result);
+    }
+
     // ========================================
     // SECTION 8: Parent/Guardian Management
     // ========================================
@@ -289,6 +352,13 @@ class StudentsController extends BaseController
      */
     public function getParentsGet($id = null, $data = [], $segments = [])
     {
+        $parentId = $data['parent_id'] ?? null;
+        if ($parentId !== null) {
+            return $this->handleResponse(
+                (new FamilyGroupsManager())->getParentDetails((int) $parentId)
+            );
+        }
+
         $studentId = $id ?? $data['student_id'] ?? null;
         
         if ($studentId === null) {
@@ -300,12 +370,65 @@ class StudentsController extends BaseController
     }
 
     /**
+     * GET /api/students/parents/list
+     */
+    public function getParentsList($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->getParents($data)
+        );
+    }
+
+    /**
+     * GET /api/students/parents/children
+     */
+    public function getParentsChildren($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? $id ?? null;
+        if ($parentId === null) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        $result = (new FamilyGroupsManager())->getParentDetails((int) $parentId);
+        if (is_array($result) && ($result['success'] ?? false)) {
+            $result['data'] = $result['data']['children'] ?? [];
+        }
+
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/students/parents/add
      */
     public function postParentsAdd($id = null, $data = [], $segments = [])
     {
         $result = $this->api->addParentToStudent($data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/parents/create
+     */
+    public function postParentsCreate($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->createParent($data)
+        );
+    }
+
+    /**
+     * POST /api/students/parents/update
+     */
+    public function postParentsUpdate($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? $id ?? null;
+        if ($parentId === null) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->updateParent((int) $parentId, $data)
+        );
     }
 
     /**
@@ -332,8 +455,218 @@ class StudentsController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * POST /api/students/parents/delete
+     */
+    public function postParentsDelete($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? $id ?? null;
+        if ($parentId === null) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->deleteParent((int) $parentId)
+        );
+    }
+
+    /**
+     * POST /api/students/parents/link-child
+     */
+    public function postParentsLinkChild($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? null;
+        $studentId = $data['student_id'] ?? null;
+
+        if (!$parentId || !$studentId) {
+            return $this->badRequest('Parent ID and Student ID are required');
+        }
+
+        $linkData = $data;
+        unset($linkData['parent_id'], $linkData['student_id']);
+
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->linkParentToStudent((int) $parentId, (int) $studentId, $linkData)
+        );
+    }
+
+    /**
+     * POST /api/students/parents/unlink-child
+     */
+    public function postParentsUnlinkChild($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? null;
+        $studentId = $data['student_id'] ?? null;
+
+        if (!$parentId || !$studentId) {
+            return $this->badRequest('Parent ID and Student ID are required');
+        }
+
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->unlinkParentFromStudent((int) $parentId, (int) $studentId)
+        );
+    }
+
+    /**
+     * GET /api/students/parents/available-students
+     */
+    public function getParentsAvailableStudents($id = null, $data = [], $segments = [])
+    {
+        $parentId = $data['parent_id'] ?? $id ?? null;
+        if ($parentId === null) {
+            return $this->badRequest('Parent ID is required');
+        }
+
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->getAvailableStudentsForParent((int) $parentId)
+        );
+    }
+
+    /**
+     * GET /api/students/without-parents
+     */
+    public function getWithoutParents($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse(
+            (new FamilyGroupsManager())->getStudentsWithoutParents()
+        );
+    }
+
     // ========================================
-    // SECTION 9: Medical Records
+    // SECTION 9: Student Profile & Insights
+    // ========================================
+
+    /**
+     * GET /api/students/profile-get/{id}
+     */
+    public function getProfileGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->getProfile($studentId));
+    }
+
+    /**
+     * GET /api/students/attendance-get/{id}
+     */
+    public function getAttendanceGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->getAttendance($studentId, $data));
+    }
+
+    /**
+     * GET /api/students/performance-get/{id}
+     */
+    public function getPerformanceGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->getPerformance($studentId, $data));
+    }
+
+    /**
+     * GET /api/students/fees-get/{id}
+     */
+    public function getFeesGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->getFees($studentId));
+    }
+
+    /**
+     * GET /api/students/qr-info-get/{id}
+     */
+    public function getQrInfoGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->getQrInfo($studentId));
+    }
+
+    /**
+     * GET /api/students/statistics-get
+     */
+    public function getStatisticsGet($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getStudentStatistics($data));
+    }
+
+    // ========================================
+    // SECTION 10: Discipline Management
+    // ========================================
+
+    /**
+     * GET /api/students/discipline-get
+     */
+    public function getDisciplineGet($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? $data['student_id'] ?? null;
+        if ($studentId !== null) {
+            return $this->handleResponse($this->api->getDisciplineRecordsInfo($studentId));
+        }
+
+        return $this->handleResponse($this->api->listDisciplineCases($data));
+    }
+
+    /**
+     * POST /api/students/discipline-record
+     */
+    public function postDisciplineRecord($id = null, $data = [], $segments = [])
+    {
+        $studentId = $data['student_id'] ?? null;
+        if ($studentId === null) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        return $this->handleResponse($this->api->recordDisciplineCase($studentId, $data));
+    }
+
+    /**
+     * PUT /api/students/discipline-update/{id}
+     */
+    public function putDisciplineUpdate($id = null, $data = [], $segments = [])
+    {
+        $recordId = $id ?? $data['record_id'] ?? null;
+        if ($recordId === null) {
+            return $this->badRequest('Discipline record ID is required');
+        }
+
+        return $this->handleResponse($this->api->updateDisciplineCase($recordId, $data));
+    }
+
+    /**
+     * POST /api/students/discipline-resolve
+     */
+    public function postDisciplineResolve($id = null, $data = [], $segments = [])
+    {
+        $recordId = $data['record_id'] ?? $id ?? null;
+        if ($recordId === null) {
+            return $this->badRequest('Discipline record ID is required');
+        }
+
+        return $this->handleResponse($this->api->resolveDisciplineCase($recordId, $data));
+    }
+
+    // ========================================
+    // SECTION 11: Medical Records
     // ========================================
 
     /**

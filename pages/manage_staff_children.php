@@ -135,11 +135,10 @@
                                 <label class="form-label">Relationship <span class="text-danger">*</span></label>
                                 <select id="relationshipSelect" class="form-select" required>
                                     <option value="">-- Select Relationship --</option>
-                                    <option value="son">Son</option>
-                                    <option value="daughter">Daughter</option>
-                                    <option value="ward">Ward</option>
-                                    <option value="stepchild">Stepchild</option>
-                                    <option value="other">Other</option>
+                                    <option value="father">Father</option>
+                                    <option value="mother">Mother</option>
+                                    <option value="guardian">Guardian</option>
+                                    <option value="spouse">Spouse</option>
                                 </select>
                             </div>
                         </div>

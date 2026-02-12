@@ -95,6 +95,9 @@
 
             // Limited access roles
             'teacher': 'viewer_fee_structure.php',
+            'class_teacher': 'viewer_fee_structure.php',
+            'subject_teacher': 'viewer_fee_structure.php',
+            'intern': 'viewer_fee_structure.php',
             'parent': 'viewer_fee_structure.php',
             'student': 'viewer_fee_structure.php'
         };

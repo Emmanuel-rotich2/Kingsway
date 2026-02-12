@@ -1,3 +1,4 @@
+<div class="admin-layout" data-user-role="director_owner">
 <!-- Fee Structure Admin Component - Full management features -->
 
 <!-- Page Header -->
@@ -101,9 +102,9 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label">Class</label>
-                <select class="form-select" id="classFilter">
-                    <option value="">All Classes</option>
+                <label class="form-label">Student Type</label>
+                <select class="form-select" id="studentTypeFilter">
+                    <option value="">All Types</option>
                 </select>
             </div>
             <div class="col-md-1">
@@ -121,7 +122,8 @@
                     <option value="">All Status</option>
                     <option value="active">Active</option>
                     <option value="draft">Draft</option>
-                    <option value="pending_approval">Pending</option>
+                    <option value="reviewed">Reviewed</option>
+                    <option value="approved">Approved</option>
                     <option value="archived">Archived</option>
                 </select>
             </div>
@@ -136,47 +138,25 @@
     </div>
 </div>
 
-<!-- Bulk Actions -->
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <div class="form-check">
-        <input class="form-check-input" type="checkbox" id="selectAllCheckbox"
-            onchange="selectAllStructures(this.checked)">
-        <label class="form-check-label" for="selectAllCheckbox">
-            Select All (<span id="selectedCount">0</span> selected)
-        </label>
-    </div>
-    <div class="btn-group">
-        <button class="btn btn-sm btn-success" onclick="bulkActivate()" disabled id="bulkActivateBtn">✅
-            Activate</button>
-        <button class="btn btn-sm btn-warning" onclick="bulkArchive()" disabled id="bulkArchiveBtn">📦 Archive</button>
-        <button class="btn btn-sm btn-danger" onclick="bulkDelete()" disabled id="bulkDeleteBtn">🗑️ Delete</button>
-    </div>
-</div>
-
 <!-- Data Table -->
 <div class="table-responsive">
     <table class="table table-hover" id="feeStructuresTable">
         <thead class="table-light">
             <tr>
-                <th width="40"><input type="checkbox" id="selectAllHeader"></th>
-                <th>ID</th>
                 <th>Academic Year</th>
-                <th>Level</th>
-                <th>Class</th>
                 <th>Term</th>
+                <th>Level</th>
+                <th>Student Type</th>
                 <th>Total Amount</th>
-                <th>Fee Items</th>
                 <th>Students</th>
                 <th>Expected Revenue</th>
                 <th>Status</th>
-                <th>Effective Date</th>
-                <th>Created By</th>
                 <th>Actions</th>
             </tr>
         </thead>
         <tbody id="feeStructuresBody">
             <tr>
-                <td colspan="14" class="text-center py-4 text-muted">Loading fee structures...</td>
+                <td colspan="9" class="text-center py-4 text-muted">Loading fee structures...</td>
             </tr>
         </tbody>
     </table>
@@ -271,15 +251,8 @@
                     <small class="form-text">Positive values increase fees, negative values decrease</small>
                 </div>
                 <div class="form-group">
-                    <label>Apply to:</label>
-                    <div class="radio-group">
-                        <label><input type="radio" name="duplicateScope" value="single" checked> Selected structure
-                            only</label>
-                        <label><input type="radio" name="duplicateScope" value="class"> All structures for this
-                            class</label>
-                        <label><input type="radio" name="duplicateScope" value="level"> All structures for this
-                            level</label>
-                    </div>
+                    <label>Scope</label>
+                    <p class="text-muted small mb-0">Duplication runs for the entire academic year.</p>
                 </div>
             </div>
             <div class="modal-footer">
@@ -301,3 +274,4 @@
         }
     });
 </script>
+</div>

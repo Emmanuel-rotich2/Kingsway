@@ -103,7 +103,6 @@
                 <select class="form-select" id="statusFilter">
                     <option value="">All Status</option>
                     <option value="pending">Pending</option>
-                    <option value="under_review">Under Review</option>
                     <option value="resolved">Resolved</option>
                     <option value="escalated">Escalated</option>
                 </select>
@@ -111,10 +110,9 @@
             <div class="col-md-2">
                 <select class="form-select" id="severityFilter">
                     <option value="">All Severity</option>
-                    <option value="minor">Minor</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="serious">Serious</option>
-                    <option value="severe">Severe</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
                 </select>
             </div>
             <!-- Class filter - hidden for class teachers (locked to their class) -->
@@ -130,6 +128,7 @@
             <table class="table table-hover" id="disciplineTable">
                 <thead class="table-light">
                     <tr>
+                        <th style="width:40px;"><input type="checkbox" id="selectAllCases"></th>
                         <th>Date</th>
                         <th>Student</th>
                         <th>Class</th>
@@ -194,10 +193,9 @@
                         <div class="col-md-6 mb-3">
                             <label class="form-label">Severity*</label>
                             <select class="form-select" id="severity" required>
-                                <option value="minor">Minor</option>
-                                <option value="moderate">Moderate</option>
-                                <option value="serious">Serious</option>
-                                <option value="severe">Severe</option>
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
                             </select>
                         </div>
                     </div>
@@ -248,7 +246,6 @@
                             <label class="form-label">Status*</label>
                             <select class="form-select" id="status" required>
                                 <option value="pending">Pending</option>
-                                <option value="under_review">Under Review</option>
                                 <option value="resolved">Resolved</option>
                                 <option value="escalated">Escalated</option>
                             </select>
@@ -325,9 +322,4 @@
     </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // TODO: Implement studentDisciplineController in js/pages/student_discipline.js
-    console.log('Student Discipline page loaded');
-});
-</script>
+<script src="/Kingsway/js/pages/student_discipline.js"></script>

@@ -218,11 +218,13 @@ class FeeManager
 
             $sql = "SELECT fs.*, sl.name as level_name, sl.code as level_code,
                            at.name as term_name,
-                           ft.id as fee_type_id, ft.name as fee_name, ft.category as fee_category,
+                           st.name as student_type_name, st.code as student_type_code,
+                           ft.id as fee_type_id, ft.name as fee_name, ft.code as fee_type_code, ft.category as fee_category,
                            COUNT(DISTINCT sfo.student_id) as student_count
                     FROM fee_structures_detailed fs
                     LEFT JOIN school_levels sl ON fs.level_id = sl.id
                     LEFT JOIN academic_terms at ON fs.term_id = at.id
+                    LEFT JOIN student_types st ON fs.student_type_id = st.id
                     LEFT JOIN fee_types ft ON fs.fee_type_id = ft.id
                     LEFT JOIN student_fee_obligations sfo ON fs.id = sfo.fee_structure_detail_id
                     WHERE 1=1";
@@ -237,6 +239,11 @@ class FeeManager
             if (!empty($filters['level_id'])) {
                 $sql .= " AND fs.level_id = ?";
                 $params[] = $filters['level_id'];
+            }
+
+            if (!empty($filters['student_type_id'])) {
+                $sql .= " AND fs.student_type_id = ?";
+                $params[] = $filters['student_type_id'];
             }
 
             $termId = $filters['term_id'] ?? $filters['term'] ?? null;
@@ -286,6 +293,9 @@ class FeeManager
             if (!empty($filters['level_id'])) {
                 $countSql .= " AND fs.level_id = ?";
             }
+            if (!empty($filters['student_type_id'])) {
+                $countSql .= " AND fs.student_type_id = ?";
+            }
             $termId = $filters['term_id'] ?? $filters['term'] ?? null;
             if (!empty($termId)) {
                 $countSql .= " AND fs.term_id = ?";
@@ -320,6 +330,446 @@ class FeeManager
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'Failed to list fee structures: ' . $e->getMessage());
+        }
+    }
+
+    // ===============================================================
+    // Fee Invoices
+    // ===============================================================
+
+    /**
+     * Resolve current academic year and term IDs
+     */
+    private function resolveCurrentYearTerm($academicYearId = null, $termId = null)
+    {
+        if (empty($academicYearId)) {
+            $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
+            $academicYearId = $stmt->fetchColumn();
+        }
+
+        if (empty($termId)) {
+            $stmt = $this->db->query("SELECT id FROM academic_terms WHERE status = 'current' LIMIT 1");
+            $termId = $stmt->fetchColumn();
+        }
+
+        return [$academicYearId, $termId];
+    }
+
+    /**
+     * Generate or refresh a fee invoice for a student (current term/year by default)
+     */
+    public function generateStudentInvoice($studentId, $academicYearId = null, $termId = null, $generatedBy = null)
+    {
+        try {
+            if (empty($studentId)) {
+                return formatResponse(false, null, 'student_id is required');
+            }
+
+            [$academicYearId, $termId] = $this->resolveCurrentYearTerm($academicYearId, $termId);
+
+            if (empty($academicYearId) || empty($termId)) {
+                return formatResponse(false, null, 'Current academic year or term not configured');
+            }
+
+            // Aggregate obligations
+            $stmt = $this->db->prepare("
+                SELECT 
+                    COALESCE(SUM(amount_due), 0) AS total_amount,
+                    COALESCE(SUM(amount_paid), 0) AS amount_paid,
+                    COALESCE(SUM(balance), 0) AS balance,
+                    MAX(due_date) AS due_date
+                FROM student_fee_obligations
+                WHERE student_id = ? AND academic_year_id = ? AND term_id = ?
+            ");
+            $stmt->execute([$studentId, $academicYearId, $termId]);
+            $totals = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (empty($totals) || floatval($totals['total_amount']) <= 0) {
+                return formatResponse(false, null, 'No fee obligations found for student');
+            }
+
+            $totalAmount = floatval($totals['total_amount']);
+            $amountPaid = floatval($totals['amount_paid']);
+            $balance = floatval($totals['balance']);
+
+            $status = 'pending';
+            if ($balance <= 0 && $totalAmount > 0) {
+                $status = 'paid';
+            } elseif ($amountPaid > 0) {
+                $status = 'partial';
+            }
+
+            $dueDate = $totals['due_date'] ?? null;
+
+            // Upsert invoice
+            $stmt = $this->db->prepare("
+                INSERT INTO fee_invoices
+                    (student_id, academic_year_id, term_id, total_amount, amount_paid, balance, status, due_date, generated_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    total_amount = VALUES(total_amount),
+                    amount_paid = VALUES(amount_paid),
+                    balance = VALUES(balance),
+                    status = VALUES(status),
+                    due_date = VALUES(due_date),
+                    generated_by = VALUES(generated_by),
+                    updated_at = NOW()
+            ");
+
+            $stmt->execute([
+                $studentId,
+                $academicYearId,
+                $termId,
+                $totalAmount,
+                $amountPaid,
+                $balance,
+                $status,
+                $dueDate,
+                $generatedBy
+            ]);
+
+            // Return latest invoice
+            $stmt = $this->db->prepare("
+                SELECT * FROM fee_invoices
+                WHERE student_id = ? AND academic_year_id = ? AND term_id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$studentId, $academicYearId, $termId]);
+            $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, $invoice, 'Invoice generated successfully');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to generate invoice: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Generate invoices for all students with obligations in a term/year
+     */
+    public function generateInvoicesForTerm($academicYearId = null, $termId = null, $filters = [], $generatedBy = null)
+    {
+        try {
+            [$academicYearId, $termId] = $this->resolveCurrentYearTerm($academicYearId, $termId);
+            if (empty($academicYearId) || empty($termId)) {
+                return formatResponse(false, null, 'Current academic year or term not configured');
+            }
+
+            $bindings = [$academicYearId, $termId];
+            $where = "WHERE sfo.academic_year_id = ? AND sfo.term_id = ?";
+
+            if (!empty($filters['class_id'])) {
+                $where .= " AND cs.class_id = ?";
+                $bindings[] = $filters['class_id'];
+            }
+            if (!empty($filters['stream_id'])) {
+                $where .= " AND s.stream_id = ?";
+                $bindings[] = $filters['stream_id'];
+            }
+
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT s.id AS student_id
+                FROM student_fee_obligations sfo
+                JOIN students s ON sfo.student_id = s.id
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                $where
+            ");
+            $stmt->execute($bindings);
+            $students = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            $count = 0;
+            $errors = [];
+            foreach ($students as $studentId) {
+                $res = $this->generateStudentInvoice($studentId, $academicYearId, $termId, $generatedBy);
+                if (!empty($res['status']) && $res['status'] === 'success') {
+                    $count++;
+                } else {
+                    $errors[] = [
+                        'student_id' => $studentId,
+                        'message' => $res['message'] ?? 'Failed to generate invoice'
+                    ];
+                }
+            }
+
+            return formatResponse(true, [
+                'academic_year_id' => $academicYearId,
+                'term_id' => $termId,
+                'generated' => $count,
+                'errors' => $errors
+            ], 'Invoice batch generation completed');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to generate invoices: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get a student invoice for a term/year (current by default)
+     */
+    public function getStudentInvoice($studentId, $academicYearId = null, $termId = null)
+    {
+        try {
+            if (empty($studentId)) {
+                return formatResponse(false, null, 'student_id is required');
+            }
+            [$academicYearId, $termId] = $this->resolveCurrentYearTerm($academicYearId, $termId);
+
+            $stmt = $this->db->prepare("
+                SELECT * FROM fee_invoices
+                WHERE student_id = ? AND academic_year_id = ? AND term_id = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$studentId, $academicYearId, $termId]);
+            $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$invoice) {
+                return formatResponse(false, null, 'Invoice not found');
+            }
+            return formatResponse(true, $invoice, 'Invoice retrieved successfully');
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to retrieve invoice: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * List fee types
+     * @return array Response with fee types list
+     */
+    public function listFeeTypes()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT id, code, name, description, category, is_mandatory, status
+                FROM fee_types
+                WHERE status = 'active'
+                ORDER BY name ASC
+            ");
+            $stmt->execute();
+            $feeTypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, $feeTypes);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to list fee types: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * List student types
+     * @return array Response with student types list
+     */
+    public function listStudentTypes()
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT id, code, name, description, status
+                FROM student_types
+                WHERE status = 'active'
+                ORDER BY name ASC
+            ");
+            $stmt->execute();
+            $studentTypes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, $studentTypes);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to list student types: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Update annual fee structure with term breakdown
+     * @param array $data Contains: academic_year, level_id, student_type_id, term_breakdown, updated_by
+     * @return array Response with update counts
+     */
+    public function updateAnnualFeeStructure($data)
+    {
+        try {
+            $required = ['academic_year', 'level_id', 'student_type_id', 'term_breakdown', 'updated_by'];
+            $missing = array_diff($required, array_keys($data));
+
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            if (empty($data['term_breakdown']) || !is_array($data['term_breakdown'])) {
+                return formatResponse(false, null, 'Term breakdown is required');
+            }
+
+            $this->db->beginTransaction();
+
+            // Get term IDs for this academic year
+            $stmt = $this->db->prepare(
+                "SELECT id, term_number FROM academic_terms WHERE year = ? ORDER BY term_number"
+            );
+            $stmt->execute([$data['academic_year']]);
+            $terms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($terms)) {
+                throw new Exception("No terms found for academic year {$data['academic_year']}");
+            }
+
+            $termMap = [];
+            foreach ($terms as $term) {
+                $termMap[$term['term_number']] = $term['id'];
+            }
+
+            $updatedCount = 0;
+            $createdCount = 0;
+
+            foreach ($data['term_breakdown'] as $feeTypeName => $termAmounts) {
+                // Get fee_type_id from name or code
+                $stmt = $this->db->prepare(
+                    "SELECT id FROM fee_types WHERE name = ? OR code = ? LIMIT 1"
+                );
+                $stmt->execute([$feeTypeName, $feeTypeName]);
+                $feeType = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$feeType) {
+                    throw new Exception("Fee type '{$feeTypeName}' not found");
+                }
+
+                foreach ($termAmounts as $termKey => $amount) {
+                    $termNumber = (int) str_replace('term', '', $termKey);
+                    if (!isset($termMap[$termNumber])) {
+                        continue;
+                    }
+
+                    $termId = $termMap[$termNumber];
+
+                    $updateStmt = $this->db->prepare("
+                        UPDATE fee_structures_detailed
+                        SET amount = ?, status = 'draft', updated_by = ?, updated_at = NOW()
+                        WHERE level_id = ?
+                        AND academic_year = ?
+                        AND term_id = ?
+                        AND student_type_id = ?
+                        AND fee_type_id = ?
+                    ");
+
+                    $updateStmt->execute([
+                        $amount,
+                        $data['updated_by'],
+                        $data['level_id'],
+                        $data['academic_year'],
+                        $termId,
+                        $data['student_type_id'],
+                        $feeType['id']
+                    ]);
+
+                    if ($updateStmt->rowCount() > 0) {
+                        $updatedCount++;
+                    } else {
+                        $insertStmt = $this->db->prepare("
+                            INSERT INTO fee_structures_detailed (
+                                level_id,
+                                academic_year,
+                                term_id,
+                                student_type_id,
+                                fee_type_id,
+                                amount,
+                                status,
+                                created_by
+                            ) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?)
+                        ");
+
+                        $insertStmt->execute([
+                            $data['level_id'],
+                            $data['academic_year'],
+                            $termId,
+                            $data['student_type_id'],
+                            $feeType['id'],
+                            $amount,
+                            $data['updated_by']
+                        ]);
+
+                        $createdCount++;
+                    }
+                }
+            }
+
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'structures_updated' => $updatedCount,
+                'structures_created' => $createdCount,
+                'academic_year' => $data['academic_year'],
+                'level_id' => $data['level_id'],
+                'student_type_id' => $data['student_type_id'],
+                'message' => 'Annual fee structure updated successfully'
+            ]);
+
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'Failed to update annual fee structure: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete annual fee structure for a level/year/student type
+     * @param array $data Contains: academic_year, level_id, student_type_id, optional term_id
+     * @return array Response with delete count
+     */
+    public function deleteAnnualFeeStructure($data)
+    {
+        try {
+            $required = ['academic_year', 'level_id', 'student_type_id'];
+            $missing = array_diff($required, array_keys($data));
+
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            $params = [
+                $data['academic_year'],
+                $data['level_id'],
+                $data['student_type_id']
+            ];
+
+            $sql = "
+                SELECT id
+                FROM fee_structures_detailed
+                WHERE academic_year = ?
+                AND level_id = ?
+                AND student_type_id = ?
+            ";
+
+            if (!empty($data['term_id'])) {
+                $sql .= " AND term_id = ?";
+                $params[] = $data['term_id'];
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $ids = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            if (empty($ids)) {
+                return formatResponse(true, [
+                    'structures_deleted' => 0,
+                    'message' => 'No fee structures found to delete'
+                ]);
+            }
+
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $checkStmt = $this->db->prepare(
+                "SELECT COUNT(*) as count FROM student_fee_obligations WHERE fee_structure_detail_id IN ($placeholders)"
+            );
+            $checkStmt->execute($ids);
+            $inUse = (int) $checkStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+            if ($inUse > 0) {
+                return formatResponse(false, null, 'Cannot delete: Fee structure is in use by ' . $inUse . ' student(s)');
+            }
+
+            $deleteStmt = $this->db->prepare(
+                "DELETE FROM fee_structures_detailed WHERE id IN ($placeholders)"
+            );
+            $deleteStmt->execute($ids);
+
+            return formatResponse(true, [
+                'structures_deleted' => count($ids),
+                'message' => 'Fee structures deleted successfully'
+            ]);
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to delete fee structures: ' . $e->getMessage());
         }
     }
 
@@ -969,7 +1419,7 @@ class FeeManager
 
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("
+            $sql = "
                 UPDATE fee_structures_detailed
                 SET status = 'reviewed',
                     reviewed_by = ?,
@@ -978,14 +1428,22 @@ class FeeManager
                 WHERE academic_year = ?
                 AND level_id = ?
                 AND status IN ('draft', 'pending_review')
-            ");
+            ";
 
-            $stmt->execute([
+            $params = [
                 $data['reviewed_by'],
                 $data['notes'] ?? 'Reviewed and approved',
                 $data['academic_year'],
                 $data['level_id']
-            ]);
+            ];
+
+            if (!empty($data['student_type_id'])) {
+                $sql .= " AND student_type_id = ?";
+                $params[] = $data['student_type_id'];
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
 
             $updatedCount = $stmt->rowCount();
 
@@ -1023,7 +1481,7 @@ class FeeManager
 
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("
+            $sql = "
                 UPDATE fee_structures_detailed
                 SET status = 'approved',
                     approved_by = ?,
@@ -1032,14 +1490,22 @@ class FeeManager
                 WHERE academic_year = ?
                 AND level_id = ?
                 AND status = 'reviewed'
-            ");
+            ";
 
-            $stmt->execute([
+            $params = [
                 $data['approved_by'],
                 $data['notes'] ?? 'Approved for activation',
                 $data['academic_year'],
                 $data['level_id']
-            ]);
+            ];
+
+            if (!empty($data['student_type_id'])) {
+                $sql .= " AND student_type_id = ?";
+                $params[] = $data['student_type_id'];
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
 
             $updatedCount = $stmt->rowCount();
 
@@ -1077,19 +1543,27 @@ class FeeManager
 
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("
+            $sql = "
                 UPDATE fee_structures_detailed
                 SET status = 'active',
                     activated_at = NOW()
                 WHERE academic_year = ?
                 AND level_id = ?
                 AND status = 'approved'
-            ");
+            ";
 
-            $stmt->execute([
+            $params = [
                 $data['academic_year'],
                 $data['level_id']
-            ]);
+            ];
+
+            if (!empty($data['student_type_id'])) {
+                $sql .= " AND student_type_id = ?";
+                $params[] = $data['student_type_id'];
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
 
             $updatedCount = $stmt->rowCount();
 
@@ -1485,4 +1959,3 @@ class FeeManager
         }
     }
 }
-
