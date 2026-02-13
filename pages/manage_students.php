@@ -1,5 +1,4 @@
-<?php
-<<<<<<< Updated upstream
+\<?php
 /**
  * Manage Students Page
  * HTML structure only - all logic in js/pages/students.js (studentsManagementController)
@@ -23,7 +22,7 @@
             <div class="btn-group">
                 <!-- Only users with create permission can add students -->
                 <button class="btn btn-light btn-sm" onclick="studentsManagementController.showStudentModal()" 
-                        data-permission="students_create">
+                       >
                     <i class="bi bi-plus-circle"></i> Add Student
                 </button>
                 <!-- Bulk import only for registrar/admin -->
@@ -210,21 +209,43 @@
                 <div class="modal-body">
                     <input type="hidden" id="studentId">
                     
-                    <!-- Profile Photo -->
-                    <h6 class="mb-3 text-primary"><i class="bi bi-camera"></i> Profile Photo</h6>
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Student Photo</label>
-                            <input type="file" id="studentProfilePic" name="profile_pic" class="form-control" accept="image/*">
-                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB</small>
-                        </div>
-                        <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="/Kingsway/images/default-avatar.png" 
-                                class="rounded-circle" width="80" height="80" 
-                                onerror="this.src='/Kingsway/images/default-avatar.png'"
-                                style="object-fit: cover; border: 2px solid #dee2e6;">
-                        </div>
-                    </div>
+                  <!-- ================= PROFILE PHOTO ================= -->
+<h6 class="mb-3 text-primary">
+    <i class="bi bi-camera"></i> Profile Photo
+</h6>
+
+<div class="row mb-3 align-items-center">
+
+    <!-- Upload Input -->
+    <div class="col-md-6">
+        <label class="form-label">Student Photo</label>
+        <input 
+            type="file" 
+            id="studentProfilePic" 
+            name="profile_pic" 
+            class="form-control"
+            accept="image/png, image/jpeg, image/jpg, image/gif"
+        >
+        <small class="text-muted">
+            Accepted formats: JPG, PNG, GIF. Max size: 2MB
+        </small>
+    </div>
+
+    <!-- Image Preview -->
+    <div class="col-md-6 d-flex align-items-center">
+        <img 
+            id="studentPhotoPreview" 
+            src="/Kingsway/images/default-avatar.png"
+            alt="Student Photo Preview"
+            class="rounded-circle shadow-sm"
+            width="80" 
+            height="80"
+            style="object-fit: cover; border: 2px solid #dee2e6;"
+        >
+    </div>
+
+</div>
+  </div>
                     
                     <!-- Personal Information -->
                     <h6 class="mb-3 text-primary"><i class="bi bi-person"></i> Personal Information</h6>
@@ -305,26 +326,35 @@ $admissionNumber = generateAdmissionNumber();
     <input type="text" id="admissionNumber" class="form-control" 
            value="<?php echo $admissionNumber; ?>" readonly required>
 </div>
+<div class="row">
+    <div class="col-md-3 mb-3">
+        <label class="form-label">Grade <span class="text-danger">*</span></label>
+        <select id="studentClass" class="form-select" required onchange="loadStreams(this.value)">
+            <option value="">Select Grade</option>
+            <?php foreach($classes as $class): ?>
+                <option value="<?= $class['id'] ?>"><?= $class['class_name'] ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
 
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Class <span class="text-danger">*</span></label>
-                            <select id="studentClass" class="form-select" required onchange="studentsManagementController.loadStreamsForClass(this.value)">
-                                <option value="">Select Class</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Stream <span class="text-danger">*</span></label>
-                            <select id="studentStream" class="form-select" required>
-                                <option value="">Select Stream</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3 mb-3">
-                            <label class="form-label">Student Type <span class="text-danger">*</span></label>
-                            <select id="studentTypeId" class="form-select" required>
-                                <option value="">Select Type</option>
-                            </select>
-                        </div>
-                    </div>
+    <div class="col-md-3 mb-3">
+        <label class="form-label">Stream <span class="text-danger">*</span></label>
+        <select id="studentStream" class="form-select" required>
+            <option value="">Select Stream</option>
+        </select>
+    </div>
+
+    <div class="col-md-3 mb-3">
+        <label class="form-label">Student Type <span class="text-danger">*</span></label>
+        <select id="studentTypeId" class="form-select" required>
+            <option value="">Select Type</option>
+            <?php foreach($studentTypes as $type): ?>
+                <option value="<?= $type['id'] ?>"><?= $type['type_name'] ?></option>
+            <?php endforeach; ?>
+        </select>
+    </div>
+</div>
+
                     <div class="row">
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Admission Date</label>
@@ -378,38 +408,75 @@ $admissionNumber = generateAdmissionNumber();
                         </div>
                     </div>
 
-                    <!-- Sponsorship Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-award"></i> Sponsorship Information</h6>
-                    <div class="row">
-                        <div class="col-md-3 mb-3">
-                            <div class="form-check mt-4">
-                                <input class="form-check-input" type="checkbox" id="isSponsored" onchange="studentsManagementController.toggleSponsorFields()">
-                                <label class="form-check-label" for="isSponsored">
-                                    <strong>Is Sponsored?</strong>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-3 mb-3" id="sponsorNameDiv" style="display:none;">
-                            <label class="form-label">Sponsor Name</label>
-                            <input type="text" id="sponsorName" class="form-control" placeholder="e.g. Equity Bank Foundation">
-                        </div>
-                        <div class="col-md-3 mb-3" id="sponsorTypeDiv" style="display:none;">
-                            <label class="form-label">Sponsor Type</label>
-                            <select id="sponsorType" class="form-select">
-                                <option value="">-- Select --</option>
-                                <option value="government">Government</option>
-                                <option value="ngo">NGO</option>
-                                <option value="corporate">Corporate</option>
-                                <option value="individual">Individual</option>
-                                <option value="religious">Religious Organization</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="col-md-3 mb-3" id="sponsorWaiverDiv" style="display:none;">
-                            <label class="form-label">Waiver Percentage (%)</label>
-                            <input type="number" id="sponsorWaiverPercentage" class="form-control" min="0" max="100" placeholder="e.g. 50">
-                        </div>
-                    </div>
+                  <!-- Sponsorship Information -->
+<h6 class="mb-3 mt-4 text-primary">
+    <i class="bi bi-award"></i> Sponsorship Information
+</h6>
+
+<div class="row align-items-end">
+
+    <!-- Sponsored Checkbox -->
+    <div class="col-md-3 mb-3">
+        <div class="form-check">
+            <input 
+                class="form-check-input" 
+                type="checkbox" 
+                id="isSponsored" 
+                name="is_sponsored"
+                value="1"
+            >
+            <label class="form-check-label fw-semibold" for="isSponsored">
+                Is Sponsored?
+            </label>
+        </div>
+    </div>
+
+    <!-- Sponsor Name -->
+    <div class="col-md-3 mb-3 d-none" id="sponsorNameDiv">
+        <label class="form-label">Sponsor Name</label>
+        <input 
+            type="text" 
+            id="sponsorName" 
+            name="sponsor_name"
+            class="form-control" 
+            placeholder="e.g. Equity Bank Foundation"
+        >
+    </div>
+
+    <!-- Sponsor Type -->
+    <div class="col-md-3 mb-3 d-none" id="sponsorTypeDiv">
+        <label class="form-label">Sponsor Type</label>
+        <select 
+            id="sponsorType" 
+            name="sponsor_type"
+            class="form-select"
+        >
+            <option value="">-- Select --</option>
+            <option value="government">Government</option>
+            <option value="ngo">NGO</option>
+            <option value="corporate">Corporate</option>
+            <option value="individual">Individual</option>
+            <option value="religious">Religious Organization</option>
+            <option value="other">Other</option>
+        </select>
+    </div>
+
+    <!-- Waiver Percentage -->
+    <div class="col-md-3 mb-3 d-none" id="sponsorWaiverDiv">
+        <label class="form-label">Waiver Percentage (%)</label>
+        <input 
+            type="number" 
+            id="sponsorWaiverPercentage" 
+            name="waiver_percentage"
+            class="form-control" 
+            min="0" 
+            max="100" 
+            placeholder="e.g. 50"
+        >
+    </div>
+
+</div>
+
 
                     <!-- Initial Payment (Required unless sponsored) -->
                     <h6 class="mb-3 mt-3 text-primary" id="paymentSectionHeader"><i class="bi bi-cash-coin"></i> Initial Payment <span class="text-danger">*</span></h6>
@@ -441,371 +508,106 @@ $admissionNumber = generateAdmissionNumber();
                         </div>
                     </div>
 
-                    <!-- Contact Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-telephone"></i> Contact Information</h6>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" id="studentEmail" class="form-control">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Phone</label>
-                            <input type="tel" id="studentPhone" class="form-control" required placeholder="+254...">
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">Address</label>
-                            <textarea id="studentAddress" class="form-control" rows="2"></textarea>
-                        </div>
-                    </div>
+                    <!-- ================= CONTACT INFORMATION ================= -->
+<h6 class="mb-3 mt-4 text-primary">
+    <i class="bi bi-telephone"></i> Contact Information
+</h6>
 
-                    <!-- Parent/Guardian Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-people"></i> Parent/Guardian Information</h6>
-                    <div class="row mb-3">
-                        <div class="col-md-6">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="isNewParent" checked onchange="studentsManagementController.toggleParentType()">
-                                <label class="form-check-label" for="isNewParent">
-                                    <strong>Add New Parent</strong> <small class="text-muted">(Uncheck to select existing parent)</small>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Relationship <span class="text-danger">*</span></label>
-                            <select id="guardianRelationship" class="form-select" required>
-                                <option value="">Select</option>
-                                <option value="father">Father</option>
-                                <option value="mother">Mother</option>
-                                <option value="guardian">Guardian</option>
-                                <option value="relative">Relative</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <!-- Existing Parent Selector (hidden by default) -->
-                    <div id="existingParentSection" style="display:none;">
-                        <div class="row">
-                            <div class="col-md-12 mb-3">
-                                <label class="form-label">Select Existing Parent <span class="text-danger">*</span></label>
-                                <select id="existingParentId" class="form-select">
-                                    <option value="">-- Search and select parent --</option>
-                                </select>
-                                <small class="text-muted">Search by name, phone number, or email</small>
-                            </div>
-                        </div>
-                        <div id="selectedParentPreview" class="alert alert-info" style="display:none;">
-                            <strong>Selected Parent:</strong>
-                            <span id="selectedParentInfo"></span>
-                        </div>
-                    </div>
+<div class="row">
+    <div class="col-md-6 mb-3">
+        <label class="form-label">Email</label>
+        <input type="email" name="student_email" class="form-control" placeholder="student@example.com">
+    </div>
 
-                    <!-- New Parent Form (shown by default) -->
-                    <div id="newParentSection">
-                        <div class="row">
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">First Name <span class="text-danger">*</span></label>
-                                <input type="text" id="parentFirstName" class="form-control">
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                                <input type="text" id="parentLastName" class="form-control">
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Gender</label>
-                                <select id="parentGender" class="form-select">
-                                    <option value="">-- Select --</option>
-                                    <option value="male">Male</option>
-                                    <option value="female">Female</option>
-=======
-// manage_students.php - API-driven dashboard with modals and dynamic tables
-// This is the template pattern for all main pages
-?>
+    <div class="col-md-6 mb-3">
+        <label class="form-label">Phone <span class="text-danger">*</span></label>
+        <input type="tel" name="student_phone" class="form-control" required placeholder="+2547XXXXXXXX">
+    </div>
+</div>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Students</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        .main-content { padding: 2rem; }
-        .filter-panel { background-color: #f8f9fa; padding: 1.5rem; border-radius: 0.5rem; margin-bottom: 2rem; }
-        .stat-card { box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); transition: transform 0.2s; }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 0.5rem 1rem rgba(0,0,0,0.15); }
-        .table-wrapper { background: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); }
-        .sortable-header.cursor-pointer { cursor: pointer; }
-        .sortable-header.cursor-pointer:hover { background-color: #e9ecef; }
-        .empty-state { text-align: center; padding: 4rem 2rem; color: #6c757d; }
-        .empty-state i { font-size: 3rem; opacity: 0.3; }
-    </style>
-</head>
-<body>
-    <div class="container-fluid main-content">
-        <!-- Page Header -->
-        <div class="row mb-4">
-            <div class="col-md-8">
-                <h2><i class="bi bi-people"></i> Manage Students</h2>
-                <p class="text-muted">View, create, edit, and manage all student records</p>
-            </div>
-            <div class="col-md-4 text-end">
-                <button class="btn btn-primary" id="createStudentBtn">
-                    <i class="bi bi-plus-circle"></i> Add Student
-                </button>
-            </div>
-        </div>
+<div class="row">
+    <div class="col-md-12 mb-3">
+        <label class="form-label">Address</label>
+        <textarea name="student_address" class="form-control" rows="2"></textarea>
+    </div>
+</div>
 
-        <!-- Statistics Row -->
-        <div class="row mb-4" id="statsContainer">
-            <div class="col-md-3">
-                <div class="card stat-card">
-                    <div class="card-body">
-                        <h6 class="text-muted mb-1">Total Students</h6>
-                        <h3 class="mb-0" id="totalStudents">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card stat-card">
-                    <div class="card-body">
-                        <h6 class="text-muted mb-1">Active Students</h6>
-                        <h3 class="mb-0" id="activeStudents">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card stat-card">
-                    <div class="card-body">
-                        <h6 class="text-muted mb-1">By Gender (M/F)</h6>
-                        <h3 class="mb-0" id="genderBreakdown">0/0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card stat-card">
-                    <div class="card-body">
-                        <h6 class="text-muted mb-1">Avg. Attendance</h6>
-                        <h3 class="mb-0" id="avgAttendance">0%</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Filter Panel -->
-        <div class="filter-panel">
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <input type="text" id="searchInput" class="form-control" placeholder="Search by name, admission number...">
-                </div>
-                <div class="col-md-3">
-                    <select id="classFilter" class="form-select">
-                        <option value="">All Classes</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <select id="statusFilter" class="form-select">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="suspended">Suspended</option>
-                    </select>
-                </div>
-                <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" id="resetFilters">Reset</button>
-                </div>
-            </div>
-        </div>
 
-        <!-- Data Table -->
-        <div class="table-wrapper">
-            <div id="studentTable"></div>
+<!-- ================= PARENT / GUARDIAN INFORMATION ================= -->
+<h6 class="mb-3 mt-4 text-primary">
+    <i class="bi bi-people"></i> Parent / Guardian Information
+</h6>
+
+<div class="row align-items-end mb-3">
+    <div class="col-md-6">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="isNewParent" checked>
+            <label class="form-check-label fw-semibold" for="isNewParent">
+                Add New Parent
+                <small class="text-muted">(Turn off to select existing)</small>
+            </label>
         </div>
     </div>
 
-    <!-- Create/Edit Student Modal -->
-    <div id="studentModal" class="modal fade" tabindex="-1" data-bs-backdrop="static">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="studentModalTitle">Add Student</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <form id="studentForm" novalidate>
-                    <div class="modal-body">
-                        <!-- Personal Information -->
-                        <h6 class="mb-3 mt-3">Personal Information</h6>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">First Name <span class="text-danger">*</span></label>
-                                <input type="text" name="first_name" class="form-control" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                                <input type="text" name="last_name" class="form-control" required>
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Email</label>
-                                <input type="email" name="email" class="form-control">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Phone</label>
-                                <input type="tel" name="phone" class="form-control">
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Date of Birth</label>
-                                <input type="date" name="date_of_birth" class="form-control">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Gender</label>
-                                <select name="gender" class="form-select">
-                                    <option value="">Select Gender</option>
-                                    <option value="M">Male</option>
-                                    <option value="F">Female</option>
-                                </select>
-                            </div>
-                        </div>
+    <div class="col-md-6">
+        <label class="form-label">Relationship <span class="text-danger">*</span></label>
+        <select name="guardian_relationship" class="form-select" required>
+            <option value="">Select</option>
+            <option value="father">Father</option>
+            <option value="mother">Mother</option>
+            <option value="guardian">Guardian</option>
+            <option value="relative">Relative</option>
+            <option value="other">Other</option>
+        </select>
+    </div>
+</div>
 
-                        <!-- Academic Information -->
-                        <h6 class="mb-3 mt-4">Academic Information</h6>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Admission Number <span class="text-danger">*</span></label>
-                                <input type="text" name="admission_number" class="form-control" required>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Class <span class="text-danger">*</span></label>
-                                <select name="class_id" class="form-select" id="classSelect" required>
-                                    <option value="">Select Class</option>
->>>>>>> Stashed changes
-                                </select>
-                            </div>
-                        </div>
-                        <div class="row">
-<<<<<<< Updated upstream
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Primary Phone <span class="text-danger">*</span></label>
-                                <input type="tel" id="parentPhone1" class="form-control" placeholder="+254...">
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Secondary Phone</label>
-                                <input type="tel" id="parentPhone2" class="form-control" placeholder="+254...">
-                            </div>
-                            <div class="col-md-4 mb-3">
-                                <label class="form-label">Email</label>
-                                <input type="email" id="parentEmail" class="form-control">
-                            </div>
-                        </div>
-                        <div class="row">
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Occupation</label>
-                                <input type="text" id="parentOccupation" class="form-control" placeholder="e.g. Teacher, Engineer">
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Address</label>
-                                <input type="text" id="parentAddress" class="form-control" placeholder="Physical/Postal address">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">
-                        <i class="bi bi-save"></i> Save Student
-                    </button>
-                </div>
-            </form>
+<!-- EXISTING PARENT -->
+<div id="existingParentSection" class="d-none">
+    <div class="row">
+        <div class="col-md-12 mb-3">
+            <label class="form-label">Select Existing Parent</label>
+            <select name="existing_parent_id" class="form-select">
+                <option value="">-- Search and select parent --</option>
+            </select>
         </div>
     </div>
 </div>
 
-<!-- Bulk Import Modal -->
-<div class="modal fade" id="bulkImportModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header bg-success text-white">
-                <h5 class="modal-title">Bulk Import Students</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="bulkImportForm" onsubmit="studentsManagementController.bulkImport(event)">
-                <div class="modal-body">
-                    <div class="alert alert-info">
-                        <i class="bi bi-info-circle"></i> Upload a CSV or Excel file with student data.
-                        <a href="#" onclick="studentsManagementController.downloadTemplate()">Download template</a>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Select File</label>
-                        <input type="file" id="bulkImportFile" class="form-control" accept=".csv,.xlsx,.xls" required>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="updateExisting">
-                        <label class="form-check-label" for="updateExisting">
-                            Update existing students if admission number matches
-                        </label>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success">
-                        <i class="bi bi-upload"></i> Import Students
-                    </button>
-                </div>
-            </form>
+<!-- NEW PARENT -->
+<div id="newParentSection">
+    <div class="row">
+        <div class="col-md-4 mb-3">
+            <label class="form-label">First Name <span class="text-danger">*</span></label>
+            <input type="text" name="parent_first_name" class="form-control">
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <label class="form-label">Last Name <span class="text-danger">*</span></label>
+            <input type="text" name="parent_last_name" class="form-control">
+        </div>
+
+        <div class="col-md-4 mb-3">
+            <label class="form-label">Gender</label>
+            <select name="parent_gender" class="form-select">
+                <option value="">-- Select --</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+            </select>
         </div>
     </div>
 </div>
 
-<!-- View Student Details Modal -->
-<div class="modal fade" id="viewStudentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-info text-white">
-                <h5 class="modal-title">Student Details</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body" id="viewStudentContent">
-                <!-- Dynamic content loaded here -->
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            </div>
-        </div>
-    </div>
+<!-- ================= FORM ACTIONS ================= -->
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+        Cancel
+    </button>
+    <button type="submit" class="btn btn-primary">
+        Save Student
+    </button>
 </div>
-
-<!-- Link Controller Script -->
-<script src="/Kingsway/js/pages/manage_students.js"></script>
-=======
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Stream</label>
-                                <select name="stream_id" class="form-select">
-                                    <option value="">Select Stream</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Status <span class="text-danger">*</span></label>
-                                <select name="status" class="form-select" required>
-                                    <option value="active">Active</option>
-                                    <option value="inactive">Inactive</option>
-                                    <option value="suspended">Suspended</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-primary" id="submitBtn">Save Student</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <!-- View Student Detail Modal -->
     <div id="viewStudentModal" class="modal fade" tabindex="-1">
@@ -821,7 +623,128 @@ $admissionNumber = generateAdmissionNumber();
             </div>
         </div>
     </div>
+    <script>
+document.addEventListener('DOMContentLoaded', function () {
 
+    const isSponsored = document.getElementById('isSponsored');
+    const sponsorFields = [
+        document.getElementById('sponsorNameDiv'),
+        document.getElementById('sponsorTypeDiv'),
+        document.getElementById('sponsorWaiverDiv')
+    ];
+
+    const isNewParent = document.getElementById('isNewParent');
+    const newParentSection = document.getElementById('newParentSection');
+    const existingParentSection = document.getElementById('existingParentSection');
+
+    function toggleSponsor() {
+        sponsorFields.forEach(div =>
+            isSponsored.checked ? div.classList.remove('d-none') : div.classList.add('d-none')
+        );
+    }
+
+    function toggleParent() {
+        if (isNewParent.checked) {
+            newParentSection.classList.remove('d-none');
+            existingParentSection.classList.add('d-none');
+        } else {
+            newParentSection.classList.add('d-none');
+            existingParentSection.classList.remove('d-none');
+        }
+    }
+
+    isSponsored.addEventListener('change', toggleSponsor);
+    isNewParent.addEventListener('change', toggleParent);
+});
+</script>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const isSponsored = document.getElementById('isSponsored');
+    const sponsorNameDiv = document.getElementById('sponsorNameDiv');
+    const sponsorTypeDiv = document.getElementById('sponsorTypeDiv');
+    const sponsorWaiverDiv = document.getElementById('sponsorWaiverDiv');
+
+    function toggleSponsorFields() {
+        if (isSponsored.checked) {
+            sponsorNameDiv.classList.remove('d-none');
+            sponsorTypeDiv.classList.remove('d-none');
+            sponsorWaiverDiv.classList.remove('d-none');
+        } else {
+            sponsorNameDiv.classList.add('d-none');
+            sponsorTypeDiv.classList.add('d-none');
+            sponsorWaiverDiv.classList.add('d-none');
+
+            // Reset values when unchecked
+            document.getElementById('sponsorName').value = '';
+            document.getElementById('sponsorType').value = '';
+            document.getElementById('sponsorWaiverPercentage').value = '';
+        }
+    }
+
+    isSponsored.addEventListener('change', toggleSponsorFields);
+
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const photoInput = document.getElementById('studentProfilePic');
+    const photoPreview = document.getElementById('studentPhotoPreview');
+
+    photoInput.addEventListener('change', function () {
+
+        const file = this.files[0];
+        if (!file) return;
+
+        // Validate file size (2MB max)
+        if (file.size > 2 * 1024 * 1024) {
+            alert('Image size must be less than 2MB');
+            this.value = '';
+            return;
+        }
+
+        // Validate file type
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+            alert('Only JPG, PNG, and GIF images are allowed');
+            this.value = '';
+            return;
+        }
+
+        // Preview image
+        const reader = new FileReader();
+        reader.onload = function (e) {
+            photoPreview.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+    });
+
+});
+</script>
+<script>
+function loadStreams(classId) {
+    const streamSelect = document.getElementById('studentStream');
+    streamSelect.innerHTML = '<option value="">Select Stream</option>'; // Reset
+
+    if (!classId) return;
+
+    fetch(`/api/streams.php?class_id=${classId}`)
+        .then(res => res.json())
+        .then(data => {
+            data.streams.forEach(stream => {
+                const option = document.createElement('option');
+                option.value = stream.id;
+                option.textContent = stream.stream_name;
+                streamSelect.appendChild(option);
+            });
+        })
+        .catch(err => console.error('Error fetching streams:', err));
+}
+
+</script>
+        
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="/Kingsway/js/api.js"></script>
@@ -832,4 +755,3 @@ $admissionNumber = generateAdmissionNumber();
     <script src="/Kingsway/js/pages/students.js"></script>
 </body>
 </html>
->>>>>>> Stashed changes
