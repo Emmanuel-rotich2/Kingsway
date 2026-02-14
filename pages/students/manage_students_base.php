@@ -215,7 +215,7 @@
                         <div class="col-md-6">
                             <label class="form-label">Student Photo</label>
                             <input type="file" id="studentProfilePic" name="profile_pic" class="form-control" accept="image/*">
-                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB</small>
+                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB. Optional for now.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
                             <img id="studentPhotoPreview" src="/Kingsway/images/default-avatar.png" 
@@ -258,16 +258,11 @@
                             <label class="form-label">Gender <span class="text-danger">*</span></label>
                             <select id="gender" class="form-select" required>
                                 <option value="">Select</option>
-                                <option value="M">Male</option>
-                                <option value="F">Female</option>
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                                <option value="other">Other</option>
                             </select>
                         </div>
-                        <div class="col-md-3 mb-3">
-    <label class="form-label">National ID / Birth Cert</label>
-    <input type="file" id="nationalId" class="form-control" 
-           accept="image/*,application/pdf" required>
-    <small class="text-muted">Upload a scanned copy of your ID or Birth Certificate</small>
-</div>
 
                         <div class="col-md-3 mb-3">
                             <label class="form-label">Blood Group</label>
@@ -441,21 +436,24 @@ $admissionNumber = generateAdmissionNumber();
                     </div>
 
                     <!-- Contact Information -->
-                    <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-telephone"></i> Contact Information</h6>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Email</label>
-                            <input type="email" id="studentEmail" class="form-control">
+                    <div data-permission-any="students_create,students_edit">
+                        <h6 class="mb-3 mt-3 text-primary"><i class="bi bi-telephone"></i> Contact Information</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Email</label>
+                                <input type="email" id="studentEmail" class="form-control">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Phone</label>
+                                <input type="tel" id="studentPhone" class="form-control" placeholder="+254...">
+                                <small class="text-muted">Optional for older learners only</small>
+                            </div>
                         </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Phone</label>
-                            <input type="tel" id="studentPhone" class="form-control" required placeholder="+254...">
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-12 mb-3">
-                            <label class="form-label">Address</label>
-                            <textarea id="studentAddress" class="form-control" rows="2"></textarea>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Address</label>
+                                <textarea id="studentAddress" class="form-control" rows="2"></textarea>
+                            </div>
                         </div>
                     </div>
 
@@ -597,7 +595,7 @@ $admissionNumber = generateAdmissionNumber();
 
 <!-- View Student Details Modal -->
 <div class="modal fade" id="viewStudentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Student Details</h5>

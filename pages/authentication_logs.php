@@ -1,5 +1,5 @@
 <?php /** Authentication Logs - View authentication and login activity logs */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-sign-in-alt me-2"></i>Authentication Logs</h4><p class="text-muted mb-0">View authentication and login activity logs</p></div>
         <button class="btn btn-outline-success" onclick="window._logCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>

@@ -155,6 +155,24 @@
                     <i class="bi bi-clock-history"></i> Attendance
                 </a>
             </li>
+            <!-- Assignments Tab - HR, Headteacher, Academic Deputy -->
+            <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,admin,director">
+                <a class="nav-link" data-bs-toggle="tab" href="#assignmentsTab" onclick="staffManagementController.loadAssignmentsTab()">
+                    <i class="bi bi-diagram-3"></i> Assignments
+                </a>
+            </li>
+            <!-- Performance Tab - HR and Leadership -->
+            <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,director,admin">
+                <a class="nav-link" data-bs-toggle="tab" href="#performanceTab" onclick="staffManagementController.loadPerformanceTab()">
+                    <i class="bi bi-graph-up-arrow"></i> Performance
+                </a>
+            </li>
+            <!-- Schedule Tab -->
+            <li class="nav-item" data-role="hr_manager,headteacher,deputy_head_academic,admin">
+                <a class="nav-link" data-bs-toggle="tab" href="#scheduleTab" onclick="staffManagementController.loadScheduleTab()">
+                    <i class="bi bi-calendar-week"></i> Schedule
+                </a>
+            </li>
         </ul>
 
         <!-- Tab Content -->
@@ -513,6 +531,293 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Assignments Tab -->
+            <div class="tab-pane fade" id="assignmentsTab" data-role="hr_manager,headteacher,deputy_head_academic,admin,director">
+                <div id="assignmentsContainer">
+                    <!-- Assignment Actions -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="staffManagementController.showAssignClassModal()" data-role="hr_manager,headteacher,admin">
+                                <i class="bi bi-plus-circle"></i> Assign to Class
+                            </button>
+                            <button class="btn btn-outline-primary" onclick="staffManagementController.showAssignSubjectModal()" data-role="hr_manager,headteacher,admin">
+                                <i class="bi bi-book"></i> Assign Subject
+                            </button>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <select id="assignmentStaffFilter" class="form-select" style="width:220px"
+                                    onchange="staffManagementController.filterAssignments(this.value)">
+                                <option value="">All Staff</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportAssignments()">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Assignments Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="assignmentsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff No.</th>
+                                    <th>Name</th>
+                                    <th>Class</th>
+                                    <th>Stream</th>
+                                    <th>Subject</th>
+                                    <th>Role</th>
+                                    <th>Workload (hrs)</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="assignmentsTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">
+                                        <i class="bi bi-diagram-3 fs-1 d-block mb-2"></i>
+                                        Loading assignments...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Performance Tab -->
+            <div class="tab-pane fade" id="performanceTab" data-role="hr_manager,headteacher,deputy_head_academic,director,admin">
+                <div id="performanceContainer">
+                    <!-- Performance Summary Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-success">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Avg Rating</h6>
+                                    <h3 class="text-success" id="avgPerformanceRating">-</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-primary">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Reviews Done</h6>
+                                    <h3 class="text-primary" id="reviewsDone">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-warning">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Pending Reviews</h6>
+                                    <h3 class="text-warning" id="pendingReviews">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card border-info">
+                                <div class="card-body text-center">
+                                    <h6 class="text-muted">Top Performers</h6>
+                                    <h3 class="text-info" id="topPerformers">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Actions -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="btn-group">
+                            <button class="btn btn-outline-info" onclick="staffManagementController.goToPerformancePage()">
+                                <i class="bi bi-graph-up"></i> Detailed Reports
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportPerformance()">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                        </div>
+                        <select id="performanceStaffFilter" class="form-select" style="width:220px"
+                                onchange="staffManagementController.loadStaffPerformance(this.value)">
+                            <option value="">Select Staff Member</option>
+                        </select>
+                    </div>
+
+                    <!-- Performance Table -->
+                    <div class="table-responsive">
+                        <table class="table table-hover" id="performanceTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Staff No.</th>
+                                    <th>Name</th>
+                                    <th>Department</th>
+                                    <th>Avg Rating</th>
+                                    <th>Last Review</th>
+                                    <th>KPI Score</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="performanceTableBody">
+                                <tr>
+                                    <td colspan="8" class="text-center py-4 text-muted">
+                                        <i class="bi bi-graph-up-arrow fs-1 d-block mb-2"></i>
+                                        Select a staff member or view all performance data...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Tab -->
+            <div class="tab-pane fade" id="scheduleTab" data-role="hr_manager,headteacher,deputy_head_academic,admin">
+                <div id="scheduleContainer">
+                    <!-- Schedule Actions -->
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div>
+                            <select id="scheduleStaffSelect" class="form-select" style="width:250px"
+                                    onchange="staffManagementController.loadStaffSchedule(this.value)">
+                                <option value="">Select Staff Member</option>
+                            </select>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-outline-primary" onclick="staffManagementController.printSchedule()">
+                                <i class="bi bi-printer"></i> Print
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="staffManagementController.exportSchedule()">
+                                <i class="bi bi-download"></i> Export
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Weekly Schedule Grid -->
+                    <div class="table-responsive">
+                        <table class="table table-bordered" id="scheduleGrid">
+                            <thead class="table-success">
+                                <tr>
+                                    <th style="width:100px">Time</th>
+                                    <th>Monday</th>
+                                    <th>Tuesday</th>
+                                    <th>Wednesday</th>
+                                    <th>Thursday</th>
+                                    <th>Friday</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scheduleGridBody">
+                                <tr>
+                                    <td colspan="6" class="text-center py-4 text-muted">
+                                        <i class="bi bi-calendar-week fs-1 d-block mb-2"></i>
+                                        Select a staff member to view their teaching schedule
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Class Modal -->
+<div class="modal fade" id="assignClassModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Assign Staff to Class</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="assignClassForm" onsubmit="staffManagementController.saveClassAssignment(event)">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Staff Member <span class="text-danger">*</span></label>
+                        <select id="assignClassStaffId" class="form-select" required>
+                            <option value="">Select Staff</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Class <span class="text-danger">*</span></label>
+                        <select id="assignClassId" class="form-select" required>
+                            <option value="">Select Class</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stream</label>
+                        <select id="assignStreamId" class="form-select">
+                            <option value="">All Streams</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Assignment Role</label>
+                        <select id="assignClassRole" class="form-select">
+                            <option value="class_teacher">Class Teacher</option>
+                            <option value="subject_teacher">Subject Teacher</option>
+                            <option value="assistant">Assistant Teacher</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Assign</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Subject Modal -->
+<div class="modal fade" id="assignSubjectModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Assign Subject to Staff</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="assignSubjectForm" onsubmit="staffManagementController.saveSubjectAssignment(event)">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Staff Member <span class="text-danger">*</span></label>
+                        <select id="assignSubjectStaffId" class="form-select" required>
+                            <option value="">Select Staff</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Subject <span class="text-danger">*</span></label>
+                        <select id="assignSubjectId" class="form-select" required>
+                            <option value="">Select Subject</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Class (optional)</label>
+                        <select id="assignSubjectClassId" class="form-select">
+                            <option value="">All Classes</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Assign Subject</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Payslip View Modal -->
+<div class="modal fade" id="payslipModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header bg-success text-white">
+                <h5 class="modal-title">Staff Payslip</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="payslipContent">
+                <!-- Dynamic payslip content -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-primary" onclick="staffManagementController.printPayslip()">
+                    <i class="bi bi-printer"></i> Print
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
         </div>
     </div>
 </div>
@@ -716,9 +1021,9 @@
     </div>
 </div>
 
-<!-- View Staff Details Modal -->
+<!-- View Staff Details Modal - Enhanced -->
 <div class="modal fade" id="viewStaffModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Staff Details</h5>
@@ -728,6 +1033,9 @@
                 <!-- Dynamic content loaded here -->
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-warning" id="viewStaffEditBtn" onclick="staffManagementController.editFromView()">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -760,6 +1068,113 @@
                     </button>
                 </div>
             </form>
+        </div>
+
+        <!-- Leave Requests Modal -->
+        <div class="modal fade" id="leaveRequestsModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Leave Requests</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Staff No.</th>
+                                        <th>Name</th>
+                                        <th>Type</th>
+                                        <th>Start</th>
+                                        <th>End</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="leaveRequestsTableBody">
+                                    <tr>
+                                        <td colspan="7" class="text-center text-muted py-3">Loading leave requests...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contract Modal -->
+        <div class="modal fade" id="contractModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Staff Contract</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <form id="contractForm" onsubmit="staffManagementController.saveContract(event)">
+                        <div class="modal-body">
+                            <input type="hidden" id="contractId">
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Staff Member <span class="text-danger">*</span></label>
+                                    <select id="contractStaffId" class="form-select" required>
+                                        <option value="">Select Staff</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Contract Type <span class="text-danger">*</span></label>
+                                    <select id="contractType" class="form-select" required>
+                                        <option value="">Select Type</option>
+                                        <option value="permanent">Permanent</option>
+                                        <option value="temporary">Temporary</option>
+                                        <option value="contract">Contract</option>
+                                        <option value="internship">Internship</option>
+                                        <option value="probation">Probation</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Start Date <span class="text-danger">*</span></label>
+                                    <input type="date" id="contractStartDate" class="form-control" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">End Date</label>
+                                    <input type="date" id="contractEndDate" class="form-control">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Salary (KES) <span class="text-danger">*</span></label>
+                                    <input type="number" step="0.01" id="contractSalary" class="form-control" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Allowances (KES)</label>
+                                    <input type="number" step="0.01" id="contractAllowances" class="form-control" value="0">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Terms</label>
+                                <textarea id="contractTerms" class="form-control" rows="3"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <select id="contractStatus" class="form-select">
+                                    <option value="active">Active</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="terminated">Terminated</option>
+                                    <option value="renewed">Renewed</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="submit" class="btn btn-success">Save Contract</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </div>

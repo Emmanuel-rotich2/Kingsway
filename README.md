@@ -75,6 +75,33 @@ curl -X POST http://localhost/Kingsway/api/auth/login \
 ```
 You should receive a JWT plus `user`, `sidebar_items`, and `dashboard` payload.
 
+## Local Run, Env Vars, and Production
+
+### Run locally
+
+- Start your web server (XAMPP or `php -S 127.0.0.1:8000 -t .`).
+- Ensure the app is served from `/Kingsway` to match asset paths.
+- Login at `/Kingsway/index.php`, then access `/Kingsway/home.php`.
+
+### Environment variables and config
+
+- Primary config: `config/config.php` (use `config/config.template.php` as a base).
+- Expected settings include: `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASS`, `JWT_SECRET`, `DEBUG`.
+- Keep `DEBUG` off in production and never commit secrets.
+
+### Production build/deploy steps
+
+- `composer install --no-dev --optimize-autoloader`
+- Configure Apache/Nginx to serve the app root at `/Kingsway` (or update base paths).
+- Set `DEBUG=false` and ensure HTTPS, proper file permissions for `logs/` and `uploads/`.
+
+### Roles and sample seed data
+
+- Seed the database from `database/KingsWayAcademy.sql`.
+- Apply migrations in `database/migrations/` when upgrading.
+- Role assignments and access are listed in `route_analysis.txt` (generated from DB).
+- If demo users are included in the seed, reset passwords for local testing.
+
 
 ## API Overview
 

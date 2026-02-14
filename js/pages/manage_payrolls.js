@@ -1,31 +1,23 @@
 /**
- * Manage Payrolls Page Controller
- * Manages Manage Payrolls workflow using api.js
+ * Manage Payrolls Page Controller - Compatibility Shim
+ * 
+ * The actual payroll management logic is in payroll_manager.js (PayrollManagerController).
+ * manage_payrolls.php loads payroll_manager.js directly.
+ * This file exists for backwards compatibility if any page references ManagePayrollsController.
  */
 
 const ManagePayrollsController = {
-    data: {},
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
-            return;
-        }
-        this.loadData();
-    },
-    loadData: async function() {
-        try {
-            const response = await window.API.apiCall('/api/manage_payrolls', 'GET');
-            if (response) {
-                this.data = response;
-                this.render();
-            }
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    },
-    render: function() {
-        console.log('Rendering data:', this.data);
+  init: function () {
+    if (typeof PayrollManagerController !== "undefined") {
+      PayrollManagerController.init();
+      return;
     }
+    // Fallback: redirect to the payroll management page
+    console.warn("PayrollManagerController not found, redirecting...");
+    window.location.href = "/Kingsway/home.php?route=manage_payrolls";
+  },
 };
 
-document.addEventListener('DOMContentLoaded', () => ManagePayrollsController.init());
+document.addEventListener("DOMContentLoaded", () =>
+  ManagePayrollsController.init(),
+);

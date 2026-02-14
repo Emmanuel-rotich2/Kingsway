@@ -60,7 +60,7 @@ $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
 <body>
     <?php include_once '../layouts/app_layout.php'; ?>
     
-    <div class="container-fluid py-4">
+    <div>
         <!-- Page Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>

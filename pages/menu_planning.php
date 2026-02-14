@@ -266,9 +266,5 @@
     }
 </style>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement menuPlanningController in js/pages/menu_planning.js
-        console.log('Menu Planning page loaded');
-    });
+<script src="js/pages/menu_planning.js"></script>
 </script>

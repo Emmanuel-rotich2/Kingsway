@@ -286,9 +286,4 @@
     </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // TODO: Implement chapelServicesController in js/pages/chapel_services.js
-    console.log('Chapel Services page loaded');
-});
-</script>
+<script src="js/pages/chapel_services.js"></script>

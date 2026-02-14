@@ -1,31 +1,22 @@
 /**
- * Manage Users Page Controller
- * Manages Manage Users workflow using api.js
+ * Manage Users Page Controller (compatibility shim)
+ * The real controller is manageUsersController in users.js (949 lines).
+ * This file exists for backward compatibility — if anything loads manage_users.js
+ * instead of users.js, it delegates to the real controller.
  */
 
-const ManageUsersController = {
-    data: {},
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
-            return;
-        }
-        this.loadData();
-    },
-    loadData: async function() {
-        try {
-            const response = await window.API.apiCall('/api/manage_users', 'GET');
-            if (response) {
-                this.data = response;
-                this.render();
-            }
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    },
-    render: function() {
-        console.log('Rendering data:', this.data);
-    }
-};
+document.addEventListener("DOMContentLoaded", () => {
+  if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
+    window.location.href = "/Kingsway/index.php";
+    return;
+  }
 
-document.addEventListener('DOMContentLoaded', () => ManageUsersController.init());
+  // Delegate to real controller if available
+  if (window.manageUsersController?.init) {
+    window.manageUsersController.init();
+  } else {
+    console.warn(
+      "manage_users.js: manageUsersController not found. Ensure users.js is loaded.",
+    );
+  }
+});

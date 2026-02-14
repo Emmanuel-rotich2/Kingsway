@@ -11,7 +11,7 @@
  */
 ?>
 
-<div class="container mt-1">
+<div>
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-calendar3"></i> Timetable Management</span>
     <div class="btn-group">
@@ -173,3 +173,5 @@
     </div>
   </div>
 </div>
+
+<script src="js/pages/manage_timetable.js"></script>

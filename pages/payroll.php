@@ -80,3 +80,4 @@
         </div>
     </div>
 </div>
+<script src="/Kingsway/js/pages/payroll.js"></script>

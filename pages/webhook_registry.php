@@ -1,5 +1,5 @@
 <?php /** Webhook Registry - Manage webhooks */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-plug me-2"></i>Webhook Registry</h4><p class="text-muted mb-0">Manage webhooks</p></div>
         <div><button class="btn btn-primary me-2" onclick="window._crudCtrl.showAddModal()"><i class="fas fa-plus me-1"></i> Add</button><button class="btn btn-outline-success" onclick="window._crudCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button></div>

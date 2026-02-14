@@ -13,7 +13,7 @@ $lessonRows = [
 $actionOptions = ['View', 'Edit', 'Approve', 'Duplicate'];
 ?>
 
-<div class="container mt-1">
+<div>
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-file-text"></i> Lesson Plans Management</span>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addLessonPlanModal">
@@ -86,3 +86,5 @@ $actionOptions = ['View', 'Edit', 'Approve', 'Duplicate'];
     </div>
   </div>
 </div>
+
+<script src="js/pages/manage_lesson_plans.js"></script>
