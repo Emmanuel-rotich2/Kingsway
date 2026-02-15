@@ -711,6 +711,98 @@ class PaymentManager
      * @param int $studentId Student ID
      * @return array Response
      */
+    public function listStudentPaymentStatus($filters = [])
+    {
+        try {
+            $baseSql = "FROM vw_student_payment_status_enhanced WHERE 1=1";
+            $params = [];
+
+            if (!empty($filters['student_id'])) {
+                $baseSql .= " AND id = ?";
+                $params[] = $filters['student_id'];
+            }
+
+            if (!empty($filters['academic_year'])) {
+                $baseSql .= " AND academic_year = ?";
+                $params[] = $filters['academic_year'];
+            }
+
+            if (!empty($filters['term_number'])) {
+                $baseSql .= " AND term_number = ?";
+                $params[] = $filters['term_number'];
+            }
+
+            if (!empty($filters['status'])) {
+                $baseSql .= " AND LOWER(payment_status) = LOWER(?)";
+                $params[] = $filters['status'];
+            }
+
+            if (!empty($filters['class_name'])) {
+                $baseSql .= " AND (class_name = ? OR level_name = ?)";
+                $params[] = $filters['class_name'];
+                $params[] = $filters['class_name'];
+            }
+
+            if (!empty($filters['search'])) {
+                $baseSql .= " AND (admission_no LIKE ? OR student_name LIKE ?)";
+                $search = '%' . $filters['search'] . '%';
+                $params[] = $search;
+                $params[] = $search;
+            }
+
+            $page = max(1, (int) ($filters['page'] ?? 1));
+            $limit = (int) ($filters['limit'] ?? 25);
+            if ($limit < 1) {
+                $limit = 25;
+            }
+            if ($limit > 100) {
+                $limit = 100;
+            }
+            $offset = ($page - 1) * $limit;
+
+            $countSql = "SELECT COUNT(*) " . $baseSql;
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($params);
+            $total = (int) $countStmt->fetchColumn();
+
+            $summarySql = "SELECT COALESCE(SUM(total_due), 0) AS total_due, "
+                . "COALESCE(SUM(total_paid), 0) AS total_paid, "
+                . "COALESCE(SUM(current_balance), 0) AS total_balance "
+                . $baseSql;
+            $summaryStmt = $this->db->prepare($summarySql);
+            $summaryStmt->execute($params);
+            $summaryRow = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $listSql = "SELECT * " . $baseSql . " ORDER BY admission_no ASC, academic_year DESC, term_number DESC LIMIT ? OFFSET ?";
+            $listParams = array_merge($params, [$limit, $offset]);
+            $stmt = $this->db->prepare($listSql);
+            $stmt->execute($listParams);
+            $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $totalDue = (float) ($summaryRow['total_due'] ?? 0);
+            $totalPaid = (float) ($summaryRow['total_paid'] ?? 0);
+            $totalBalance = (float) ($summaryRow['total_balance'] ?? 0);
+            $collectionRate = $totalDue > 0 ? round(($totalPaid / $totalDue) * 100, 2) : 0;
+
+            return formatResponse(true, [
+                'items' => $items,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total
+                ],
+                'summary' => [
+                    'total_due' => $totalDue,
+                    'total_paid' => $totalPaid,
+                    'total_balance' => $totalBalance,
+                    'collection_rate' => $collectionRate
+                ]
+            ]);
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to list student payment status: ' . $e->getMessage());
+        }
+    }
+
     public function getStudentPaymentStatus($studentId)
     {
         try {

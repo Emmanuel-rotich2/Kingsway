@@ -81,30 +81,169 @@ class StaffPayrollManager extends BaseAPI
             $staffId = $data['staff_id'];
             $month = $data['payroll_month'];
             $year = $data['payroll_year'];
+            $period = sprintf('%04d-%02d', $year, $month);
+            $periodStart = sprintf('%04d-%02d-01', $year, $month);
+            $periodEnd = date('Y-m-t', strtotime($periodStart));
+
+            $status = $data['status'] ?? 'pending';
 
             // Fetch base salary
-            $stmt = $this->db->prepare("SELECT base_salary FROM staff WHERE id = ?");
+            $stmt = $this->db->prepare("SELECT salary FROM staff WHERE id = ? AND status = 'active'");
             $stmt->execute([$staffId]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row) {
                 return formatResponse(false, null, 'Staff not found');
             }
-            $baseSalary = (float) $row['base_salary'];
+            $baseSalary = (float) ($row['salary'] ?? 0);
+            if ($baseSalary <= 0) {
+                return formatResponse(false, null, 'Staff salary is not set');
+            }
 
             // Fetch allowances
-            $stmt = $this->db->prepare("SELECT amount FROM staff_allowances WHERE staff_id = ? AND (YEAR(effective_date) < ? OR (YEAR(effective_date) = ? AND MONTH(effective_date) <= ?))");
-            $stmt->execute([$staffId, $year, $year, $month]);
-            $allowances = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $totalAllowances = array_sum(array_column($allowances, 'amount'));
+            $stmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS total
+                 FROM staff_allowances
+                 WHERE staff_id = ?
+                   AND status = 'active'
+                   AND effective_date <= ?
+                   AND (end_date IS NULL OR end_date >= ?)"
+            );
+            $stmt->execute([$staffId, $periodEnd, $periodStart]);
+            $totalAllowances = (float) $stmt->fetchColumn();
 
             // Fetch deductions
-            $stmt = $this->db->prepare("SELECT amount FROM staff_deductions WHERE staff_id = ? AND (YEAR(effective_date) < ? OR (YEAR(effective_date) = ? AND MONTH(effective_date) <= ?))");
-            $stmt->execute([$staffId, $year, $year, $month]);
-            $deductions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            $totalDeductions = array_sum(array_column($deductions, 'amount'));
+            $stmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(amount), 0) AS total
+                 FROM staff_deductions
+                 WHERE staff_id = ?
+                   AND status = 'active'
+                   AND effective_date <= ?
+                   AND (end_date IS NULL OR end_date >= ?)"
+            );
+            $stmt->execute([$staffId, $periodEnd, $periodStart]);
+            $totalOtherDeductions = (float) $stmt->fetchColumn();
+
+            // Loan deductions (active loans)
+            $stmt = $this->db->prepare(
+                "SELECT COALESCE(SUM(agreed_monthly_deduction), 0)
+                 FROM staff_loans
+                 WHERE staff_id = ?
+                   AND status = 'active'"
+            );
+            $stmt->execute([$staffId]);
+            $loanDeduction = (float) $stmt->fetchColumn();
+
+            // Child fee deductions
+            $childFeesResult = $this->calculateChildFeeDeductions($staffId, $month, $year);
+            $childFeeDeduction = 0.0;
+            if (!empty($childFeesResult['success']) && !empty($childFeesResult['data'])) {
+                $childFeeDeduction = (float) ($childFeesResult['data']['total_child_fee_deduction'] ?? 0);
+            }
 
             $grossSalary = $baseSalary + $totalAllowances;
+
+            // Statutory deductions (use stored procedures where available)
+            $payeTax = $this->getStatutoryAmount('sp_calculate_paye_tax', $grossSalary, $year);
+            if ($payeTax === null) {
+                $payeTax = $this->calculatePAYE($grossSalary);
+            }
+
+            $nssf = $this->getStatutoryAmount('sp_calculate_nssf_contribution', $grossSalary, $year);
+            if ($nssf === null) {
+                $nssf = $this->calculateNSSF($grossSalary);
+            }
+
+            $nhif = $this->getStatutoryAmount('sp_calculate_nhif_contribution', $grossSalary, $year);
+            if ($nhif === null) {
+                $nhif = $this->calculateNHIF($grossSalary);
+            }
+
+            $otherDeductions = $totalOtherDeductions + $loanDeduction + $childFeeDeduction;
+            $totalDeductions = $payeTax + $nssf + $nhif + $otherDeductions;
             $netSalary = $grossSalary - $totalDeductions;
+
+            $existingId = null;
+            $stmt = $this->db->prepare(
+                "SELECT id FROM staff_payroll WHERE staff_id = ? AND payroll_period = ? LIMIT 1"
+            );
+            $stmt->execute([$staffId, $period]);
+            $existingId = $stmt->fetchColumn() ?: null;
+
+            if ($existingId) {
+                $stmt = $this->db->prepare(
+                    "UPDATE staff_payroll SET
+                        payroll_month = ?,
+                        payroll_year = ?,
+                        basic_salary = ?,
+                        gross_salary = ?,
+                        nssf_deduction = ?,
+                        nhif_deduction = ?,
+                        paye_tax = ?,
+                        other_deductions = ?,
+                        total_deductions = ?,
+                        allowances = ?,
+                        deductions = ?,
+                        net_salary = ?,
+                        status = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                     WHERE id = ?"
+                );
+                $stmt->execute([
+                    $month,
+                    $year,
+                    $baseSalary,
+                    $grossSalary,
+                    $nssf,
+                    $nhif,
+                    $payeTax,
+                    $otherDeductions,
+                    $totalDeductions,
+                    $totalAllowances,
+                    $otherDeductions,
+                    $netSalary,
+                    $status,
+                    $existingId
+                ]);
+                $payrollId = $existingId;
+            } else {
+                $stmt = $this->db->prepare(
+                    "INSERT INTO staff_payroll (
+                        staff_id,
+                        payroll_month,
+                        payroll_year,
+                        basic_salary,
+                        gross_salary,
+                        nssf_deduction,
+                        nhif_deduction,
+                        paye_tax,
+                        other_deductions,
+                        total_deductions,
+                        allowances,
+                        deductions,
+                        net_salary,
+                        status,
+                        payroll_period
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                );
+                $stmt->execute([
+                    $staffId,
+                    $month,
+                    $year,
+                    $baseSalary,
+                    $grossSalary,
+                    $nssf,
+                    $nhif,
+                    $payeTax,
+                    $otherDeductions,
+                    $totalDeductions,
+                    $totalAllowances,
+                    $otherDeductions,
+                    $netSalary,
+                    $status,
+                    $period
+                ]);
+                $payrollId = (int) $this->db->lastInsertId();
+            }
 
             // Optionally, insert or update payslip record here if needed by workflow
 
@@ -112,13 +251,18 @@ class StaffPayrollManager extends BaseAPI
                 'staff_id' => $staffId,
                 'payroll_month' => $month,
                 'payroll_year' => $year,
+                'payroll_period' => $period,
+                'payroll_id' => $payrollId,
                 'gross_salary' => $grossSalary,
                 'net_salary' => $netSalary,
                 'base_salary' => $baseSalary,
                 'total_allowances' => $totalAllowances,
                 'total_deductions' => $totalDeductions,
-                'allowances_breakdown' => $allowances,
-                'deductions_breakdown' => $deductions
+                'paye_tax' => $payeTax,
+                'nssf_deduction' => $nssf,
+                'nhif_deduction' => $nhif,
+                'other_deductions' => $otherDeductions,
+                'status' => $status
             ], 'Payroll calculated successfully');
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -1218,6 +1362,41 @@ class StaffPayrollManager extends BaseAPI
         }
 
         return 1700; // Maximum
+    }
+
+    /**
+     * Calculate NSSF contribution fallback (6% tiered cap)
+     */
+    private function calculateNSSF($grossSalary)
+    {
+        $tier1 = min($grossSalary * 0.06, 420);
+        $tier2 = 0;
+        if ($grossSalary > 7000) {
+            $tier2Base = min($grossSalary - 7000, 29000);
+            $tier2 = $tier2Base * 0.06;
+        }
+        return round($tier1 + $tier2, 2);
+    }
+
+    /**
+     * Use DB stored procedures for statutory calculations if available.
+     */
+    private function getStatutoryAmount($procedureName, $grossSalary, $year)
+    {
+        try {
+            $stmt = $this->db->prepare("CALL {$procedureName}(?, ?, @amount)");
+            $stmt->execute([$grossSalary, $year]);
+            $stmt->closeCursor();
+
+            $result = $this->db->query("SELECT @amount AS amount")->fetch(PDO::FETCH_ASSOC);
+            if ($result && $result['amount'] !== null) {
+                return round((float) $result['amount'], 2);
+            }
+        } catch (Exception $e) {
+            return null;
+        }
+
+        return null;
     }
 
     /**

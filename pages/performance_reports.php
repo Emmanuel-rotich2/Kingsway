@@ -163,9 +163,5 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement performanceReportsController in js/pages/performance_reports.js
-        console.log('Performance Reports page loaded');
-    });
+<script src="js/pages/performance_reports.js"></script>
 </script>

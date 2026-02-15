@@ -22,7 +22,7 @@ $assessmentRows = [
 $actionOptions = ['View', 'Edit', 'Enter Marks', 'Publish Results'];
 ?>
 
-<div class="container mt-1">
+<div>
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-clipboard-check"></i> Assessments Management</span>
     <div class="btn-group">
@@ -198,5 +198,13 @@ $actionOptions = ['View', 'Edit', 'Enter Marks', 'Publish Results'];
     <div id="assignments" class="tab-pane fade">
       <p>Assignments will appear here.</p>
     </div>
+    <div id="myAssessments" class="tab-pane fade">
+      <p>Your assessments will appear here.</p>
+    </div>
+    <div id="pendingApprovalTab" class="tab-pane fade">
+      <p>Assessments pending approval will appear here.</p>
+    </div>
   </div>
 </div>
+
+<script src="js/pages/manage_assessments.js"></script>

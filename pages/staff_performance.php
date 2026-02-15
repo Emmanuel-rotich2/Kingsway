@@ -212,9 +212,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement staffPerformanceController in js/pages/staff_performance.js
-        console.log('Staff Performance page loaded');
-    });
-</script>
+<script src="js/pages/staff_performance.js"></script>

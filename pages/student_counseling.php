@@ -267,9 +267,4 @@
     </div>
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // TODO: Implement studentCounselingController in js/pages/student_counseling.js
-    console.log('Student Counseling page loaded');
-});
-</script>
+<script src="/Kingsway/js/pages/student_counseling.js"></script>

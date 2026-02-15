@@ -1,31 +1,15 @@
 /**
- * Manage Staff Page Controller
- * Manages Manage Staff workflow using api.js
+ * Manage Staff Page Controller (legacy shim)
+ * Kept for backward compatibility with old includes.
  */
 
-const ManageStaffController = {
-    data: {},
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
-            return;
-        }
-        this.loadData();
-    },
-    loadData: async function() {
-        try {
-            const response = await window.API.apiCall('/api/manage_staff', 'GET');
-            if (response) {
-                this.data = response;
-                this.render();
-            }
-        } catch (error) {
-            console.error('Error:', error);
-        }
-    },
-    render: function() {
-        console.log('Rendering data:', this.data);
-    }
-};
+document.addEventListener("DOMContentLoaded", () => {
+  if (!AuthContext.isAuthenticated()) {
+    window.location.href = "/Kingsway/index.php";
+    return;
+  }
 
-document.addEventListener('DOMContentLoaded', () => ManageStaffController.init());
+  if (window.staffManagementController?.init) {
+    window.staffManagementController.init();
+  }
+});

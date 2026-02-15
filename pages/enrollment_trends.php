@@ -10,7 +10,7 @@
  */
 ?>
 
-<div class="container-fluid py-4">
+<div>
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">

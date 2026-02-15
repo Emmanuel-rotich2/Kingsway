@@ -22,9 +22,8 @@ const LessonPlanApprovalController = (() => {
       const status = document.getElementById("approvalStatusFilter")?.value;
       if (status) params.append("status", status);
 
-      const response = await window.API.apiCall(
-        `/academic/lesson-plans/approval?${params.toString()}`,
-        "GET",
+      const response = await window.API.academic.listLessonPlansApproval(
+        Object.fromEntries(params),
       );
       const data = response?.data || response || [];
       plans = Array.isArray(data) ? data : data.lesson_plans || data.data || [];
@@ -79,13 +78,13 @@ const LessonPlanApprovalController = (() => {
 
   function renderStats(data) {
     const pending = data.filter(
-      (p) => (p.status || "").toLowerCase() === "pending",
+      (p) => (p.status || "").toLowerCase() === "submitted",
     ).length;
     const today = new Date().toISOString().split("T")[0];
     const approvedToday = data.filter(
       (p) =>
         (p.status || "").toLowerCase() === "approved" &&
-        (p.approved_date || "").startsWith(today),
+        (p.approved_at || p.approved_date || "").startsWith(today),
     ).length;
     const rejected = data.filter(
       (p) => (p.status || "").toLowerCase() === "rejected",
@@ -110,7 +109,7 @@ const LessonPlanApprovalController = (() => {
 
     const statusColors = {
       approved: "success",
-      pending: "warning",
+      submitted: "warning",
       rejected: "danger",
       draft: "secondary",
     };
@@ -171,10 +170,7 @@ const LessonPlanApprovalController = (() => {
 
   async function review(id) {
     try {
-      const resp = await window.API.apiCall(
-        `/academic/lesson-plans/${id}`,
-        "GET",
-      );
+      const resp = await window.API.academic.getLessonPlan(id);
       const lp = resp?.data || resp;
 
       document.getElementById("reviewPlanId").value = id;
@@ -215,7 +211,7 @@ const LessonPlanApprovalController = (() => {
     }
 
     try {
-      await window.API.apiCall(`/academic/lesson-plans/${id}/review`, "PUT", {
+      await window.API.academic.reviewLessonPlan(id, {
         status,
         feedback,
       });
@@ -240,9 +236,7 @@ const LessonPlanApprovalController = (() => {
     if (!confirm(`Approve ${selected.length} selected lesson plans?`)) return;
 
     try {
-      await window.API.apiCall("/academic/lesson-plans/bulk-approve", "PUT", {
-        ids: selected,
-      });
+      await window.API.academic.bulkApproveLessonPlans(selected);
       showNotification(`${selected.length} plans approved`, "success");
       await loadData();
     } catch (e) {

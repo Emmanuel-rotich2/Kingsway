@@ -316,6 +316,75 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // ==================== CONTRACT MANAGEMENT ====================
+
+    /**
+     * GET /api/staff/contracts/list
+     */
+    public function getContractsList($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $result = $this->api->listContracts($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/contracts/get/{id}
+     */
+    public function getContractsGet($id = null, $data = [], $segments = [])
+    {
+        $contractId = $id ?? $data['id'] ?? null;
+        if (!$contractId) {
+            return $this->badRequest('Contract ID is required');
+        }
+        $result = $this->api->getContract($contractId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/contracts/create
+     */
+    public function postContractsCreate($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createContract($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/staff/contracts/update/{id}
+     */
+    public function putContractsUpdate($id = null, $data = [], $segments = [])
+    {
+        $contractId = $id ?? $data['id'] ?? null;
+        if (!$contractId) {
+            return $this->badRequest('Contract ID is required');
+        }
+        $result = $this->api->updateContract($contractId, $data);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== PAYROLL LISTING (SUMMARY VIEW) ====================
+
+    /**
+     * GET /api/staff/payroll/list
+     */
+    public function getPayrollList($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $result = $this->api->listPayroll($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/payroll/summary
+     */
+    public function getPayrollSummary($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $result = $this->api->getPayrollSummary($filters);
+        return $this->handleResponse($result);
+    }
+
     // ==================== ASSIGNMENT OPERATIONS ====================
 
     /**

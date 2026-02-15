@@ -34,3 +34,5 @@
     </div>
 </div>
 
+<script src="js/pages/view_results.js"></script>
+

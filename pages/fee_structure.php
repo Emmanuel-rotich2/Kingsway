@@ -145,6 +145,7 @@
                 });
         })();
     </script>
+    <script src="js/pages/fee_structure.js"></script>
 </body>
 
 </html>

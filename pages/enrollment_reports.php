@@ -179,9 +179,5 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement enrollmentReportsController in js/pages/enrollment_reports.js
-        console.log('Enrollment Reports page loaded');
-    });
+<script src="js/pages/enrollment_reports.js"></script>
 </script>

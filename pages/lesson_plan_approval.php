@@ -6,7 +6,7 @@
  */
 ?>
 
-<div class="container-fluid py-4">
+<div>
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
@@ -81,7 +81,7 @@
                 </div>
                 <div class="col-md-2">
                     <select class="form-select" id="approvalStatusFilter">
-                        <option value="pending">Pending</option>
+                        <option value="submitted">Pending Review</option>
                         <option value="">All Status</option>
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>

@@ -10,7 +10,7 @@
  */
 ?>
 
-<div class="container-fluid py-4">
+<div>
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="js/pages/students_with_balance.js"></script>
+<script src="/Kingsway/js/pages/students_with_balance.js"></script>

@@ -32,7 +32,7 @@ if (file_exists(__DIR__ . '/' . $templateFile)) {
   ?>
   <!-- Legacy Activities Page (Fallback) -->
   <?php include __DIR__ . '/../components/tables/table.php'; ?>
-  <div class="container mt-3">
+  <div>
     <!-- Page Header -->
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2><i class="bi bi-trophy"></i> Activities Management</h2>

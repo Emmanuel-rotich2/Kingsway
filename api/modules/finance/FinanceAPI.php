@@ -515,6 +515,18 @@ class FinanceAPI extends BaseAPI
     }
 
     /**
+     * List student payment status with filters
+     */
+    public function listStudentPaymentStatus($filters = [])
+    {
+        try {
+            return $this->paymentManager->listStudentPaymentStatus($filters);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
      * Handle custom POST actions - routes to managers/workflows
      */
     public function handleCustomPost($id, $action, $data)

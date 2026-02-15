@@ -809,6 +809,22 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/students/payment-status
+     * List student payment status with filters
+     */
+    public function getStudentsPaymentStatus($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET ?? [], $data ?? []);
+
+        if ($id !== null) {
+            $filters['student_id'] = $id;
+        }
+
+        $result = $this->api->listStudentPaymentStatus($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * GET /api/finance/students/fee-statement/{id}
      * Get complete fee statement for a student
      */
@@ -852,7 +868,7 @@ class FinanceController extends BaseController
     private function getCurrentAcademicYear()
     {
         try {
-            $db = Database::getInstance();
+            $db = Database::getInstance()->getConnection();
             $stmt = $db->prepare("SELECT year FROM academic_years WHERE is_current = 1 LIMIT 1");
             $stmt->execute();
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);

@@ -11,10 +11,10 @@ $roleCategory = $roleCategory ?? 'viewer';
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
             <h4 class="mb-0"><i class="bi bi-person-plus-fill"></i> Student Admissions</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" data-action="new-application">
+                <button class="btn btn-light btn-sm" data-action="new-application" data-permission="admissions_create">
                     <i class="bi bi-plus-circle"></i> New Application
                 </button>
-                <button class="btn btn-outline-light btn-sm" data-action="refresh">
+                <button class="btn btn-outline-light btn-sm" data-action="refresh" data-permission="admissions_view">
                     <i class="bi bi-arrow-clockwise"></i> Refresh
                 </button>
             </div>

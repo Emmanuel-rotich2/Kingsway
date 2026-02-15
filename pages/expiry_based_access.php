@@ -1,5 +1,5 @@
 <?php /** Expiry-Based Access - Manage time-limited access */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-hourglass-end me-2"></i>Expiry-Based Access</h4><p class="text-muted mb-0">Manage time-limited access</p></div>
         <button class="btn btn-outline-success" onclick="window._matrixCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>

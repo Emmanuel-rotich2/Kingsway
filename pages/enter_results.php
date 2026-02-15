@@ -62,3 +62,5 @@
         </form>
     </div>
 </div>
+
+<script src="js/pages/enter_results.js"></script>
