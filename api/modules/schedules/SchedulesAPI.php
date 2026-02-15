@@ -407,24 +407,65 @@ class SchedulesAPI extends BaseAPI {
 
     public function getTimetable($params = []) {
         try {
+            $where = ["cs.status = 'active'"];
+            $bindings = [];
+
+            if (!empty($params['class_id'])) {
+                $where[] = "cs.class_id = ?";
+                $bindings[] = $params['class_id'];
+            }
+            if (!empty($params['teacher_id'])) {
+                $where[] = "cs.teacher_id = ?";
+                $bindings[] = $params['teacher_id'];
+            }
+            if (!empty($params['academic_year_id'])) {
+                $where[] = "cs.academic_year_id = ?";
+                $bindings[] = $params['academic_year_id'];
+            }
+            if (!empty($params['term_id'])) {
+                $where[] = "cs.term_id = ?";
+                $bindings[] = $params['term_id'];
+            }
+            if (!empty($params['day_of_week'])) {
+                $where[] = "cs.day_of_week = ?";
+                $bindings[] = $params['day_of_week'];
+            }
+
+            $whereSql = implode(' AND ', $where);
+
             $sql = "
                 SELECT 
-                    t.*,
+                    cs.id,
+                    cs.class_id,
+                    cs.day_of_week,
+                    cs.day_of_week as day,
+                    cs.start_time,
+                    cs.end_time,
+                    cs.subject_id,
+                    cs.teacher_id,
+                    cs.room_id,
+                    cs.academic_year_id,
+                    cs.term_id,
+                    cs.period_number,
+                    cs.status,
                     c.name as class_name,
+                    COALESCE(cu.name, la.name) as subject_name,
                     la.name as learning_area_name,
                     CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
-                    r.name as room_name
-                FROM timetables t
-                JOIN classes c ON t.class_id = c.id
-                JOIN learning_areas la ON t.learning_area_id = la.id
-                JOIN staff s ON t.teacher_id = s.id
-                LEFT JOIN rooms r ON t.room_id = r.id
-                WHERE t.status = 'active'
-                ORDER BY t.day_of_week, t.start_time
+                    r.name as room_name,
+                    r.code as room_code
+                FROM class_schedules cs
+                JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cu.learning_area_id = la.id
+                LEFT JOIN staff s ON cs.teacher_id = s.id
+                LEFT JOIN rooms r ON cs.room_id = r.id
+                WHERE $whereSql
+                ORDER BY FIELD(cs.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), cs.start_time
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute($bindings);
             $timetable = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return successResponse($timetable);
@@ -435,35 +476,80 @@ class SchedulesAPI extends BaseAPI {
 
     public function createTimetableEntry($data) {
         try {
-            $required = ['class_id', 'learning_area_id', 'teacher_id', 'day_of_week', 'start_time', 'end_time'];
+            $required = ['class_id', 'subject_id', 'teacher_id', 'day_of_week', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
             }
 
+            // Map 'day' shorthand to 'day_of_week' if needed
+            if (empty($data['day_of_week']) && !empty($data['day'])) {
+                $data['day_of_week'] = $data['day'];
+            }
+
+            // Check for teacher conflict
+            $conflictSql = "
+                SELECT cs.id, c.name as class_name, cs.start_time, cs.end_time
+                FROM class_schedules cs
+                JOIN classes c ON cs.class_id = c.id
+                WHERE cs.teacher_id = ? AND cs.day_of_week = ? AND cs.status = 'active'
+                AND cs.start_time < ? AND cs.end_time > ?
+            ";
+            $stmt = $this->db->prepare($conflictSql);
+            $stmt->execute([$data['teacher_id'], $data['day_of_week'], $data['end_time'], $data['start_time']]);
+            $teacherConflict = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($teacherConflict) {
+                return errorResponse("Teacher already scheduled for {$teacherConflict['class_name']} at {$teacherConflict['start_time']}-{$teacherConflict['end_time']}", 409);
+            }
+
+            // Check for class conflict (same class, same time slot)
+            $classSql = "
+                SELECT cs.id FROM class_schedules cs
+                WHERE cs.class_id = ? AND cs.day_of_week = ? AND cs.status = 'active'
+                AND cs.start_time < ? AND cs.end_time > ?
+            ";
+            $stmt = $this->db->prepare($classSql);
+            $stmt->execute([$data['class_id'], $data['day_of_week'], $data['end_time'], $data['start_time']]);
+            if ($stmt->fetch()) {
+                return errorResponse("This class already has a lesson at this time slot", 409);
+            }
+
+            // Check for room conflict if room_id provided
+            if (!empty($data['room_id'])) {
+                $roomSql = "
+                    SELECT cs.id, c.name as class_name FROM class_schedules cs
+                    JOIN classes c ON cs.class_id = c.id
+                    WHERE cs.room_id = ? AND cs.day_of_week = ? AND cs.status = 'active'
+                    AND cs.start_time < ? AND cs.end_time > ?
+                ";
+                $stmt = $this->db->prepare($roomSql);
+                $stmt->execute([$data['room_id'], $data['day_of_week'], $data['end_time'], $data['start_time']]);
+                $roomConflict = $stmt->fetch(PDO::FETCH_ASSOC);
+                if ($roomConflict) {
+                    return errorResponse("Room already booked by {$roomConflict['class_name']} at this time", 409);
+                }
+            }
+
             $sql = "
-                INSERT INTO timetables (
-                    class_id,
-                    learning_area_id,
-                    teacher_id,
-                    room_id,
-                    day_of_week,
-                    start_time,
-                    end_time,
-                    status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO class_schedules (
+                    class_id, subject_id, teacher_id, room_id,
+                    day_of_week, start_time, end_time,
+                    academic_year_id, term_id, period_number, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['class_id'],
-                $data['learning_area_id'],
+                $data['subject_id'],
                 $data['teacher_id'],
                 $data['room_id'] ?? null,
                 $data['day_of_week'],
                 $data['start_time'],
                 $data['end_time'],
-                'active'
+                $data['academic_year_id'] ?? null,
+                $data['term_id'] ?? null,
+                $data['period_number'] ?? null
             ]);
 
             $entryId = $this->db->lastInsertId();
@@ -474,25 +560,314 @@ class SchedulesAPI extends BaseAPI {
         }
     }
 
-    public function getExamSchedule($params = []) {
+    public function updateTimetableEntry($id, $data) {
         try {
+            if (!$id) {
+                return errorResponse('Timetable entry ID is required', 400);
+            }
+
+            // Check entry exists
+            $stmt = $this->db->prepare("SELECT id FROM class_schedules WHERE id = ?");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                return errorResponse('Timetable entry not found', 404);
+            }
+
+            $updates = [];
+            $params = [];
+            $allowedFields = ['class_id', 'subject_id', 'teacher_id', 'room_id', 'day_of_week',
+                              'start_time', 'end_time', 'academic_year_id', 'term_id', 'period_number', 'status'];
+
+            foreach ($allowedFields as $field) {
+                if (isset($data[$field])) {
+                    $updates[] = "$field = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            if (empty($updates)) {
+                return errorResponse('No fields to update', 400);
+            }
+
+            $params[] = $id;
+            $sql = "UPDATE class_schedules SET " . implode(', ', $updates) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return successResponse(['message' => 'Timetable entry updated successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteTimetableEntry($id = null, $data = []) {
+        try {
+            // Support delete by ID or by day/time/class combo
+            if ($id) {
+                $stmt = $this->db->prepare("DELETE FROM class_schedules WHERE id = ?");
+                $stmt->execute([$id]);
+            } elseif (!empty($data['class_id']) && !empty($data['day']) && !empty($data['start_time'])) {
+                $day = $data['day_of_week'] ?? $data['day'];
+                $stmt = $this->db->prepare(
+                    "DELETE FROM class_schedules WHERE class_id = ? AND day_of_week = ? AND start_time = ?"
+                );
+                $stmt->execute([$data['class_id'], $day, $data['start_time']]);
+            } else {
+                return errorResponse('Entry ID or class_id + day + start_time required', 400);
+            }
+
+            if ($stmt->rowCount() === 0) {
+                return errorResponse('Timetable entry not found', 404);
+            }
+
+            return successResponse(['message' => 'Timetable entry deleted successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function checkTimetableConflicts($params = []) {
+        try {
+            $conflicts = [];
+
+            // Check teacher double-booking
             $sql = "
                 SELECT 
-                    es.*,
-                    e.name as exam_name,
-                    la.name as learning_area_name,
-                    r.name as room_name
+                    cs1.id as schedule_id_1, cs2.id as schedule_id_2,
+                    cs1.day_of_week, cs1.start_time, cs1.end_time,
+                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                    c1.name as class_1, c2.name as class_2,
+                    'teacher_overlap' as conflict_type
+                FROM class_schedules cs1
+                JOIN class_schedules cs2 ON cs1.teacher_id = cs2.teacher_id 
+                    AND cs1.day_of_week = cs2.day_of_week
+                    AND cs1.id < cs2.id
+                    AND cs1.start_time < cs2.end_time AND cs1.end_time > cs2.start_time
+                JOIN staff s ON cs1.teacher_id = s.id
+                JOIN classes c1 ON cs1.class_id = c1.id
+                JOIN classes c2 ON cs2.class_id = c2.id
+                WHERE cs1.status = 'active' AND cs2.status = 'active'
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $teacherConflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($teacherConflicts as $c) {
+                $c['description'] = "{$c['teacher_name']} is double-booked: {$c['class_1']} and {$c['class_2']} on {$c['day_of_week']} {$c['start_time']}-{$c['end_time']}";
+                $conflicts[] = $c;
+            }
+
+            // Check room double-booking
+            $sql = "
+                SELECT 
+                    cs1.id as schedule_id_1, cs2.id as schedule_id_2,
+                    cs1.day_of_week, cs1.start_time, cs1.end_time,
+                    r.name as room_name,
+                    c1.name as class_1, c2.name as class_2,
+                    'room_overlap' as conflict_type
+                FROM class_schedules cs1
+                JOIN class_schedules cs2 ON cs1.room_id = cs2.room_id 
+                    AND cs1.day_of_week = cs2.day_of_week
+                    AND cs1.id < cs2.id
+                    AND cs1.start_time < cs2.end_time AND cs1.end_time > cs2.start_time
+                JOIN rooms r ON cs1.room_id = r.id
+                JOIN classes c1 ON cs1.class_id = c1.id
+                JOIN classes c2 ON cs2.class_id = c2.id
+                WHERE cs1.status = 'active' AND cs2.status = 'active'
+                AND cs1.room_id IS NOT NULL
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $roomConflicts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($roomConflicts as $c) {
+                $c['description'] = "{$c['room_name']} is double-booked: {$c['class_1']} and {$c['class_2']} on {$c['day_of_week']} {$c['start_time']}-{$c['end_time']}";
+                $conflicts[] = $c;
+            }
+
+            return successResponse([
+                'conflicts' => $conflicts,
+                'total' => count($conflicts),
+                'has_conflicts' => count($conflicts) > 0
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function reportTimetableConflict($data) {
+        try {
+            $required = ['description'];
+            $missing = $this->validateRequired($data, $required);
+            if (!empty($missing)) {
+                return errorResponse(['fields' => $missing, 'message' => 'Please describe the conflict'], 400);
+            }
+
+            $sql = "
+                INSERT INTO timetable_conflicts (
+                    reported_by, conflict_type, description,
+                    day_of_week, time_slot, schedule_id_1, schedule_id_2, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'reported')
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $data['reported_by'] ?? 0,
+                $data['conflict_type'] ?? 'other',
+                $data['description'],
+                $data['day_of_week'] ?? null,
+                $data['time_slot'] ?? null,
+                $data['schedule_id_1'] ?? null,
+                $data['schedule_id_2'] ?? null
+            ]);
+
+            return successResponse(['id' => $this->db->lastInsertId(), 'message' => 'Conflict reported successfully'], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getTimeSlots() {
+        try {
+            $stmt = $this->db->prepare("SELECT * FROM time_slots WHERE is_active = 1 ORDER BY period_number ASC");
+            $stmt->execute();
+            $slots = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            return successResponse($slots);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getExamSchedule($params = []) {
+        try {
+            $conditions = [];
+            $bindings = [];
+
+            // Filter by term
+            if (!empty($params['term_id'])) {
+                $conditions[] = "es.term_id = ?";
+                $bindings[] = $params['term_id'];
+            }
+
+            // Filter by academic year
+            if (!empty($params['academic_year_id'])) {
+                $conditions[] = "es.academic_year_id = ?";
+                $bindings[] = $params['academic_year_id'];
+            }
+
+            // Filter by class
+            if (!empty($params['class_id'])) {
+                $conditions[] = "es.class_id = ?";
+                $bindings[] = $params['class_id'];
+            }
+
+            // Filter by status
+            if (!empty($params['status'])) {
+                $conditions[] = "es.status = ?";
+                $bindings[] = $params['status'];
+            } else {
+                $conditions[] = "es.status NOT IN ('cancelled')";
+            }
+
+            // Filter by exam type
+            if (!empty($params['exam_type'])) {
+                $conditions[] = "es.exam_type = ?";
+                $bindings[] = $params['exam_type'];
+            }
+
+            $whereClause = !empty($conditions) ? 'WHERE ' . implode(' AND ', $conditions) : '';
+
+            $sql = "
+                SELECT 
+                    es.id,
+                    es.term_id,
+                    es.academic_year_id,
+                    es.class_id,
+                    c.name AS class_name,
+                    es.subject_id,
+                    COALESCE(cu.name, '') AS subject_name,
+                    es.exam_name,
+                    es.exam_type,
+                    es.exam_date,
+                    es.start_time,
+                    es.end_time,
+                    es.duration_minutes,
+                    es.room_id,
+                    r.name AS room_name,
+                    es.venue,
+                    es.invigilator_id,
+                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
+                    es.supervisor_id,
+                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
+                    es.notes,
+                    es.status,
+                    es.created_at,
+                    es.updated_at,
+                    at2.term_number AS term_number,
+                    ay.year_code AS academic_year
                 FROM exam_schedules es
-                JOIN exams e ON es.exam_id = e.id
-                JOIN learning_areas la ON es.learning_area_id = la.id
+                JOIN classes c ON es.class_id = c.id
+                LEFT JOIN curriculum_units cu ON es.subject_id = cu.id
                 LEFT JOIN rooms r ON es.room_id = r.id
-                WHERE es.status = 'active'
-                ORDER BY es.exam_date, es.start_time
+                LEFT JOIN staff inv ON es.invigilator_id = inv.id
+                LEFT JOIN staff sup ON es.supervisor_id = sup.id
+                LEFT JOIN academic_terms at2 ON es.term_id = at2.id
+                LEFT JOIN academic_years ay ON es.academic_year_id = ay.id
+                {$whereClause}
+                ORDER BY es.exam_date ASC, es.start_time ASC
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute($bindings);
             $schedule = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse($schedule);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getExamScheduleById($id) {
+        try {
+            $sql = "
+                SELECT 
+                    es.id,
+                    es.term_id,
+                    es.academic_year_id,
+                    es.class_id,
+                    c.name AS class_name,
+                    es.subject_id,
+                    COALESCE(cu.name, '') AS subject_name,
+                    es.exam_name,
+                    es.exam_type,
+                    es.exam_date,
+                    es.start_time,
+                    es.end_time,
+                    es.duration_minutes,
+                    es.room_id,
+                    r.name AS room_name,
+                    es.venue,
+                    es.invigilator_id,
+                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
+                    es.supervisor_id,
+                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
+                    es.notes,
+                    es.status,
+                    es.created_at,
+                    es.updated_at
+                FROM exam_schedules es
+                JOIN classes c ON es.class_id = c.id
+                LEFT JOIN curriculum_units cu ON es.subject_id = cu.id
+                LEFT JOIN rooms r ON es.room_id = r.id
+                LEFT JOIN staff inv ON es.invigilator_id = inv.id
+                LEFT JOIN staff sup ON es.supervisor_id = sup.id
+                WHERE es.id = ?
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+            $schedule = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$schedule) {
+                return errorResponse(['message' => 'Exam schedule not found'], 404);
+            }
 
             return successResponse($schedule);
         } catch (Exception $e) {
@@ -502,7 +877,7 @@ class SchedulesAPI extends BaseAPI {
 
     public function createExamSchedule($data) {
         try {
-            $required = ['exam_id', 'learning_area_id', 'exam_date', 'start_time', 'end_time'];
+            $required = ['class_id', 'subject_id', 'exam_date', 'start_time', 'end_time'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse(['fields' => $missing, 'message' => 'Missing required fields'], 400);
@@ -510,32 +885,106 @@ class SchedulesAPI extends BaseAPI {
 
             $sql = "
                 INSERT INTO exam_schedules (
-                    exam_id,
-                    learning_area_id,
-                    room_id,
+                    term_id,
+                    academic_year_id,
+                    class_id,
+                    subject_id,
+                    exam_name,
+                    exam_type,
                     exam_date,
                     start_time,
                     end_time,
-                    instructions,
+                    duration_minutes,
+                    room_id,
+                    venue,
+                    invigilator_id,
+                    supervisor_id,
+                    notes,
+                    created_by,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $data['exam_id'],
-                $data['learning_area_id'],
-                $data['room_id'] ?? null,
+                $data['term_id'] ?? null,
+                $data['academic_year_id'] ?? null,
+                $data['class_id'],
+                $data['subject_id'],
+                $data['exam_name'] ?? null,
+                $data['exam_type'] ?? null,
                 $data['exam_date'],
                 $data['start_time'],
                 $data['end_time'],
-                $data['instructions'] ?? null,
-                'active'
+                $data['duration_minutes'] ?? null,
+                $data['room_id'] ?? null,
+                $data['venue'] ?? null,
+                $data['invigilator_id'] ?? null,
+                $data['supervisor_id'] ?? null,
+                $data['notes'] ?? null,
+                $data['created_by'] ?? null,
+                $data['status'] ?? 'scheduled'
             ]);
 
             $scheduleId = $this->db->lastInsertId();
 
             return successResponse(['id' => $scheduleId, 'message' => 'Exam schedule created successfully'], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateExamSchedule($id, $data) {
+        try {
+            // Build dynamic UPDATE
+            $fields = [];
+            $values = [];
+
+            $allowedFields = [
+                'term_id', 'academic_year_id', 'class_id', 'subject_id',
+                'exam_name', 'exam_type', 'exam_date', 'start_time', 'end_time',
+                'duration_minutes', 'room_id', 'venue', 'invigilator_id',
+                'supervisor_id', 'notes', 'status'
+            ];
+
+            foreach ($allowedFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse(['message' => 'No valid fields to update'], 400);
+            }
+
+            $values[] = $id;
+            $sql = "UPDATE exam_schedules SET " . implode(', ', $fields) . " WHERE id = ?";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            if ($stmt->rowCount() === 0) {
+                return errorResponse(['message' => 'Exam schedule not found or no changes made'], 404);
+            }
+
+            return successResponse(['id' => $id, 'message' => 'Exam schedule updated successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteExamSchedule($id) {
+        try {
+            // Soft delete - set status to cancelled
+            $stmt = $this->db->prepare("UPDATE exam_schedules SET status = 'cancelled' WHERE id = ?");
+            $stmt->execute([$id]);
+
+            if ($stmt->rowCount() === 0) {
+                return errorResponse(['message' => 'Exam schedule not found'], 404);
+            }
+
+            return successResponse(['message' => 'Exam schedule cancelled successfully']);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -684,16 +1133,14 @@ class SchedulesAPI extends BaseAPI {
             $sql = "
                 SELECT 
                     r.*,
-                    b.name as building_name,
-                    COUNT(DISTINCT t.id) as timetable_count,
+                    COUNT(DISTINCT cs.id) as timetable_count,
                     COUNT(DISTINCT e.id) as event_count
                 FROM rooms r
-                LEFT JOIN buildings b ON r.building_id = b.id
-                LEFT JOIN timetables t ON r.id = t.room_id AND t.status = 'active'
+                LEFT JOIN class_schedules cs ON r.id = cs.room_id AND cs.status = 'active'
                 LEFT JOIN events e ON r.id = e.room_id AND e.status = 'active'
                 WHERE r.status = 'active'
                 GROUP BY r.id
-                ORDER BY r.building_id, r.name
+                ORDER BY r.building, r.name
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -717,11 +1164,11 @@ class SchedulesAPI extends BaseAPI {
             $sql = "
                 INSERT INTO rooms (
                     name,
-                    building_id,
+                    code,
+                    building,
                     floor,
                     capacity,
                     type,
-                    facilities,
                     status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ";
@@ -729,11 +1176,11 @@ class SchedulesAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['name'],
-                $data['building_id'] ?? null,
+                $data['code'] ?? null,
+                $data['building'] ?? null,
                 $data['floor'] ?? null,
                 $data['capacity'],
                 $data['type'] ?? 'classroom',
-                json_encode($data['facilities'] ?? []),
                 'active'
             ]);
 

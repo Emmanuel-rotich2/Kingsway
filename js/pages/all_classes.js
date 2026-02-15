@@ -209,7 +209,7 @@ const AllClassesController = {
   },
 
   viewTimetable(classId) {
-    window.location.href = `/Kingsway/pages/timetable.php?class_id=${classId}`;
+    window.location.href = `/Kingsway/home.php?route=timetable&class_id=${classId}`;
   },
 
   // Helper methods

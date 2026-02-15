@@ -81,7 +81,7 @@
                 </div>
                 <div class="col-md-2">
                     <select class="form-select" id="approvalStatusFilter">
-                        <option value="pending">Pending</option>
+                        <option value="submitted">Pending Review</option>
                         <option value="">All Status</option>
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>

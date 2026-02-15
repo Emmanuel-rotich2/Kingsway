@@ -3,6 +3,8 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\academic\AcademicAPI;
+use function App\API\Includes\errorResponse;
+use function App\API\Includes\successResponse;
 
 /**
  * AcademicController
@@ -410,6 +412,61 @@ class AcademicController extends BaseController
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
         $result = $this->api->approveExamResults($data['instance_id'] ?? null, $data);
+        return $this->handleResponse($result);
+    }
+
+    // ==================== EXAM SCHEDULE DIRECT CRUD ====================
+    // URLs: GET/POST/PUT/DELETE /api/academic/exam-schedule
+    // Used by: js/pages/exam_schedule.js
+
+    /**
+     * GET /api/academic/exam-schedule - List exam schedules with filters
+     * GET /api/academic/exam-schedule/{id} - Get single exam schedule
+     * Router calls: getExamSchedule($id, $data, $segments)
+     */
+    public function getExamSchedule($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $result = $this->api->getExamScheduleById($id);
+        } else {
+            $result = $this->api->listExamSchedules($data);
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/exam-schedule - Create new exam schedule
+     * Router calls: postExamSchedule(null, $data, $segments)
+     */
+    public function postExamSchedule($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->createExamScheduleEntry($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/exam-schedule/{id} - Update exam schedule
+     * Router calls: putExamSchedule($id, $data, $segments)
+     */
+    public function putExamSchedule($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Exam schedule ID is required for update');
+        }
+        $result = $this->api->updateExamScheduleEntry($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/exam-schedule/{id} - Delete exam schedule
+     * Router calls: deleteExamSchedule($id, $data, $segments)
+     */
+    public function deleteExamSchedule($id = null, $data = [], $segments = [])
+    {
+        if ($id === null) {
+            return $this->badRequest('Exam schedule ID is required for deletion');
+        }
+        $result = $this->api->deleteExamScheduleEntry($id);
         return $this->handleResponse($result);
     }
 
@@ -1097,7 +1154,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/lesson-plans/create - Create lesson plan
      */
-    public function postLessonPlansCreate($data = [])
+    public function postLessonPlansCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createLessonPlan($data);
         return $this->handleResponse($result);
@@ -1105,47 +1162,130 @@ class AcademicController extends BaseController
 
     /**
      * GET /api/academic/lesson-plans/list - List lesson plans
+     * Passes full query params so getLessonPlans can filter by
+     * teacher_id, class_id, status, term_id, academic_year_id, etc.
      */
-    public function getLessonPlansList($data = [])
+    public function getLessonPlansList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getLessonPlans($data['teacher_id'] ?? null);
+        $result = $this->api->getLessonPlans($data);
         return $this->handleResponse($result);
     }
 
     /**
      * GET /api/academic/lesson-plans/get/{id} - Get specific lesson plan
      */
-    public function getLessonPlansGet($data = [])
+    public function getLessonPlansGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getLessonPlan($data['id'] ?? null);
+        $result = $this->api->getLessonPlan($id ?? $data['id'] ?? null);
         return $this->handleResponse($result);
     }
 
     /**
      * PUT /api/academic/lesson-plans/update/{id} - Update lesson plan
      */
-    public function putLessonPlansUpdate($data = [])
+    public function putLessonPlansUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateLessonPlan($data['id'] ?? null, $data);
+        $planId = $id ?? $data['id'] ?? null;
+        $result = $this->api->updateLessonPlan($planId, $data);
         return $this->handleResponse($result);
     }
 
     /**
      * DELETE /api/academic/lesson-plans/delete/{id} - Delete lesson plan
      */
-    public function deleteLessonPlansDelete($data = [])
+    public function deleteLessonPlansDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteLessonPlan($data['id'] ?? null);
+        $planId = $id ?? $data['id'] ?? null;
+        $result = $this->api->deleteLessonPlan($planId);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/academic/lesson-plans/approve - Approve lesson plan
      */
-    public function postLessonPlansApprove($data = [])
+    public function postLessonPlansApprove($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->approveLessonPlan($data['plan_id'] ?? null, $data['approved_by'] ?? null);
+        $planId = $data['plan_id'] ?? $id ?? null;
+        $result = $this->api->approveLessonPlan($planId, $data);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/lesson-plans/reject - Reject lesson plan
+     */
+    public function postLessonPlansReject($id = null, $data = [], $segments = [])
+    {
+        $planId = $data['plan_id'] ?? $id ?? null;
+        $result = $this->api->rejectLessonPlan($planId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/academic/lesson-plans/submit - Submit lesson plan for review
+     */
+    public function postLessonPlansSubmit($id = null, $data = [], $segments = [])
+    {
+        $planId = $data['plan_id'] ?? $id ?? null;
+        $result = $this->api->submitLessonPlan($planId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/lesson-plans/approval - List plans pending approval (for headteacher)
+     */
+    public function getLessonPlansApproval($id = null, $data = [], $segments = [])
+    {
+        // Default to 'submitted' status for the approval queue
+        if (empty($data['status'])) {
+            $data['status'] = 'submitted';
+        }
+        $result = $this->api->getLessonPlans($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/lesson-plans/review/{id} - Submit review (approve/reject) for a lesson plan
+     */
+    public function putLessonPlansReview($id = null, $data = [], $segments = [])
+    {
+        $planId = $id ?? $data['plan_id'] ?? null;
+        $status = $data['status'] ?? null;
+
+        if ($status === 'approved') {
+            $result = $this->api->approveLessonPlan($planId, $data);
+        } elseif ($status === 'rejected') {
+            $result = $this->api->rejectLessonPlan($planId, $data);
+        } else {
+            return $this->handleResponse(errorResponse('Invalid review status. Must be "approved" or "rejected"', 400));
+        }
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/lesson-plans/bulk-approve - Bulk approve multiple plans
+     */
+    public function putLessonPlansBulkApprove($id = null, $data = [], $segments = [])
+    {
+        $ids = $data['ids'] ?? [];
+        if (empty($ids) || !is_array($ids)) {
+            return $this->handleResponse(errorResponse('No plan IDs provided', 400));
+        }
+
+        $results = ['approved' => 0, 'failed' => 0, 'errors' => []];
+        foreach ($ids as $planId) {
+            $result = $this->api->approveLessonPlan($planId, $data);
+            if (isset($result['status']) && $result['status'] === 'success') {
+                $results['approved']++;
+            } else {
+                $results['failed']++;
+                $results['errors'][] = "Plan #{$planId}: " . ($result['message'] ?? 'Unknown error');
+            }
+        }
+
+        return $this->handleResponse(successResponse([
+            'message' => "{$results['approved']} plans approved, {$results['failed']} failed",
+            'data' => $results
+        ]));
     }
 
     // ==================== LESSON OBSERVATIONS ====================

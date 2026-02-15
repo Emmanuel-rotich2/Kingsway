@@ -1796,6 +1796,17 @@ window.API = {
       apiCall("/academic/lesson-plans-delete", "DELETE", { id }),
     approveLessonPlan: async (data) =>
       apiCall("/academic/lesson-plans-approve", "POST", data),
+    rejectLessonPlan: async (data) =>
+      apiCall("/academic/lesson-plans-reject", "POST", data),
+    submitLessonPlan: async (data) =>
+      apiCall("/academic/lesson-plans-submit", "POST", data),
+    // Approval page endpoints
+    listLessonPlansApproval: async (params) =>
+      apiCall("/academic/lesson-plans-approval", "GET", null, params),
+    reviewLessonPlan: async (id, data) =>
+      apiCall(`/academic/lesson-plans-review/${id}`, "PUT", data),
+    bulkApproveLessonPlans: async (ids) =>
+      apiCall("/academic/lesson-plans-bulk-approve", "PUT", { ids }),
 
     // Lesson observations
     createLessonObservation: async (data) =>
@@ -3095,12 +3106,24 @@ window.API = {
     delete: async (id) => apiCall(`/schedules/${id}`, "DELETE"),
 
     // Timetable
-    getTimetable: async (id = null) =>
-      id
-        ? apiCall(`/schedules/timetable-get/${id}`, "GET")
-        : apiCall("/schedules/timetable-get", "GET"),
+    getTimetable: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/schedules/timetable-get?${qs}` : "/schedules/timetable-get", "GET");
+    },
     createTimetable: async (data) =>
       apiCall("/schedules/timetable-create", "POST", data),
+    updateTimetable: async (id, data) =>
+      apiCall(`/schedules/timetable-update/${id}`, "PUT", data),
+    deleteTimetable: async (data) =>
+      apiCall("/schedules/timetable-delete", "POST", data),
+    deleteTimetableById: async (id) =>
+      apiCall(`/schedules/timetable-delete/${id}`, "DELETE"),
+    checkTimetableConflicts: async () =>
+      apiCall("/schedules/timetable-check-conflicts", "GET"),
+    reportTimetableConflict: async (data) =>
+      apiCall("/schedules/timetable-report-conflict", "POST", data),
+    getTimeSlots: async () =>
+      apiCall("/schedules/timetable-time-slots", "GET"),
 
     // Exams
     getExam: async (id = null) =>
@@ -3204,7 +3227,8 @@ window.API = {
     // Legacy support
     getClassSchedule: async (classId) =>
       apiCall(`/schedules/timetable-get?class_id=${classId}`, "GET"),
-    updateSchedule: async (data) => apiCall("/schedules", "POST", data),
+    updateSchedule: async (data) =>
+      apiCall("/schedules/timetable-create", "POST", data),
     addEvent: async (data) => apiCall("/schedules/events-create", "POST", data),
     updateEvent: async (id, data) => apiCall(`/schedules/${id}`, "PUT", data),
     deleteEvent: async (id) => apiCall(`/schedules/${id}`, "DELETE"),

@@ -117,6 +117,66 @@ class SchedulesController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * PUT /api/schedules/timetable/update/{id}
+     */
+    public function putTimetableUpdate($id = null, $data = [], $segments = [])
+    {
+        $entryId = $id ?? ($data['id'] ?? null);
+        $result = $this->api->updateTimetableEntry($entryId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/schedules/timetable/delete/{id}
+     * POST /api/schedules/timetable/delete (with body data for day/time/class combo)
+     */
+    public function deleteTimetableDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteTimetableEntry($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/timetable/delete (fallback for body-based delete)
+     */
+    public function postTimetableDelete($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->deleteTimetableEntry($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/schedules/timetable/check-conflicts
+     */
+    public function getTimetableCheckConflicts($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->checkTimetableConflicts($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/schedules/timetable/report-conflict
+     */
+    public function postTimetableReportConflict($id = null, $data = [], $segments = [])
+    {
+        // Inject authenticated user if available
+        if (!empty($this->user['id'])) {
+            $data['reported_by'] = $this->user['id'];
+        }
+        $result = $this->api->reportTimetableConflict($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/schedules/timetable/time-slots
+     */
+    public function getTimetableTimeSlots($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getTimeSlots();
+        return $this->handleResponse($result);
+    }
+
     // ========================================
     // SECTION 3: Exam Schedules
     // ========================================
