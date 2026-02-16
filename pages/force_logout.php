@@ -1,5 +1,5 @@
 <?php /** Force Logout - Force logout user sessions */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-sign-out-alt me-2"></i>Force Logout</h4><p class="text-muted mb-0">Force logout user sessions</p></div>
         <button class="btn btn-outline-success" onclick="window._matrixCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>

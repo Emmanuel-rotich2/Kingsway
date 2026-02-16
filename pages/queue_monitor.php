@@ -1,5 +1,5 @@
 <?php /** Queue Monitor - Monitor job queue processing */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-tasks me-2"></i>Queue Monitor</h4><p class="text-muted mb-0">Monitor job queue processing</p></div>
         <button class="btn btn-outline-success" onclick="window._logCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>

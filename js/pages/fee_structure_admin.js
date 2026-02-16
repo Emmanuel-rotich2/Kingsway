@@ -286,7 +286,7 @@ class FeeStructureAdminController {
 
     try {
       const response = await apiCall(
-        "/finance/fees-structures-list",
+        "/finance/fee-structures/list",
         "GET",
         null,
         filters,
@@ -1354,7 +1354,61 @@ class FeeStructureAdminController {
   }
 
   exportFeeStructures() {
-    console.log("Export fee structures");
+    this.exportCsv(this.currentAggregated, "fee_structures.csv");
+  }
+
+  exportCsv(rows, filename) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      this.showError("No fee structures to export");
+      return;
+    }
+
+    const headers = [
+      "Academic Year",
+      "Level",
+      "Student Type",
+      "Term",
+      "Status",
+      "Total Amount",
+      "Students",
+      "Expected Revenue",
+      "Collected",
+    ];
+
+    const csvRows = rows.map((row) => ({
+      "Academic Year": row.academic_year ?? "",
+      "Level": row.level_name || row.level_code || row.level_id || "",
+      "Student Type":
+        row.student_type_name ||
+        row.student_type_code ||
+        row.student_type_id ||
+        "",
+      "Term": this.getTermName(row.term_id, row.term_name),
+      "Status": row.status || "",
+      "Total Amount": row.total_amount ?? 0,
+      "Students": row.student_count ?? 0,
+      "Expected Revenue": row.total_expected_revenue ?? 0,
+      "Collected": row.total_collected ?? 0,
+    }));
+
+    const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers.join(",")]
+      .concat(
+        csvRows.map((row) =>
+          headers.map((header) => escape(row[header])).join(","),
+        ),
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   }
 
   showDuplicateModal() {

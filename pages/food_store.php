@@ -256,9 +256,5 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement foodStoreController in js/pages/food_store.js
-        console.log('Food Store page loaded');
-    });
+<script src="js/pages/food_store.js"></script>
 </script>

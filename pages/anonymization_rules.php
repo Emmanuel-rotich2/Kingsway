@@ -1,5 +1,5 @@
 <?php /** Anonymization Rules - Manage data anonymization rules */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-user-secret me-2"></i>Anonymization Rules</h4><p class="text-muted mb-0">Manage data anonymization rules</p></div>
         <button class="btn btn-outline-success" onclick="window._logCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>

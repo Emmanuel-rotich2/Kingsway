@@ -500,6 +500,7 @@ const ENDPOINT_PERMISSIONS = {
   // Finance
   "/finance/index": "finance_view",
   "/finance": "finance_view",
+  "/finance/students/payment-status": "finance_view",
   "/finance/payroll": {
     GET: "finance_view",
     POST: "finance_create",
@@ -1245,7 +1246,12 @@ window.API = {
         ? apiCall(`/students/statistics-get/${id}`, "GET")
         : apiCall("/students/statistics-get", "GET"),
     getStats: async (params = {}) => {
-      const resp = await apiCall("/students/statistics-get", "GET", null, params);
+      const resp = await apiCall(
+        "/students/statistics-get",
+        "GET",
+        null,
+        params,
+      );
       const payload = resp?.data?.data ?? resp?.data ?? resp;
       const stats = payload?.data ?? payload;
       const success =
@@ -1790,6 +1796,17 @@ window.API = {
       apiCall("/academic/lesson-plans-delete", "DELETE", { id }),
     approveLessonPlan: async (data) =>
       apiCall("/academic/lesson-plans-approve", "POST", data),
+    rejectLessonPlan: async (data) =>
+      apiCall("/academic/lesson-plans-reject", "POST", data),
+    submitLessonPlan: async (data) =>
+      apiCall("/academic/lesson-plans-submit", "POST", data),
+    // Approval page endpoints
+    listLessonPlansApproval: async (params) =>
+      apiCall("/academic/lesson-plans-approval", "GET", null, params),
+    reviewLessonPlan: async (id, data) =>
+      apiCall(`/academic/lesson-plans-review/${id}`, "PUT", data),
+    bulkApproveLessonPlans: async (ids) =>
+      apiCall("/academic/lesson-plans-bulk-approve", "PUT", { ids }),
 
     // Lesson observations
     createLessonObservation: async (data) =>
@@ -2398,8 +2415,7 @@ window.API = {
     deleteAnnualStructure: async (data) =>
       apiCall("/finance/fees-delete-annual-structure", "POST", data),
     listFeeTypes: async () => apiCall("/finance/fee-types-list", "GET"),
-    listStudentTypes: async () =>
-      apiCall("/finance/student-types-list", "GET"),
+    listStudentTypes: async () => apiCall("/finance/student-types-list", "GET"),
     generateFeeInvoice: async (data) =>
       apiCall("/finance/fee-invoices-generate", "POST", data),
     generateFeeInvoicesBatch: async (data) =>
@@ -2408,6 +2424,8 @@ window.API = {
       apiCall("/finance/fee-invoices-get", "GET", null, params),
 
     // Students
+    getStudentPaymentStatusList: async (params = {}) =>
+      apiCall("/finance/students/payment-status", "GET", null, params),
     getStudentPaymentHistory: async (studentId, params) =>
       apiCall(
         `/finance/students-payment-history?student_id=${studentId}`,
@@ -2416,7 +2434,12 @@ window.API = {
         params,
       ),
     getStudentFeeStatement: async (studentId, params = {}) =>
-      apiCall(`/finance/students/fee-statement/${studentId}`, "GET", null, params),
+      apiCall(
+        `/finance/students/fee-statement/${studentId}`,
+        "GET",
+        null,
+        params,
+      ),
     getStudentBalance: async (studentId) =>
       apiCall(`/finance/students/balance/${studentId}`, "GET"),
 
@@ -2740,10 +2763,10 @@ window.API = {
       apiCall("/staff/assignment-initiate", "POST", data),
 
     // Attendance
-    getAttendance: async (id = null) =>
+    getAttendance: async (id = null, params = {}) =>
       id
         ? apiCall(`/staff/attendance-get/${id}`, "GET")
-        : apiCall("/staff/attendance-get", "GET"),
+        : apiCall("/staff/attendance-get", "GET", null, params),
     markAttendance: async (data) =>
       apiCall("/staff/attendance-mark", "POST", data),
 
@@ -2751,8 +2774,11 @@ window.API = {
     listLeaves: async (params) =>
       apiCall("/staff/leaves-list", "GET", null, params),
     applyLeave: async (data) => apiCall("/staff/leaves-apply", "POST", data),
-    updateLeaveStatus: async (id, status) =>
-      apiCall("/staff/leaves-update-status", "PUT", { id, status }),
+    updateLeaveStatus: async (leaveId, status) =>
+      apiCall("/staff/leaves-update-status", "PUT", {
+        leave_id: leaveId,
+        status,
+      }),
     initiateLeaveRequest: async (data) =>
       apiCall("/staff/leave-initiate-request", "POST", data),
 
@@ -2764,6 +2790,10 @@ window.API = {
         null,
         params,
       ),
+    listPayroll: async (params = {}) =>
+      apiCall("/staff/payroll-list", "GET", null, params),
+    getPayrollSummary: async (params = {}) =>
+      apiCall("/staff/payroll-summary", "GET", null, params),
     getPayrollHistory: async (staffId, params) =>
       apiCall(
         `/staff/payroll-history?staff_id=${staffId}`,
@@ -2844,9 +2874,9 @@ window.API = {
         null,
         params,
       ),
-    generatePerformanceReport: async (staffId, params) =>
+    generatePerformanceReport: async (reviewId, params) =>
       apiCall(
-        `/staff/performance-generate-report?staff_id=${staffId}`,
+        `/staff/performance-generate-report?review_id=${reviewId}`,
         "GET",
         null,
         params,
@@ -2865,6 +2895,15 @@ window.API = {
       apiCall("/staff/assign-class", "POST", { staff_id: id, ...roleData }),
     updatePermissions: async (id, permissions) =>
       apiCall(`/staff/${id}`, "PUT", { permissions }),
+
+    // Contracts
+    listContracts: async (params = {}) =>
+      apiCall("/staff/contracts-list", "GET", null, params),
+    getContract: async (id) => apiCall(`/staff/contracts-get/${id}`, "GET"),
+    createContract: async (data) =>
+      apiCall("/staff/contracts-create", "POST", data),
+    updateContract: async (id, data) =>
+      apiCall(`/staff/contracts-update/${id}`, "PUT", data),
   },
 
   // Transport endpoints
@@ -2985,6 +3024,78 @@ window.API = {
       apiCall("/transport/drivers-assign", "POST", data),
   },
 
+  // Boarding/Dormitory endpoints
+  boarding: {
+    // Dormitories
+    getDormitories: async () => apiCall("/boarding/dormitories", "GET"),
+    getDormitory: async (id) => apiCall(`/boarding/dormitories/${id}`, "GET"),
+    createDormitory: async (data) =>
+      apiCall("/boarding/dormitories", "POST", data),
+    updateDormitory: async (id, data) =>
+      apiCall(`/boarding/dormitories/${id}`, "PUT", data),
+    deleteDormitory: async (id) =>
+      apiCall(`/boarding/dormitories/${id}`, "DELETE"),
+
+    // Beds
+    getBeds: async (dormId = null) =>
+      dormId
+        ? apiCall(`/boarding/beds?dormitory_id=${dormId}`, "GET")
+        : apiCall("/boarding/beds", "GET"),
+    assignBed: async (data) => apiCall("/boarding/beds/assign", "POST", data),
+    unassignBed: async (bedId) =>
+      apiCall(`/boarding/beds/unassign/${bedId}`, "PUT"),
+
+    // Roll Call
+    getRollCalls: async (params = {}) =>
+      apiCall("/boarding/roll-call", "GET", null, params),
+    submitRollCall: async (data) =>
+      apiCall("/boarding/roll-call", "POST", data),
+    getRollCallHistory: async (dormId, params = {}) =>
+      apiCall(
+        `/boarding/roll-call/history?dormitory_id=${dormId}`,
+        "GET",
+        null,
+        params,
+      ),
+
+    // Permissions & Exeats
+    getExeats: async (params = {}) =>
+      apiCall("/boarding/exeats", "GET", null, params),
+    requestExeat: async (data) => apiCall("/boarding/exeats", "POST", data),
+    approveExeat: async (id) =>
+      apiCall(`/boarding/exeats/approve/${id}`, "PUT"),
+    rejectExeat: async (id, reason) =>
+      apiCall(`/boarding/exeats/reject/${id}`, "PUT", { reason }),
+
+    // Food Store
+    getFoodStore: async () => apiCall("/boarding/food-store", "GET"),
+    addFoodItem: async (data) => apiCall("/boarding/food-store", "POST", data),
+    updateFoodItem: async (id, data) =>
+      apiCall(`/boarding/food-store/${id}`, "PUT", data),
+    recordConsumption: async (data) =>
+      apiCall("/boarding/food-store/consume", "POST", data),
+
+    // Menu Planning
+    getMenus: async (params = {}) =>
+      apiCall("/boarding/menus", "GET", null, params),
+    createMenu: async (data) => apiCall("/boarding/menus", "POST", data),
+    updateMenu: async (id, data) =>
+      apiCall(`/boarding/menus/${id}`, "PUT", data),
+    deleteMenu: async (id) => apiCall(`/boarding/menus/${id}`, "DELETE"),
+
+    // Chapel Services
+    getChapelServices: async (params = {}) =>
+      apiCall("/boarding/chapel-services", "GET", null, params),
+    createChapelService: async (data) =>
+      apiCall("/boarding/chapel-services", "POST", data),
+    updateChapelService: async (id, data) =>
+      apiCall(`/boarding/chapel-services/${id}`, "PUT", data),
+
+    // Statistics
+    getStats: async () => apiCall("/boarding/stats", "GET"),
+    getOccupancy: async () => apiCall("/boarding/occupancy", "GET"),
+  },
+
   // Schedules endpoints
   schedules: {
     index: async () => apiCall("/schedules/index", "GET"),
@@ -2995,12 +3106,24 @@ window.API = {
     delete: async (id) => apiCall(`/schedules/${id}`, "DELETE"),
 
     // Timetable
-    getTimetable: async (id = null) =>
-      id
-        ? apiCall(`/schedules/timetable-get/${id}`, "GET")
-        : apiCall("/schedules/timetable-get", "GET"),
+    getTimetable: async (params = {}) => {
+      const qs = new URLSearchParams(params).toString();
+      return apiCall(qs ? `/schedules/timetable-get?${qs}` : "/schedules/timetable-get", "GET");
+    },
     createTimetable: async (data) =>
       apiCall("/schedules/timetable-create", "POST", data),
+    updateTimetable: async (id, data) =>
+      apiCall(`/schedules/timetable-update/${id}`, "PUT", data),
+    deleteTimetable: async (data) =>
+      apiCall("/schedules/timetable-delete", "POST", data),
+    deleteTimetableById: async (id) =>
+      apiCall(`/schedules/timetable-delete/${id}`, "DELETE"),
+    checkTimetableConflicts: async () =>
+      apiCall("/schedules/timetable-check-conflicts", "GET"),
+    reportTimetableConflict: async (data) =>
+      apiCall("/schedules/timetable-report-conflict", "POST", data),
+    getTimeSlots: async () =>
+      apiCall("/schedules/timetable-time-slots", "GET"),
 
     // Exams
     getExam: async (id = null) =>
@@ -3104,7 +3227,8 @@ window.API = {
     // Legacy support
     getClassSchedule: async (classId) =>
       apiCall(`/schedules/timetable-get?class_id=${classId}`, "GET"),
-    updateSchedule: async (data) => apiCall("/schedules", "POST", data),
+    updateSchedule: async (data) =>
+      apiCall("/schedules/timetable-create", "POST", data),
     addEvent: async (data) => apiCall("/schedules/events-create", "POST", data),
     updateEvent: async (id, data) => apiCall(`/schedules/${id}`, "PUT", data),
     deleteEvent: async (id) => apiCall(`/schedules/${id}`, "DELETE"),

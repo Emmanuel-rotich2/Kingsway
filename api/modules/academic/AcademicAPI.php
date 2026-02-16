@@ -850,6 +850,17 @@ class AcademicAPI extends BaseAPI
                 $bindings[] = $params['to_date'];
             }
 
+            // Term and academic year filtering (new columns)
+            if (!empty($params['term_id'])) {
+                $where[] = "lp.term_id = ?";
+                $bindings[] = $params['term_id'];
+            }
+
+            if (!empty($params['academic_year_id'])) {
+                $where[] = "lp.academic_year_id = ?";
+                $bindings[] = $params['academic_year_id'];
+            }
+
             $whereClause = implode(' AND ', $where);
 
             // Get total count
@@ -936,8 +947,10 @@ class AcademicAPI extends BaseAPI
                     lesson_date,
                     duration,
                     status,
-                    remarks
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    remarks,
+                    term_id,
+                    academic_year_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -956,7 +969,9 @@ class AcademicAPI extends BaseAPI
                 $data['lesson_date'],
                 $data['duration'],
                 $data['status'] ?? 'draft',
-                $data['remarks'] ?? null
+                $data['remarks'] ?? null,
+                $data['term_id'] ?? null,
+                $data['academic_year_id'] ?? null
             ]);
 
             $planId = $this->db->lastInsertId();
@@ -1995,6 +2010,328 @@ class AcademicAPI extends BaseAPI
     }
 
     // ========================================================================
+    // EXAM SCHEDULE DIRECT CRUD (for exam_schedule.js frontend)
+    // These are separate from the workflow-based exam methods above
+    // ========================================================================
+
+    /**
+     * List exam schedules with filtering, pagination, and summary
+     */
+    public function listExamSchedules($params = [])
+    {
+        try {
+            [$page, $limit, $offset] = $this->getPaginationParams();
+
+            $where = ["1=1"];
+            $bindings = [];
+
+            if (!empty($params['term_id'])) {
+                $where[] = "es.term_id = ?";
+                $bindings[] = $params['term_id'];
+            }
+            if (!empty($params['term'])) {
+                $where[] = "es.term_id = ?";
+                $bindings[] = $params['term'];
+            }
+            if (!empty($params['academic_year_id'])) {
+                $where[] = "es.academic_year_id = ?";
+                $bindings[] = $params['academic_year_id'];
+            }
+            if (!empty($params['class_id'])) {
+                $where[] = "es.class_id = ?";
+                $bindings[] = $params['class_id'];
+            }
+            if (!empty($params['subject_id'])) {
+                $where[] = "es.subject_id = ?";
+                $bindings[] = $params['subject_id'];
+            }
+            if (!empty($params['status'])) {
+                $where[] = "es.status = ?";
+                $bindings[] = $params['status'];
+            }
+            if (!empty($params['exam_type'])) {
+                $where[] = "es.exam_type = ?";
+                $bindings[] = $params['exam_type'];
+            }
+
+            // Exclude cancelled by default
+            $where[] = "es.status != 'cancelled'";
+
+            $whereClause = implode(' AND ', $where);
+
+            // Get total count
+            $countSql = "SELECT COUNT(*) FROM exam_schedules es WHERE {$whereClause}";
+            $stmt = $this->db->prepare($countSql);
+            $stmt->execute($bindings);
+            $total = (int) $stmt->fetchColumn();
+
+            // Get summary counts
+            $summarySql = "
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN es.status = 'upcoming' OR es.status = 'scheduled' THEN 1 ELSE 0 END) as upcoming,
+                    SUM(CASE WHEN es.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                    SUM(CASE WHEN es.status = 'completed' THEN 1 ELSE 0 END) as completed
+                FROM exam_schedules es
+                WHERE {$whereClause}
+            ";
+            $stmt = $this->db->prepare($summarySql);
+            $stmt->execute($bindings);
+            $summary = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            // Get paginated data
+            $sql = "
+                SELECT 
+                    es.id,
+                    es.term_id,
+                    es.academic_year_id,
+                    es.class_id,
+                    c.name AS class_name,
+                    es.subject_id,
+                    COALESCE(la.name, '') AS subject_name,
+                    es.exam_name,
+                    es.exam_type,
+                    es.exam_date,
+                    es.start_time,
+                    es.end_time,
+                    es.duration_minutes AS duration,
+                    es.room_id,
+                    r.name AS room_name,
+                    es.venue,
+                    es.invigilator_id,
+                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
+                    es.supervisor_id,
+                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name,
+                    es.notes,
+                    es.status,
+                    es.created_at,
+                    es.updated_at
+                FROM exam_schedules es
+                JOIN classes c ON es.class_id = c.id
+                LEFT JOIN learning_areas la ON es.subject_id = la.id
+                LEFT JOIN rooms r ON es.room_id = r.id
+                LEFT JOIN staff inv ON es.invigilator_id = inv.id
+                LEFT JOIN staff sup ON es.supervisor_id = sup.id
+                WHERE {$whereClause}
+                ORDER BY es.exam_date ASC, es.start_time ASC
+                LIMIT ? OFFSET ?
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
+            $exams = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $this->logAction('read', null, 'Listed exam schedules');
+
+            return successResponse([
+                'exams' => $exams,
+                'summary' => [
+                    'total' => (int) ($summary['total'] ?? 0),
+                    'upcoming' => (int) ($summary['upcoming'] ?? 0),
+                    'in_progress' => (int) ($summary['in_progress'] ?? 0),
+                    'completed' => (int) ($summary['completed'] ?? 0),
+                ],
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => ceil($total / $limit),
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get a single exam schedule by ID
+     */
+    public function getExamScheduleById($id)
+    {
+        try {
+            $sql = "
+                SELECT 
+                    es.*,
+                    c.name AS class_name,
+                    COALESCE(la.name, '') AS subject_name,
+                    r.name AS room_name,
+                    CONCAT(inv.first_name, ' ', inv.last_name) AS invigilator_name,
+                    CONCAT(sup.first_name, ' ', sup.last_name) AS supervisor_name
+                FROM exam_schedules es
+                JOIN classes c ON es.class_id = c.id
+                LEFT JOIN learning_areas la ON es.subject_id = la.id
+                LEFT JOIN rooms r ON es.room_id = r.id
+                LEFT JOIN staff inv ON es.invigilator_id = inv.id
+                LEFT JOIN staff sup ON es.supervisor_id = sup.id
+                WHERE es.id = ?
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+            $exam = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$exam) {
+                return errorResponse('Exam schedule not found');
+            }
+
+            return successResponse($exam);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Create a new exam schedule entry
+     */
+    public function createExamScheduleEntry($data)
+    {
+        try {
+            $required = ['class_id', 'subject_id', 'exam_date', 'start_time', 'end_time'];
+            foreach ($required as $field) {
+                if (empty($data[$field])) {
+                    return errorResponse("Missing required field: {$field}");
+                }
+            }
+
+            $sql = "
+                INSERT INTO exam_schedules (
+                    term_id, academic_year_id, class_id, subject_id,
+                    exam_name, exam_type, exam_date, start_time, end_time,
+                    duration_minutes, room_id, venue, invigilator_id,
+                    supervisor_id, notes, created_by, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $data['term_id'] ?? $data['term'] ?? null,
+                $data['academic_year_id'] ?? null,
+                $data['class_id'],
+                $data['subject_id'],
+                $data['exam_name'] ?? null,
+                $data['exam_type'] ?? null,
+                $data['exam_date'],
+                $data['start_time'],
+                $data['end_time'] ?? null,
+                $data['duration'] ?? $data['duration_minutes'] ?? null,
+                $data['room_id'] ?? null,
+                $data['venue'] ?? null,
+                $data['invigilator_id'] ?? null,
+                $data['supervisor_id'] ?? null,
+                $data['notes'] ?? null,
+                $data['created_by'] ?? null,
+                $data['status'] ?? 'scheduled',
+            ]);
+
+            $id = $this->db->lastInsertId();
+            $this->logAction('create', $id, "Created exam schedule: " . ($data['exam_name'] ?? 'N/A'));
+
+            return successResponse([
+                'id' => $id,
+                'message' => 'Exam schedule created successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Update an existing exam schedule entry
+     */
+    public function updateExamScheduleEntry($id, $data)
+    {
+        try {
+            // Check exists
+            $stmt = $this->db->prepare("SELECT id, status FROM exam_schedules WHERE id = ?");
+            $stmt->execute([$id]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existing) {
+                return errorResponse('Exam schedule not found');
+            }
+
+            $fields = [];
+            $values = [];
+
+            $allowed = [
+                'term_id',
+                'academic_year_id',
+                'class_id',
+                'subject_id',
+                'exam_name',
+                'exam_type',
+                'exam_date',
+                'start_time',
+                'end_time',
+                'duration_minutes',
+                'room_id',
+                'venue',
+                'invigilator_id',
+                'supervisor_id',
+                'notes',
+                'status'
+            ];
+
+            // Map frontend field names to DB columns
+            if (isset($data['duration']) && !isset($data['duration_minutes'])) {
+                $data['duration_minutes'] = $data['duration'];
+            }
+            if (isset($data['term']) && !isset($data['term_id'])) {
+                $data['term_id'] = $data['term'];
+            }
+
+            foreach ($allowed as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse('No valid fields to update');
+            }
+
+            $values[] = $id;
+            $sql = "UPDATE exam_schedules SET " . implode(', ', $fields) . " WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($values);
+
+            $this->logAction('update', $id, "Updated exam schedule");
+
+            return successResponse([
+                'id' => $id,
+                'message' => 'Exam schedule updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Delete (soft) an exam schedule entry
+     */
+    public function deleteExamScheduleEntry($id)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT id FROM exam_schedules WHERE id = ?");
+            $stmt->execute([$id]);
+            if (!$stmt->fetch()) {
+                return errorResponse('Exam schedule not found');
+            }
+
+            // Soft delete
+            $stmt = $this->db->prepare("UPDATE exam_schedules SET status = 'cancelled' WHERE id = ?");
+            $stmt->execute([$id]);
+
+            $this->logAction('delete', $id, "Soft deleted exam schedule");
+
+            return successResponse([
+                'message' => 'Exam schedule deleted successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ========================================================================
     // LESSON PLANS CRUD (Additional Methods)
     // ========================================================================
 
@@ -2054,7 +2391,7 @@ class AcademicAPI extends BaseAPI
             // Build update query
             $updates = [];
             $params = [];
-            $allowedFields = ['teacher_id', 'learning_area_id', 'class_id', 'unit_id', 'topic', 'subtopic', 'objectives', 'resources', 'activities', 'assessment', 'homework', 'lesson_date', 'duration', 'status', 'remarks'];
+            $allowedFields = ['teacher_id', 'learning_area_id', 'class_id', 'unit_id', 'topic', 'subtopic', 'objectives', 'resources', 'activities', 'assessment', 'homework', 'lesson_date', 'duration', 'status', 'remarks', 'term_id', 'academic_year_id'];
 
             foreach ($allowedFields as $field) {
                 if (isset($data[$field])) {
@@ -2136,11 +2473,12 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('Only submitted lesson plans can be approved');
             }
 
-            $approver_id = $data['approved_by'] ?? $this->getCurrentUserId();
+            $approver_id = is_array($data) ? ($data['approved_by'] ?? $this->getCurrentUserId()) : $this->getCurrentUserId();
+            $remarks = is_array($data) ? ($data['remarks'] ?? $data['feedback'] ?? null) : null;
 
             $sql = "UPDATE lesson_plans SET status = 'approved', approved_by = ?, approved_at = NOW(), remarks = ? WHERE id = ?";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approver_id, $data['remarks'] ?? null, $id]);
+            $stmt->execute([$approver_id, $remarks, $id]);
 
             $this->db->commit();
             $this->logAction('update', $id, "Approved lesson plan");
@@ -2148,6 +2486,83 @@ class AcademicAPI extends BaseAPI
             return successResponse([
                 'status' => 'success',
                 'message' => 'Lesson plan approved successfully'
+            ]);
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Reject a submitted lesson plan (headteacher/DHA)
+     */
+    public function rejectLessonPlan($id, $data = [])
+    {
+        try {
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
+            $stmt->execute([$id]);
+            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$plan) {
+                return errorResponse('Lesson plan not found');
+            }
+
+            if ($plan['status'] !== 'submitted') {
+                return errorResponse('Only submitted lesson plans can be rejected');
+            }
+
+            $remarks = is_array($data) ? ($data['remarks'] ?? $data['feedback'] ?? null) : null;
+            $rejectedBy = is_array($data) ? ($data['rejected_by'] ?? $this->getCurrentUserId()) : $this->getCurrentUserId();
+
+            $sql = "UPDATE lesson_plans SET status = 'rejected', remarks = ?, approved_by = ?, approved_at = NOW() WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$remarks, $rejectedBy, $id]);
+
+            $this->db->commit();
+            $this->logAction('update', $id, "Rejected lesson plan");
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Lesson plan rejected'
+            ]);
+        } catch (Exception $e) {
+            $this->db->rollBack();
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Submit a draft lesson plan for review
+     */
+    public function submitLessonPlan($id, $data = [])
+    {
+        try {
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare("SELECT id, status FROM lesson_plans WHERE id = ?");
+            $stmt->execute([$id]);
+            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$plan) {
+                return errorResponse('Lesson plan not found');
+            }
+
+            if (!in_array($plan['status'], ['draft', 'rejected'])) {
+                return errorResponse('Only draft or rejected lesson plans can be submitted for review');
+            }
+
+            $sql = "UPDATE lesson_plans SET status = 'submitted', remarks = NULL WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$id]);
+
+            $this->db->commit();
+            $this->logAction('update', $id, "Submitted lesson plan for review");
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Lesson plan submitted for review'
             ]);
         } catch (Exception $e) {
             $this->db->rollBack();

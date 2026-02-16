@@ -78,6 +78,8 @@ class StaffAPI extends BaseAPI {
                     u.last_name,
                     u.email,
                     u.status as user_status,
+                    r.id as role_id,
+                    r.name as role_name,
                     d.name as department_name,
                     d.code as department_code,
                     d.name as department,
@@ -90,6 +92,7 @@ class StaffAPI extends BaseAPI {
                     END as staff_type
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
+                LEFT JOIN roles r ON u.role_id = r.id
                 LEFT JOIN departments d ON s.department_id = d.id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 $where
@@ -465,33 +468,88 @@ class StaffAPI extends BaseAPI {
                 return $this->response(['status' => 'error', 'message' => 'Staff not found'], 404);
             }
 
-            // Check if staff_id or email already exists for other staff
-            if (isset($data['staff_id']) || isset($data['email'])) {
-                $sql = "SELECT id FROM staff WHERE (staff_id = ? OR email = ?) AND id != ?";
-                $stmt = $this->db->prepare($sql);
-                $stmt->execute([
-                    $data['staff_id'] ?? '',
-                    $data['email'] ?? '',
-                    $id
-                ]);
-                if ($stmt->fetch()) {
-                    return $this->response([
-                        'status' => 'error',
-                        'message' => 'Staff ID or email already exists'
-                    ], 400);
+                        $stmt = $this->db->prepare("SELECT user_id FROM staff WHERE id = ?");
+                        $stmt->execute([$id]);
+                        $userId = $stmt->fetchColumn();
+
+                        if ($userId) {
+                            $userUpdates = [];
+                            $userParams = [];
+
+                            if (isset($data['first_name'])) {
+                                $userUpdates[] = 'first_name = ?';
+                                $userParams[] = $data['first_name'];
+                            }
+                            if (isset($data['last_name'])) {
+                                $userUpdates[] = 'last_name = ?';
+                                $userParams[] = $data['last_name'];
+                            }
+                            if (isset($data['email'])) {
+                                $userUpdates[] = 'email = ?';
+                                $userParams[] = $data['email'];
+                            }
+                            if (isset($data['user_status'])) {
+                                $userUpdates[] = 'status = ?';
+                                $userParams[] = $data['user_status'];
+                            }
+
+                            if (!empty($data['role_id'])) {
+                                $roleId = (int) $data['role_id'];
+                                $userUpdates[] = 'role_id = ?';
+                                $userParams[] = $roleId;
+
+                                $usersApi = new UsersAPI();
+                                $usersApi->assignRoleToUser($userId, $roleId);
+                            }
+
+                            if (!empty($userUpdates)) {
+                                $userParams[] = $userId;
+                                $sql = "UPDATE users SET " . implode(', ', $userUpdates) . " WHERE id = ?";
+                                $stmt = $this->db->prepare($sql);
+                    $stmt->execute($userParams);
                 }
+            }
+
+            if (!empty($data['staff_type']) && empty($data['staff_type_id'])) {
+                $map = [
+                    'teaching' => 1,
+                    'non-teaching' => 2,
+                    'non_teaching' => 2,
+                    'admin' => 3,
+                    'administration' => 3
+                ];
+                $key = strtolower(trim((string) $data['staff_type']));
+                $data['staff_type_id'] = $map[$key] ?? null;
             }
 
             $updates = [];
             $params = [];
             $allowedFields = [
-                'staff_id', 'first_name', 'last_name', 'email', 'phone',
-                'department_id', 'position', 'join_date', 'status', 'address',
-                'emergency_contact', 'blood_group', 'qualifications', 'salary'
+                'staff_no',
+                'staff_type_id',
+                'staff_category_id',
+                'department_id',
+                'supervisor_id',
+                'position',
+                'employment_date',
+                'contract_type',
+                'nssf_no',
+                'kra_pin',
+                'nhif_no',
+                'bank_account',
+                'salary',
+                'gender',
+                'marital_status',
+                'tsc_no',
+                'address',
+                'profile_pic_url',
+                'documents_folder',
+                'status',
+                'date_of_birth'
             ];
 
             foreach ($allowedFields as $field) {
-                if (isset($data[$field])) {
+                if (array_key_exists($field, $data)) {
                     $updates[] = "$field = ?";
                     $params[] = $data[$field];
                 }
@@ -1117,6 +1175,8 @@ class StaffAPI extends BaseAPI {
                 u.last_name,
                 u.email,
                 u.status as user_status,
+                r.id as role_id,
+                r.name as role_name,
                 d.name as department_name,
                 d.code as department_code,
                 d.name as department,
@@ -1129,6 +1189,7 @@ class StaffAPI extends BaseAPI {
                 END as staff_type
             FROM staff s
             LEFT JOIN users u ON s.user_id = u.id
+            LEFT JOIN roles r ON u.role_id = r.id
             LEFT JOIN departments d ON s.department_id = d.id
             LEFT JOIN staff_types st ON s.staff_type_id = st.id
             WHERE s.id = ?
@@ -1138,6 +1199,246 @@ class StaffAPI extends BaseAPI {
         $stmt->execute([$id]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    // ===============================================================
+    // CONTRACT MANAGEMENT
+    // ===============================================================
+
+    public function listContracts($filters = [])
+    {
+        try {
+            $where = [];
+            $params = [];
+
+            if (!empty($filters['staff_id'])) {
+                $where[] = 'sc.staff_id = ?';
+                $params[] = $filters['staff_id'];
+            }
+            if (!empty($filters['status'])) {
+                $where[] = 'sc.status = ?';
+                $params[] = $filters['status'];
+            }
+            if (!empty($filters['start_date'])) {
+                $where[] = 'sc.start_date >= ?';
+                $params[] = $filters['start_date'];
+            }
+            if (!empty($filters['end_date'])) {
+                $where[] = '(sc.end_date <= ? OR sc.end_date IS NULL)';
+                $params[] = $filters['end_date'];
+            }
+
+            $sql = "
+                SELECT
+                    sc.*,
+                    s.staff_no,
+                    s.first_name,
+                    s.last_name,
+                    d.name as department_name
+                FROM staff_contracts sc
+                JOIN staff s ON sc.staff_id = s.id
+                LEFT JOIN departments d ON s.department_id = d.id
+            ";
+
+            if (!empty($where)) {
+                $sql .= ' WHERE ' . implode(' AND ', $where);
+            }
+
+            $sql .= ' ORDER BY sc.start_date DESC, sc.created_at DESC';
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $contracts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'contracts' => $contracts,
+                    'count' => count($contracts)
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getContract($contractId)
+    {
+        try {
+            $stmt = $this->db->prepare('SELECT * FROM staff_contracts WHERE id = ?');
+            $stmt->execute([$contractId]);
+            $contract = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$contract) {
+                return $this->response(['status' => 'error', 'message' => 'Contract not found'], 404);
+            }
+
+            return $this->response(['status' => 'success', 'data' => $contract]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function createContract($data)
+    {
+        try {
+            $required = ['staff_id', 'contract_type', 'start_date', 'salary'];
+            $missing = $this->validateRequired($data, $required);
+            if (!empty($missing)) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Missing required fields',
+                    'fields' => $missing
+                ], 400);
+            }
+
+            $sql = "
+                INSERT INTO staff_contracts
+                    (staff_id, contract_type, start_date, end_date, salary, allowances, terms, contract_document_url, status, created_by)
+                VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([
+                $data['staff_id'],
+                $data['contract_type'],
+                $data['start_date'],
+                $data['end_date'] ?? null,
+                $data['salary'],
+                $data['allowances'] ?? 0,
+                $data['terms'] ?? null,
+                $data['contract_document_url'] ?? null,
+                $data['status'] ?? 'active',
+                $data['created_by'] ?? null
+            ]);
+
+            return $this->response([
+                'status' => 'success',
+                'message' => 'Contract created successfully',
+                'data' => ['id' => $this->db->lastInsertId()]
+            ], 201);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateContract($id, $data)
+    {
+        try {
+            $updates = [];
+            $params = [];
+            $allowed = [
+                'contract_type',
+                'start_date',
+                'end_date',
+                'salary',
+                'allowances',
+                'terms',
+                'contract_document_url',
+                'status',
+                'termination_reason'
+            ];
+
+            foreach ($allowed as $field) {
+                if (array_key_exists($field, $data)) {
+                    $updates[] = "$field = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            if (empty($updates)) {
+                return $this->response(['status' => 'error', 'message' => 'No fields to update'], 400);
+            }
+
+            $params[] = $id;
+            $sql = 'UPDATE staff_contracts SET ' . implode(', ', $updates) . ' WHERE id = ?';
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return $this->response([
+                'status' => 'success',
+                'message' => 'Contract updated successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    // ===============================================================
+    // PAYROLL LISTING (SUMMARY VIEW FOR HR/FINANCE)
+    // ===============================================================
+
+    public function listPayroll($filters = [])
+    {
+        try {
+            $month = (int) ($filters['month'] ?? date('n'));
+            $year = (int) ($filters['year'] ?? date('Y'));
+            $period = $filters['payroll_period'] ?? sprintf('%04d-%02d', $year, $month);
+
+            $sql = "
+                SELECT
+                    sp.*, 
+                    s.staff_no,
+                    s.first_name,
+                    s.last_name,
+                    d.name as department_name
+                FROM staff_payroll sp
+                JOIN staff s ON sp.staff_id = s.id
+                LEFT JOIN departments d ON s.department_id = d.id
+                WHERE sp.payroll_period = ?
+                ORDER BY s.last_name, s.first_name
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$period]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'payroll' => $rows,
+                    'period' => $period,
+                    'count' => count($rows)
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function getPayrollSummary($filters = [])
+    {
+        try {
+            $month = (int) ($filters['month'] ?? date('n'));
+            $year = (int) ($filters['year'] ?? date('Y'));
+            $period = $filters['payroll_period'] ?? sprintf('%04d-%02d', $year, $month);
+
+            $sql = "
+                SELECT
+                    COUNT(*) as total_records,
+                    COALESCE(SUM(gross_salary), 0) as gross_payroll,
+                    COALESCE(SUM(total_deductions), 0) as total_deductions,
+                    COALESCE(SUM(net_salary), 0) as net_payroll,
+                    SUM(CASE WHEN status != 'paid' THEN 1 ELSE 0 END) as pending_approval
+                FROM staff_payroll
+                WHERE payroll_period = ?
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$period]);
+            $summary = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'period' => $period,
+                    'summary' => $summary
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     // ===============================================================

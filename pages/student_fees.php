@@ -251,9 +251,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement studentFeesController in js/pages/student_fees.js
-        console.log('Student Fees page loaded');
-    });
-</script>
+<script src="/Kingsway/js/pages/student_fees.js"></script>

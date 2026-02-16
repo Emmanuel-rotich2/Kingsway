@@ -11,7 +11,7 @@
  */
 ?>
 
-<div class="container mt-1">
+<div>
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-calendar3"></i> Timetable Management</span>
     <div class="btn-group">
@@ -103,7 +103,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h5 class="mb-0">Weekly Timetable - Form 4 East</h5>
+      <h5 class="mb-0">Weekly Timetable - All Classes</h5>
     </div>
     <div class="card-body">
       <div class="table-responsive">
@@ -120,52 +120,10 @@
           </thead>
           <tbody>
             <tr>
-              <td><strong>8:00 - 9:00</strong></td>
-              <td>Mathematics<br><small>John Kamau</small></td>
-              <td>English<br><small>Mary Wanjiru</small></td>
-              <td>Science<br><small>Peter Ochieng</small></td>
-              <td>Kiswahili<br><small>Jane Akinyi</small></td>
-              <td>Mathematics<br><small>John Kamau</small></td>
-            </tr>
-            <tr>
-              <td><strong>9:00 - 10:00</strong></td>
-              <td>English<br><small>Mary Wanjiru</small></td>
-              <td>Mathematics<br><small>John Kamau</small></td>
-              <td>History<br><small>David Mwangi</small></td>
-              <td>Science<br><small>Peter Ochieng</small></td>
-              <td>English<br><small>Mary Wanjiru</small></td>
-            </tr>
-            <tr>
-              <td><strong>10:00 - 10:30</strong></td>
-              <td colspan="5" class="table-warning text-center"><strong>BREAK</strong></td>
-            </tr>
-            <tr>
-              <td><strong>10:30 - 11:30</strong></td>
-              <td>Science<br><small>Peter Ochieng</small></td>
-              <td>Kiswahili<br><small>Jane Akinyi</small></td>
-              <td>Mathematics<br><small>John Kamau</small></td>
-              <td>English<br><small>Mary Wanjiru</small></td>
-              <td>Science<br><small>Peter Ochieng</small></td>
-            </tr>
-            <tr>
-              <td><strong>11:30 - 12:30</strong></td>
-              <td>Geography<br><small>David Mwangi</small></td>
-              <td>Science<br><small>Peter Ochieng</small></td>
-              <td>English<br><small>Mary Wanjiru</small></td>
-              <td>Mathematics<br><small>John Kamau</small></td>
-              <td>Kiswahili<br><small>Jane Akinyi</small></td>
-            </tr>
-            <tr>
-              <td><strong>12:30 - 1:30</strong></td>
-              <td colspan="5" class="table-info text-center"><strong>LUNCH BREAK</strong></td>
-            </tr>
-            <tr>
-              <td><strong>1:30 - 2:30</strong></td>
-              <td>PE<br><small>Sports Master</small></td>
-              <td>History<br><small>David Mwangi</small></td>
-              <td>Life Skills<br><small>Counselor</small></td>
-              <td>Computer<br><small>ICT Teacher</small></td>
-              <td>Games & Sports</td>
+              <td colspan="6" class="text-center text-muted py-4">
+                <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                Loading timetable... Select a class to view.
+              </td>
             </tr>
           </tbody>
         </table>
@@ -173,3 +131,5 @@
     </div>
   </div>
 </div>
+
+<script src="js/pages/manage_timetable.js"></script>

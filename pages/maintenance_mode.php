@@ -1,5 +1,5 @@
 <?php /** Maintenance Mode - Manage maintenance mode */ ?>
-<div class="container-fluid py-4">
+<div>
     <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
         <div><h4 class="mb-1"><i class="fas fa-wrench me-2"></i>Maintenance Mode</h4><p class="text-muted mb-0">Manage maintenance mode</p></div>
         <button class="btn btn-outline-primary" onclick="window._toggleCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button>

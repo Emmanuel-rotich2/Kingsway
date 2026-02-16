@@ -1,169 +1,87 @@
 <?php
-// ======================================================================
-// My Classes & Subjects – Teacher Panel
-// ======================================================================
-
-// LEGACY AUTH: This page should use JWT authentication
-// TODO: Refactor to get teacher_id from AuthContext.getUser().id
-// For now, this should be loaded within app_layout.php which validates JWT
-
-// Placeholder - in production this should come from JWT token via JavaScript
-$teacher_id = 1; // TODO: Get from AuthContext.getUser().id
-
-
-// ======================================================================
-// FUNCTION: Fetch classes assigned to the teacher
-// ======================================================================
-function getTeacherClasses($conn, $teacher_id) {
-    $sql = "SELECT c.id, c.class_name 
-            FROM classes c
-            INNER JOIN teacher_classes tc ON tc.class_id = c.id
-            WHERE tc.teacher_id = ?";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $teacher_id);
-    $stmt->execute();
-    return $stmt->get_result();
-}
-
-
-// ======================================================================
-// FUNCTION: Fetch subjects for a specific class
-// ======================================================================
-function getClassSubjects($conn, $teacher_id, $class_id) {
-    $sql = "SELECT s.id, s.subject_name
-            FROM subjects s
-            INNER JOIN teacher_subjects ts ON ts.subject_id = s.id
-            WHERE ts.teacher_id = ? AND ts.class_id = ?";
-
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("ii", $teacher_id, $class_id);
-    $stmt->execute();
-    return $stmt->get_result();
-}
+/**
+ * My Classes & Subjects – Teacher Panel
+ * Modern REST API version - all data loaded via JS from api.js
+ * Embedded in app_layout.php (JWT auth handled by AuthContext)
+ */
 ?>
 
-<div class="container mt-4">
+<div>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold text-primary mb-0">
+            <i class="bi bi-book-half me-2"></i>My Classes & Assigned Subjects
+        </h2>
+        <div>
+            <button class="btn btn-outline-primary me-2" onclick="myclassesController.printSchedule()">
+                <i class="bi bi-printer me-1"></i>Print
+            </button>
+            <a href="/Kingsway/home.php?route=manage_timetable" class="btn btn-outline-info">
+                <i class="bi bi-calendar3 me-1"></i>My Timetable
+            </a>
+        </div>
+    </div>
 
-    <h2 class="mb-4 fw-bold text-primary">
-        📚 My Classes & Assigned Subjects
-    </h2>
-
-    <?php 
-    $classes = getTeacherClasses($conn, $teacher_id);
-
-    if ($classes->num_rows > 0): 
-        while ($class = $classes->fetch_assoc()): 
-    ?>
-        <div class="card mb-4 shadow-sm border-0">
-            <div class="card-header bg-primary text-white">
-                <h5 class="mb-0">
-                    <i class="bi bi-building"></i> 
-                    <?= htmlspecialchars($class['class_name']) ?>
-                </h5>
-            </div>
-
-            <div class="card-body">
-
-                <?php 
-                $subjects = getClassSubjects($conn, $teacher_id, $class['id']);
-
-                if ($subjects->num_rows > 0): ?>
-                    <ul class="list-group list-group-flush">
-
-                        <?php while ($subject = $subjects->fetch_assoc()): ?>
-                            <li class="list-group-item d-flex justify-content-between align-items-center">
-
-                                <div>
-                                    <i class="bi bi-book"></i>
-                                    <?= htmlspecialchars($subject['subject_name']) ?>
-                                </div>
-
-                                <button 
-                                    class="btn btn-sm btn-outline-primary"
-                                    onclick="openUploadModal(
-                                        <?= $class['id'] ?>, 
-                                        <?= $subject['id'] ?>
-                                    )">
-                                    <i class="bi bi-upload"></i> Upload Material
-                                </button>
-
-                            </li>
-                        <?php endwhile; ?>
-
-                    </ul>
-
-                <?php else: ?>
-                    <p class="text-muted mb-0">No subjects assigned for this class.</p>
-                <?php endif; ?>
-
+    <!-- Stat cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body"><h6>Total Classes</h6><h3 id="myTotalClasses">0</h3></div>
             </div>
         </div>
-
-    <?php 
-        endwhile;
-    else: 
-    ?>
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i>
-            You have not been assigned any classes yet.
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body"><h6>Total Subjects</h6><h3 id="myTotalSubjects">0</h3></div>
+            </div>
         </div>
-    <?php endif; ?>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body"><h6>Total Students</h6><h3 id="myTotalStudents">0</h3></div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body"><h6>Lessons This Week</h6><h3 id="myLessonsWeek">0</h3></div>
+            </div>
+        </div>
+    </div>
 
+    <!-- Classes container -->
+    <div id="classesContainer">
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p class="mt-2 text-muted">Loading your classes...</p>
+        </div>
+    </div>
 </div>
 
-
-<!-- ====================================================================== -->
 <!-- Upload Material Modal -->
-<!-- ====================================================================== -->
 <div class="modal fade" id="uploadModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog">
-    
-    <form method="POST" action="upload_material.php" enctype="multipart/form-data" class="modal-content">
-
+    <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title">Upload Class Material</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-
       <div class="modal-body">
-        
-        <input type="hidden" name="class_id" id="class_id">
-        <input type="hidden" name="subject_id" id="subject_id">
-
+        <input type="hidden" id="upload_class_id">
+        <input type="hidden" id="upload_subject_id">
         <div class="mb-3">
           <label class="form-label">Material Title</label>
-          <input type="text" name="title" class="form-control" required>
+          <input type="text" id="upload_title" class="form-control" required>
         </div>
-
         <div class="mb-3">
           <label class="form-label">Upload File</label>
-          <input type="file" name="file" class="form-control" required>
+          <input type="file" id="upload_file" class="form-control" required>
         </div>
-
       </div>
-
       <div class="modal-footer">
-        <button type="submit" class="btn btn-success">
-            <i class="bi bi-cloud-arrow-up"></i> Upload
+        <button class="btn btn-success" onclick="myclassesController.uploadMaterial()">
+            <i class="bi bi-cloud-arrow-up me-1"></i>Upload
         </button>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
-            Cancel
-        </button>
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
       </div>
-
-    </form>
-
+    </div>
   </div>
 </div>
 
-
-<script>
-function openUploadModal(classId, subjectId) {
-    document.getElementById('class_id').value = classId;
-    document.getElementById('subject_id').value = subjectId;
-    
-    var modal = new bootstrap.Modal(document.getElementById('uploadModal'));
-    modal.show();
-}
-</script>
+<script src="js/pages/myclasses.js"></script>

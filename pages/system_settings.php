@@ -2,7 +2,7 @@
 // filepath: /home/prof_angera/Projects/php_pages/Kingsway/pages/system_settings.php
 ?>
 
-<div class="container mt-1">
+<div>
     <h2 class="mb-4">
         <i class="bi bi-gear"></i> System Settings
     </h2>

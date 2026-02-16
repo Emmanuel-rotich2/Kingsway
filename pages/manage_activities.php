@@ -18,6 +18,7 @@ require_once __DIR__ . '/../config/config.php';
     </button>
   </div>
 
+<<<<<<< HEAD
   <!-- Summary Cards -->
   <div class="row mb-4">
     <div class="col-md-3 mb-3">
@@ -25,109 +26,106 @@ require_once __DIR__ . '/../config/config.php';
         <div class="card-body">
           <h6>Total Activities</h6>
           <h3 id="totalActivities">0</h3>
+=======
+
+// Get the appropriate template
+$templateFile = $templateMap[$roleCategory] ?? $templateMap['viewer'];
+
+// Include the base layout
+include __DIR__ . '/../layouts/app_layout.php';
+
+// Start content buffer for layout
+ob_start();
+
+// Include the role-specific template
+if (file_exists(__DIR__ . '/' . $templateFile)) {
+  include __DIR__ . '/' . $templateFile;
+} else {
+  // Fallback to legacy template if role-specific doesn't exist yet
+  ?>
+  <!-- Legacy Activities Page (Fallback) -->
+  <?php include __DIR__ . '/../components/tables/table.php'; ?>
+  <div>
+    <!-- Page Header -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2><i class="bi bi-trophy"></i> Activities Management</h2>
+      <?php if (can($userRole, 'activities', 'create')): ?>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addActivityModal">
+          <i class="bi bi-plus-circle"></i> Add Activity
+        </button>
+      <?php endif; ?>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+      <div class="col-md-3 mb-3">
+        <div class="card shadow-sm bg-primary text-white">
+          <div class="card-body text-center">
+            <h6>Total Activities</h6>
+            <h3 id="totalActivities">0</h3>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="col-md-3 mb-3">
-      <div class="card shadow-sm bg-success text-white text-center">
-        <div class="card-body">
-          <h6>Active</h6>
-          <h3 id="activeActivities">0</h3>
+      <div class="col-md-3 mb-3">
+        <div class="card shadow-sm bg-success text-white">
+          <div class="card-body text-center">
+            <h6>Active</h6>
+            <h3 id="activeActivities">0</h3>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="col-md-3 mb-3">
-      <div class="card shadow-sm bg-warning text-white text-center">
-        <div class="card-body">
-          <h6>Upcoming</h6>
-          <h3 id="upcomingActivities">0</h3>
+      <div class="col-md-3 mb-3">
+        <div class="card shadow-sm bg-warning text-white">
+          <div class="card-body text-center">
+            <h6>Upcoming</h6>
+            <h3 id="upcomingActivities">0</h3>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="col-md-3 mb-3">
-      <div class="card shadow-sm bg-info text-white text-center">
-        <div class="card-body">
-          <h6>Total Participants</h6>
-          <h3 id="totalParticipants">0</h3>
+      <div class="col-md-3 mb-3">
+        <!-- Page Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h2><i class="bi bi-trophy"></i> Activities Management</h2>
+          <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addActivityModal">
+            <i class="bi bi-plus-circle"></i> Add Activity
+          </button>
         </div>
-      </div>
-    </div>
-  </div>
 
-  <!-- Charts -->
-  <div class="row mb-4">
-    <div class="col-md-12">
-      <canvas id="categoryChart"></canvas>
-    </div>
-  </div>
-
-  <!-- Tabs -->
-  <ul class="nav nav-tabs mb-3">
-    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#allActivities">All Activities</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#sports">Sports</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#arts">Arts & Culture</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#clubs">Clubs</a></li>
-  </ul>
-
-  <!-- Tab Contents -->
-  <div class="tab-content">
-    <div id="allActivities" class="tab-pane fade show active">
-      <div class="d-flex justify-content-between mb-2">
-        <input type="text" class="form-control w-25" id="searchActivities" placeholder="Search activities...">
-        <button class="btn btn-outline-secondary" id="exportActivities"><i class="bi bi-download"></i> Export</button>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-hover" id="activitiesTable">
-          <thead class="table-light">
-            <tr>
-              <th>ID</th>
-              <th>Activity Name</th>
-              <th>Category</th>
-              <th>Date</th>
-              <th>Participants</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-    <div id="sports" class="tab-pane fade"><p>Sports activities here...</p></div>
-    <div id="arts" class="tab-pane fade"><p>Arts & culture activities here...</p></div>
-    <div id="clubs" class="tab-pane fade"><p>Club activities here...</p></div>
-  </div>
-</div>
-
-<!-- Add/Edit Activity Modal -->
-<div class="modal fade" id="addActivityModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title">Add / Edit Activity</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <form id="activityForm">
-          <input type="hidden" id="activityId">
-          <div class="row">
-            <div class="col-md-6 mb-3">
-              <label class="form-label">Activity Name*</label>
-              <input type="text" class="form-control" id="activityName" required>
-            </div>
-            <div class="col-md-6 mb-3">
-              <label class="form-label">Category*</label>
-              <select class="form-select" id="activityCategory" required>
-                <option value="Sports">Sports</option>
-                <option value="Arts">Arts</option>
-                <option value="Academic">Academic</option>
-                <option value="Clubs">Clubs</option>
-              </select>
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+          <div class="col-md-3 mb-3">
+            <div class="card shadow-sm bg-primary text-white">
+              <div class="card-body text-center">
+                <h6>Total Activities</h6>
+                <h3 id="totalActivities">0</h3>
+              </div>
             </div>
           </div>
-          <div class="row">
-            <div class="col-md-6 mb-3">
-              <label class="form-label">Date*</label>
+          <div class="col-md-3 mb-3">
+            <div class="card shadow-sm bg-success text-white">
+              <div class="card-body text-center">
+                <h6>Active</h6>
+                <h3 id="activeActivities">0</h3>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 mb-3">
+            <div class="card shadow-sm bg-warning text-white">
+              <div class="card-body text-center">
+                <h6>Upcoming</h6>
+                <h3 id="upcomingActivities">0</h3>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-3 mb-3">
+            <div class="card shadow-sm bg-info text-white">
+              <div class="card-body text-center">
+                <h6>Total Participants</h6>
+                <h3 id="totalParticipants">0</h3>
+              </div>
+            </div>
+          </div>
+        </div>
               <input type="date" class="form-control" id="activityDate" required>
             </div>
             <div class="col-md-6 mb-3">

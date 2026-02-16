@@ -255,8 +255,7 @@ class FeeStructureAccountantController {
     terms.forEach((term) => {
       const option = document.createElement("option");
       option.value = term.id;
-      option.textContent =
-        term.name || `Term ${term.term_number || term.id}`;
+      option.textContent = term.name || `Term ${term.term_number || term.id}`;
       select.appendChild(option);
     });
 
@@ -448,7 +447,7 @@ class FeeStructureAccountantController {
 
     try {
       const response = await apiCall(
-        "/finance/fees-structures-list",
+        "/finance/fee-structures/list",
         "GET",
         null,
         filters,
@@ -599,8 +598,7 @@ class FeeStructureAccountantController {
         const collectionRate =
           structure.total_expected_revenue > 0
             ? (
-                (structure.total_collected /
-                  structure.total_expected_revenue) *
+                (structure.total_collected / structure.total_expected_revenue) *
                 100
               ).toFixed(1)
             : 0;
@@ -902,7 +900,8 @@ class FeeStructureAccountantController {
     const collectionRate =
       structure.expected_revenue > 0
         ? (
-            (structure.collected_amount / structure.expected_revenue) * 100
+            (structure.collected_amount / structure.expected_revenue) *
+            100
           ).toFixed(1)
         : 0;
 
@@ -1095,9 +1094,7 @@ class FeeStructureAccountantController {
       }
       const termNumber =
         row.term_number || row.term || this.termNumberMap[row.term_id] || null;
-      const termKey = termNumber
-        ? `term${termNumber}`
-        : `term${row.term_id}`;
+      const termKey = termNumber ? `term${termNumber}` : `term${row.term_id}`;
       breakdown[feeKey][termKey] = parseFloat(row.amount) || 0;
     });
 
@@ -1319,12 +1316,10 @@ class FeeStructureAccountantController {
       </td>
     `;
 
-    row
-      .querySelector(".remove-fee-row")
-      ?.addEventListener("click", () => {
-        row.remove();
-        this.updateFormTotals();
-      });
+    row.querySelector(".remove-fee-row")?.addEventListener("click", () => {
+      row.remove();
+      this.updateFormTotals();
+    });
 
     tableBody.appendChild(row);
   }
@@ -1374,9 +1369,7 @@ class FeeStructureAccountantController {
     });
 
     Object.entries(termTotals).forEach(([termNumber, total]) => {
-      const cell = document.querySelector(
-        `[data-term-total="${termNumber}"]`,
-      );
+      const cell = document.querySelector(`[data-term-total="${termNumber}"]`);
       if (cell) cell.textContent = this.formatCurrency(total);
     });
 
@@ -1387,11 +1380,13 @@ class FeeStructureAccountantController {
   }
 
   collectStructureFormData(requireAll = true) {
-    const academicYear =
-      document.getElementById("structureAcademicYear")?.value;
+    const academicYear = document.getElementById(
+      "structureAcademicYear",
+    )?.value;
     const levelId = document.getElementById("structureLevel")?.value;
-    const studentTypeId =
-      document.getElementById("structureStudentType")?.value;
+    const studentTypeId = document.getElementById(
+      "structureStudentType",
+    )?.value;
 
     if (requireAll && (!academicYear || !levelId || !studentTypeId)) {
       this.showError("Please select academic year, level, and student type.");
@@ -1495,7 +1490,7 @@ class FeeStructureAccountantController {
   }
 
   exportToExcel() {
-    console.log("Export to Excel");
+    this.exportCsv(this.currentAggregated, "fee_structures.csv");
   }
 
   exportToPDF() {
@@ -1508,6 +1503,60 @@ class FeeStructureAccountantController {
 
   exportReconciliation() {
     console.log("Export reconciliation");
+  }
+
+  exportCsv(rows, filename) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      this.showError("No fee structures to export");
+      return;
+    }
+
+    const headers = [
+      "Academic Year",
+      "Level",
+      "Student Type",
+      "Term",
+      "Status",
+      "Total Amount",
+      "Students",
+      "Expected Revenue",
+      "Collected",
+    ];
+
+    const csvRows = rows.map((row) => ({
+      "Academic Year": row.academic_year ?? "",
+      Level: row.level_name || row.level_code || row.level_id || "",
+      "Student Type":
+        row.student_type_name ||
+        row.student_type_code ||
+        row.student_type_id ||
+        "",
+      Term: this.getTermName(row.term_id, row.term_name),
+      Status: row.status || "",
+      "Total Amount": row.total_amount ?? 0,
+      Students: row.student_count ?? 0,
+      "Expected Revenue": row.total_expected_revenue ?? 0,
+      Collected: row.total_collected ?? 0,
+    }));
+
+    const escape = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+    const csv = [headers.join(",")]
+      .concat(
+        csvRows.map((row) =>
+          headers.map((header) => escape(row[header])).join(","),
+        ),
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   }
 
   openReconciliationModal() {

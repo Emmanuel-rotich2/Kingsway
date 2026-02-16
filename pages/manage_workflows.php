@@ -13,7 +13,7 @@ $workflowRows = [
 $actionOptions = ['View', 'Edit', 'Deactivate', 'Duplicate'];
 ?>
 
-<div class="container mt-1">
+<div>
   <h2 class="mb-4 d-flex justify-content-between align-items-center">
     <span><i class="bi bi-diagram-3"></i> Workflows Management</span>
     <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addWorkflowModal">

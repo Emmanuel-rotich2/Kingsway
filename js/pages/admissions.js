@@ -39,36 +39,48 @@ const AdmissionsController = {
       icon: "bi-file-earmark-text",
       color: "warning",
       roles: [
-        "admin",
-        "registrar",
-        "deputy_headteacher",
+        "system_administrator",
+        "director",
         "headteacher",
-        "school_admin",
+        "deputy_head_academic",
+        "deputy_head_discipline",
+        "school_administrator",
       ],
     },
     interview_pending: {
       label: "Interview",
       icon: "bi-calendar-event",
       color: "info",
-      roles: ["admin", "headteacher", "deputy_headteacher", "school_admin"],
+      roles: [
+        "system_administrator",
+        "headteacher",
+        "deputy_head_academic",
+        "deputy_head_discipline",
+        "school_administrator",
+      ],
     },
     placement_pending: {
       label: "Placement",
       icon: "bi-check-circle",
       color: "primary",
-      roles: ["admin", "headteacher", "director", "school_admin"],
+      roles: [
+        "system_administrator",
+        "director",
+        "headteacher",
+        "school_administrator",
+      ],
     },
     payment_pending: {
       label: "Payment",
       icon: "bi-cash-stack",
       color: "success",
-      roles: ["admin", "accountant", "bursar", "finance_officer", "director"],
+      roles: ["system_administrator", "accountant", "bursar", "director"],
     },
     enrollment_pending: {
       label: "Enrollment",
       icon: "bi-person-check",
       color: "dark",
-      roles: ["admin", "registrar", "school_admin"],
+      roles: ["system_administrator", "headteacher", "school_administrator"],
     },
   },
 
@@ -90,8 +102,7 @@ const AdmissionsController = {
     console.log("[AdmissionsController] Initializing...");
 
     // Get user role from session
-    this.state.userRole =
-      window.currentUserRole || document.body.dataset.userRole || "guest";
+    this.state.userRole = this.resolveUserRole();
 
     // Setup event listeners
     this.setupEventListeners();
@@ -109,6 +120,64 @@ const AdmissionsController = {
     console.log("[AdmissionsController] Initialized");
   },
 
+  resolveUserRole() {
+    const roles = AuthContext.getRoles ? AuthContext.getRoles() : [];
+    const role = roles[0]?.name || roles[0];
+    if (!role) return "guest";
+    return String(role)
+      .toLowerCase()
+      .replace(/[\s/]+/g, "_");
+  },
+
+  canViewParentContact() {
+    const permissionCandidates = [
+      "admissions_view",
+      "admissions_create",
+      "communications_view",
+      "parents_view",
+      "fees_view",
+      "finance_view",
+    ];
+
+    if (window.RoleBasedUI?.hasAnyPermission) {
+      if (window.RoleBasedUI.hasAnyPermission(permissionCandidates)) {
+        return true;
+      }
+    }
+
+    return [
+      "headteacher",
+      "school_administrator",
+      "deputy_head_academic",
+      "deputy_head_discipline",
+      "registrar",
+      "director",
+      "accountant",
+      "bursar",
+      "system_administrator",
+    ].includes(this.state.userRole);
+  },
+
+  canViewApplicantSensitive() {
+    const permissionCandidates = ["admissions_view", "students_view_sensitive"];
+
+    if (window.RoleBasedUI?.hasAnyPermission) {
+      if (window.RoleBasedUI.hasAnyPermission(permissionCandidates)) {
+        return true;
+      }
+    }
+
+    return [
+      "headteacher",
+      "school_administrator",
+      "deputy_head_academic",
+      "deputy_head_discipline",
+      "registrar",
+      "director",
+      "system_administrator",
+    ].includes(this.state.userRole);
+  },
+
   /**
    * Get the default tab based on user role
    */
@@ -116,7 +185,7 @@ const AdmissionsController = {
     const role = this.state.userRole;
 
     // Direct user to their most relevant queue
-    if (["accountant", "bursar", "finance_officer"].includes(role)) {
+    if (["accountant", "bursar"].includes(role)) {
       return "payment_pending";
     }
     if (role === "headteacher") {
@@ -242,7 +311,7 @@ const AdmissionsController = {
     } catch (error) {
       console.warn(
         "[AdmissionsController] Failed to load academic years:",
-        error
+        error,
       );
     }
   },
@@ -260,7 +329,8 @@ const AdmissionsController = {
   unwrapPayload(response) {
     if (!response) return response;
     if (response.status && response.data !== undefined) return response.data;
-    if (response.data && response.data.data !== undefined) return response.data.data;
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
     return response;
   },
 
@@ -269,7 +339,8 @@ const AdmissionsController = {
     if (!select) return;
     const options = parents
       .map((parent) => {
-        const name = `${parent.first_name || ""} ${parent.last_name || ""}`.trim();
+        const name =
+          `${parent.first_name || ""} ${parent.last_name || ""}`.trim();
         const contact = parent.phone_1 || parent.email || "No contact";
         return `<option value="${parent.id}">${name || "Parent"} - ${contact}</option>`;
       })
@@ -369,8 +440,7 @@ const AdmissionsController = {
 
     for (const [key, config] of Object.entries(this.stages)) {
       // Check if user role has access to this tab
-      const hasAccess =
-        config.roles.includes(role) || role === "admin" || role === "director";
+      const hasAccess = config.roles.includes(role);
       if (!hasAccess) continue;
 
       const count = this.state.summary[key] || 0;
@@ -460,6 +530,10 @@ const AdmissionsController = {
           `${app.parent_first_name || ""} ${
             app.parent_last_name || ""
           }`.trim() || "N/A";
+        const showParentContact = this.canViewParentContact();
+        const parentContact = showParentContact
+          ? app.phone_1 || app.parent_email || "-"
+          : "Restricted";
         const createdDate = new Date(app.created_at).toLocaleDateString();
 
         let statusBadge = this.getStatusBadge(app.status);
@@ -488,8 +562,8 @@ const AdmissionsController = {
                         }</small>
                     </td>
                     <td>
-                        ${parentName}<br>
-                        <small class="text-muted">${app.phone_1 || ""}</small>
+                      ${parentName}<br>
+                      <small class="text-muted">${parentContact}</small>
                     </td>
                     <td>${statusBadge}</td>
                     <td>${createdDate}</td>
@@ -539,7 +613,14 @@ const AdmissionsController = {
       case "documents_pending":
         return ["verify-documents"];
       case "interview_pending":
-        if (["headteacher", "deputy_headteacher", "admin"].includes(role)) {
+        if (
+          [
+            "headteacher",
+            "deputy_head_academic",
+            "deputy_head_discipline",
+            "system_administrator",
+          ].includes(role)
+        ) {
           return ["schedule-interview", "record-interview"];
         }
         return ["schedule-interview"];
@@ -547,13 +628,9 @@ const AdmissionsController = {
         return ["generate-placement"];
       case "payment_pending":
         if (
-          [
-            "accountant",
-            "bursar",
-            "finance_officer",
-            "admin",
-            "director",
-          ].includes(role)
+          ["accountant", "bursar", "director", "system_administrator"].includes(
+            role,
+          )
         ) {
           return ["record-payment"];
         }
@@ -657,7 +734,7 @@ const AdmissionsController = {
         application,
         documents,
         workflow_data,
-        available_actions
+        available_actions,
       );
     } catch (error) {
       console.error("[AdmissionsController] Error viewing application:", error);
@@ -675,6 +752,20 @@ const AdmissionsController = {
     const parentName = `${application.parent_first_name || ""} ${
       application.parent_last_name || ""
     }`.trim();
+    const showSensitive = this.canViewApplicantSensitive();
+    const showParentContact = this.canViewParentContact();
+    const parentDisplay = showParentContact
+      ? parentName || "N/A"
+      : "Restricted";
+    const parentPhone = showParentContact
+      ? application.phone_1 || "N/A"
+      : "Restricted";
+    const parentEmail = showParentContact
+      ? application.parent_email || "N/A"
+      : "Restricted";
+    const dobValue = showSensitive
+      ? application.date_of_birth || "N/A"
+      : "Restricted";
 
     // Build documents list
     let docsHtml =
@@ -686,8 +777,8 @@ const AdmissionsController = {
                 doc.verification_status === "verified"
                   ? "success"
                   : doc.verification_status === "rejected"
-                  ? "danger"
-                  : "warning";
+                    ? "danger"
+                    : "warning";
               return `
                     <div class="d-flex justify-content-between align-items-center border-bottom py-2">
                         <div>
@@ -700,8 +791,8 @@ const AdmissionsController = {
                             }
                         </div>
                         <span class="badge bg-${statusClass}">${
-                doc.verification_status
-              }</span>
+                          doc.verification_status
+                        }</span>
                     </div>
                 `;
             })
@@ -710,7 +801,7 @@ const AdmissionsController = {
     // Build workflow timeline
     let timelineHtml = this.buildWorkflowTimeline(
       application.current_stage,
-      workflowData
+      workflowData,
     );
 
     // Build action buttons
@@ -730,14 +821,12 @@ const AdmissionsController = {
                         <dt class="col-5">Grade</dt>
                         <dd class="col-7">${application.grade_applying_for}</dd>
                         <dt class="col-5">Date of Birth</dt>
-                        <dd class="col-7">${
-                          application.date_of_birth || "N/A"
-                        }</dd>
+                        <dd class="col-7">${dobValue}</dd>
                         <dt class="col-5">Gender</dt>
                         <dd class="col-7">${application.gender || "N/A"}</dd>
                         <dt class="col-5">Status</dt>
                         <dd class="col-7">${this.getStatusBadge(
-                          application.status
+                          application.status,
                         )}</dd>
                     </dl>
                 </div>
@@ -745,13 +834,11 @@ const AdmissionsController = {
                     <h6 class="text-muted mb-3">Parent/Guardian</h6>
                     <dl class="row">
                         <dt class="col-5">Name</dt>
-                        <dd class="col-7">${parentName || "N/A"}</dd>
+                        <dd class="col-7">${parentDisplay}</dd>
                         <dt class="col-5">Phone</dt>
-                        <dd class="col-7">${application.phone_1 || "N/A"}</dd>
+                        <dd class="col-7">${parentPhone}</dd>
                         <dt class="col-5">Email</dt>
-                        <dd class="col-7">${
-                          application.parent_email || "N/A"
-                        }</dd>
+                        <dd class="col-7">${parentEmail}</dd>
                     </dl>
                 </div>
             </div>
@@ -864,7 +951,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error submitting application:",
-        error
+        error,
       );
       showNotification("Error submitting application", "error");
     } finally {
@@ -950,7 +1037,7 @@ const AdmissionsController = {
                             </div>
                         </div>
                     </div>
-                `
+                `,
               )
               .join("");
 
@@ -979,7 +1066,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening verify modal:",
-        error
+        error,
       );
       showNotification("Error loading documents", "error");
     }
@@ -1037,14 +1124,14 @@ const AdmissionsController = {
 
       // Check if interview can be skipped
       const skipInterview = this.noInterviewGrades.some((g) =>
-        application.grade_applying_for.toLowerCase().includes(g.toLowerCase())
+        application.grade_applying_for.toLowerCase().includes(g.toLowerCase()),
       );
 
       if (skipInterview) {
         // Auto-qualify for ECD grades
         const confirm = await this.confirm(
           "Auto-Qualification",
-          `${application.grade_applying_for} students don't require an interview. Do you want to auto-qualify this applicant?`
+          `${application.grade_applying_for} students don't require an interview. Do you want to auto-qualify this applicant?`,
         );
         if (confirm) {
           await this.autoQualify(applicationId);
@@ -1110,7 +1197,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening interview modal:",
-        error
+        error,
       );
       showNotification("Error loading application", "error");
     }
@@ -1133,7 +1220,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error scheduling interview:",
-        error
+        error,
       );
       showNotification("Error scheduling interview", "error");
     } finally {
@@ -1161,8 +1248,8 @@ const AdmissionsController = {
                 <form id="recordInterviewForm">
                     <input type="hidden" name="application_id" value="${applicationId}">
                     <h6 class="mb-3">${application.applicant_name} - ${
-        application.grade_applying_for
-      }</h6>
+                      application.grade_applying_for
+                    }</h6>
                     
                     ${
                       workflow_data.interview_date
@@ -1222,7 +1309,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening interview results modal:",
-        error
+        error,
       );
       showNotification("Error loading application", "error");
     }
@@ -1245,7 +1332,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error recording interview results:",
-        error
+        error,
       );
       showNotification("Error recording results", "error");
     } finally {
@@ -1298,7 +1385,7 @@ const AdmissionsController = {
               (c) =>
                 `<option value="${c.id}">${c.name || c.class_name} (${
                   c.student_count || 0
-                }/${c.capacity || "∞"})</option>`
+                }/${c.capacity || "∞"})</option>`,
             )
             .join("");
         }
@@ -1353,7 +1440,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening placement modal:",
-        error
+        error,
       );
       showNotification("Error loading application", "error");
     }
@@ -1376,7 +1463,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error generating placement offer:",
-        error
+        error,
       );
       showNotification("Error generating offer", "error");
     } finally {
@@ -1406,14 +1493,14 @@ const AdmissionsController = {
                 <form id="paymentForm">
                     <input type="hidden" name="application_id" value="${applicationId}">
                     <h6 class="mb-3">${application.applicant_name} - ${
-        application.grade_applying_for
-      }</h6>
+                      application.grade_applying_for
+                    }</h6>
                     
                     <div class="alert alert-info">
                         <div class="d-flex justify-content-between">
                             <span>Total Fees:</span>
                             <strong>KES ${Number(
-                              totalFees
+                              totalFees,
                             ).toLocaleString()}</strong>
                         </div>
                     </div>
@@ -1470,7 +1557,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error opening payment modal:",
-        error
+        error,
       );
       showNotification("Error loading application", "error");
     }
@@ -1504,7 +1591,7 @@ const AdmissionsController = {
   async completeEnrollment(applicationId) {
     const confirmed = await this.confirm(
       "Complete Enrollment",
-      "This will create the student record and finalize the admission. Continue?"
+      "This will create the student record and finalize the admission. Continue?",
     );
 
     if (!confirmed) return;
@@ -1517,7 +1604,7 @@ const AdmissionsController = {
 
       showNotification(
         "Enrollment completed successfully! Student has been created.",
-        "success"
+        "success",
       );
       await this.loadQueues();
 
@@ -1525,7 +1612,7 @@ const AdmissionsController = {
       if (payload?.student_id) {
         const viewStudent = await this.confirm(
           "View Student",
-          "Would you like to view the new student record?"
+          "Would you like to view the new student record?",
         );
         if (viewStudent) {
           window.location.href = `/pages/student_profile.php?id=${payload.student_id}`;
@@ -1534,7 +1621,7 @@ const AdmissionsController = {
     } catch (error) {
       console.error(
         "[AdmissionsController] Error completing enrollment:",
-        error
+        error,
       );
       showNotification("Error completing enrollment", "error");
     }
