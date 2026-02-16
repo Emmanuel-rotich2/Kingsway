@@ -1,0 +1,1110 @@
+================================================================================
+         KINGSWAY ACADEMY - COMPLETE ROUTE & ACCESS ANALYSIS
+         Generated: 2026-02-07
+================================================================================
+
+TABLE OF CONTENTS
+=================
+1.  SYSTEM OVERVIEW
+2.  ALL ROLES IN THE SYSTEM
+3.  ALL USERS AND THEIR ASSIGNED ROLES
+4.  ALL ROUTES IN THE DATABASE (by Domain)
+5.  ROUTE-TO-ROLE ACCESS MATRIX
+6.  DETAILED SIDEBAR MENU ITEMS PER ROLE
+7.  ROUTES WITH NO ROLE ASSIGNED (Orphaned)
+8.  API CONTROLLER ROUTES
+9.  PERMISSION ENTITIES SUMMARY
+10. PUBLIC ENDPOINTS (No Auth Required)
+
+================================================================================
+1. SYSTEM OVERVIEW
+================================================================================
+
+Architecture:
+- Backend: PHP REST API with JWT authentication
+- Database: MySQL/MariaDB (KingsWayAcademy)
+- Authorization: Database-driven RBAC with DENY-BY-DEFAULT pattern
+- Route Domains: SYSTEM (infrastructure) and SCHOOL (operations)
+- Middleware Pipeline: CORS -> RateLimit -> Auth -> RBAC -> Device -> Router
+- Authorization Source: routes, role_routes, route_permissions tables
+- Permission Source: permissions, role_permissions, user_permissions tables
+
+Key Stats:
+- Total Routes: 155+ (SYSTEM: 74, SCHOOL: 81+)
+- Total Roles: 25 (16 active, 6 test, 3 tracking-only)
+- Total Permissions: 4,456
+- Role-Permission Mappings: 16,213
+- Total Users: 31
+- Active Users: 31
+
+================================================================================
+2. ALL ROLES IN THE SYSTEM
+================================================================================
+
+ID    ROLE NAME                     DESCRIPTION                                           PERMISSION COUNT
+----  ----------------------------  ---------------------------------------------------   ----------------
+2     System Administrator          [ROOT/SUPER USER] Complete system access               4,456
+3     Director                      Financial reports, approvals, strategic decisions       13
+4     School Administrator          Operational school admin, manages users/roles           20
+5     Headteacher                   Academic oversight, admissions, overall management      13
+6     Deputy Head - Academic        Admissions, promotion, timetabling, academic            5
+7     Class Teacher                 Class management, attendance, assessments               6
+8     Subject Teacher               Subject teaching, exams, assessments                    6
+9     Intern/Student Teacher        Learning internship, limited access                     6
+10    Accountant                    Complete financial management                           6
+14    Inventory Manager             Uniform store, inventory, requisitions                  6
+16    Cateress                      Kitchen management, meal planning                       5
+18    Boarding Master               Boarding facility management                            7
+21    Talent Development            Games, sports, music, activities                        10
+23    Driver                        Student transport, route management                     6
+24    Chaplain                      Spiritual welfare, counseling                           6
+32    Kitchen Staff                 [TRACKING ONLY] No system access                       0
+33    Security Staff                [TRACKING ONLY] No system access                       0
+34    Janitor                       [TRACKING ONLY] No system access                       0
+63    Deputy Head - Discipline      Discipline management, attendance                      6
+64    Staff                         Default staff role                                     0
+65    TeacherTest                   Temporary test role                                    0
+66-70 TeacherTest_*                 Temporary test roles                                   0
+
+================================================================================
+3. ALL USERS AND THEIR ASSIGNED ROLES
+================================================================================
+
+ID    NAME                          EMAIL                                  STATUS    ROLES
+----  ----------------------------  ------------------------------------   -------   ---------------------------
+1     Silas Angera                  angerasilas@gmail.com                  active    System Administrator
+2     John Director                 john@yahoo.com                         active    Director
+3     Alice Administrator           alice@outlook.com                      active    School Administrator
+4     Robert Headteacher            robert@gmail.com                       active    Headteacher
+5     Margaret DeputyAcad           margaret@yahoo.com                     active    Deputy Head - Academic
+6     Michael ClassTeacher          michael@gmail.com                      active    Class Teacher
+7     Patricia SubjectTeacher       patricia@gmail.com                     active    Subject Teacher
+8     David InternTeacher           david@gmail.com                        active    Intern/Student Teacher
+9     Jennifer Accountant           jenifer@gmail.com                      active    Accountant
+10    Christopher InventoryMgr      christopher@gmail.com                  active    Inventory Manager
+11    Susan Cateress                susan@gmail.com                        active    Cateress
+12    Thomas BoardingMaster         thomas@gmail.com                       active    Boarding Master
+13    Linda TalentDev               linda@gmail.com                        active    Talent Development
+14    Daniel Driver                 daniel@gmail.com                       active    Driver
+15    Elizabeth Chaplain            elizabeth@outlook.com                  active    Chaplain
+16    James KitchenStaff            james@yahoo.com                       active    Kitchen Staff
+17    Joseph SecurityStaff          joseph@outlook.com                     active    Security Staff
+18    Mary Janitor                  mary@gmail.com                         active    Janitor
+19    William DeputyDisc            william@outlook.com                    active    Deputy Head - Discipline
+20    Test ClassTeacher GradeSeven  test_classteacher_g7@example.com       active    Class Teacher, Subject Teacher
+21    Test ClassTeacher GradeEight  test_classteacher_g8@example.com       active    Class Teacher, Subject Teacher
+22    Test ClassTeacher GradeNine   test_classteacher_g9@example.com       active    Class Teacher, Subject Teacher, TeacherTest
+23    Test ClassTeacher GradeOne    test_classteacher_g1@example.com       active    Class Teacher, Subject Teacher, TeacherTest
+24    Test ClassTeacher GradeTwo    test_classteacher_g2@example.com       active    Class Teacher, Subject Teacher, TeacherTest_*
+25    Test ClassTeacher GradeThree  test_classteacher_g3@example.com       active    Class Teacher, Subject Teacher, TeacherTest_*
+26    Test ClassTeacher Playgroup   test_classteacher_pg@example.com       active    Class Teacher, Subject Teacher, TeacherTest_*
+27    Test ClassTeacher PPOne       test_classteacher_pp1@example.com      active    Class Teacher, Subject Teacher, TeacherTest_*
+28    Test ClassTeacher PPTwo       test_classteacher_pp2@example.com      active    Class Teacher, Subject Teacher
+29    Test ClassTeacher GradeFour   test_classteacher_g4@example.com       active    Class Teacher, Subject Teacher, TeacherTest_*
+30    Test ClassTeacher GradeFive   test_classteacher_g5@example.com       active    Class Teacher, Subject Teacher
+31    Test ClassTeacher GradeSix    test_classteacher_g6@example.com       active    Class Teacher, Subject Teacher
+
+================================================================================
+4. ALL ROUTES IN THE DATABASE
+================================================================================
+
+---------- SYSTEM DOMAIN ROUTES (74 routes) ----------
+
+ID      ROUTE NAME                        URL                                             DESCRIPTION                              ACTIVE
+------  --------------------------------  ----------------------------------------------  ---------------------------------------  ------
+1       system_administrator_dashboard    home.php?route=system_administrator_dashboard   System Administrator main dashboard       Yes
+2       system_health                     home.php?route=system_health                    System health monitoring                  Yes
+3       error_logs                        home.php?route=error_logs                       Application error logs                    Yes
+4       authentication_logs               home.php?route=authentication_logs              Authentication event logs                 Yes
+5       activity_audit_logs               home.php?route=activity_audit_logs              User activity audit trail                 Yes
+6       system_settings                   home.php?route=system_settings                  System-wide configuration settings        Yes
+7       module_management                 home.php?route=module_management                Enable/disable system modules             Yes
+8       maintenance_mode                  home.php?route=maintenance_mode                 System maintenance mode control           Yes
+9       api_explorer                      home.php?route=api_explorer                     API testing and documentation             Yes
+10      job_queue_monitor                 home.php?route=job_queue_monitor                Background job queue monitoring            Yes
+11      cache_monitor                     home.php?route=cache_monitor                    Cache status monitoring                   Yes
+12      db_health_monitor                 home.php?route=db_health_monitor                Database health monitoring                Yes
+13      manage_users                      home.php?route=manage_users                     User account management                   Yes
+14      manage_roles                      home.php?route=manage_roles                     Role definition management                Yes
+15      manage_permissions                home.php?route=manage_permissions               Permission management                     Yes
+16      delegated_permissions             home.php?route=delegated_permissions             Manage delegated access                   Yes
+17      manage_routes                     home.php?route=manage_routes                    Route registry management                 Yes
+18      manage_menus                      home.php?route=manage_menus                     Menu and navigation management            Yes
+19      manage_dashboards                 home.php?route=manage_dashboards                Dashboard configuration                   Yes
+20      manage_policies                   home.php?route=manage_policies                  System policy management                  Yes
+21      config_sync                       home.php?route=config_sync                      Sync DB config to files                   Yes
+88      system_uptime                     home.php?route=system_uptime                    System Uptime Monitor                     Yes
+89      active_users                      home.php?route=active_users                     Active Users Count                        Yes
+90      error_rate                        home.php?route=error_rate                       Error Rate Monitor                        Yes
+91      queue_health                      home.php?route=queue_health                     Queue Health Status                       Yes
+92      db_health                         home.php?route=db_health                        Database Health Monitor                   Yes
+94      account_status                    home.php?route=account_status                   Account Status Management                 Yes
+95      role_definitions                  home.php?route=role_definitions                 Role Definitions                          Yes
+96      role_scope                        home.php?route=role_scope                       Role Scope Configuration                  Yes
+97      permission_registry               home.php?route=permission_registry              Permission Registry                       Yes
+98      temporary_roles                   home.php?route=temporary_roles                  Temporary Roles                           Yes
+99      expiry_based_access               home.php?route=expiry_based_access              Expiry-based Access                       Yes
+101     route_registry                    home.php?route=route_registry                   Route Registry                            Yes
+102     route_domains                     home.php?route=route_domains                    Route Domains                             Yes
+103     sidebar_menus                     home.php?route=sidebar_menus                    Sidebar Menus Management                  Yes
+104     submenus_management               home.php?route=submenus_management              Submenus Management                       Yes
+105     icons_ordering                    home.php?route=icons_ordering                   Icons & Ordering                          Yes
+106     dashboard_registry                home.php?route=dashboard_registry               Dashboard Registry                        Yes
+107     role_dashboard_mapping            home.php?route=role_dashboard_mapping            Role Dashboard Mapping                    Yes
+108     domain_isolation_rules            home.php?route=domain_isolation_rules            Domain Isolation Rules                    Yes
+109     readonly_enforcement              home.php?route=readonly_enforcement              Read-Only Enforcement                     Yes
+110     time_bound_access                 home.php?route=time_bound_access                Time-bound Access                         Yes
+111     location_device_rules             home.php?route=location_device_rules            Location/Device Rules                     Yes
+112     audit_requirements                home.php?route=audit_requirements               Audit Requirements                        Yes
+113     retention_policies                home.php?route=retention_policies                Retention Policies                        Yes
+114     authorization_logs                home.php?route=authorization_logs                Authorization Logs                        Yes
+115     failed_login_attempts             home.php?route=failed_login_attempts             Failed Login Attempts                     Yes
+116     active_sessions                   home.php?route=active_sessions                   Active Sessions                           Yes
+117     force_logout                      home.php?route=force_logout                      Force Logout                              Yes
+118     revoke_tokens                     home.php?route=revoke_tokens                     Revoke Tokens                             Yes
+120     background_jobs                   home.php?route=background_jobs                   Background Jobs                           Yes
+121     queue_monitor                     home.php?route=queue_monitor                     Queue Monitor                             Yes
+122     api_metrics                       home.php?route=api_metrics                       API Metrics                               Yes
+127     feature_flags                     home.php?route=feature_flags                     Feature Flags                             Yes
+128     module_enablement                 home.php?route=module_enablement                 Module Enablement                         Yes
+131     schema_registry                   home.php?route=schema_registry                   Schema Registry                           Yes
+132     migrations                        home.php?route=migrations                        Database Migrations                       Yes
+133     backups                           home.php?route=backups                           Backups Management                        Yes
+134     data_retention_rules              home.php?route=data_retention_rules              Data Retention Rules                      Yes
+135     anonymization_rules               home.php?route=anonymization_rules               Anonymization Rules                       Yes
+136     webhook_registry                  home.php?route=webhook_registry                  Webhook Registry                          Yes
+137     job_inspector                     home.php?route=job_inspector                     Job Inspector                             Yes
+138     system_diagnostics                home.php?route=system_diagnostics                System Diagnostics                        Yes
+140     permission_changes                home.php?route=permission_changes                Permission Changes Log                    Yes
+141     policy_violations                 home.php?route=policy_violations                 Policy Violations                         Yes
+142     security_incidents                home.php?route=security_incidents                Security Incidents                        Yes
+144     role_permission_matrix            home.php?route=role_permission_matrix            Role-Permission Matrix Configuration      Yes
+145     resource_based_permissions        home.php?route=resource_based_permissions        Resource-Based Permissions                Yes
+146     widget_registry                   home.php?route=widget_registry                   Widget Registry                           Yes
+147     role_navigation_config            home.php?route=role_navigation_config            Role Navigation Configuration             Yes
+148     route_access_rules                home.php?route=route_access_rules                Route Access Rules                        Yes
+149     permission_policies               home.php?route=permission_policies               Permission Policies                       Yes
+150     token_management                  home.php?route=token_management                  Token Management                          Yes
+151     ip_whitelist_blacklist            home.php?route=ip_whitelist_blacklist            IP Whitelist/Blacklist                    Yes
+152     rate_limiting_status              home.php?route=rate_limiting_status              Rate Limiting Status                      Yes
+153     data_retention                    home.php?route=data_retention                    Data Retention Policies                   Yes
+154     data_purge_policies               home.php?route=data_purge_policies               Data Purge Policies                       Yes
+
+---------- SCHOOL DOMAIN ROUTES (81+ routes) ----------
+
+ID       ROUTE NAME                        URL                                                 DESCRIPTION                              ACTIVE
+------   --------------------------------  --------------------------------------------------  ---------------------------------------  ------
+22       director_owner_dashboard          home.php?route=director_owner_dashboard              Director/Owner main dashboard             Yes
+23       school_administrative_officer_dashboard  home.php?route=school_administrative_officer_dashboard  School Admin dashboard              Yes
+24       headteacher_dashboard             home.php?route=headteacher_dashboard                 Headteacher main dashboard                Yes
+26       class_teacher_dashboard           home.php?route=class_teacher_dashboard               Class Teacher dashboard                   Yes
+27       subject_teacher_dashboard         home.php?route=subject_teacher_dashboard             Subject Teacher dashboard                 Yes
+28       intern_student_teacher_dashboard  home.php?route=intern_student_teacher_dashboard      Intern/Student Teacher dashboard          Yes
+29       school_accountant_dashboard       home.php?route=school_accountant_dashboard            Accountant dashboard                      Yes
+30       store_manager_dashboard           home.php?route=store_manager_dashboard                Inventory Manager dashboard               Yes
+31       catering_manager_cook_lead_dashboard  home.php?route=catering_manager_cook_lead_dashboard  Cateress dashboard                    Yes
+32       matron_housemother_dashboard      home.php?route=matron_housemother_dashboard           Boarding Master dashboard                 Yes
+33       hod_talent_development_dashboard  home.php?route=hod_talent_development_dashboard      Talent Development dashboard              Yes
+34       driver_dashboard                  home.php?route=driver_dashboard                      Driver dashboard                          Yes
+35       school_counselor_chaplain_dashboard  home.php?route=school_counselor_chaplain_dashboard  Chaplain/Counselor dashboard             Yes
+36       manage_students                   home.php?route=manage_students                       Student records management                Yes
+37       manage_students_admissions        home.php?route=manage_students_admissions             Student admissions                        Yes
+38       student_performance               home.php?route=student_performance                   Student performance tracking              Yes
+39       student_discipline                home.php?route=student_discipline                    Student discipline records                Yes
+40       student_counseling                home.php?route=student_counseling                    Student counseling services               Yes
+41       import_existing_students          home.php?route=import_existing_students              Import existing student data              Yes
+42       manage_academics                  home.php?route=manage_academics                      Academic management hub                   Yes
+43       manage_classes                    home.php?route=manage_classes                        Class management                          Yes
+44       manage_subjects                   home.php?route=manage_subjects                       Subject management                        Yes
+45       manage_timetable                  home.php?route=manage_timetable                      Timetable scheduling                      Yes
+46       manage_assessments                home.php?route=manage_assessments                    Assessment configuration                  Yes
+47       manage_lesson_plans               home.php?route=manage_lesson_plans                   Lesson plan management                    Yes
+48       myclasses                         home.php?route=myclasses                             View assigned classes                     Yes
+49       add_results                       home.php?route=add_results                           Add examination results                   Yes
+50       submit_results                    home.php?route=submit_results                        Submit class results                      Yes
+51       view_results                      home.php?route=view_results                          View results                              Yes
+52       enter_results                     home.php?route=enter_results                         Enter results for students                Yes
+53       manage_finance                    home.php?route=manage_finance                        Finance management hub                    Yes
+54       manage_fees                       home.php?route=manage_fees                           Fee structure management                  Yes
+55       student_fees                      home.php?route=student_fees                          Student fee records                       Yes
+56       manage_payments                   home.php?route=manage_payments                       Payment processing                        Yes
+57       manage_payrolls                   home.php?route=manage_payrolls                       Payroll management                        Yes
+58       payroll                           home.php?route=payroll                               Staff payroll view                        Yes
+59       manage_expenses                   home.php?route=manage_expenses                       Expense tracking                          Yes
+60       finance_reports                   home.php?route=finance_reports                       Financial reports                         Yes
+61       financial_reports                 home.php?route=financial_reports                     Detailed financial reports                Yes
+62       budget_overview                   home.php?route=budget_overview                       Budget overview                           Yes
+63       finance_approvals                 home.php?route=finance_approvals                     Finance approval workflow                 Yes
+64       manage_staff                      home.php?route=manage_staff                          Staff records management                  Yes
+65       manage_non_teaching_staff         home.php?route=manage_non_teaching_staff             Non-teaching staff                        Yes
+66       staff_attendance                  home.php?route=staff_attendance                      Staff attendance tracking                 Yes
+67       staff_performance                 home.php?route=staff_performance                     Staff performance tracking                Yes
+68       mark_attendance                   home.php?route=mark_attendance                       Mark student attendance                   Yes
+69       view_attendance                   home.php?route=view_attendance                       View attendance records                   Yes
+70       manage_inventory                  home.php?route=manage_inventory                      Inventory management                      Yes
+71       manage_stock                      home.php?route=manage_stock                          Stock management                          Yes
+72       manage_requisitions               home.php?route=manage_requisitions                   Requisition processing                    Yes
+73       food_store                        home.php?route=food_store                            Food store management                     Yes
+74       menu_planning                     home.php?route=menu_planning                         Meal menu planning                        Yes
+75       manage_boarding                   home.php?route=manage_boarding                       Boarding house management                 Yes
+76       manage_activities                 home.php?route=manage_activities                     Extra-curricular activities               Yes
+77       chapel_services                   home.php?route=chapel_services                       Chapel service scheduling                 Yes
+78       manage_communications             home.php?route=manage_communications                Internal messaging                        Yes
+79       manage_announcements              home.php?route=manage_announcements                  Announcements management                  Yes
+80       manage_email                      home.php?route=manage_email                          Email communications                      Yes
+81       manage_sms                        home.php?route=manage_sms                            SMS communications                        Yes
+82       enrollment_reports                home.php?route=enrollment_reports                    Enrollment statistics                     Yes
+83       performance_reports               home.php?route=performance_reports                   Performance reports                       Yes
+84       my_routes                         home.php?route=my_routes                             Driver assigned routes                    Yes
+85       my_vehicle                        home.php?route=my_vehicle                            Vehicle assignment                        Yes
+86       home                              home.php                                             Main application home                     Yes
+87       me                                home.php?route=me                                    User profile page                         Yes
+155      manage_transport                  home.php?route=manage_transport                      Manage Transportation                     Yes
+156      manage_fee_structure              home.php?route=manage_fee_structure                  Fee Structure Management                  Yes
+157      manage_uniform_sales              manage_uniform_sales                                 Manage uniform inventory/sales            Yes
+158      boarding_roll_call                home.php?route=boarding_roll_call                    Boarding roll call                        Yes
+160      academic_years                    home.php?route=academic_years                        Manage academic years and terms            Yes
+161      current_academic_year             home.php?route=current_academic_year                 View current academic year                Yes
+162      manage_terms                      home.php?route=manage_terms                          Manage academic terms                     Yes
+163      year_calendar                     home.php?route=year_calendar                         Academic year calendar                    Yes
+164      year_history                      home.php?route=year_history                          Academic year history                     Yes
+165      learning_areas                    home.php?route=learning_areas                        Manage subjects/learning areas            Yes
+166      all_subjects                      home.php?route=all_subjects                          View all subjects                         Yes
+167      assign_subjects_to_teachers       home.php?route=assign_subjects_to_teachers           Assign subjects to teachers               Yes
+168      curriculum_cbc                    home.php?route=curriculum_cbc                        CBC Curriculum management                 Yes
+169      schemes_of_work                   home.php?route=schemes_of_work                       Manage schemes of work                    Yes
+170      all_lesson_plans                  home.php?route=all_lesson_plans                      View all lesson plans                     Yes
+171      lesson_plans_by_class             home.php?route=lesson_plans_by_class                 Lesson plans by class                     Yes
+172      lesson_plans_by_teacher           home.php?route=lesson_plans_by_teacher               Lesson plans by teacher                   Yes
+173      lesson_plan_approval              home.php?route=lesson_plan_approval                  Approve lesson plans                      Yes
+174      academic_calendar                 home.php?route=academic_calendar                     Academic calendar                         Yes
+175      view_calendar                     home.php?route=view_calendar                         View academic calendar                    Yes
+176      manage_calendar_events            home.php?route=manage_calendar_events                Manage calendar events                    Yes
+177      assessments_exams                 home.php?route=assessments_exams                     Manage assessments and exams              Yes
+178      exam_schedule                     home.php?route=exam_schedule                         Exam schedules                            Yes
+179      exam_setup                        home.php?route=exam_setup                            Setup exams                               Yes
+180      supervision_roster                home.php?route=supervision_roster                    Exam supervision roster                   Yes
+181      grading_status                    home.php?route=grading_status                        Grading status                            Yes
+182      results_analysis                  home.php?route=results_analysis                      Results analysis                          Yes
+183      report_cards                      home.php?route=report_cards                          Generate report cards                     Yes
+201      all_students                      home.php?route=all_students                          View all students                         Yes
+202      all_staff                         home.php?route=all_staff                             View all staff                            Yes
+203      staff_performance_overview        home.php?route=staff_performance_overview             Staff performance overview                Yes
+204      all_teachers                      home.php?route=all_teachers                          View all teachers                         Yes
+205      class_teachers                    home.php?route=class_teachers                        Class teachers list                       Yes
+206      subject_teachers                  home.php?route=subject_teachers                      Subject teachers list                     Yes
+207      teacher_workload                  home.php?route=teacher_workload                      Teacher workload management               Yes
+208      teacher_performance_reviews       home.php?route=teacher_performance_reviews            Teacher performance reviews               Yes
+209      all_parents                       home.php?route=all_parents                           View all parents/guardians                Yes
+210      parent_meetings                   home.php?route=parent_meetings                       Parent meetings                           Yes
+211      parent_feedback                   home.php?route=parent_feedback                       Parent feedback                           Yes
+212      pta_management                    home.php?route=pta_management                        PTA management                            Yes
+213      all_classes                       home.php?route=all_classes                            View all classes                          Yes
+214      class_streams                     home.php?route=class_streams                         Class streams                             Yes
+215      class_capacity                    home.php?route=class_capacity                        Class capacity                            Yes
+216      student_promotion                 home.php?route=student_promotion                     Student promotion/progression             Yes
+217      new_applications                  home.php?route=new_applications                      New admission applications                Yes
+218      admission_status                  home.php?route=admission_status                      Admission status                          Yes
+219      discipline_cases                  home.php?route=discipline_cases                      Discipline cases                          Yes
+220      conduct_reports                   home.php?route=conduct_reports                       Conduct reports                           Yes
+221      academic_reports                  home.php?route=academic_reports                      Academic reports                          Yes
+222      performance_analysis              home.php?route=performance_analysis                  Performance analysis                      Yes
+223      term_reports                      home.php?route=term_reports                          Term reports                              Yes
+224      clubs_societies                   home.php?route=clubs_societies                       Clubs and societies                       Yes
+225      sports                            home.php?route=sports                                Sports management                         Yes
+226      competitions                      home.php?route=competitions                          Competitions                              Yes
+227      school_events                     home.php?route=school_events                         School events                             Yes
+228      assemblies                        home.php?route=assemblies                            Assemblies                                Yes
+229      special_needs                     home.php?route=special_needs                         Special needs students                    Yes
+230      counseling_records                home.php?route=counseling_records                    Counseling records                        Yes
+231      permissions_exeats                home.php?route=permissions_exeats                    Permissions and exeats                    Yes
+232      dormitory_management              home.php?route=dormitory_management                  Dormitory management                      Yes
+233      enrollment_trends                 home.php?route=enrollment_trends                     Enrollment trends                         Yes
+234      performance_trends                home.php?route=performance_trends                    Performance trends                        Yes
+235      attendance_trends                 home.php?route=attendance_trends                     Attendance trends                         Yes
+236      comparative_reports               home.php?route=comparative_reports                   Comparative reports                       Yes
+237      students_with_balance             home.php?route=students_with_balance                 Students with fee balance                 Yes
+238      balances_by_class                 home.php?route=balances_by_class                     Fee balances by class                     Yes
+239      fee_defaulters                    home.php?route=fee_defaulters                        Fee defaulters                            Yes
+240      deputy_head_academic_dashboard    home.php?route=deputy_head_academic_dashboard        Deputy Head Academic dashboard             Yes
+241      deputy_head_discipline_dashboard  home.php?route=deputy_head_discipline_dashboard      Deputy Head Discipline dashboard           Yes
+99999    teacher_dashboard                 home.php?route=teacher_dashboard                     Unified teacher dashboard                 Yes
+100000   unmatched_payments                home.php?route=unmatched_payments                    Unmatched Payments                        Yes
+100001   vendors                           home.php?route=vendors                               Vendors & Suppliers                       Yes
+100002   purchase_orders                   home.php?route=purchase_orders                       Purchase Orders                           Yes
+100003   petty_cash                        home.php?route=petty_cash                            Petty Cash                                Yes
+100004   bank_accounts                     home.php?route=bank_accounts                         Bank Accounts                             Yes
+100005   bank_transactions                 home.php?route=bank_transactions                     Bank Transactions                         Yes
+100006   mpesa_settlements                 home.php?route=mpesa_settlements                     M-Pesa Settlements                        Yes
+
+================================================================================
+5. ROUTE-TO-ROLE ACCESS MATRIX
+================================================================================
+
+Each route below lists which roles have explicit access (via role_routes table).
+Routes with no roles listed have NO role_routes entry and are currently INACCESSIBLE
+unless the System Administrator has access via wildcard.
+
+--- UNIVERSAL ACCESS (All active roles) ---
+
+ROUTE: home (home.php)
+  Roles: System Administrator, Director, School Administrator, Headteacher,
+         Deputy Head - Academic, Class Teacher, Subject Teacher, Intern/Student Teacher,
+         Accountant, Inventory Manager, Cateress, Boarding Master, Talent Development,
+         Driver, Chaplain, Deputy Head - Discipline
+
+ROUTE: me (home.php?route=me)
+  Roles: System Administrator, Director, School Administrator, Headteacher,
+         Deputy Head - Academic, Class Teacher, Subject Teacher, Intern/Student Teacher,
+         Accountant, Inventory Manager, Cateress, Boarding Master, Talent Development,
+         Driver, Chaplain, Deputy Head - Discipline
+
+ROUTE: manage_communications (home.php?route=manage_communications)
+  Roles: System Administrator (via home only), Director, School Administrator, Headteacher,
+         Deputy Head - Academic, Class Teacher, Subject Teacher, Intern/Student Teacher,
+         Accountant, Inventory Manager, Cateress, Boarding Master, Talent Development,
+         Driver, Chaplain, Deputy Head - Discipline
+
+--- SYSTEM ADMINISTRATOR (Role 2) --- SYSTEM DOMAIN ROUTES ---
+
+  system_administrator_dashboard    System Administrator main dashboard
+  system_health                     System health monitoring
+  error_logs                        Application error logs
+  authentication_logs               Authentication event logs
+  activity_audit_logs               User activity audit trail
+  system_settings                   System-wide configuration settings
+  module_management                 Enable/disable system modules
+  maintenance_mode                  System maintenance mode control
+  api_explorer                      API testing and documentation
+  job_queue_monitor                 Background job queue monitoring
+  cache_monitor                     Cache status monitoring
+  db_health_monitor                 Database health monitoring
+  manage_users                      User account management
+  manage_roles                      Role definition management
+  manage_permissions                Permission management
+  delegated_permissions             Manage delegated access
+  home                              Main application home
+  me                                User profile page
+
+--- DIRECTOR (Role 3) ---
+
+  director_owner_dashboard          Director/Owner main dashboard
+  manage_finance                    Finance management hub
+  finance_reports                   Financial reports
+  financial_reports                 Detailed financial reports
+  budget_overview                   Budget overview
+  finance_approvals                 Finance approval workflow
+  enrollment_reports                Enrollment statistics
+  performance_reports               Performance reports
+  manage_communications             Internal messaging
+  staff_attendance                  Staff attendance tracking
+  mark_attendance                   Mark student attendance
+  view_attendance                   View attendance records
+  boarding_roll_call                Boarding roll call
+  home                              Main application home
+  me                                User profile page
+
+--- SCHOOL ADMINISTRATOR (Role 4) ---
+
+  school_administrative_officer_dashboard  School Admin dashboard
+  manage_students                   Student records management
+  manage_students_admissions        Student admissions
+  manage_academics                  Academic management hub
+  manage_classes                    Class management
+  manage_subjects                   Subject management
+  manage_timetable                  Timetable scheduling
+  manage_communications             Internal messaging
+  manage_announcements              Announcements management
+  manage_finance                    Finance management hub
+  manage_staff                      Staff records management
+  manage_users                      User account management
+  mark_attendance                   Mark student attendance
+  staff_attendance                  Staff attendance tracking
+  view_results                      View results
+  home                              Main application home
+  me                                User profile page
+
+--- HEADTEACHER (Role 5) ---
+
+  headteacher_dashboard             Headteacher main dashboard
+  manage_students                   Student records management
+  manage_students_admissions        Student admissions
+  manage_academics                  Academic management hub
+  manage_classes                    Class management
+  manage_subjects                   Subject management
+  manage_timetable                  Timetable scheduling
+  manage_assessments                Assessment configuration
+  manage_lesson_plans               Lesson plan management
+  manage_staff                      Staff records management
+  manage_communications             Internal messaging
+  student_performance               Student performance tracking
+  staff_performance                 Staff performance tracking
+  add_results                       Add examination results
+  view_results                      View results
+  staff_attendance                  Staff attendance tracking
+  mark_attendance                   Mark student attendance
+  view_attendance                   View attendance records
+  boarding_roll_call                Boarding roll call
+  home                              Main application home
+  me                                User profile page
+
+--- DEPUTY HEAD - ACADEMIC (Role 6) ---
+
+  manage_students                   Student records management
+  manage_academics                  Academic management hub
+  manage_classes                    Class management
+  manage_assessments                Assessment configuration
+  manage_timetable                  Timetable scheduling
+  manage_communications             Internal messaging
+  add_results                       Add examination results
+  view_results                      View results
+  home                              Main application home
+  me                                User profile page
+
+--- DEPUTY HEAD - DISCIPLINE (Role 63) ---
+
+  manage_students                   Student records management
+  manage_students_admissions        Student admissions
+  manage_activities                 Extra-curricular activities
+  manage_announcements              Announcements management
+  manage_communications             Internal messaging
+  student_discipline                Student discipline records
+  mark_attendance                   Mark student attendance
+  view_attendance                   View attendance records
+  staff_attendance                  Staff attendance tracking
+  home                              Main application home
+  me                                User profile page
+
+--- CLASS TEACHER (Role 7) ---
+
+  class_teacher_dashboard           Class Teacher dashboard
+  manage_assessments                Assessment configuration
+  manage_lesson_plans               Lesson plan management
+  manage_communications             Internal messaging
+  myclasses                         View assigned classes
+  submit_results                    Submit class results
+  view_results                      View results
+  mark_attendance                   Mark student attendance
+  staff_attendance                  Staff attendance tracking
+  view_attendance                   View attendance records
+  boarding_roll_call                Boarding roll call
+  home                              Main application home
+  me                                User profile page
+
+--- SUBJECT TEACHER (Role 8) ---
+
+  subject_teacher_dashboard         Subject Teacher dashboard
+  manage_lesson_plans               Lesson plan management
+  manage_communications             Internal messaging
+  myclasses                         View assigned classes
+  submit_results                    Submit class results
+  view_results                      View results
+  staff_attendance                  Staff attendance tracking
+  mark_attendance                   Mark student attendance
+  view_attendance                   View attendance records
+  boarding_roll_call                Boarding roll call
+  home                              Main application home
+  me                                User profile page
+
+--- INTERN/STUDENT TEACHER (Role 9) ---
+
+  intern_student_teacher_dashboard  Intern/Student Teacher dashboard
+  manage_lesson_plans               Lesson plan management
+  manage_communications             Internal messaging
+  myclasses                         View assigned classes
+  home                              Main application home
+  me                                User profile page
+
+--- ACCOUNTANT (Role 10) ---
+
+  school_accountant_dashboard       Accountant dashboard
+  manage_fees                       Fee structure management
+  student_fees                      Student fee records
+  manage_payments                   Payment processing
+  manage_payrolls                   Payroll management
+  payroll                           Staff payroll view
+  manage_expenses                   Expense tracking
+  finance_reports                   Financial reports
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- INVENTORY MANAGER (Role 14) ---
+
+  store_manager_dashboard           Inventory Manager dashboard
+  manage_inventory                  Inventory management
+  manage_stock                      Stock management
+  manage_requisitions               Requisition processing
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- CATERESS (Role 16) ---
+
+  catering_manager_cook_lead_dashboard  Cateress dashboard
+  food_store                        Food store management
+  menu_planning                     Meal menu planning
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- BOARDING MASTER (Role 18) ---
+
+  matron_housemother_dashboard      Boarding Master dashboard
+  manage_boarding                   Boarding house management
+  manage_communications             Internal messaging
+  boarding_roll_call                Boarding roll call
+  home                              Main application home
+  me                                User profile page
+
+--- TALENT DEVELOPMENT (Role 21) ---
+
+  hod_talent_development_dashboard  Talent Development dashboard
+  manage_activities                 Extra-curricular activities
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- DRIVER (Role 23) ---
+
+  driver_dashboard                  Driver dashboard
+  my_routes                         Driver assigned routes
+  my_vehicle                        Vehicle assignment
+  manage_announcements              Announcements management
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- CHAPLAIN (Role 24) ---
+
+  school_counselor_chaplain_dashboard  Chaplain/Counselor dashboard
+  chapel_services                   Chapel service scheduling
+  student_counseling                Student counseling services
+  manage_communications             Internal messaging
+  home                              Main application home
+  me                                User profile page
+
+--- TRACKING-ONLY ROLES (No system access) ---
+
+  Kitchen Staff (Role 32)     - 0 routes assigned
+  Security Staff (Role 33)    - 0 routes assigned
+  Janitor (Role 34)           - 0 routes assigned
+
+================================================================================
+6. DETAILED SIDEBAR MENU ITEMS PER ROLE
+================================================================================
+
+Each role sees specific sidebar menu items. Items with a parent_menu are sub-items.
+Items with url=NULL are group headers (expandable sections).
+
+--- SYSTEM ADMINISTRATOR SIDEBAR (SYSTEM domain) ---
+
+[Dashboard]
+  Dashboard                    -> (system_administrator_dashboard)
+
+[Identity & Access]
+  User Accounts                -> (manage_users)
+  Account Status               -> (account_status)
+  Role Definitions             -> (role_definitions)
+  Role-Permission Matrix       -> (role_permission_matrix)
+  Resource Permissions         -> (resource_based_permissions)
+
+[Navigation & UI]
+  Route Registry               -> (route_registry)
+  Sidebar Menus                -> (sidebar_menus)
+  Dashboard Registry           -> (dashboard_registry)
+  Widget Registry              -> (widget_registry)
+  Role Navigation              -> (role_navigation_config)
+
+[Policy & Governance]
+  Domain Isolation             -> (domain_isolation_rules)
+  Time-Bound Access            -> (time_bound_access)
+  Route Access Rules           -> (route_access_rules)
+  Permission Policies          -> (permission_policies)
+
+[Security Center]
+  Authentication Logs          -> (authentication_logs)
+  Failed Logins                -> (failed_login_attempts)
+  Active Sessions              -> (active_sessions)
+  Token Management             -> (token_management)
+  IP Whitelist/Blacklist       -> (ip_whitelist_blacklist)
+
+[Monitoring]
+  System Health                -> (system_health)
+  Error Logs                   -> (error_logs)
+  Background Jobs              -> (background_jobs)
+  API Metrics                  -> (api_metrics)
+  Rate Limiting                -> (rate_limiting_status)
+
+[Configuration]
+  System Settings              -> (system_settings)
+  Feature Flags                -> (feature_flags)
+  Module Enablement            -> (module_enablement)
+  Maintenance Mode             -> (maintenance_mode)
+
+[Data Governance]
+  Schema Registry              -> (schema_registry)
+  Migrations                   -> (migrations)
+  Backups                      -> (backups)
+  Data Retention               -> (data_retention)
+  Data Purge Policies          -> (data_purge_policies)
+
+[Developer Tools]
+  API Explorer                 -> (api_explorer)
+  Webhook Registry             -> (webhook_registry)
+  Job Inspector                -> (job_inspector)
+  System Diagnostics           -> (system_diagnostics)
+
+[Audit & Forensics]
+  Activity Logs                -> (activity_audit_logs)
+  Permission Changes           -> (permission_changes)
+  Policy Violations            -> (policy_violations)
+  Security Incidents           -> (security_incidents)
+
+--- ACCOUNTANT SIDEBAR ---
+
+[Dashboard]                    -> school_accountant_dashboard
+[Income]
+  Fee Structure                -> manage_fee_structure
+  Student Fee Accounts         -> all_students
+  Payments                     -> manage_payments
+  Unmatched Payments           -> unmatched_payments
+[Expenditure]
+  Payroll                      -> payroll
+  Vendors & Suppliers          -> vendors
+  Purchase Orders              -> purchase_orders
+  Petty Cash                   -> petty_cash
+[Accounts & Balances]
+  Bank Accounts                -> bank_accounts
+  Bank Transactions            -> bank_transactions
+  M-Pesa Settlements           -> mpesa_settlements
+[Budget & Planning]            -> (group header)
+[Assets & Inventory]           -> (group header)
+[Reports & Analytics]          -> (group header)
+[Controls & Audit]             -> (group header)
+[Financial Controls]
+  Transaction Approvals        -> transaction_approvals
+  Audit Logs                   -> audit_logs
+  Adjustments & Reversals      -> adjustments
+  Deleted / Voided             -> deleted_records
+  Exception Reports            -> exception_reports
+[Assets & Inventory]
+  Asset Purchases              -> asset_purchases
+  Depreciation                 -> depreciation
+  Inventory Expenses           -> inventory_expenses
+  Asset Disposal               -> asset_disposal
+[M-Pesa & Mobile Money]
+  M-Pesa Transactions          -> mpesa_transactions
+  Unmatched Payments           -> unmatched_payments
+  Reconciliation               -> mpesa_reconciliation
+  Till / Paybill Settings      -> till_settings
+  Reversal Logs                -> reversal_logs
+[Vendors & Suppliers]
+  Vendors                      -> vendors
+  Purchase Orders              -> purchase_orders
+  Invoices                     -> vendor_invoices
+  Vendor Payments              -> vendor_payments
+  Outstanding Liabilities      -> outstanding_liabilities
+[Communications]               -> manage_communications
+
+--- DIRECTOR SIDEBAR ---
+
+[Dashboard]                    -> director_owner_dashboard
+[Finance]
+  Financial Reports            -> finance_reports
+  Budget Overview              -> budget_overview
+  Approvals                    -> finance_approvals
+  Student Fees                 -> manage_fees
+  Fee Structure                -> manage_fee_structure
+  Payment Reports              -> manage_payments
+  M-Pesa Reports               -> finance_reports
+  Bank Reports                 -> finance_reports
+[Students]
+  All Students                 -> manage_students
+  Admissions                   -> manage_students_admissions
+  Attendance                   -> mark_attendance
+  Discipline                   -> student_discipline
+  Counseling                   -> student_counseling
+  Performance                  -> student_performance
+[Academic]
+  Classes                      -> manage_classes
+  Timetable                    -> manage_timetable
+  Results                      -> view_results
+  Manage Academics             -> manage_academics
+[Staff]
+  All Staff                    -> manage_staff
+  Staff Attendance             -> staff_attendance
+[Inventory]
+  Manage Inventory             -> manage_inventory
+  Stock Management             -> manage_stock
+  Requisitions                 -> manage_requisitions
+  Uniform Sales                -> manage_uniform_sales
+[Transport]
+  My Routes                    -> my_routes
+  My Vehicle                   -> my_vehicle
+  Transportation Fees          -> manage_transport
+[Activities]
+  Manage Activities            -> manage_activities
+[Payroll]
+  Staff Payroll                -> payroll
+  Manage Payroll               -> manage_payrolls
+  Payroll Processing           -> manage_payrolls
+  Salary Slips                 -> manage_payrolls
+[Reports]
+  Financial                    -> financial_reports
+  Enrollment                   -> enrollment_reports
+  Performance                  -> performance_reports
+[Attendance]
+  Mark Attendance              -> mark_attendance
+  View Attendance              -> view_attendance
+  Staff Attendance             -> (staff_attendance)
+[Boarding]
+  Manage Boarding              -> manage_boarding
+  Roll Call                    -> (boarding_roll_call)
+  Permissions & Exeats         -> (permissions_exeats)
+  Dormitory Management         -> (dormitory_management)
+[Communications]
+  Messages                     -> manage_communications
+  Announcements                -> manage_announcements
+  SMS Messages                 -> manage_sms
+  Emails                       -> manage_email
+
+--- HEADTEACHER SIDEBAR ---
+
+[Dashboard]                    -> headteacher_dashboard
+[Academic]
+  Academic Years               -> academic_years/manage_terms/academic_calendar
+  Learning Areas               -> manage_subjects/subject_allocation/curriculum/schemes_of_work
+  Lesson Plans                 -> all_lesson_plans/by_class/by_teacher/approval
+  Timetable                    -> manage_timetable
+  Academic Calendar            -> academic_calendar/manage_events
+  Assessments & Exams          -> exam_schedule/setup/supervision/grading/results/report_cards
+  Results                      -> view_results
+  Manage Academics             -> manage_academics
+[Classes]
+  All Classes                  -> all_classes
+  Streams                      -> class_streams
+  Class Capacity               -> class_capacity
+  Promotion/Progression        -> class_progression
+[Students]
+  All Students                 -> manage_students
+  Performance                  -> student_performance
+[Staff]
+  All Staff                    -> manage_staff
+  Performance                  -> staff_performance
+  Manage Teachers              -> all_teachers/class_teachers/subject_teachers/workload/performance_review
+[Parents]
+  All Parents/Guardians        -> all_parents
+  Parent Meetings              -> parent_meetings
+  Feedback                     -> parent_feedback
+  PTA Management               -> pta_management
+[Admissions]
+  New Applications             -> new_applications
+  Admission Status             -> admission_status
+[Attendance]
+  Mark Attendance              -> mark_attendance
+  View Attendance              -> view_attendance
+  Staff Attendance             -> staff_attendance
+[Discipline]
+  Discipline Cases             -> student_discipline
+  Conduct Reports              -> conduct_reports
+[Boarding]
+  Manage Boarding              -> manage_boarding
+  Roll Call                    -> boarding_roll_call
+  Permissions & Exeats
+  Dormitory Management
+[Activities]
+  Clubs & Societies / Sports / Competitions / School Events / Assemblies
+[Fee Balances]
+  Students with Balance / Balances by Class / Fee Defaulters
+[Student Welfare]
+  Special Needs / Counseling Records
+[Reports]
+  Academic Reports / Performance Analysis / Term Reports
+[Analytics]
+  Enrollment / Performance / Attendance Trends / Comparative Reports
+[Communications]
+  Messages / Announcements / SMS / Emails
+
+--- CLASS TEACHER SIDEBAR ---
+
+[Dashboard]                    -> class_teacher_dashboard
+[My Teaching]                  -> (teaching overview)
+[My Students]
+  Student List / Student Profiles / Performance / Special Needs
+[Attendance]
+  Mark Attendance / Attendance History / Absentees Today
+[Lesson Plans]
+  My Lesson Plans / Create Lesson Plan / Schemes of Work
+[Assessments]
+  Create Assessment / CATs (Formative) / Enter Marks / Class Results
+[Discipline]
+  Log Incident / Behavior Notes / Conduct Grades
+[Parents]
+  Parent Contacts / Send Message / Message History
+[Reports]
+  Class Report / Progress Reports / Term Reports / Report Cards
+[Communications]               -> manage_communications
+
+--- SUBJECT TEACHER SIDEBAR ---
+
+[Dashboard]                    -> subject_teacher_dashboard
+[My Teaching]                  -> (teaching overview)
+[My Subjects]
+  Subject Overview / Classes I Teach / Syllabus
+[My Students]
+  Student List / By Class / Performance Tracking
+[Lesson Plans]
+  My Lesson Plans / Create Lesson / Schemes of Work
+[Assessments]
+  Create CAT / My CATs / Grade Entry / Grading Status
+[Examinations]
+  Exam Schedule / Enter Results / Results Summary
+[Attendance]
+  Mark Attendance / View Attendance
+[Resources]
+  Teaching Materials / Upload Resource / Past Papers
+[Reports]
+  Subject Report / Class Comparison / Term Analysis
+[Communications]               -> manage_communications
+
+--- INTERN/STUDENT TEACHER SIDEBAR ---
+
+[Dashboard]                    -> intern_student_teacher_dashboard
+[My Teaching]
+[My Assignments]
+  Assigned Classes / Assigned Subjects / My Schedule
+[Lesson Plans]
+  My Lesson Plans / Create Lesson Plan / Mentor Feedback
+[Observations]
+  Observation Schedule / Feedback Received / Improvement Areas
+[Mentorship]
+  My Mentor / Meetings / Mentor Notes
+[Resources]
+  Teaching Materials / Syllabus / Schemes of Work / Past Papers
+[My Development]
+  Competency Checklist / Progress Tracker / Learning Goals / Reflection Journal
+[Students]
+  Class Lists / Student Info
+[Communications]               -> manage_communications
+
+--- OTHER ROLES (Summary) ---
+
+INVENTORY MANAGER: Dashboard, Inventory (Manage/Stock/Requisitions), Communications
+CATERESS: Dashboard, Menu & Food (Menu Planning/Food Store), Communications
+BOARDING MASTER: Dashboard, Boarding (Manage/Roll Call/Permissions/Dormitory), Communications
+TALENT DEVELOPMENT: Dashboard, Activities (Manage), Communications
+DRIVER: Dashboard, Transport (My Routes/My Vehicle), Communications
+CHAPLAIN: Dashboard, Counseling (Student Counseling/Chapel Services), Communications
+
+DEPUTY HEAD - ACADEMIC: Dashboard, Timetable, Academic Years, Admissions, Teachers,
+  Learning Areas, Exams, Assessments, Lesson Plans, Classes, Reports
+
+DEPUTY HEAD - DISCIPLINE: Dashboard, Students, Admissions, Discipline (All Cases/
+  New Case/Pending/Resolved/Sanctions), Student Conduct (Behavior Logs/Conduct Grades/
+  Rewards/Counseling), Attendance (Daily/Truancy/Late Arrivals/Chronic Absenteeism),
+  Parent Communication, Student Welfare (At-Risk/Intervention/Follow-ups), Reports
+
+================================================================================
+7. ORPHANED ROUTES - RESOLVED
+================================================================================
+
+STATUS: FIXED on 2026-02-07
+Migration: database/migrations/2026_02_07_fix_orphaned_role_routes.sql
+
+All 144 previously orphaned routes now have proper role_routes entries.
+189 INSERT IGNORE rows were added across 5 categories:
+
+  Category 1: 61 SYSTEM routes -> System Administrator (role_id=2)
+  Category 2: 75 SCHOOL routes with confirmed sidebar mappings
+  Category 3: 45 SCHOOL routes assigned by logical role responsibility
+  Category 4:  3 Teacher Dashboard -> Class/Subject/Intern teachers
+  Category 5:  2 Test items
+
+Post-migration verification:
+  Orphaned routes remaining: 0
+  Total role_routes entries:  360
+  Routes covered:             221 / 221 (100%)
+  SYSTEM domain leaks:        0 (only manage_users shared with School Admin)
+  Duplicate entries:           0
+
+ROUTES PER ROLE (after fix):
+  Headteacher:              85 routes (0 SYSTEM, 85 SCHOOL)
+  System Administrator:     80 routes (77 SYSTEM, 3 SCHOOL)
+  Director:                 25 routes (0 SYSTEM, 25 SCHOOL)
+  School Administrator:     24 routes (1 SYSTEM, 23 SCHOOL)
+  Deputy Head - Academic:   23 routes (0 SYSTEM, 23 SCHOOL)
+  Accountant:               22 routes (0 SYSTEM, 22 SCHOOL)
+  Class Teacher:            19 routes (0 SYSTEM, 19 SCHOOL)
+  Subject Teacher:          17 routes (0 SYSTEM, 17 SCHOOL)
+  Deputy Head - Discipline: 16 routes (0 SYSTEM, 16 SCHOOL)
+  Boarding Master:           8 routes (0 SYSTEM, 8 SCHOOL)
+  Intern/Student Teacher:    8 routes (0 SYSTEM, 8 SCHOOL)
+  Driver:                    8 routes (0 SYSTEM, 8 SCHOOL)
+  Inventory Manager:         7 routes (0 SYSTEM, 7 SCHOOL)
+  Chaplain:                  6 routes (0 SYSTEM, 6 SCHOOL)
+  Cateress:                  6 routes (0 SYSTEM, 6 SCHOOL)
+  Talent Development:        6 routes (0 SYSTEM, 6 SCHOOL)
+
+================================================================================
+8. API CONTROLLER ROUTES
+================================================================================
+
+The API uses dynamic controller routing via:
+  URL: /api/{controller}/{resource}/{id?}
+  Method: GET, POST, PUT, DELETE
+
+Available Controllers:
+  AcademicController       - Academic year, terms, classes, subjects, exams, results
+  ActivitiesController     - Activities, categories, participants, resources
+  AttendanceController     - Student & staff attendance
+  AuthController           - Login, logout, token refresh, password reset
+  AccountsController       - Bank accounts, transactions
+  AdmissionController      - Application workflow (submit -> enroll)
+  AlertsController         - System alerts
+  AuditController          - Audit logs
+  SchoolConfigController   - School configuration
+  CommunicationsController - Messages, announcements, SMS, email
+  CounselingController     - Counseling sessions
+  DashboardController      - Dashboard widgets & data
+  DelegationsController    - Permission delegation
+  FinanceController        - Fees, payments, payroll, budgets
+  InventoryController      - Items, categories, requisitions, procurement
+  MaintenanceController    - Maintenance scheduling
+  PaymentsController       - M-Pesa, bank webhooks
+  ReportsController        - All report generation
+  SchedulesController      - Timetable, exams, events
+  StaffController          - Staff CRUD, assignments, leaves, payroll
+  StudentsController       - Student CRUD, admissions, transfers, promotions
+  SystemController         - System health, routes, roles, menus, config
+  SystemConfigController   - System configuration
+  TransportController      - Routes, vehicles, drivers
+  UsersController          - User CRUD, roles, permissions
+  VendorsController        - Vendor management
+
+================================================================================
+9. PERMISSION ENTITIES SUMMARY
+================================================================================
+
+The permissions table groups access by entity (module). Below are the top-level
+entities and the number of granular permissions per entity:
+
+ENTITY                    COUNT   DESCRIPTION
+academic_curriculum         35    Curriculum management
+academic_lesson_plans       35    Lesson plan management
+academic_schedules          35    Schedule management
+academic_subjects           35    Subject management
+academic_classes            35    Class management
+academic_competencies       35    Competency tracking
+academic_exams              35    Exam management
+academic_results            35    Results management
+academic_streams            35    Stream management
+academic_timetable          35    Timetable management
+academic_assessments        35    Assessment management
+activities                  35    General activities
+activities_participants     35    Activity participants
+activities_schedules        35    Activity schedules
+activities_resources        35    Activity resources
+activities_categories       35    Activity categories
+admission_applications      35    Applications
+admission_documents         35    Documents
+admission_interviews        35    Interviews
+admission_offers            35    Offers
+attendance_boarding         35    Boarding attendance
+attendance_class            35    Class attendance
+attendance_staff            35    Staff attendance
+attendance_subject          35    Subject attendance
+authentication              35    Auth management
+authorization               35    Authorization
+boarding_discipline         35    Boarding discipline
+boarding_health             35    Boarding health
+boarding_rooms              35    Boarding rooms
+boarding_students           35    Boarding students
+catering_food               35    Food management
+catering_menus              35    Menu management
+catering_orders             35    Order management
+catering_suppliers          35    Catering suppliers
+communications_*            35ea  Messages, announcements, templates, threads, etc.
+competitions                35    Competition management
+dashboards                  35    Dashboard configuration
+finance_bank                35    Bank management
+finance_budgets             35    Budget management
+finance_expenses            35    Expense management
+finance_fees                35    Fee management
+finance_invoices            35    Invoice management
+finance_payments            35    Payment management
+finance_payroll             35    Payroll management
+finance_receipts            35    Receipt management
+integrations_*              35ea  Email, SMS, payments, storage integrations
+inventory_*                 35ea  Items, categories, locations, suppliers, etc.
+library_*                   35ea  Catalog, borrowing, inventory, requests
+notifications               35    Notification management
+reports_*                   35ea  Academic, attendance, audit, custom, finance, etc.
+security_*                  35ea  Audit, devices, policies
+settings_*                  35ea  General, notifications, UI
+staff                       35    Staff management
+staff_assignments           35    Staff assignments
+staff_leaves                35    Leave management
+staff_performance           35    Performance tracking
+staff_profiles              35    Profile management
+staff_roles                 35    Role management
+staff_timesheets            35    Timesheet management
+students                    35    Student management
+students_admission          35    Admission management
+students_attendance         35    Student attendance
+students_discipline         35    Discipline management
+students_documents          35    Document management
+students_enrollment         35    Enrollment
+students_fees               35    Fee management
+students_medical            35    Medical records
+students_parents            35    Parent management
+students_qr                 35    QR code management
+students_transfers          35    Transfer management
+system_*                    35ea  Logs, media, permissions, recycle, roles, settings, users
+transport_*                 35ea  Drivers, routes, trips, vehicles
+users                       35    User management
+workflow_*                  35ea  Instances, templates, workflows
+
+Each entity has permissions for: view, edit, approve, delete, create, export,
+import, bulk operations, and granular sub-actions (35 per entity avg).
+
+================================================================================
+10. PUBLIC ENDPOINTS (No Auth Required)
+================================================================================
+
+These API endpoints do not require authentication:
+
+AUTH:
+  POST /api/auth/login              - User login
+  POST /api/auth/register           - User registration
+  POST /api/auth/reset-password     - Password reset
+  GET  /api/auth/verify-reset-token - Verify reset token
+  POST /api/users/login             - Alternative login
+  POST /api/users/register          - Alternative registration
+
+PAYMENT WEBHOOKS:
+  POST /api/payments/mpesa-b2c-callback     - M-Pesa B2C callback
+  POST /api/payments/mpesa-c2b-callback     - M-Pesa C2B callback
+  POST /api/payments/mpesa-reversal-callback - M-Pesa reversal callback
+  POST /api/payments/kcb-validation         - KCB bank validation
+  POST /api/payments/kcb-confirmation       - KCB bank confirmation
+  POST /api/payments/bank-webhook           - General bank webhook
+
+TEST MODE:
+  Header: X-Test-Token: devtest
+  Grants: Accountant role (ID 10) with all permissions (dev/test only)
+
+================================================================================
+END OF ROUTE ANALYSIS
+================================================================================
+
+NOTES:
+1. Routes in role_routes table are the SOURCE OF TRUTH for page-level access.
+2. Sidebar menu items control what users SEE in navigation (visual only).
+3. RESOLVED: All 221 active routes now have role_routes entries (fixed 2026-02-07).
+4. System Administrator now has 80 routes (77 SYSTEM + 3 SCHOOL: home, me, manage_communications).
+5. Permission checks on API endpoints use the permissions/role_permissions tables,
+   which is a separate system from the route-based page access.
+6. "Tracking-only" roles (Kitchen Staff, Security, Janitor) have 0 routes and
+   0 permissions - they exist only for payroll/HR records.
+7. Migration file: database/migrations/2026_02_07_fix_orphaned_role_routes.sql

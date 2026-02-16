@@ -3,6 +3,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\staff\StaffAPI;
+use App\API\Modules\staff\StaffPayrollManager;
 use RuntimeException;
 use Exception;
 
@@ -15,16 +16,20 @@ use Exception;
 class StaffController extends BaseController
 {
     private $api;
+    private $payroll;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new StaffAPI();
+        $this->payroll = new StaffPayrollManager();
     }
 
     public function index()
     {
-        return $this->success(['message' => 'Staff API is running']);
+        // For /staff/index, return list to match frontend expectations
+        $result = $this->api->list($_GET ?? []);
+        return $this->handleResponse($result);
     }
 
     /**
@@ -118,6 +123,15 @@ class StaffController extends BaseController
     }
 
     /**
+     * GET /api/staff/staff - Alias for base GET
+     * GET /api/staff/staff/{id} - Alias for base GET with ID
+     */
+    public function getStaff($id = null, $data = [], $segments = [])
+    {
+        return $this->get($id, $data, $segments);
+    }
+
+    /**
      * POST /api/staff - Create new staff member
      */
     public function post($id = null, $data = [], $segments = [])
@@ -136,6 +150,14 @@ class StaffController extends BaseController
     }
 
     /**
+     * POST /api/staff/staff - Alias for base POST
+     */
+    public function postStaff($id = null, $data = [], $segments = [])
+    {
+        return $this->post($id, $data, $segments);
+    }
+
+    /**
      * PUT /api/staff/{id} - Update staff member
      */
     public function put($id = null, $data = [], $segments = [])
@@ -149,6 +171,14 @@ class StaffController extends BaseController
     }
 
     /**
+     * PUT /api/staff/staff/{id} - Alias for base PUT
+     */
+    public function putStaff($id = null, $data = [], $segments = [])
+    {
+        return $this->put($id, $data, $segments);
+    }
+
+    /**
      * DELETE /api/staff/{id} - Delete staff member
      */
     public function delete($id = null, $data = [], $segments = [])
@@ -159,6 +189,14 @@ class StaffController extends BaseController
         
         $result = $this->api->delete($id);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/staff/staff/{id} - Alias for base DELETE
+     */
+    public function deleteStaff($id = null, $data = [], $segments = [])
+    {
+        return $this->delete($id, $data, $segments);
     }
 
     // ==================== STAFF INFORMATION ====================
@@ -189,6 +227,92 @@ class StaffController extends BaseController
     public function getDepartmentsGet($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getDepartments();
+        return $this->handleResponse($result);
+    }
+
+    // ==================== STAFF CHILDREN (Fee Deductions) ====================
+
+    /**
+     * GET /api/staff/children-list?staff_id=X
+     */
+    public function getChildrenList($id = null, $data = [], $segments = [])
+    {
+        $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? $id ?? null;
+        if (!$staffId) {
+            return $this->badRequest('staff_id is required');
+        }
+        $result = $this->payroll->getStaffChildren($staffId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/children-add
+     */
+    public function postChildrenAdd($id = null, $data = [], $segments = [])
+    {
+        $staffId = $data['staff_id'] ?? $id ?? null;
+        if (!$staffId) {
+            return $this->badRequest('staff_id is required');
+        }
+        $result = $this->payroll->addStaffChild($staffId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/staff/children-update/{id}
+     */
+    public function putChildrenUpdate($id = null, $data = [], $segments = [])
+    {
+        $childId = $id ?? $data['id'] ?? null;
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId || !$childId) {
+            return $this->badRequest('staff_id and child id are required');
+        }
+        $result = $this->payroll->updateStaffChild($staffId, $childId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/staff/children-remove/{id}?staff_id=X
+     */
+    public function deleteChildrenRemove($id = null, $data = [], $segments = [])
+    {
+        $childId = $id ?? $data['id'] ?? null;
+        $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? null;
+        if (!$staffId && $childId) {
+            // Fallback: resolve staff_id from child record
+            $stmt = $this->db->getConnection()->prepare("SELECT staff_id FROM staff_children WHERE id = ?");
+            $stmt->execute([$childId]);
+            $staffId = $stmt->fetchColumn() ?: null;
+        }
+        if (!$staffId || !$childId) {
+            return $this->badRequest('staff_id and child id are required');
+        }
+        $result = $this->payroll->removeStaffChild($staffId, $childId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/children-fee-config
+     */
+    public function getChildrenFeeConfig($id = null, $data = [], $segments = [])
+    {
+        $result = $this->payroll->getChildFeeConfig();
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/children-calculate-deductions?staff_id=X&month=Y&year=Z
+     */
+    public function getChildrenCalculateDeductions($id = null, $data = [], $segments = [])
+    {
+        $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? $id ?? null;
+        $month = $_GET['month'] ?? $data['month'] ?? date('n');
+        $year = $_GET['year'] ?? $data['year'] ?? date('Y');
+        if (!$staffId) {
+            return $this->badRequest('staff_id is required');
+        }
+        $result = $this->payroll->calculateChildFeeDeductions($staffId, (int) $month, (int) $year);
         return $this->handleResponse($result);
     }
 

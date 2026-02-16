@@ -159,6 +159,11 @@
                             <option value="expense">Expense</option>
                         </select>
                     </div>
+
+                    <div class="form-group" id="transactionStudentGroup" style="display: none;">
+                        <label>Student ID (for fee payments)</label>
+                        <input type="number" class="form-input" id="transaction_student_id" min="1">
+                    </div>
                     
                     <div class="form-group">
                         <label>Category *</label>
@@ -194,8 +199,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="/js/pages/finance.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();

@@ -1,0 +1,628 @@
+================================================================================
+     KINGSWAY ACADEMY - ROUTES vs FILES CROSS-REFERENCE ANALYSIS
+     Generated: 2026-02-07
+================================================================================
+
+ROUTE RESOLUTION LOGIC (from layouts/app_layout.php)
+=====================================================
+When a user accesses home.php?route={route_name}, the system:
+  1. Checks: components/dashboards/{route_name}.php  (dashboard file)
+  2. Checks: pages/{route_name}.php                  (page file)
+  3. If NEITHER exists -> Shows "Page not found" error
+
+Note: Only root-level files in pages/ are resolvable. Files in
+subdirectories (e.g., pages/staff/admin_staff.php) are NOT directly
+route-accessible; they are only included by root-level page files.
+
+================================================================================
+SUMMARY STATISTICS
+================================================================================
+
+  Total active routes in database:           221
+  Routes WITH a matching file:               104  (47%)
+    - Via dashboard file:                     16
+    - Via page file:                          86
+    - Special (home route):                    1
+    - Duplicate resolution (both exist):       1  (api_explorer)
+  Routes MISSING their file:                 117  (53%)
+    - SYSTEM domain missing:                  71
+    - SCHOOL domain missing:                  44
+    - Test items (expected missing):            2
+
+  Dashboard files on disk:                    22
+    - Matched to routes:                      16
+    - Extra (no route in DB):                  6
+
+  Root-level page files on disk:             101
+    - Matched to routes:                      87
+    - Extra (no route in DB):                 14
+
+================================================================================
+PART 1: ROUTES MISSING FILES (117 routes)
+================================================================================
+These routes exist in the database but will show "Page not found"
+when accessed because no corresponding PHP file exists.
+
+Sorted by domain, then by impact (number of affected roles).
+
+------------------------------------------------------------------------------
+A. SYSTEM DOMAIN - MISSING FILES (71 routes)
+------------------------------------------------------------------------------
+All SYSTEM routes are System Administrator-only (except manage_users
+which is shared with School Administrator).
+
+Routes that HAVE files (6 of 77):
+  [OK] system_administrator_dashboard  -> dashboards/system_administrator_dashboard.php
+  [OK] system_settings                 -> pages/system_settings.php
+  [OK] api_explorer                    -> pages/api_explorer.php
+  [OK] manage_users                    -> pages/manage_users.php
+  [OK] manage_roles                    -> pages/manage_roles.php
+  [OK] role_definitions                -> pages/role_definitions.php
+  [OK] route_registry                  -> pages/route_registry.php
+
+Routes MISSING files (71 of 77):
+
+ ID   ROUTE NAME                      SIDEBAR SECTION            ROLES
+----  ------------------------------  -------------------------  -------------------------
+ 2    system_health                   Monitoring                 System Administrator
+ 3    error_logs                      Monitoring                 System Administrator
+ 4    authentication_logs             Security Center            System Administrator
+ 5    activity_audit_logs             Audit & Forensics          System Administrator
+ 7    module_management               Configuration              System Administrator
+ 8    maintenance_mode                Configuration              System Administrator
+10    job_queue_monitor               Monitoring                 System Administrator
+11    cache_monitor                   Monitoring                 System Administrator
+12    db_health_monitor               Monitoring                 System Administrator
+15    manage_permissions              Identity & Access          System Administrator
+16    delegated_permissions           Identity & Access          System Administrator
+17    manage_routes                   Navigation & UI            System Administrator
+18    manage_menus                    Navigation & UI            System Administrator
+19    manage_dashboards               Navigation & UI            System Administrator
+20    manage_policies                 Policy & Governance        System Administrator
+21    config_sync                     Configuration              System Administrator
+88    system_uptime                   Monitoring                 System Administrator
+89    active_users                    Monitoring                 System Administrator
+90    error_rate                      Monitoring                 System Administrator
+91    queue_health                    Monitoring                 System Administrator
+92    db_health                       Monitoring                 System Administrator
+94    account_status                  Identity & Access          System Administrator
+96    role_scope                      Identity & Access          System Administrator
+97    permission_registry             Identity & Access          System Administrator
+98    temporary_roles                 Identity & Access          System Administrator
+99    expiry_based_access             Identity & Access          System Administrator
+102   route_domains                   Navigation & UI            System Administrator
+103   sidebar_menus                   Navigation & UI            System Administrator
+104   submenus_management             Navigation & UI            System Administrator
+105   icons_ordering                  Navigation & UI            System Administrator
+106   dashboard_registry              Navigation & UI            System Administrator
+107   role_dashboard_mapping          Navigation & UI            System Administrator
+108   domain_isolation_rules          Policy & Governance        System Administrator
+109   readonly_enforcement            Policy & Governance        System Administrator
+110   time_bound_access               Policy & Governance        System Administrator
+111   location_device_rules           Policy & Governance        System Administrator
+112   audit_requirements              Policy & Governance        System Administrator
+113   retention_policies              Policy & Governance        System Administrator
+114   authorization_logs              Security Center            System Administrator
+115   failed_login_attempts           Security Center            System Administrator
+116   active_sessions                 Security Center            System Administrator
+117   force_logout                    Security Center            System Administrator
+118   revoke_tokens                   Security Center            System Administrator
+120   background_jobs                 Monitoring                 System Administrator
+121   queue_monitor                   Monitoring                 System Administrator
+122   api_metrics                     Monitoring                 System Administrator
+127   feature_flags                   Configuration              System Administrator
+128   module_enablement               Configuration              System Administrator
+131   schema_registry                 Data Governance            System Administrator
+132   migrations                      Data Governance            System Administrator
+133   backups                         Data Governance            System Administrator
+134   data_retention_rules            Data Governance            System Administrator
+135   anonymization_rules             Data Governance            System Administrator
+136   webhook_registry                Developer Tools            System Administrator
+137   job_inspector                   Developer Tools            System Administrator
+138   system_diagnostics              Developer Tools            System Administrator
+140   permission_changes              Audit & Forensics          System Administrator
+141   policy_violations               Audit & Forensics          System Administrator
+142   security_incidents              Audit & Forensics          System Administrator
+144   role_permission_matrix          Identity & Access          System Administrator
+145   resource_based_permissions      Identity & Access          System Administrator
+146   widget_registry                 Navigation & UI            System Administrator
+147   role_navigation_config          Navigation & UI            System Administrator
+148   route_access_rules              Policy & Governance        System Administrator
+149   permission_policies             Policy & Governance        System Administrator
+150   token_management                Security Center            System Administrator
+151   ip_whitelist_blacklist          Security Center            System Administrator
+152   rate_limiting_status            Monitoring                 System Administrator
+153   data_retention                  Data Governance            System Administrator
+154   data_purge_policies             Data Governance            System Administrator
+
+SYSTEM MISSING BY SIDEBAR SECTION:
+  Monitoring:          10 missing (system_health, error_logs, job_queue_monitor,
+                         cache_monitor, db_health_monitor, system_uptime,
+                         active_users, error_rate, queue_health, db_health,
+                         background_jobs, queue_monitor, api_metrics,
+                         rate_limiting_status)
+  Identity & Access:    9 missing (manage_permissions, delegated_permissions,
+                         account_status, role_scope, permission_registry,
+                         temporary_roles, expiry_based_access,
+                         role_permission_matrix, resource_based_permissions)
+  Navigation & UI:      9 missing (manage_routes, manage_menus, manage_dashboards,
+                         route_domains, sidebar_menus, submenus_management,
+                         icons_ordering, dashboard_registry, role_dashboard_mapping,
+                         widget_registry, role_navigation_config)
+  Security Center:      7 missing (authentication_logs, authorization_logs,
+                         failed_login_attempts, active_sessions, force_logout,
+                         revoke_tokens, token_management, ip_whitelist_blacklist)
+  Policy & Governance:  8 missing (manage_policies, domain_isolation_rules,
+                         readonly_enforcement, time_bound_access,
+                         location_device_rules, audit_requirements,
+                         retention_policies, route_access_rules,
+                         permission_policies)
+  Configuration:        4 missing (module_management, maintenance_mode,
+                         config_sync, feature_flags, module_enablement)
+  Data Governance:      6 missing (schema_registry, migrations, backups,
+                         data_retention_rules, anonymization_rules,
+                         data_retention, data_purge_policies)
+  Developer Tools:      3 missing (webhook_registry, job_inspector,
+                         system_diagnostics)
+  Audit & Forensics:    3 missing (permission_changes, policy_violations,
+                         security_incidents)
+
+------------------------------------------------------------------------------
+B. SCHOOL DOMAIN - MISSING FILES (44 routes)
+------------------------------------------------------------------------------
+Sorted by number of affected roles (highest impact first).
+
+ ID      ROUTE NAME                    AFFECTED ROLES (count)     ROLES LIST
+------   ----------------------------  -------------------------  -----------------------------------------
+ 87      me                            16 roles                   ALL active roles (universal)
+ 169     schemes_of_work               4 roles                    Class Teacher, Headteacher, Intern, Subject Teacher
+ 183     report_cards                  2 roles                    Class Teacher, Headteacher
+ 229     special_needs                 2 roles                    Class Teacher, Headteacher
+ 178     exam_schedule                 3 roles                    Deputy Head-Acad, Headteacher, Subject Teacher
+ 181     grading_status                2 roles                    Headteacher, Subject Teacher
+ 166     all_subjects                  2 roles                    Deputy Head-Acad, Headteacher
+ 167     assign_subjects_to_teachers   2 roles                    Deputy Head-Acad, Headteacher
+ 168     curriculum_cbc                2 roles                    Deputy Head-Acad, Headteacher
+ 175     view_calendar                 2 roles                    Deputy Head-Acad, Headteacher
+ 177     assessments_exams             2 roles (HAS FILE!)        Deputy Head-Acad, Headteacher
+ 180     supervision_roster            2 roles                    Deputy Head-Acad, Headteacher
+ 205     class_teachers                2 roles                    Deputy Head-Acad, Headteacher
+ 203     staff_performance_overview    2 roles                    Director, Headteacher
+ 231     permissions_exeats            3 roles                    Boarding Master, Director, Headteacher
+ 100000  unmatched_payments            1 role                     Accountant
+ 100001  vendors                       1 role                     Accountant
+ 100002  purchase_orders               1 role                     Accountant
+ 100003  petty_cash                    1 role                     Accountant
+ 100004  bank_accounts                 1 role                     Accountant
+ 100005  bank_transactions             1 role                     Accountant
+ 100006  mpesa_settlements             1 role                     Accountant
+ 161     current_academic_year         1 role                     Headteacher
+ 162     manage_terms                  1 role                     Headteacher
+ 163     year_calendar                 1 role                     Headteacher
+ 164     year_history                  1 role                     Headteacher
+ 170     all_lesson_plans              1 role                     Headteacher
+ 171     lesson_plans_by_class         1 role                     Headteacher
+ 172     lesson_plans_by_teacher       1 role                     Headteacher
+ 173     lesson_plan_approval          1 role                     Headteacher
+ 176     manage_calendar_events        1 role                     Headteacher
+ 179     exam_setup                    1 role                     Headteacher
+ 182     results_analysis              1 role                     Headteacher
+ 206     subject_teachers              1 role                     Headteacher
+ 208     teacher_performance_reviews   1 role                     Headteacher
+ 211     parent_feedback               1 role                     Headteacher
+ 212     pta_management                1 role                     Headteacher
+ 214     class_streams                 1 role                     Headteacher
+ 215     class_capacity                1 role                     Headteacher
+ 218     admission_status              1 role                     Headteacher
+ 222     performance_analysis          1 role                     Headteacher
+ 226     competitions                  1 role                     Headteacher
+ 228     assemblies                    1 role                     Headteacher
+ 235     attendance_trends             1 role                     Headteacher
+ 236     comparative_reports           1 role                     Headteacher
+
+------------------------------------------------------------------------------
+C. TEST ITEMS - MISSING FILES (expected, 2 routes)
+------------------------------------------------------------------------------
+ 88887   admin_delegation_test_item    System Administrator
+ 99998   headteacher_test_item         Headteacher
+
+------------------------------------------------------------------------------
+D. SPECIAL CASE: home (route 86)
+------------------------------------------------------------------------------
+Route "home" has URL "home.php" (no ?route= parameter).
+When accessed without a route parameter, $route is set to 'loading'
+and JavaScript determines the actual dashboard from the JWT token.
+This route does NOT need a page file - it IS the entry point itself.
+STATUS: WORKING AS DESIGNED (no file needed)
+
+================================================================================
+PART 2: IMPACT ANALYSIS - MISSING FILES BY ROLE
+================================================================================
+How many sidebar items are broken (show "Page not found") per role.
+
+ROLE                          TOTAL ROUTES   WITH FILE   MISSING   % BROKEN
+----------------------------  -----------    ---------   -------   --------
+System Administrator             80            9          71        89%
+Headteacher                      85           48          37        44%
+Accountant                       22           14           8        36%
+Deputy Head - Academic           23           15           8        35%
+Subject Teacher                  17           14           3        18%
+Class Teacher                    19           16           3        16%
+Director                         25           22           3        12%
+Boarding Master                   8            7           1        13%
+Intern/Student Teacher            8            7           1        13%
+Deputy Head - Discipline         16           16           0         0%
+School Administrator             24           24           0         0%
+Inventory Manager                 7            7           0         0%
+Cateress                          6            6           0         0%
+Talent Development                6            6           0         0%
+Driver                            8            8           0         0%
+Chaplain                          6            6           0         0%
+
+NOTES:
+- System Administrator has 71 missing because the entire System Admin
+  panel (monitoring, security, policy, data governance, developer tools)
+  has been defined in the database/sidebar but the PHP page files have
+  not been created yet. Only 7 root pages exist for SystemAdmin sidebar.
+- Headteacher has 37 missing because many detailed sub-pages (lesson plan
+  management, exam management, teacher management, analytics) were added
+  to the database during the orphaned routes migration but page files
+  don't exist yet.
+- Accountant has 8 missing because the new financial module pages
+  (unmatched_payments, vendors, purchase_orders, petty_cash, bank_accounts,
+  bank_transactions, mpesa_settlements) were added to sidebar but files
+  don't exist.
+
+================================================================================
+PART 3: PRIORITY RANKING - WHICH FILES TO CREATE FIRST
+================================================================================
+
+PRIORITY 1 - CRITICAL (Affects all users)
+------------------------------------------
+1. me (route 87) - User profile page
+   Accessed by: ALL 16 active roles
+   File needed: pages/me.php
+   Note: Every user clicks "Profile" in sidebar; currently broken
+
+PRIORITY 2 - HIGH (Affects multiple non-admin roles, core school ops)
+----------------------------------------------------------------------
+2. schemes_of_work (route 169)
+   Accessed by: Class Teacher, Headteacher, Intern, Subject Teacher (4 roles)
+   File needed: pages/schemes_of_work.php
+
+3. report_cards (route 183)
+   Accessed by: Class Teacher, Headteacher (2 roles)
+   File needed: pages/report_cards.php
+
+4. exam_schedule (route 178)
+   Accessed by: DH-Academic, Headteacher, Subject Teacher (3 roles)
+   File needed: pages/exam_schedule.php
+
+5. permissions_exeats (route 231)
+   Accessed by: Boarding Master, Director, Headteacher (3 roles)
+   File needed: pages/permissions_exeats.php
+
+6. special_needs (route 229)
+   Accessed by: Class Teacher, Headteacher (2 roles)
+   File needed: pages/special_needs.php
+
+7. grading_status (route 181)
+   Accessed by: Headteacher, Subject Teacher (2 roles)
+   File needed: pages/grading_status.php
+
+PRIORITY 3 - MEDIUM (Accountant financial module, 7 pages)
+-----------------------------------------------------------
+8.  unmatched_payments (route 100000) -> pages/unmatched_payments.php
+9.  vendors (route 100001)            -> pages/vendors.php
+10. purchase_orders (route 100002)    -> pages/purchase_orders.php
+11. petty_cash (route 100003)         -> pages/petty_cash.php
+12. bank_accounts (route 100004)      -> pages/bank_accounts.php
+13. bank_transactions (route 100005)  -> pages/bank_transactions.php
+14. mpesa_settlements (route 100006)  -> pages/mpesa_settlements.php
+
+PRIORITY 4 - MEDIUM (Academic sub-pages for Headteacher/DH-Academic)
+---------------------------------------------------------------------
+15. all_subjects (route 166)              -> pages/all_subjects.php
+16. assign_subjects_to_teachers (167)     -> pages/assign_subjects_to_teachers.php
+17. curriculum_cbc (route 168)            -> pages/curriculum_cbc.php
+18. view_calendar (route 175)             -> pages/view_calendar.php
+19. supervision_roster (route 180)        -> pages/supervision_roster.php
+20. class_teachers (route 205)            -> pages/class_teachers.php
+21. subject_teachers (route 206)          -> pages/subject_teachers.php
+22. staff_performance_overview (route 203) -> pages/staff_performance_overview.php
+23. all_lesson_plans (route 170)          -> pages/all_lesson_plans.php
+24. lesson_plans_by_class (route 171)     -> pages/lesson_plans_by_class.php
+25. lesson_plans_by_teacher (route 172)   -> pages/lesson_plans_by_teacher.php
+26. lesson_plan_approval (route 173)      -> pages/lesson_plan_approval.php
+27. results_analysis (route 182)          -> pages/results_analysis.php
+28. exam_setup (route 179)                -> pages/exam_setup.php
+
+PRIORITY 5 - LOW (Headteacher-only analytics/management sub-pages)
+-------------------------------------------------------------------
+29. current_academic_year (route 161)     -> pages/current_academic_year.php
+30. manage_terms (route 162)              -> pages/manage_terms.php
+31. year_calendar (route 163)             -> pages/year_calendar.php
+32. year_history (route 164)              -> pages/year_history.php
+33. manage_calendar_events (route 176)    -> pages/manage_calendar_events.php
+34. teacher_performance_reviews (208)     -> pages/teacher_performance_reviews.php
+35. parent_feedback (route 211)           -> pages/parent_feedback.php
+36. pta_management (route 212)            -> pages/pta_management.php
+37. class_streams (route 214)             -> pages/class_streams.php
+38. class_capacity (route 215)            -> pages/class_capacity.php
+39. admission_status (route 218)          -> pages/admission_status.php
+40. performance_analysis (route 222)      -> pages/performance_analysis.php
+41. competitions (route 226)              -> pages/competitions.php
+42. assemblies (route 228)                -> pages/assemblies.php
+43. attendance_trends (route 235)         -> pages/attendance_trends.php
+44. comparative_reports (route 236)       -> pages/comparative_reports.php
+
+PRIORITY 6 - SYSTEM ADMIN PANEL (71 pages, internal tooling)
+--------------------------------------------------------------
+These are System Administrator internal tools. They affect only 1 user
+(the System Administrator) and are infrastructure/admin tooling.
+Create these after all school-facing pages are done.
+
+Full list: system_health, error_logs, authentication_logs, activity_audit_logs,
+  module_management, maintenance_mode, job_queue_monitor, cache_monitor,
+  db_health_monitor, manage_permissions, delegated_permissions, manage_routes,
+  manage_menus, manage_dashboards, manage_policies, config_sync,
+  system_uptime, active_users, error_rate, queue_health, db_health,
+  account_status, role_scope, permission_registry, temporary_roles,
+  expiry_based_access, route_domains, sidebar_menus, submenus_management,
+  icons_ordering, dashboard_registry, role_dashboard_mapping,
+  domain_isolation_rules, readonly_enforcement, time_bound_access,
+  location_device_rules, audit_requirements, retention_policies,
+  authorization_logs, failed_login_attempts, active_sessions, force_logout,
+  revoke_tokens, background_jobs, queue_monitor, api_metrics, feature_flags,
+  module_enablement, schema_registry, migrations, backups,
+  data_retention_rules, anonymization_rules, webhook_registry, job_inspector,
+  system_diagnostics, permission_changes, policy_violations,
+  security_incidents, role_permission_matrix, resource_based_permissions,
+  widget_registry, role_navigation_config, route_access_rules,
+  permission_policies, token_management, ip_whitelist_blacklist,
+  rate_limiting_status, data_retention, data_purge_policies
+
+================================================================================
+PART 4: ROUTES THAT HAVE FILES (104 routes) - VERIFICATION
+================================================================================
+
+--- DASHBOARD FILES (16 matched routes) ---
+
+ROUTE NAME                                FILE
+-----------------------------------------  -----------------------------------------
+system_administrator_dashboard            dashboards/system_administrator_dashboard.php
+director_owner_dashboard                  dashboards/director_owner_dashboard.php
+school_administrative_officer_dashboard   dashboards/school_administrative_officer_dashboard.php
+headteacher_dashboard                     dashboards/headteacher_dashboard.php
+class_teacher_dashboard                   dashboards/class_teacher_dashboard.php
+subject_teacher_dashboard                 dashboards/subject_teacher_dashboard.php
+intern_student_teacher_dashboard          dashboards/intern_student_teacher_dashboard.php
+school_accountant_dashboard               dashboards/school_accountant_dashboard.php
+store_manager_dashboard                   dashboards/store_manager_dashboard.php
+catering_manager_cook_lead_dashboard      dashboards/catering_manager_cook_lead_dashboard.php
+matron_housemother_dashboard              dashboards/matron_housemother_dashboard.php
+hod_talent_development_dashboard          dashboards/hod_talent_development_dashboard.php
+driver_dashboard                          dashboards/driver_dashboard.php
+school_counselor_chaplain_dashboard       dashboards/school_counselor_chaplain_dashboard.php
+deputy_head_academic_dashboard            dashboards/deputy_head_academic_dashboard.php
+deputy_head_discipline_dashboard          dashboards/deputy_head_discipline_dashboard.php
+teacher_dashboard                         dashboards/teacher_dashboard.php
+
+--- PAGE FILES (87 matched routes) ---
+
+ROUTE NAME                   FILE
+---------------------------  ---------------------------
+system_settings              pages/system_settings.php
+api_explorer                 pages/api_explorer.php
+manage_users                 pages/manage_users.php
+manage_roles                 pages/manage_roles.php
+role_definitions             pages/role_definitions.php
+route_registry               pages/route_registry.php
+manage_students              pages/manage_students.php
+manage_students_admissions   pages/manage_students_admissions.php
+student_performance          pages/student_performance.php
+student_discipline           pages/student_discipline.php
+student_counseling           pages/student_counseling.php
+import_existing_students     pages/import_existing_students.php
+manage_academics             pages/manage_academics.php
+manage_classes               pages/manage_classes.php
+manage_subjects              pages/manage_subjects.php
+manage_timetable             pages/manage_timetable.php
+manage_assessments           pages/manage_assessments.php
+manage_lesson_plans          pages/manage_lesson_plans.php
+myclasses                    pages/myclasses.php
+add_results                  pages/add_results.php
+submit_results               pages/submit_results.php
+view_results                 pages/view_results.php
+enter_results                pages/enter_results.php
+manage_finance               pages/manage_finance.php
+manage_fees                  pages/manage_fees.php
+student_fees                 pages/student_fees.php
+manage_payments              pages/manage_payments.php
+manage_payrolls              pages/manage_payrolls.php
+payroll                      pages/payroll.php
+manage_expenses              pages/manage_expenses.php
+finance_reports              pages/finance_reports.php
+financial_reports            pages/financial_reports.php
+budget_overview              pages/budget_overview.php
+finance_approvals            pages/finance_approvals.php
+manage_staff                 pages/manage_staff.php
+manage_non_teaching_staff    pages/manage_non_teaching_staff.php
+staff_attendance             pages/staff_attendance.php
+staff_performance            pages/staff_performance.php
+mark_attendance              pages/mark_attendance.php
+view_attendance              pages/view_attendance.php
+manage_inventory             pages/manage_inventory.php
+manage_stock                 pages/manage_stock.php
+manage_requisitions          pages/manage_requisitions.php
+food_store                   pages/food_store.php
+menu_planning                pages/menu_planning.php
+manage_boarding              pages/manage_boarding.php
+manage_activities            pages/manage_activities.php
+chapel_services              pages/chapel_services.php
+manage_communications        pages/manage_communications.php
+manage_announcements         pages/manage_announcements.php
+manage_email                 pages/manage_email.php
+manage_sms                   pages/manage_sms.php
+enrollment_reports           pages/enrollment_reports.php
+performance_reports          pages/performance_reports.php
+my_routes                    pages/my_routes.php
+my_vehicle                   pages/my_vehicle.php
+manage_transport             pages/manage_transport.php
+manage_fee_structure         pages/manage_fee_structure.php
+manage_uniform_sales         pages/manage_uniform_sales.php
+boarding_roll_call           pages/boarding_roll_call.php
+academic_years               pages/academic_years.php
+learning_areas               pages/learning_areas.php
+academic_calendar            pages/academic_calendar.php
+assessments_exams            pages/assessments_exams.php
+all_students                 pages/all_students.php
+all_staff                    pages/all_staff.php
+all_teachers                 pages/all_teachers.php
+teacher_workload             pages/teacher_workload.php
+all_parents                  pages/all_parents.php
+parent_meetings              pages/parent_meetings.php
+all_classes                  pages/all_classes.php
+student_promotion            pages/student_promotion.php
+new_applications             pages/new_applications.php
+discipline_cases             pages/discipline_cases.php
+conduct_reports              pages/conduct_reports.php
+academic_reports             pages/academic_reports.php
+term_reports                 pages/term_reports.php
+clubs_societies              pages/clubs_societies.php
+sports                       pages/sports.php
+school_events                pages/school_events.php
+counseling_records           pages/counseling_records.php
+dormitory_management         pages/dormitory_management.php
+enrollment_trends            pages/enrollment_trends.php
+performance_trends           pages/performance_trends.php
+students_with_balance        pages/students_with_balance.php
+balances_by_class            pages/balances_by_class.php
+fee_defaulters               pages/fee_defaulters.php
+
+--- SPECIAL CASE ---
+home (route 86)              -> home.php is the entry point itself (no file needed)
+
+================================================================================
+PART 5: ORPHANED FILES (Files that exist but have NO matching route)
+================================================================================
+These PHP files exist on disk but do NOT correspond to any route
+in the database. They may be unused, internal includes, or legacy files.
+
+--- DASHBOARD FILES WITH NO ROUTE ---
+
+FILE NAME                      STATUS
+-----------------------------  -----------------------------------------
+accountant_accounts_cash       No route - sub-dashboard (included internally)
+accountant_assets              No route - sub-dashboard (included internally)
+accountant_controls            No route - sub-dashboard (included internally)
+accountant_mpesa               No route - sub-dashboard (included internally)
+accountant_vendors             No route - sub-dashboard (included internally)
+
+Note: These 5 accountant sub-dashboards are likely included by
+school_accountant_dashboard.php internally, not accessed via routes.
+
+--- ROOT-LEVEL PAGE FILES WITH NO ROUTE ---
+
+FILE NAME                      POSSIBLE EXPLANATION
+-----------------------------  -----------------------------------------
+admin_delegations              Route exists as "delegated_permissions" (name mismatch)
+dashboard                      Generic dashboard placeholder
+detailed_payslip               Payroll detail view (may be loaded dynamically)
+fee_structure                  Older version of manage_fee_structure
+manage_academics_COMPLETE      Backup/alternate version of manage_academics
+manage_admissions              May be superseded by manage_students_admissions
+manage_family_groups           No corresponding route in database
+manage_staff_children          No corresponding route in database
+manage_teachers                No corresponding route in database
+manage_workflows               No corresponding route in database
+school_settings                No corresponding route (may overlap system_settings)
+student_id_cards               No corresponding route in database
+submit_attendance              No corresponding route (uses mark_attendance route?)
+timetable                      Older version of manage_timetable
+
+--- SUBDIRECTORY PAGE FILES (not route-accessible, used as includes) ---
+
+Directory: pages/activities/
+  admin_activities, manager_activities, operator_activities, viewer_activities
+
+Directory: pages/admissions/
+  admin_admissions, admissions_base, manager_admissions,
+  operator_admissions, viewer_admissions
+
+Directory: pages/boarding/
+  admin_boarding, manager_boarding, operator_boarding, viewer_boarding
+
+Directory: pages/communications/
+  admin_communications, manager_communications,
+  operator_communications, viewer_communications
+
+Directory: pages/discipline/
+  admin_discipline, manager_discipline, operator_discipline, viewer_discipline
+
+Directory: pages/fees/
+  admin_fees, manager_fees, operator_fees, viewer_fees
+
+Directory: pages/fee_structure/
+  accountant_fee_structure, admin_fee_structure, viewer_fee_structure
+
+Directory: pages/finance/
+  admin_finance, manager_finance, operator_finance, viewer_finance
+
+Directory: pages/staff/
+  admin_staff, manage_staff_admin, manage_staff_base,
+  manage_staff_manager, manage_staff_operator, manage_staff_viewer,
+  manager_staff, operator_staff, viewer_staff
+
+Directory: pages/students/
+  accountant_students, admin_students, manage_students_admin,
+  manage_students_base, manage_students_manager, manage_students_operator,
+  manage_students_viewer, manager_students, operator_students, viewer_students
+
+Directory: pages/transport/
+  admin_transport, manager_transport, operator_transport, viewer_transport
+
+Note: These subdirectory files follow a role-based pattern
+(admin_*, manager_*, operator_*, viewer_*) and are included by
+their parent route pages based on the user's permission level.
+
+================================================================================
+PART 6: ACTIONABLE SUMMARY
+================================================================================
+
+IMMEDIATE ACTION NEEDED:
+  1. Create pages/me.php - Profile page (affects ALL 16 roles)
+
+HIGH PRIORITY (affects multiple school roles):
+  2-7. Create 6 page files for multi-role school pages:
+       schemes_of_work, report_cards, exam_schedule,
+       permissions_exeats, special_needs, grading_status
+
+MEDIUM PRIORITY (Accountant financial module):
+  8-14. Create 7 page files for Accountant:
+        unmatched_payments, vendors, purchase_orders, petty_cash,
+        bank_accounts, bank_transactions, mpesa_settlements
+
+MEDIUM PRIORITY (Academic sub-pages):
+  15-28. Create 14 page files for Headteacher/DH-Academic academic management
+
+LOW PRIORITY (Headteacher-only analytics):
+  29-44. Create 16 page files for Headteacher analytics and management
+
+DEFERRED (System Admin internal tooling):
+  45-115. Create 71 page files for System Administrator panel
+
+CLEANUP CANDIDATES:
+  - manage_academics_COMPLETE.php (backup file?)
+  - timetable.php vs manage_timetable.php (duplicate?)
+  - fee_structure.php vs manage_fee_structure.php (duplicate?)
+  - admin_delegations.php (route name mismatch: delegated_permissions)
+
+ROUTE NAME MISMATCHES TO INVESTIGATE:
+  - Route "delegated_permissions" -> File "admin_delegations.php" (name doesn't match)
+  - Route "manage_timetable" -> Extra file "timetable.php" exists too
+  - Route "manage_fee_structure" -> Extra file "fee_structure.php" exists too
+
+================================================================================
+END OF ANALYSIS
+================================================================================

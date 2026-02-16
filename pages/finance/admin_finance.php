@@ -247,6 +247,10 @@
                                 <option value="expense">Expense</option>
                             </select>
                         </div>
+                        <div class="form-group" id="transactionStudentGroup" style="display: none;">
+                            <label>Student ID (for fee payments)</label>
+                            <input type="number" class="form-input" id="transaction_student_id" min="1">
+                        </div>
                         <div class="form-group">
                             <label>Category *</label>
                             <select class="form-select" id="transaction_category" required></select>
@@ -308,8 +312,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="/js/pages/finance.js"></script>
+<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="/Kingsway/js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();
@@ -338,6 +342,9 @@
         const checked = document.getElementById('selectAll').checked;
         document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = checked);
         updateBulkActions();
+        if (typeof FinanceController !== 'undefined') {
+            FinanceController.syncSelectionFromDom();
+        }
     }
     
     function updateBulkActions() {

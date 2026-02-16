@@ -19,6 +19,16 @@ class FeeStructureViewerController {
       document
         .querySelector(".viewer-layout")
         ?.getAttribute("data-user-role") || "viewer";
+
+    this.academicYears = [];
+    this.levels = [];
+    this.studentTypes = [];
+    this.terms = [];
+    this.termNameMap = {};
+    this.termsByYear = {};
+
+    this.currentStructures = [];
+    this.currentAggregated = [];
   }
 
   /**
@@ -26,6 +36,7 @@ class FeeStructureViewerController {
    */
   static init() {
     const controller = new FeeStructureViewerController();
+    window.viewerController = controller;
     controller.setupEventListeners();
     controller.loadDropdowns();
     controller.loadFeeStructures();
@@ -37,7 +48,6 @@ class FeeStructureViewerController {
    * Setup event listeners
    */
   setupEventListeners() {
-    // Filter changes
     document
       .getElementById("academicYearFilter")
       ?.addEventListener("change", () => this.applyFilters());
@@ -45,17 +55,20 @@ class FeeStructureViewerController {
       .getElementById("termFilter")
       ?.addEventListener("change", () => this.applyFilters());
     document
-      .getElementById("classFilter")
+      .getElementById("levelFilter")
+      ?.addEventListener("change", () => this.applyFilters());
+    document
+      .getElementById("studentTypeFilter")
       ?.addEventListener("change", () => this.applyFilters());
     document.getElementById("searchInput")?.addEventListener(
       "input",
       this.debounce(() => this.applyFilters(), 500),
     );
 
-    // Make functions globally accessible
     window.viewStructure = (id) => this.viewStructure(id);
     window.exportReport = () => this.exportReport();
     window.printSummary = () => this.printSummary();
+    window.printStructure = () => this.printStructure();
     window.clearFilters = () => this.clearFilters();
     window.closeModal = (modalId) => this.closeModal(modalId);
   }
@@ -65,45 +78,151 @@ class FeeStructureViewerController {
    */
   async loadDropdowns() {
     try {
-      // Load academic years
-      const yearsResponse = await API.GET("/api/academic/years/list", {});
-      if (yearsResponse.success && yearsResponse.data.years) {
-        this.populateDropdown(
-          "academicYearFilter",
-          yearsResponse.data.years,
-          "id",
-          "year",
-        );
-      }
+      const [yearsResponse, levelsResponse, studentTypesResponse, termsResponse] =
+        await Promise.all([
+          API.academic.getAllAcademicYears().catch(() => []),
+          API.academic.listLevels().catch(() => []),
+          API.finance.listStudentTypes().catch(() => []),
+          API.academic.listTerms().catch(() => []),
+        ]);
 
-      // Load classes
-      const classesResponse = await API.GET("/api/academics/classes/list", {});
-      if (classesResponse.success && classesResponse.data.classes) {
-        this.populateDropdown(
-          "classFilter",
-          classesResponse.data.classes,
-          "id",
-          "name",
-        );
-      }
+      this.academicYears = Array.isArray(yearsResponse) ? yearsResponse : [];
+      this.levels = Array.isArray(levelsResponse) ? levelsResponse : [];
+      this.studentTypes = Array.isArray(studentTypesResponse)
+        ? studentTypesResponse
+        : [];
+      this.terms = Array.isArray(termsResponse) ? termsResponse : [];
+
+      this.buildTermMaps();
+
+      this.populateAcademicYearSelect("academicYearFilter", true);
+      this.populateLevelFilter();
+      this.populateStudentTypeFilter();
+      this.populateTermFilter();
     } catch (error) {
       console.error("Failed to load dropdown data:", error);
     }
   }
 
-  /**
-   * Populate dropdown with options
-   */
-  populateDropdown(elementId, items, valueKey, textKey) {
+  buildTermMaps() {
+    this.termNameMap = {};
+    this.termsByYear = {};
+
+    this.terms.forEach((term) => {
+      if (!term || !term.id) return;
+      const yearValue = this.parseAcademicYear(term.year || term.year_code);
+      if (!this.termsByYear[yearValue]) {
+        this.termsByYear[yearValue] = [];
+      }
+      this.termsByYear[yearValue].push(term);
+      this.termNameMap[term.id] =
+        term.name || `Term ${term.term_number || term.id}`;
+    });
+  }
+
+  parseAcademicYear(value) {
+    if (!value) return "";
+    const match = String(value).match(/\d{4}/);
+    return match ? match[0] : String(value);
+  }
+
+  getAcademicYearLabel(year) {
+    return year.year_name || year.year_code || year.year || "";
+  }
+
+  populateAcademicYearSelect(elementId, includeAll = false) {
     const select = document.getElementById(elementId);
     if (!select) return;
 
-    items.forEach((item) => {
+    const selected = select.value;
+    const allOption = includeAll
+      ? select.querySelector('option[value=""]')
+      : null;
+
+    select.innerHTML = "";
+    if (allOption) select.appendChild(allOption.cloneNode(true));
+
+    this.academicYears.forEach((year) => {
+      const value = this.parseAcademicYear(
+        year.year_code || year.year || year.id,
+      );
       const option = document.createElement("option");
-      option.value = item[valueKey];
-      option.textContent = item[textKey];
+      option.value = value;
+      option.textContent = this.getAcademicYearLabel(year) || value;
       select.appendChild(option);
     });
+
+    if (selected) select.value = selected;
+  }
+
+  populateLevelFilter() {
+    const select = document.getElementById("levelFilter");
+    if (!select) return;
+
+    const selected = select.value;
+    const allOption = select.querySelector('option[value=""]');
+    select.innerHTML = "";
+    if (allOption) select.appendChild(allOption.cloneNode(true));
+
+    this.levels
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+      .forEach((level) => {
+        const option = document.createElement("option");
+        option.value = level.id;
+        option.textContent = `${level.name} (${level.code})`;
+        select.appendChild(option);
+      });
+
+    if (selected) select.value = selected;
+  }
+
+  populateStudentTypeFilter() {
+    const select = document.getElementById("studentTypeFilter");
+    if (!select) return;
+
+    const selected = select.value;
+    const allOption = select.querySelector('option[value=""]');
+    select.innerHTML = "";
+    if (allOption) select.appendChild(allOption.cloneNode(true));
+
+    this.studentTypes
+      .slice()
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+      .forEach((type) => {
+        const option = document.createElement("option");
+        option.value = type.id;
+        option.textContent = `${type.name} (${type.code})`;
+        select.appendChild(option);
+      });
+
+    if (selected) select.value = selected;
+  }
+
+  populateTermFilter() {
+    const select = document.getElementById("termFilter");
+    if (!select) return;
+
+    const selected = select.value;
+    const allOption = select.querySelector('option[value=""]');
+    select.innerHTML = "";
+    if (allOption) select.appendChild(allOption.cloneNode(true));
+
+    const terms = this.terms.slice().sort((a, b) => {
+      const termA = a.term_number || a.id;
+      const termB = b.term_number || b.id;
+      return termA - termB;
+    });
+
+    terms.forEach((term) => {
+      const option = document.createElement("option");
+      option.value = term.id;
+      option.textContent =
+        term.name || `Term ${term.term_number || term.id}`;
+      select.appendChild(option);
+    });
+
+    if (selected) select.value = selected;
   }
 
   /**
@@ -116,13 +235,14 @@ class FeeStructureViewerController {
       page: page,
       limit: this.itemsPerPage,
       academic_year: document.getElementById("academicYearFilter")?.value || "",
-      term: document.getElementById("termFilter")?.value || "",
-      class_id: document.getElementById("classFilter")?.value || "",
-      status: "active", // Viewers only see active structures
+      term_id: document.getElementById("termFilter")?.value || "",
+      level_id: document.getElementById("levelFilter")?.value || "",
+      student_type_id:
+        document.getElementById("studentTypeFilter")?.value || "",
+      status: "active",
       search: document.getElementById("searchInput")?.value || "",
     };
 
-    // Remove empty filters
     Object.keys(filters).forEach((key) => {
       if (filters[key] === "" || filters[key] === null) {
         delete filters[key];
@@ -132,21 +252,74 @@ class FeeStructureViewerController {
     this.currentFilters = filters;
 
     try {
-      const response = await API.GET(
-        "/api/finance/fee-structures/list",
+      const response = await apiCall(
+        "/finance/fees-structures-list",
+        "GET",
+        null,
         filters,
       );
 
-      if (response.success && response.data) {
-        this.renderFeeStructures(response.data.structures || []);
-        this.updateStatistics(response.data.summary || {});
-        this.renderPagination(response.data.pagination || {});
-        this.updateChart(response.data.chartData || {});
-      }
+      const structures = response?.fee_structures || response?.structures || [];
+      const pagination = response?.pagination || {};
+
+      this.currentStructures = Array.isArray(structures) ? structures : [];
+      const aggregated = this.aggregateFeeStructures(this.currentStructures);
+      this.currentAggregated = Object.values(aggregated);
+
+      this.renderFeeStructures(this.currentAggregated);
+      this.updateStatistics(this.currentAggregated);
+      this.renderPagination(pagination);
+      this.updateChart(this.currentAggregated);
     } catch (error) {
       console.error("Failed to load fee structures:", error);
       this.showError("Failed to load fee structures. Please try again.");
     }
+  }
+
+  getGroupKey(structure) {
+    return `${structure.academic_year}|${structure.level_id}|${structure.student_type_id}|${structure.term_id}`;
+  }
+
+  aggregateFeeStructures(structures) {
+    const aggregated = {};
+
+    structures.forEach((structure) => {
+      const key = this.getGroupKey(structure);
+
+      if (!aggregated[key]) {
+        aggregated[key] = {
+          group_key: key,
+          first_id: structure.id,
+          academic_year: structure.academic_year,
+          level_id: structure.level_id,
+          level_name: structure.level_name,
+          term_id: structure.term_id,
+          term_name: structure.term_name,
+          student_type_id: structure.student_type_id,
+          student_type_name: structure.student_type_name,
+          student_count: structure.student_count || 0,
+          status: structure.status,
+          total_amount: 0,
+        };
+      }
+
+      const group = aggregated[key];
+      const amount = parseFloat(structure.amount) || 0;
+
+      group.total_amount += amount;
+      group.student_count = Math.max(
+        group.student_count || 0,
+        structure.student_count || 0,
+      );
+      group.status = structure.status || group.status;
+    });
+
+    Object.values(aggregated).forEach((group) => {
+      group.total_expected_revenue =
+        (group.total_amount || 0) * (group.student_count || 0);
+    });
+
+    return aggregated;
   }
 
   /**
@@ -156,7 +329,7 @@ class FeeStructureViewerController {
     const tbody = document.getElementById("feeStructuresBody");
     if (!tbody) return;
 
-    if (structures.length === 0) {
+    if (!structures || structures.length === 0) {
       tbody.innerHTML =
         '<tr><td colspan="9" class="text-center text-muted py-4">No fee structures found</td></tr>';
       return;
@@ -167,15 +340,15 @@ class FeeStructureViewerController {
         (structure) => `
             <tr>
                 <td>${structure.academic_year || "-"}</td>
-                <td>${structure.class_name || "-"}</td>
                 <td>${structure.level_name || "-"}</td>
-                <td>Term ${structure.term || "-"}</td>
-                <td>${this.formatCurrency(structure.total_amount)}</td>
+                <td>${structure.student_type_name || "-"}</td>
+                <td>${this.getTermName(structure.term_id, structure.term_name)}</td>
+                <td class="text-end">${this.formatCurrency(structure.total_amount)}</td>
                 <td>${structure.student_count || 0}</td>
-                <td>${this.formatCurrency(structure.expected_revenue)}</td>
-                <td>${this.formatDate(structure.created_at)}</td>
+                <td class="text-end">${this.formatCurrency(structure.total_expected_revenue)}</td>
+                <td>${structure.status || "-"}</td>
                 <td>
-                    <button class="btn btn-sm btn-outline-primary" onclick="viewStructure(${structure.id})" title="View Details">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewStructure('${structure.group_key}')" title="View Details">
                         <i class="bi bi-eye"></i> View
                     </button>
                 </td>
@@ -186,15 +359,40 @@ class FeeStructureViewerController {
   }
 
   /**
-   * Update statistics cards
+   * Update statistics cards and summary
    */
-  updateStatistics(summary) {
-    document.getElementById("activeStructures").textContent =
-      summary.active_count || 0;
-    document.getElementById("expectedRevenue").textContent =
-      this.formatCurrency(summary.total_expected_revenue || 0);
-    document.getElementById("totalStudents").textContent =
-      summary.total_students || 0;
+  updateStatistics(structures) {
+    const activeCount = structures.filter((s) => s.status === "active").length;
+    const totalExpected = structures.reduce(
+      (sum, s) => sum + (s.total_expected_revenue || 0),
+      0,
+    );
+    const totalStudents = structures.reduce(
+      (sum, s) => sum + (s.student_count || 0),
+      0,
+    );
+
+    const activeEl = document.getElementById("activeStructures");
+    const expectedEl = document.getElementById("totalExpectedRevenue");
+    const studentsEl = document.getElementById("totalStudents");
+
+    if (activeEl) activeEl.textContent = activeCount;
+    if (expectedEl) expectedEl.textContent = this.formatCurrency(totalExpected);
+    if (studentsEl) studentsEl.textContent = totalStudents;
+
+    const summaryTotal = document.getElementById("summaryTotal");
+    const summaryActive = document.getElementById("summaryActive");
+    const summaryRevenue = document.getElementById("summaryRevenue");
+    const summaryAverage = document.getElementById("summaryAverage");
+
+    if (summaryTotal) summaryTotal.textContent = structures.length;
+    if (summaryActive) summaryActive.textContent = activeCount;
+    if (summaryRevenue) summaryRevenue.textContent = this.formatCurrency(totalExpected);
+    if (summaryAverage) {
+      const average =
+        totalStudents > 0 ? totalExpected / totalStudents : 0;
+      summaryAverage.textContent = this.formatCurrency(average);
+    }
   }
 
   /**
@@ -206,8 +404,12 @@ class FeeStructureViewerController {
 
     if (!container || !info) return;
 
-    const { current_page, total_pages, total_items, page_size } = pagination;
-    const start = (current_page - 1) * page_size + 1;
+    const current_page = parseInt(pagination.page) || 1;
+    const total_pages = parseInt(pagination.pages) || 1;
+    const total_items = parseInt(pagination.total) || 0;
+    const page_size = parseInt(pagination.limit) || this.itemsPerPage;
+
+    const start = total_items === 0 ? 0 : (current_page - 1) * page_size + 1;
     const end = Math.min(current_page * page_size, total_items);
 
     info.textContent = `Showing ${start}-${end} of ${total_items}`;
@@ -219,19 +421,23 @@ class FeeStructureViewerController {
 
     let html = "";
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === 1 ? "disabled" : ""} 
-                         onclick="FeeStructureViewerController.init.controller.loadFeeStructures(${current_page - 1})">Previous</button>`;
+                         onclick="window.viewerController.loadFeeStructures(${current_page - 1})">Previous</button>`;
 
     const range = 5;
     let start_page = Math.max(1, current_page - Math.floor(range / 2));
     let end_page = Math.min(total_pages, start_page + range - 1);
 
+    if (end_page - start_page < range - 1) {
+      start_page = Math.max(1, end_page - range + 1);
+    }
+
     for (let i = start_page; i <= end_page; i++) {
       html += `<button class="btn btn-sm ${i === current_page ? "btn-primary" : "btn-outline-primary"}" 
-                             onclick="FeeStructureViewerController.init.controller.loadFeeStructures(${i})">${i}</button>`;
+                             onclick="window.viewerController.loadFeeStructures(${i})">${i}</button>`;
     }
 
     html += `<button class="btn btn-sm btn-outline-primary" ${current_page === total_pages ? "disabled" : ""} 
-                         onclick="FeeStructureViewerController.init.controller.loadFeeStructures(${current_page + 1})">Next</button>`;
+                         onclick="window.viewerController.loadFeeStructures(${current_page + 1})">Next</button>`;
 
     container.innerHTML = html;
   }
@@ -252,7 +458,7 @@ class FeeStructureViewerController {
         labels: [],
         datasets: [
           {
-            label: "Expected Revenue by Class",
+            label: "Expected Revenue by Level",
             data: [],
             backgroundColor: "rgba(54, 162, 235, 0.5)",
             borderColor: "rgba(54, 162, 235, 1)",
@@ -289,27 +495,56 @@ class FeeStructureViewerController {
   /**
    * Update chart with data
    */
-  updateChart(chartData) {
-    if (!this.chart || !chartData.distribution) return;
+  updateChart(structures) {
+    if (!this.chart || !structures) return;
 
-    this.chart.data.labels = chartData.distribution.labels || [];
-    this.chart.data.datasets[0].data = chartData.distribution.data || [];
+    const levelTotals = {};
+    structures.forEach((s) => {
+      const label = s.level_name || "Unknown";
+      levelTotals[label] =
+        (levelTotals[label] || 0) + (s.total_expected_revenue || 0);
+    });
+
+    this.chart.data.labels = Object.keys(levelTotals);
+    this.chart.data.datasets[0].data = Object.values(levelTotals);
     this.chart.update();
   }
 
   /**
    * View structure details
    */
-  async viewStructure(id) {
-    try {
-      const response = await API.GET(`/api/finance/fee-structures/${id}`, {});
-      if (response.success && response.data) {
-        this.displayStructureDetails(response.data);
-      }
-    } catch (error) {
-      console.error("Failed to load structure:", error);
-      this.showError("Failed to load structure details");
+  viewStructure(groupKey) {
+    const group = this.currentAggregated.find((g) => g.group_key === groupKey);
+    if (!group) {
+      this.showError("Fee structure not found in current list");
+      return;
     }
+
+    const items = this.getFeeItemsForGroup(group);
+    const details = {
+      ...group,
+      fee_items: items,
+      total_amount: group.total_amount,
+      expected_revenue: group.total_expected_revenue,
+    };
+
+    this.displayStructureDetails(details);
+  }
+
+  getFeeItemsForGroup(group) {
+    return this.currentStructures
+      .filter(
+        (row) =>
+          row.academic_year === group.academic_year &&
+          row.level_id === group.level_id &&
+          row.student_type_id === group.student_type_id &&
+          row.term_id === group.term_id,
+      )
+      .map((row) => ({
+        name: row.fee_name || row.fee_type_name || row.fee_type_code || "Fee",
+        description: row.fee_category || "",
+        amount: parseFloat(row.amount) || 0,
+      }));
   }
 
   /**
@@ -328,15 +563,15 @@ class FeeStructureViewerController {
                         <strong>Academic Year:</strong> ${structure.academic_year}
                     </div>
                     <div class="col-md-6">
-                        <strong>Term:</strong> Term ${structure.term}
+                        <strong>Term:</strong> ${this.getTermName(structure.term_id, structure.term_name)}
                     </div>
                 </div>
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <strong>Class:</strong> ${structure.class_name}
+                        <strong>Level:</strong> ${structure.level_name}
                     </div>
                     <div class="col-md-6">
-                        <strong>Level:</strong> ${structure.level_name}
+                        <strong>Student Type:</strong> ${structure.student_type_name}
                     </div>
                 </div>
                 <div class="row mb-3">
@@ -384,18 +619,6 @@ class FeeStructureViewerController {
                         </table>
                     </div>
                 </div>
-                ${
-                  structure.notes
-                    ? `
-                <div class="row">
-                    <div class="col-md-12">
-                        <strong>Notes:</strong>
-                        <p class="mt-2">${structure.notes}</p>
-                    </div>
-                </div>
-                `
-                    : ""
-                }
             </div>
         `;
 
@@ -417,6 +640,10 @@ class FeeStructureViewerController {
     window.print();
   }
 
+  printStructure() {
+    window.print();
+  }
+
   /**
    * Utility functions
    */
@@ -427,7 +654,8 @@ class FeeStructureViewerController {
   clearFilters() {
     document.getElementById("academicYearFilter").value = "";
     document.getElementById("termFilter").value = "";
-    document.getElementById("classFilter").value = "";
+    document.getElementById("levelFilter").value = "";
+    document.getElementById("studentTypeFilter").value = "";
     document.getElementById("searchInput").value = "";
     this.loadFeeStructures(1);
   }
@@ -442,14 +670,10 @@ class FeeStructureViewerController {
     );
   }
 
-  formatDate(dateString) {
-    if (!dateString) return "-";
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-KE", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+  getTermName(termId, termName) {
+    if (termName) return termName;
+    if (!termId) return "-";
+    return this.termNameMap[termId] || `Term ${termId}`;
   }
 
   showModal(modalId) {
@@ -485,7 +709,6 @@ class FeeStructureViewerController {
   }
 }
 
-// Initialize on DOM ready
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", () =>
     FeeStructureViewerController.init(),

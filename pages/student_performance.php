@@ -190,9 +190,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement studentPerformanceController in js/pages/student_performance.js
-        console.log('Student Performance page loaded');
-    });
-</script>
+<script src="/Kingsway/js/pages/student_performance.js"></script>

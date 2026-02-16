@@ -1182,6 +1182,29 @@ class AcademicAPI extends BaseAPI
         return $this->getAcademicTerms($params);
     }
 
+    /**
+     * List active school levels - matches /academic/levels-list
+     */
+    public function getLevelsList($params = [])
+    {
+        try {
+            $sql = "
+                SELECT id, name, code, description, status
+                FROM school_levels
+                WHERE status = 'active'
+                ORDER BY id ASC
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute();
+            $levels = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse($levels);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function createAcademicTerm($data)
     {
         try {
@@ -3287,4 +3310,3 @@ class AcademicAPI extends BaseAPI
         }
     }
 }
-

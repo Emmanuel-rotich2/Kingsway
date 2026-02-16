@@ -103,4 +103,4 @@
     </div>
 </div>
 
-<script src="js/pages/student_promotion.js"></script>
+<script src="/Kingsway/js/pages/student_promotion.js"></script>

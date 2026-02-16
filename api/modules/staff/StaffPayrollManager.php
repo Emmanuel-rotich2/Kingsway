@@ -2,6 +2,7 @@
 namespace App\API\Modules\staff;
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\finance\FeeManager;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -670,6 +671,9 @@ class StaffPayrollManager extends BaseAPI
             $staffSalary = floatval($staffRow['salary']);
             $maxDeductible = $staffSalary * ($maxDeductionPct / 100);
 
+            $feeManager = new FeeManager();
+            $invoiceWarnings = [];
+
             // Get active children
             $stmt = $this->db->prepare("
                 SELECT 
@@ -711,25 +715,29 @@ class StaffPayrollManager extends BaseAPI
                     $discountRate = $thirdDiscount;
                 }
 
-                // Get current term fees for this student
-                $stmt = $this->db->prepare("
-                    SELECT 
-                        fi.id AS invoice_id,
-                        fi.total_amount,
-                        fi.amount_paid,
-                        fi.balance
-                    FROM fee_invoices fi
-                    JOIN academic_terms at ON fi.term_id = at.id
-                    WHERE fi.student_id = ?
-                    AND at.is_current = 1
-                    AND fi.status IN ('pending', 'partial')
-                    ORDER BY fi.created_at DESC
-                    LIMIT 1
-                ");
-                $stmt->execute([$child['student_id']]);
-                $invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+                $invoiceData = null;
+                $invoiceResult = $feeManager->getStudentInvoice($child['student_id']);
+                if (!empty($invoiceResult) && ($invoiceResult['status'] ?? '') === 'success') {
+                    $invoiceData = $invoiceResult['data'] ?? null;
+                } else {
+                    $generateResult = $feeManager->generateStudentInvoice(
+                        $child['student_id'],
+                        null,
+                        null,
+                        $this->user_id
+                    );
+                    if (!empty($generateResult) && ($generateResult['status'] ?? '') === 'success') {
+                        $invoiceData = $generateResult['data'] ?? null;
+                    } else {
+                        $invoiceWarnings[] = [
+                            'student_id' => $child['student_id'],
+                            'staff_child_id' => $child['staff_child_id'],
+                            'message' => $generateResult['message'] ?? $invoiceResult['message'] ?? 'Invoice not available'
+                        ];
+                    }
+                }
 
-                $grossFees = floatval($invoice['balance'] ?? 0);
+                $grossFees = floatval($invoiceData['balance'] ?? 0);
                 $sponsorWaiver = 0;
 
                 // Apply sponsor waiver if applicable
@@ -756,13 +764,13 @@ class StaffPayrollManager extends BaseAPI
                     'student_name' => $child['first_name'] . ' ' . $child['last_name'],
                     'class' => $child['class_name'] . ' ' . ($child['stream_name'] ?? ''),
                     'child_number' => $childNumber,
-                    'gross_fees' => $invoice['balance'] ?? 0,
+                    'gross_fees' => $grossFees,
                     'sponsor_waiver' => $sponsorWaiver,
                     'staff_discount_percentage' => $discountRate,
                     'staff_discount_amount' => $staffDiscount,
                     'deductible_amount' => $deductibleAmount,
                     'monthly_deduction' => round($monthlyDeduction, 2),
-                    'invoice_id' => $invoice['invoice_id'] ?? null
+                    'fee_invoice_id' => $invoiceData['id'] ?? null
                 ];
 
                 $totalDeduction += $monthlyDeduction;
@@ -790,7 +798,8 @@ class StaffPayrollManager extends BaseAPI
                 'total_children' => count($children),
                 'total_child_fee_deduction' => round($totalDeduction, 2),
                 'exceeded_limit' => $exceededLimit,
-                'children_breakdown' => $childDeductions
+                'children_breakdown' => $childDeductions,
+                'invoice_warnings' => $invoiceWarnings
             ], 'Child fee deductions calculated successfully');
 
         } catch (Exception $e) {
@@ -1250,4 +1259,3 @@ class StaffPayrollManager extends BaseAPI
         return round($tax, 2);
     }
 }
-

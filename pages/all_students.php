@@ -1,105 +1,120 @@
 <?php
 /**
- * All Students - Stateless JWT-based Router
+ * All Students Page - Role-Based Router
  *
- * Uses JavaScript to determine user role from JWT token and load appropriate template
+ * Loads role-specific templates from pages/students/ based on JWT role.
  */
-
-// Default template (will be overridden by JavaScript)
-$template = 'students/manager_students.php'; // Default fallback
-
-// Include the template (JavaScript will replace content based on role)
-include __DIR__ . '/' . $template;
-exit;
 ?>
 
-<div class="container-fluid py-4">
-    <!-- Page Header -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <h4 class="mb-1"><i class="fas fa-user-graduate me-2"></i>All Students</h4>
-                    <p class="text-muted mb-0">View and manage enrolled students</p>
-                </div>
-                <div class="btn-group">
-                    <a href="home.php?route=manage_students" class="btn btn-primary">
-                        <i class="fas fa-plus me-1"></i> Add Student
-                    </a>
-                    <button class="btn btn-outline-secondary" id="exportStudents">
-                        <i class="fas fa-download me-1"></i> Export
-                    </button>
-                </div>
-            </div>
-        </div>
+<!-- Loading state while determining user role -->
+<div id="all-students-loading" style="padding: 40px; text-align: center;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
     </div>
-
-    <!-- Filters -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">Class</label>
-                    <select class="form-select" id="filterClass">
-                        <option value="">All Classes</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Stream</label>
-                    <select class="form-select" id="filterStream">
-                        <option value="">All Streams</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Status</label>
-                    <select class="form-select" id="filterStatus">
-                        <option value="">All Status</option>
-                        <option value="active">Active</option>
-                        <option value="inactive">Inactive</option>
-                        <option value="graduated">Graduated</option>
-                        <option value="transferred">Transferred</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Search</label>
-                    <input type="text" class="form-control" id="searchStudent" placeholder="Name or Admission No.">
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Students Table -->
-    <div class="card">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover" id="studentsTable">
-                    <thead>
-                        <tr>
-                            <th><input type="checkbox" id="selectAll"></th>
-                            <th>Photo</th>
-                            <th>Admission No</th>
-                            <th>Name</th>
-                            <th>Class</th>
-                            <th>Gender</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td colspan="8" class="text-center">
-                                <div class="spinner-border spinner-border-sm text-primary"></div>
-                                Loading students...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <nav aria-label="Page navigation" class="mt-3">
-                <ul class="pagination justify-content-center" id="pagination"></ul>
-            </nav>
-        </div>
-    </div>
+    <p class="mt-3">Loading students interface...</p>
 </div>
 
-<script src="js/pages/all_students.js"></script>
+<!-- Container where the correct template will be loaded -->
+<div id="all-students-content" style="display: none;"></div>
+
+<script>
+    (function () {
+        if (typeof AuthContext === "undefined") {
+            document.getElementById("all-students-loading").innerHTML =
+                '<div class="alert alert-danger">Authentication system not loaded. Please refresh the page.</div>';
+            return;
+        }
+
+        if (!AuthContext.isAuthenticated()) {
+            window.location.href = "/Kingsway/index.php";
+            return;
+        }
+
+        const user = AuthContext.getUser();
+        let userRoleName = null;
+        if (user && user.roles && user.roles.length > 0) {
+            const firstRole = user.roles[0];
+            const roleName = typeof firstRole === "string" ? firstRole : (firstRole.name || firstRole);
+            userRoleName = String(roleName).toLowerCase().replace(/\s+/g, "_").replace(/\//g, "_");
+        }
+
+        if (!userRoleName) {
+            document.getElementById("all-students-loading").innerHTML =
+                '<div class="alert alert-danger">User role not found. Please log in again.</div>';
+            return;
+        }
+
+        const roleTemplateMap = {
+            // Admin roles
+            "director": "admin_students.php",
+            "director_owner": "admin_students.php",
+            "school_administrator": "admin_students.php",
+            "system_administrator": "admin_students.php",
+            "admin": "admin_students.php",
+
+            // Manager roles
+            "headteacher": "manager_students.php",
+            "deputy_headteacher": "manager_students.php",
+            "deputy_head_academic": "manager_students.php",
+            "registrar": "manager_students.php",
+            "school_admin": "manager_students.php",
+
+            // Accountant roles
+            "accountant": "accountant_students.php",
+            "school_accountant": "accountant_students.php",
+            "bursar": "accountant_students.php",
+
+            // Operator roles
+            "secretary": "operator_students.php",
+            "class_teacher": "operator_students.php",
+            "subject_teacher": "operator_students.php",
+            "intern_student_teacher": "operator_students.php",
+            "teacher": "operator_students.php",
+            "intern": "operator_students.php",
+
+            // Viewer roles
+            "parent": "viewer_students.php",
+            "student": "viewer_students.php"
+        };
+
+        const templateFile = roleTemplateMap[userRoleName] || "viewer_students.php";
+        const templatePath = "/Kingsway/pages/students/" + templateFile;
+
+        fetch(templatePath)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error("Template not found: " + templatePath);
+                }
+                return response.text();
+            })
+            .then(html => {
+                document.getElementById("all-students-loading").style.display = "none";
+                const container = document.getElementById("all-students-content");
+                container.innerHTML = html;
+                container.style.display = "block";
+
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = html;
+                const scripts = tempDiv.querySelectorAll("script");
+
+                scripts.forEach(script => {
+                    const newScript = document.createElement("script");
+                    if (script.src) {
+                        newScript.src = script.src;
+                        newScript.async = false;
+                    } else {
+                        newScript.textContent = script.textContent;
+                    }
+                    document.body.appendChild(newScript);
+                });
+            })
+            .catch(error => {
+                document.getElementById("all-students-loading").innerHTML =
+                    '<div class="alert alert-warning">' +
+                    '<i class="bi bi-exclamation-triangle me-2"></i>' +
+                    'Template not found for your role. Please contact system administrator.' +
+                    '<br><small>Error: ' + error.message + '</small>' +
+                    '</div>';
+            });
+    })();
+</script>
