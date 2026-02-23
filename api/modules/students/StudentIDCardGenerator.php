@@ -32,7 +32,7 @@ class StudentIDCardGenerator extends BaseAPI
 
         // Ensure directories exist
         foreach ([$this->uploadsPath, $this->qrCodesPath, $this->templatesPath] as $dir) {
-            if (!file_exists($dir)) {
+            if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
         }

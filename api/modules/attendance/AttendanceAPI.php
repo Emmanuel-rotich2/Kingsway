@@ -113,7 +113,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getClassAttendance($classId, $termId, $yearId)
+    public function getClassAttendance($classId, $termId = null, $yearId = null)
     {
         try {
             $data = $this->studentManager->getClassAttendance($classId, $termId, $yearId);
@@ -123,7 +123,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getStudentAttendancePercentage($studentId, $termId, $yearId)
+    public function getStudentAttendancePercentage($studentId, $termId = null, $yearId = null)
     {
         try {
             $data = $this->studentManager->getAttendancePercentage($studentId, $termId, $yearId);
@@ -133,7 +133,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getChronicStudentAbsentees($classId, $termId, $yearId, $threshold = 0.2)
+    public function getChronicStudentAbsentees($classId, $termId = null, $yearId = null, $threshold = 0.2)
     {
         try {
             $data = $this->studentManager->getChronicAbsentees($classId, $termId, $yearId, $threshold);
@@ -164,7 +164,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getDepartmentAttendance($departmentId, $termId, $yearId)
+    public function getDepartmentAttendance($departmentId, $termId = null, $yearId = null)
     {
         try {
             $data = $this->staffManager->getDepartmentAttendance($departmentId, $termId, $yearId);
@@ -174,7 +174,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getStaffAttendancePercentage($staffId, $termId, $yearId)
+    public function getStaffAttendancePercentage($staffId, $termId = null, $yearId = null)
     {
         try {
             $data = $this->staffManager->getAttendancePercentage($staffId, $termId, $yearId);
@@ -184,7 +184,7 @@ class AttendanceAPI extends BaseAPI {
         }
     }
 
-    public function getChronicStaffAbsentees($departmentId, $termId, $yearId, $threshold = 0.2)
+    public function getChronicStaffAbsentees($departmentId = null, $termId = null, $yearId = null, $threshold = 0.2)
     {
         try {
             $data = $this->staffManager->getChronicAbsentees($departmentId, $termId, $yearId, $threshold);

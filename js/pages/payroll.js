@@ -9,6 +9,19 @@ const payrollController = {
   selectedStaffId: null,
   currentPayslip: null,
 
+  notify: function (message, type) {
+    if (typeof showNotification === "function") {
+      showNotification(message, type || "info");
+    } else if (
+      window.API &&
+      typeof window.API.showNotification === "function"
+    ) {
+      window.API.showNotification(message, type || "info");
+    } else {
+      alert(message);
+    }
+  },
+
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = "/Kingsway/index.php";
@@ -99,7 +112,7 @@ const payrollController = {
     const period = document.getElementById("payPeriodSelect")?.value;
 
     if (!staffId || !period) {
-      showNotification("Please select staff and pay period", "warning");
+      this.notify("Please select staff and pay period", "warning");
       return;
     }
 
@@ -111,17 +124,14 @@ const payrollController = {
         parseInt(year),
       );
       if (response?.success || response?.data) {
-        showNotification("Payroll processed successfully!", "success");
+        this.notify("Payroll processed successfully!", "success");
         this.loadReport();
       } else {
-        showNotification(
-          response?.message || "Failed to process payroll",
-          "error",
-        );
+        this.notify(response?.message || "Failed to process payroll", "error");
       }
     } catch (error) {
       console.error("Error processing payroll:", error);
-      showNotification(
+      this.notify(
         "Error processing payroll: " + (error.message || "Unknown error"),
         "error",
       );
@@ -239,7 +249,7 @@ const payrollController = {
       win.document.close();
     } catch (error) {
       console.error("Error:", error);
-      showNotification("Failed to load payslip", "error");
+      this.notify("Failed to load payslip", "error");
     }
   },
 };

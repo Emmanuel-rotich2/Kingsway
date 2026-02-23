@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadStudentProfile(studentId) {
     try {
         // Load student basic info
-        studentData = await window.API.apiCall(`/students/student/${studentId}`, 'GET');
+        studentData = await window.API.apiCall(`/students/${studentId}`, "GET");
         
         if (!studentData) {
             alert('Student not found');
@@ -240,7 +240,10 @@ function renderBioTab() {
 }
 
 async function loadBioData(studentId) {
-    const bioData = await window.API.apiCall(`/students/student/${studentId}/bio`, 'GET');
+    const bioData = await window.API.apiCall(
+      `/students/${studentId}/bio`,
+      "GET",
+    );
     
     if (!bioData) return;
 
@@ -385,7 +388,10 @@ function renderAcademicTab() {
 }
 
 async function loadAcademicData(studentId) {
-    const academicData = await window.API.apiCall(`/students/student/${studentId}/academic`, 'GET');
+    const academicData = await window.API.apiCall(
+      `/students/${studentId}/academic`,
+      "GET",
+    );
     
     if (!academicData) return;
 
@@ -396,44 +402,51 @@ async function loadAcademicData(studentId) {
     document.getElementById('currentStreamRank').textContent = academicData.stream_rank || 'N/A';
 
     // Subject performance table
-    const subjectTable = new DataTable('subjectPerformanceContainer', {
-        apiEndpoint: `/students/student/${studentId}/subject-performance`,
-        pageSize: 15,
-        columns: [
-            { field: 'subject_name', label: 'Subject', sortable: true },
-            { field: 'teacher_name', label: 'Teacher' },
-            { 
-                field: 'avg_score', 
-                label: 'Average',
-                type: 'custom',
-                formatter: (value) => {
-                    const score = value || 0;
-                    const color = score >= 75 ? 'success' : score >= 50 ? 'warning' : 'danger';
-                    return `<span class="badge bg-${color}">${score.toFixed(1)}%</span>`;
-                }
-            },
-            { 
-                field: 'grade', 
-                label: 'Grade',
-                type: 'badge',
-                badgeMap: { 'A': 'success', 'B': 'info', 'C': 'warning', 'D': 'danger', 'E': 'dark' }
-            },
-            { field: 'assessments_count', label: 'Assessments', type: 'number' }
-        ],
-        rowActions: [
-            { 
-                id: 'viewDetails', 
-                label: 'View Details', 
-                icon: 'bi-arrow-right-circle',
-                permission: 'students_view'
-            }
-        ],
-        onRowAction: (action, data) => {
-            if (action === 'viewDetails') {
-                // Could navigate to subject details page or open detailed modal
-                viewSubjectDetails(studentId, data.subject_id);
-            }
+    const subjectTable = new DataTable("subjectPerformanceContainer", {
+      apiEndpoint: `/students/${studentId}/subject-performance`,
+      pageSize: 15,
+      columns: [
+        { field: "subject_name", label: "Subject", sortable: true },
+        { field: "teacher_name", label: "Teacher" },
+        {
+          field: "avg_score",
+          label: "Average",
+          type: "custom",
+          formatter: (value) => {
+            const score = value || 0;
+            const color =
+              score >= 75 ? "success" : score >= 50 ? "warning" : "danger";
+            return `<span class="badge bg-${color}">${score.toFixed(1)}%</span>`;
+          },
+        },
+        {
+          field: "grade",
+          label: "Grade",
+          type: "badge",
+          badgeMap: {
+            A: "success",
+            B: "info",
+            C: "warning",
+            D: "danger",
+            E: "dark",
+          },
+        },
+        { field: "assessments_count", label: "Assessments", type: "number" },
+      ],
+      rowActions: [
+        {
+          id: "viewDetails",
+          label: "View Details",
+          icon: "bi-arrow-right-circle",
+          permission: "students_view",
+        },
+      ],
+      onRowAction: (action, data) => {
+        if (action === "viewDetails") {
+          // Could navigate to subject details page or open detailed modal
+          viewSubjectDetails(studentId, data.subject_id);
         }
+      },
     });
 
     // Term selector
@@ -499,7 +512,10 @@ function renderAttendanceTab() {
 }
 
 async function loadAttendanceData(studentId) {
-    const attendanceStats = await window.API.apiCall(`/students/student/${studentId}/attendance-stats`, 'GET');
+    const attendanceStats = await window.API.apiCall(
+      `/students/${studentId}/attendance-stats`,
+      "GET",
+    );
     
     if (attendanceStats) {
         document.getElementById('attendanceRate').textContent = (attendanceStats.attendance_rate || 0).toFixed(1) + '%';
@@ -508,19 +524,24 @@ async function loadAttendanceData(studentId) {
         document.getElementById('daysLate').textContent = attendanceStats.days_late || 0;
     }
 
-    const attendanceTable = new DataTable('attendanceRecordsContainer', {
-        apiEndpoint: `/students/student/${studentId}/attendance`,
-        pageSize: 20,
-        columns: [
-            { field: 'date', label: 'Date', type: 'date', sortable: true },
-            { 
-                field: 'status', 
-                label: 'Status',
-                type: 'badge',
-                badgeMap: { 'present': 'success', 'absent': 'danger', 'late': 'warning', 'excused': 'info' }
-            },
-            { field: 'remarks', label: 'Remarks' }
-        ]
+    const attendanceTable = new DataTable("attendanceRecordsContainer", {
+      apiEndpoint: `/students/${studentId}/attendance`,
+      pageSize: 20,
+      columns: [
+        { field: "date", label: "Date", type: "date", sortable: true },
+        {
+          field: "status",
+          label: "Status",
+          type: "badge",
+          badgeMap: {
+            present: "success",
+            absent: "danger",
+            late: "warning",
+            excused: "info",
+          },
+        },
+        { field: "remarks", label: "Remarks" },
+      ],
     });
 
     document.getElementById('filterAttendanceBtn')?.addEventListener('click', () => {
@@ -585,7 +606,10 @@ function renderFinanceTab() {
 }
 
 async function loadFinanceData(studentId) {
-    const financeData = await window.API.apiCall(`/students/student/${studentId}/finance`, 'GET');
+    const financeData = await window.API.apiCall(
+      `/students/${studentId}/finance`,
+      "GET",
+    );
     
     if (financeData) {
         document.getElementById('totalFees').textContent = `KES ${financeData.total_fees?.toLocaleString() || 0}`;
@@ -597,19 +621,24 @@ async function loadFinanceData(studentId) {
         document.getElementById('paymentStatus').innerHTML = `<span class="badge bg-${statusColor}">${status}</span>`;
     }
 
-    const paymentTable = new DataTable('paymentHistoryContainer', {
-        apiEndpoint: `/students/student/${studentId}/payments`,
-        pageSize: 15,
-        columns: [
-            { field: 'payment_date', label: 'Date', type: 'date', sortable: true },
-            { field: 'amount', label: 'Amount', type: 'currency' },
-            { field: 'payment_method', label: 'Method' },
-            { field: 'reference_number', label: 'Reference' },
-            { field: 'recorded_by', label: 'Recorded By' }
-        ],
-        rowActions: [
-            { id: 'viewReceipt', label: 'View Receipt', icon: 'bi-receipt', permission: 'finance_view' }
-        ]
+    const paymentTable = new DataTable("paymentHistoryContainer", {
+      apiEndpoint: `/students/${studentId}/payments`,
+      pageSize: 15,
+      columns: [
+        { field: "payment_date", label: "Date", type: "date", sortable: true },
+        { field: "amount", label: "Amount", type: "currency" },
+        { field: "payment_method", label: "Method" },
+        { field: "reference_number", label: "Reference" },
+        { field: "recorded_by", label: "Recorded By" },
+      ],
+      rowActions: [
+        {
+          id: "viewReceipt",
+          label: "View Receipt",
+          icon: "bi-receipt",
+          permission: "finance_view",
+        },
+      ],
     });
 
     document.getElementById('recordPaymentBtn')?.addEventListener('click', () => {

@@ -158,7 +158,9 @@ const timetableController = (() => {
 
   function renderTimetable() {
     const viewType = document.getElementById("viewTypeFilter")?.value || "weekly";
-    const card = document.querySelector(".card");
+    const card =
+      document.getElementById("timetableCard") ||
+      document.querySelector(".card");
     if (!card) return;
     const classText =
       document.getElementById("classFilter")?.selectedOptions[0]?.textContent || "All Classes";

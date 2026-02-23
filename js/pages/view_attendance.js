@@ -121,12 +121,11 @@ const ViewAttendanceController = {
 
   async loadClasses() {
     try {
-      const response = await window.API.apiCall(
-        "/api/?route=attendance&action=classes",
-        "GET"
-      );
-      if (response && response.success) {
-        this.classes = response.data || [];
+      const response = await window.API.apiCall("/attendance/classes", "GET");
+      if (response) {
+        this.classes = Array.isArray(response)
+          ? response
+          : response.data || response;
         this.renderClassDropdown();
       }
     } catch (error) {
@@ -137,11 +136,13 @@ const ViewAttendanceController = {
   async loadDormitories() {
     try {
       const response = await window.API.apiCall(
-        "/api/?route=attendance&action=dormitories",
-        "GET"
+        "/attendance/dormitories",
+        "GET",
       );
-      if (response && response.success) {
-        this.dormitories = response.data || [];
+      if (response) {
+        this.dormitories = Array.isArray(response)
+          ? response
+          : response.data || response;
         this.renderDormitoryDropdown();
       }
     } catch (error) {
@@ -151,12 +152,11 @@ const ViewAttendanceController = {
 
   async loadSessions() {
     try {
-      const response = await window.API.apiCall(
-        "/api/?route=attendance&action=sessions",
-        "GET"
-      );
-      if (response && response.success) {
-        this.sessions = response.data || [];
+      const response = await window.API.apiCall("/attendance/sessions", "GET");
+      if (response) {
+        this.sessions = Array.isArray(response)
+          ? response
+          : response.data || response;
         this.loadAcademicSessions(); // Default to academic
       }
     } catch (error) {
@@ -171,7 +171,7 @@ const ViewAttendanceController = {
       "SATURDAY_CLASS",
     ];
     const filtered = this.sessions.filter((s) =>
-      academicCodes.includes(s.session_code)
+      academicCodes.includes(s.code),
     );
     this.renderSessionDropdown(filtered);
     this.renderDailySessionDropdown(filtered);
@@ -186,7 +186,7 @@ const ViewAttendanceController = {
       "EVENING_PREP",
     ];
     const filtered = this.sessions.filter((s) =>
-      boardingCodes.includes(s.session_code)
+      boardingCodes.includes(s.code),
     );
     this.renderSessionDropdown(filtered);
     this.renderDailySessionDropdown(filtered);
@@ -221,7 +221,7 @@ const ViewAttendanceController = {
     sessions.forEach((session) => {
       const option = document.createElement("option");
       option.value = session.id;
-      option.textContent = session.session_name;
+      option.textContent = session.name;
       select.appendChild(option);
     });
   },
@@ -233,7 +233,7 @@ const ViewAttendanceController = {
     sessions.forEach((session) => {
       const option = document.createElement("option");
       option.value = session.id;
-      option.textContent = session.session_name;
+      option.textContent = session.name;
       select.appendChild(option);
     });
   },
@@ -245,22 +245,24 @@ const ViewAttendanceController = {
       let response;
       if (this.currentType === "academic") {
         response = await window.API.apiCall(
-          `/api/?route=attendance&action=summary&${new URLSearchParams(
-            params
-          )}`,
-          "GET"
+          "/attendance/class-attendance",
+          "GET",
+          null,
+          params,
         );
       } else {
         response = await window.API.apiCall(
-          `/api/?route=attendance&action=boarding-summary&${new URLSearchParams(
-            params
-          )}`,
-          "GET"
+          "/attendance/boarding-summary",
+          "GET",
+          null,
+          params,
         );
       }
 
-      if (response && response.success) {
-        this.attendanceData = response.data || [];
+      if (response) {
+        this.attendanceData = Array.isArray(response)
+          ? response
+          : response.data || response;
         this.renderSummaryTable();
         this.updateSummaryCards();
         this.renderTrendChart();
@@ -391,14 +393,22 @@ const ViewAttendanceController = {
         : "";
 
     try {
-      let url = `/api/?route=attendance&action=daily&date=${date}`;
-      if (sessionId) url += `&session_id=${sessionId}`;
-      if (classId) url += `&stream_id=${classId}`;
-      if (dormId) url += `&dormitory_id=${dormId}`;
+      const params = { date };
+      if (sessionId) params.session_id = sessionId;
+      if (classId) params.stream_id = classId;
+      if (dormId) params.dormitory_id = dormId;
 
-      const response = await window.API.apiCall(url, "GET");
-      if (response && response.success) {
-        this.renderDailyTable(response.data || []);
+      const response = await window.API.apiCall(
+        "/attendance/session-attendance",
+        "GET",
+        null,
+        params,
+      );
+      if (response) {
+        const data = Array.isArray(response)
+          ? response
+          : response.data || response;
+        this.renderDailyTable(data);
       }
     } catch (error) {
       console.error("Error loading daily register:", error);
@@ -445,11 +455,16 @@ const ViewAttendanceController = {
 
     try {
       const response = await window.API.apiCall(
-        `/api/?route=attendance&action=boarding-summary&date=${date}`,
-        "GET"
+        "/attendance/boarding-summary",
+        "GET",
+        null,
+        { date },
       );
-      if (response && response.success) {
-        this.renderBoardingSummaryCards(response.data || []);
+      if (response) {
+        const data = Array.isArray(response)
+          ? response
+          : response.data || response;
+        this.renderBoardingSummaryCards(data);
       }
     } catch (error) {
       console.error("Error loading boarding summary:", error);
@@ -523,11 +538,15 @@ const ViewAttendanceController = {
   async loadActivePermissions() {
     try {
       const response = await window.API.apiCall(
-        "/api/?route=attendance&action=permissions&status=approved&active=true",
-        "GET"
+        "/attendance/permissions",
+        "GET",
+        null,
+        { status: "approved", active: true },
       );
-      if (response && response.success) {
-        this.permissionsData = response.data || [];
+      if (response) {
+        this.permissionsData = Array.isArray(response)
+          ? response
+          : response.data || response;
         this.renderPermissionsTable();
       }
     } catch (error) {

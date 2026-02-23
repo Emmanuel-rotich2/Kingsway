@@ -148,7 +148,7 @@ const manageNonTeachingStaffController = {
 
     if (!staff || staff.length === 0) {
       container.innerHTML =
-        '<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>No non-teaching staff records found.</div>';
+        '<div class="alert alert-info"><i class="bi bi-info-circle me-2"></i>No non-teaching staff records found.</div>';
       return;
     }
 
@@ -189,9 +189,9 @@ const manageNonTeachingStaffController = {
               <td>${this.esc(role)}</td>
               <td><span class="badge ${statusClass}">${this.esc(s.status || "Unknown")}</span></td>
               <td>
-                <button class="btn btn-sm btn-info me-1" onclick="manageNonTeachingStaffController.viewStaff(${s.id})" title="View"><i class="fas fa-eye"></i></button>
-                <button class="btn btn-sm btn-warning me-1" onclick="manageNonTeachingStaffController.showEditForm(${s.id})" title="Edit"><i class="fas fa-edit"></i></button>
-                <button class="btn btn-sm btn-danger" onclick="manageNonTeachingStaffController.deleteStaff(${s.id})" title="Delete"><i class="fas fa-trash"></i></button>
+                <button class="btn btn-sm btn-outline-info me-1" onclick="manageNonTeachingStaffController.viewStaff(${s.id})" title="View"><i class="bi bi-eye"></i></button>
+                <button class="btn btn-sm btn-outline-warning me-1" onclick="manageNonTeachingStaffController.showEditForm(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" onclick="manageNonTeachingStaffController.deleteStaff(${s.id})" title="Delete"><i class="bi bi-trash"></i></button>
               </td>
             </tr>`;
     });
