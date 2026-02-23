@@ -283,7 +283,7 @@ const studentsManagementController = {
       if (feeStatus) params.append("fee_status", feeStatus);
 
       const resp = await window.API.apiCall(
-        `/students/student?${params.toString()}`,
+        `/students?${params.toString()}`,
         "GET",
       );
 
@@ -688,16 +688,12 @@ const studentsManagementController = {
 
       if (id) {
         response = await window.API.apiCall(
-          `/students/student/${id}`,
+          `/students/${id}`,
           "PUT",
           studentData,
         );
       } else {
-        response = await window.API.apiCall(
-          "/students/student",
-          "POST",
-          studentData,
-        );
+        response = await window.API.apiCall("/students", "POST", studentData);
       }
 
       if (photoFile) {
@@ -721,7 +717,7 @@ const studentsManagementController = {
 
   editStudent: async function (id) {
     try {
-      const resp = await window.API.apiCall(`/students/student/${id}`, "GET");
+      const resp = await window.API.apiCall(`/students/${id}`, "GET");
       const payload = this.unwrapPayload(resp);
       if (payload) {
         this.showStudentModal(payload);
@@ -750,7 +746,7 @@ const studentsManagementController = {
         performanceResp,
         disciplineResp,
       ] = await Promise.allSettled([
-        window.API.apiCall(`/students/student/${id}`, "GET"),
+        window.API.apiCall(`/students/${id}`, "GET"),
         window.API.students.getParents(id),
         window.API.students.getFees(id),
         window.API.students.getAttendance(id),
@@ -1178,7 +1174,7 @@ const studentsManagementController = {
     if (!confirm("Are you sure you want to delete this student?")) return;
 
     try {
-      await window.API.apiCall(`/students/student/${id}`, "DELETE");
+      await window.API.apiCall(`/students/${id}`, "DELETE");
       this.showSuccess("Student deleted successfully");
       await this.loadStudents();
     } catch (error) {

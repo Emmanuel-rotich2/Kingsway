@@ -195,14 +195,15 @@ abstract class BaseController
     private function formatResponse($status, $data, $message, $code)
     {
         http_response_code($code);
-        return json_encode([
+        // Return array, not JSON string - api/index.php will json_encode it
+        return [
             'status' => $status,
             'message' => $message,
             'data' => $data,
             'code' => $code,
             'timestamp' => date('c'),
             'request_id' => $this->requestId
-        ]);
+        ];
     }
 
     // ========================================================================

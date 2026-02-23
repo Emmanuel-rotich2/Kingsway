@@ -1197,7 +1197,17 @@ class StudentsAPI extends BaseAPI
 
     public function getQrInfo($id) {
         try {
-            $stmt = $this->db->prepare("SELECT id, admission_no, qr_code_path FROM students WHERE id = ?");
+            $sql = "
+                SELECT
+                    s.id, s.admission_no, s.first_name, s.last_name, s.qr_code_path,
+                    c.name as class_name,
+                    cs.stream_name
+                FROM students s
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                WHERE s.id = ?
+            ";
+            $stmt = $this->db->prepare($sql);
             $stmt->execute([$id]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1207,11 +1217,7 @@ class StudentsAPI extends BaseAPI
 
             return $this->response([
                 'status' => 'success',
-                'data' => [
-                    'student_id' => $student['id'],
-                    'admission_no' => $student['admission_no'],
-                    'qr_code_path' => $student['qr_code_path']
-                ]
+                'data' => $student
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -1762,46 +1768,7 @@ class StudentsAPI extends BaseAPI
         }
     }
 
-    public function getQRInfo($id) {
-        try {
-            $sql = "
-                SELECT 
-                    s.*,
-                    c.name as class_name,
-                    cs.stream_name,
-                    COALESCE(fs.amount, 0) as fees_balance
-                FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN fee_structures fs ON s.id = fs.student_id
-                WHERE s.id = ?
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([$id]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$student) {
-                return $this->response([
-                    'status' => 'error',
-                    'message' => 'Student not found'
-                ], 404);
-            }
-
-            // Remove sensitive data
-            unset($student['password']);
-            unset($student['created_at']);
-            unset($student['updated_at']);
-
-            return $this->response([
-                'status' => 'success',
-                'data' => $student
-            ]);
-
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
+    // getQRInfo removed - duplicate of getQrInfo at line ~1198
 
     // ==================== WORKFLOW METHODS ====================
     // NOTE: Admission workflow methods delegate to StudentAdmissionWorkflow module

@@ -17,7 +17,7 @@ const AttendanceTrendsController = (() => {
             const dateFilter = document.getElementById("dateFilter")?.value;
             const r =
               (await window.API.apiCall(
-                "/students/attendance-trends",
+                "/attendance/trends",
                 "GET",
                 null,
                 dateFilter ? { date: dateFilter } : {},
@@ -25,7 +25,7 @@ const AttendanceTrendsController = (() => {
               (await window.API.attendance
                 ?.getClassAttendance?.()
                 .catch(() => null));
-            allData = r?.data || r || [];
+            allData = r || [];
             renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);
             renderCharts(allData);
         } catch (e) { console.error('Load failed:', e); renderTable([]); }

@@ -42,10 +42,7 @@ const StudentPerformanceController = {
 
   loadStudents: async function () {
     try {
-      const resp = await window.API.apiCall(
-        "/students/student?limit=500",
-        "GET"
-      );
+      const resp = await window.API.apiCall("/students?limit=500", "GET");
       const payload = this.unwrapPayload(resp) || {};
       const students = payload.students || payload || [];
       this.state.students = Array.isArray(students) ? students : [];

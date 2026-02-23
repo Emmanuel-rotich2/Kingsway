@@ -173,7 +173,7 @@ class DashboardRouter
             // Fallback
         }
 
-        return 'system_administrator_dashboard';
+        return '#';
     }
 
     /**
