@@ -1,158 +1,226 @@
 <?php
 /**
- * Results Analysis Page
- * Purpose: Analyze exam results by subject, class, and term with charts
- * Features: Subject mean analysis, pass rate tracking, grade distribution, bar charts
+ * Results Analysis Page – Production UI
+ * All logic handled in: js/pages/results_analysis.js
+ * UI Theme: Green / White (Academic Professional)
  */
 ?>
 
-<div>
-    <!-- Page Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h4 class="mb-1"><i class="bi bi-bar-chart-line"></i> Results Analysis</h4>
-            <small class="text-muted">Analyze exam results, subject means, and grade distributions</small>
-        </div>
-        <div class="btn-group">
-            <button class="btn btn-outline-primary btn-sm" id="exportResultsBtn">
-                <i class="bi bi-download"></i> Export Report
-            </button>
-            <button class="btn btn-outline-info btn-sm" id="printResultsBtn">
-                <i class="bi bi-printer"></i> Print
-            </button>
+<style>
+/* =========================================================
+   DESIGN TOKENS
+========================================================= */
+:root {
+    --acad-primary: #198754;
+    --acad-primary-dark: #146c43;
+    --acad-primary-soft: #d1e7dd;
+    --acad-bg-light: #f8f9fa;
+    --acad-white: #ffffff;
+    --acad-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.academic-header {
+    background: linear-gradient(135deg, var(--acad-primary), var(--acad-primary-dark));
+    color: #fff;
+    border-radius: 12px;
+    padding: 1.75rem 2rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--acad-shadow);
+}
+
+.academic-card {
+    background: var(--acad-white);
+    border-radius: 12px;
+    border-left: 4px solid var(--acad-primary);
+    box-shadow: var(--acad-shadow);
+    margin-bottom: 1.75rem;
+}
+
+.stat-card {
+    background: var(--acad-primary-soft);
+    border-radius: 10px;
+    padding: 1.2rem;
+    height: 100%;
+    text-align: center;
+}
+
+.stat-number {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--acad-primary-dark);
+}
+
+.btn-academic {
+    background: var(--acad-primary);
+    color: #fff;
+    border: none;
+}
+
+.btn-academic:hover {
+    background: var(--acad-primary-dark);
+    color: #fff;
+}
+
+.table-academic thead {
+    background: var(--acad-primary);
+    color: #fff;
+}
+</style>
+
+<!-- =======================================================
+ HEADER
+======================================================= -->
+<div class="academic-header d-flex justify-content-between align-items-center">
+    <div>
+        <h2 class="mb-1">
+            <i class="bi bi-bar-chart-line me-2"></i>Results Analysis
+        </h2>
+        <small class="opacity-75">
+            Analyze exam results, subject means, and grade distributions
+        </small>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-light btn-sm" id="exportResultsBtn">
+            <i class="bi bi-download me-1"></i>Export Report
+        </button>
+        <button class="btn btn-light btn-sm" id="printResultsBtn">
+            <i class="bi bi-printer me-1"></i>Print
+        </button>
+    </div>
+</div>
+
+<!-- =======================================================
+ KPI STATISTICS
+======================================================= -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number" id="overallMean">0%</div>
+            <small>Overall Mean</small>
         </div>
     </div>
-
-    <!-- KPI Summary Cards -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-3">
-            <div class="card border-primary">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Overall Mean</h6>
-                    <h3 class="text-primary mb-0" id="overallMean">0%</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-success">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Highest Subject</h6>
-                    <h3 class="text-success mb-0" id="highestSubject">-</h3>
-                    <small class="text-muted" id="highestSubjectScore"></small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-danger">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Lowest Subject</h6>
-                    <h3 class="text-danger mb-0" id="lowestSubject">-</h3>
-                    <small class="text-muted" id="lowestSubjectScore"></small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-info">
-                <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Students Assessed</h6>
-                    <h3 class="text-info mb-0" id="studentsAssessed">0</h3>
-                </div>
-            </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number" id="highestSubject">-</div>
+            <small>Highest Subject</small>
+            <br><small class="text-muted" id="highestSubjectScore"></small>
         </div>
     </div>
-
-    <!-- Filter / Search -->
-    <div class="card mb-4">
-        <div class="card-body">
-            <div class="row g-3 align-items-end">
-                <div class="col-md-3">
-                    <label class="form-label">Term</label>
-                    <select class="form-select" id="termFilterResults">
-                        <option value="">All Terms</option>
-                        <option value="1">Term 1</option>
-                        <option value="2">Term 2</option>
-                        <option value="3">Term 3</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Class</label>
-                    <select class="form-select" id="classFilterResults">
-                        <option value="">All Classes</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Subject</label>
-                    <select class="form-select" id="subjectFilterResults">
-                        <option value="">All Subjects</option>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Academic Year</label>
-                    <select class="form-select" id="yearFilterResults">
-                        <option value="">Current Year</option>
-                    </select>
-                </div>
-            </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number" id="lowestSubject">-</div>
+            <small>Lowest Subject</small>
+            <br><small class="text-muted" id="lowestSubjectScore"></small>
         </div>
     </div>
-
-    <!-- Chart Row -->
-    <div class="row mb-4">
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-header bg-light">
-                    <h6 class="mb-0">Subject Mean Scores</h6>
-                </div>
-                <div class="card-body">
-                    <canvas id="subjectMeansChart" height="200"></canvas>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="card">
-                <div class="card-header bg-light">
-                    <h6 class="mb-0">Grade Distribution</h6>
-                </div>
-                <div class="card-body">
-                    <canvas id="gradeDistributionChart" height="200"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Main Data Table -->
-    <div class="card">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-hover table-bordered" id="resultsTable">
-                    <thead class="table-light">
-                        <tr>
-                            <th>#</th>
-                            <th>Subject</th>
-                            <th>Teacher</th>
-                            <th>Mean Score</th>
-                            <th>Highest</th>
-                            <th>Lowest</th>
-                            <th>Pass Rate</th>
-                            <th>Grade Distribution</th>
-                        </tr>
-                    </thead>
-                    <tbody id="resultsTableBody">
-                        <!-- Dynamic content -->
-                    </tbody>
-                </table>
-            </div>
-            <div class="d-flex justify-content-between align-items-center mt-3">
-                <small class="text-muted">
-                    Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span
-                        id="totalRecords">0</span> subjects
-                </small>
-                <nav>
-                    <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
-                </nav>
-            </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="stat-number" id="studentsAssessed">0</div>
+            <small>Students Assessed</small>
         </div>
     </div>
 </div>
 
+<!-- =======================================================
+ FILTER BAR
+======================================================= -->
+<div class="academic-card p-3 mb-4">
+    <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label fw-semibold">Term</label>
+            <select class="form-select" id="termFilterResults">
+                <option value="">All Terms</option>
+                <option value="1">Term 1</option>
+                <option value="2">Term 2</option>
+                <option value="3">Term 3</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-semibold">Class</label>
+            <select class="form-select" id="classFilterResults">
+                <option value="">All Classes</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-semibold">Subject</label>
+            <select class="form-select" id="subjectFilterResults">
+                <option value="">All Subjects</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label fw-semibold">Academic Year</label>
+            <select class="form-select" id="yearFilterResults">
+                <option value="">Current Year</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- =======================================================
+ CHART ROW
+======================================================= -->
+<div class="row mb-4">
+    <div class="col-md-8">
+        <div class="academic-card p-3">
+            <h6 class="mb-3"><i class="bi bi-bar-chart me-2"></i>Subject Mean Scores</h6>
+            <canvas id="subjectMeansChart" height="200"></canvas>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="academic-card p-3">
+            <h6 class="mb-3"><i class="bi bi-pie-chart me-2"></i>Grade Distribution</h6>
+            <canvas id="gradeDistributionChart" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- =======================================================
+ DATA TABLE
+======================================================= -->
+<div class="academic-card p-3">
+    <div class="table-responsive">
+        <table class="table table-hover table-bordered table-academic" id="resultsTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Subject</th>
+                    <th>Teacher</th>
+                    <th>Mean Score</th>
+                    <th>Highest</th>
+                    <th>Lowest</th>
+                    <th>Pass Rate</th>
+                    <th>Grade Distribution</th>
+                </tr>
+            </thead>
+            <tbody id="resultsTableBody">
+                <!-- Dynamic content -->
+            </tbody>
+        </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-3">
+        <small class="text-muted">
+            Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span id="totalRecords">0</span> subjects
+        </small>
+        <nav>
+            <ul class="pagination pagination-sm mb-0" id="pagination"></ul>
+        </nav>
+    </div>
+</div>
+
+<!-- =======================================================
+ TOAST NOTIFICATIONS
+======================================================= -->
+<div class="position-fixed top-0 end-0 p-3" style="z-index: 11000;">
+    <div id="academicToast" class="toast">
+        <div class="toast-header">
+            <strong id="toastTitle" class="me-auto">Notice</strong>
+            <button class="btn-close" data-bs-dismiss="toast"></button>
+        </div>
+        <div class="toast-body" id="toastBody"></div>
+    </div>
+</div>
+
+<!-- =======================================================
+ SCRIPTS
+======================================================= -->
 <script src="/Kingsway/js/pages/results_analysis.js?v=<?php echo time(); ?>"></script>

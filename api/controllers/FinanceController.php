@@ -704,7 +704,7 @@ class FinanceController extends BaseController
      * GET /api/finance/fee-structures/list
      * Get fee structures with permission-aware filtering
      */
-    public function getFeesStructuresList($id = null, $data = [], $segments = [])
+    public function getFeeStructuresList($id = null, $data = [], $segments = [])
     {
         $filters = array_merge($_GET, $data);
         $page = $filters['page'] ?? 1;

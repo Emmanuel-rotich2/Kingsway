@@ -106,7 +106,7 @@ const SpecialNeedsController = (() => {
 
     try {
       const studentResp = await window.API.apiCall(
-        "/students/student?limit=500",
+        "/students?limit=500",
         "GET",
       );
       const payload = unwrapPayload(studentResp);

@@ -105,11 +105,11 @@ const StaffAttendanceController = {
   async loadDepartments() {
     try {
       const response = await window.API.apiCall(
-        "/api/?route=staff&action=departments",
-        "GET"
+        "/staff/departments/get",
+        "GET",
       );
-      if (response && response.success) {
-        this.departments = response.data || [];
+      if (response) {
+        this.departments = Array.isArray(response) ? response : [];
         this.renderDepartmentDropdowns();
       }
     } catch (error) {
@@ -121,11 +121,11 @@ const StaffAttendanceController = {
     try {
       // Load duty types from staff duty roster
       const response = await window.API.apiCall(
-        "/api/?route=attendance&action=duty-types",
-        "GET"
+        "/attendance/duty-types",
+        "GET",
       );
-      if (response && response.success) {
-        this.dutyTypes = response.data || [];
+      if (response) {
+        this.dutyTypes = Array.isArray(response) ? response : [];
         this.renderDutyTypeDropdown();
       }
     } catch (error) {
@@ -179,11 +179,13 @@ const StaffAttendanceController = {
 
     try {
       const response = await window.API.apiCall(
-        `/api/?route=attendance&action=staff-today&date=${today}`,
-        "GET"
+        "/attendance/staff-today",
+        "GET",
+        null,
+        { date: today },
       );
-      if (response && response.success) {
-        this.todayStaff = response.data || [];
+      if (response) {
+        this.todayStaff = Array.isArray(response) ? response : [];
         this.renderTodayStaffGrid();
       }
     } catch (error) {
@@ -291,14 +293,14 @@ const StaffAttendanceController = {
 
     try {
       const response = await window.API.apiCall(
-        `/api/?route=attendance&action=staff-report&${new URLSearchParams(
-          params
-        )}`,
-        "GET"
+        "/attendance/staff-report",
+        "GET",
+        null,
+        params,
       );
 
-      if (response && response.success) {
-        this.staffData = response.data || [];
+      if (response) {
+        this.staffData = Array.isArray(response) ? response : [];
         this.renderAttendanceTable();
         this.updateSummaryCards();
         this.renderCharts();
@@ -513,12 +515,17 @@ const StaffAttendanceController = {
     const departmentId = document.getElementById("markDepartment").value;
 
     try {
-      let url = `/api/?route=attendance&action=staff-today&date=${date}`;
-      if (departmentId) url += `&department_id=${departmentId}`;
+      const queryParams = { date: date };
+      if (departmentId) queryParams.department_id = departmentId;
 
-      const response = await window.API.apiCall(url, "GET");
-      if (response && response.success) {
-        this.renderMarkStaffTable(response.data || []);
+      const response = await window.API.apiCall(
+        "/attendance/staff-today",
+        "GET",
+        null,
+        queryParams,
+      );
+      if (response) {
+        this.renderMarkStaffTable(Array.isArray(response) ? response : []);
       }
     } catch (error) {
       console.error("Error loading staff for marking:", error);
@@ -646,26 +653,20 @@ const StaffAttendanceController = {
 
     try {
       const response = await window.API.apiCall(
-        "/api/?route=attendance&action=mark-staff",
+        "/attendance/mark-staff",
         "POST",
         {
           date: date,
           attendance: attendance,
-        }
+        },
       );
 
-      if (response && response.success) {
-        alert("Staff attendance submitted successfully!");
-        bootstrap.Modal.getInstance(
-          document.getElementById("markStaffModal")
-        )?.hide();
-        this.loadTodayStaff();
-      } else {
-        alert(
-          "Failed to submit attendance: " +
-            (response?.message || "Unknown error")
-        );
-      }
+      // apiCall returns data directly on success or throws on failure
+      alert("Staff attendance submitted successfully!");
+      bootstrap.Modal.getInstance(
+        document.getElementById("markStaffModal"),
+      )?.hide();
+      this.loadTodayStaff();
     } catch (error) {
       console.error("Error submitting staff attendance:", error);
       alert("Error submitting attendance");

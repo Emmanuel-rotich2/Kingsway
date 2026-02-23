@@ -124,18 +124,37 @@ class AttendanceController extends BaseController
 
     public function getClassAttendance($classId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
+        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
         $result = $this->api->getClassAttendance($classId, $termId, $yearId);
         return $this->handleResponse($result);
     }
 
     public function getStudentPercentage($studentId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
-        $result = $this->api->getStudentAttendancePercentage($studentId, $termId, $yearId);
-        return $this->handleResponse($result);
+        try {
+            $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+            $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days FROM student_attendance WHERE student_id = ?";
+            $params = [$studentId];
+            if ($termId) {
+                $sql .= " AND term_id = ?";
+                $params[] = $termId;
+            }
+            $result = $this->db->query($sql, $params);
+            $row = $result->fetch(\PDO::FETCH_ASSOC);
+            $total = (int) ($row['total_days'] ?? 0);
+            $present = (int) ($row['present_days'] ?? 0);
+            $percentage = $total > 0 ? round(100 * $present / $total, 2) : 0;
+            return $this->success([
+                'student_id' => $studentId,
+                'total_days' => $total,
+                'present_days' => $present,
+                'percentage' => $percentage,
+                'term_id' => $termId
+            ], 'Attendance percentage calculated');
+        } catch (\Exception $e) {
+            return $this->error('Failed to calculate percentage: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -159,9 +178,9 @@ class AttendanceController extends BaseController
 
     public function getChronicStudentAbsentees($classId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
-        $threshold = $segments[2] ?? $data['threshold'] ?? 0.2;
+        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
+        $threshold = $data['threshold'] ?? $_GET['threshold'] ?? 0.2;
         $result = $this->api->getChronicStudentAbsentees($classId, $termId, $yearId, $threshold);
         return $this->handleResponse($result);
     }
@@ -183,25 +202,25 @@ class AttendanceController extends BaseController
 
     public function getDepartmentAttendance($departmentId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
+        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
         $result = $this->api->getDepartmentAttendance($departmentId, $termId, $yearId);
         return $this->handleResponse($result);
     }
 
     public function getStaffPercentage($staffId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
+        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
         $result = $this->api->getStaffAttendancePercentage($staffId, $termId, $yearId);
         return $this->handleResponse($result);
     }
 
     public function getChronicStaffAbsentees($departmentId = null, $data = [], $segments = [])
     {
-        $termId = $segments[0] ?? $data['termId'] ?? null;
-        $yearId = $segments[1] ?? $data['yearId'] ?? null;
-        $threshold = $segments[2] ?? $data['threshold'] ?? 0.2;
+        $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
+        $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
+        $threshold = $data['threshold'] ?? $_GET['threshold'] ?? 0.2;
         $result = $this->api->getChronicStaffAbsentees($departmentId, $termId, $yearId, $threshold);
         return $this->handleResponse($result);
     }
@@ -1143,43 +1162,43 @@ class AttendanceController extends BaseController
             $statusFilter = $data['status'] ?? $_GET['status'] ?? null;
 
             // Build dynamic query
-            $params = [$dateFrom, $dateTo];
             $whereClause = "";
+            $whereParams = [];
 
             if ($departmentId) {
                 $whereClause .= " AND s.department_id = ?";
-                $params[] = $departmentId;
+                $whereParams[] = $departmentId;
             }
 
             $sql = "
-                SELECT 
+                SELECT
                     s.id as staff_id,
                     s.first_name,
                     s.last_name,
                     s.staff_no,
                     d.name as department_name,
-                    
+
                     -- Aggregate attendance counts
                     SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present,
                     SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent,
                     SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late,
-                    
+
                     -- Count leave days
-                    (SELECT COUNT(*) FROM staff_leaves sl 
-                     WHERE sl.staff_id = s.id 
+                    (SELECT COUNT(*) FROM staff_leaves sl
+                     WHERE sl.staff_id = s.id
                      AND sl.status = 'approved'
-                     AND sl.start_date <= ? 
+                     AND sl.start_date <= ?
                      AND sl.end_date >= ?
                     ) as on_leave,
-                    
+
                     -- Count off days from roster
                     (SELECT COUNT(*) FROM staff_duty_roster sdr
                      JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-                     WHERE sdr.staff_id = s.id 
+                     WHERE sdr.staff_id = s.id
                      AND sdr.date BETWEEN ? AND ?
                      AND sdt.code IN ('OFF', 'WEEKEND_OFF')
                     ) as off_days,
-                    
+
                     -- Get typical duty type
                     (SELECT sdt2.name FROM staff_duty_roster sdr2
                      JOIN staff_duty_types sdt2 ON sdr2.duty_type_id = sdt2.id
@@ -1187,21 +1206,24 @@ class AttendanceController extends BaseController
                      AND sdt2.code NOT IN ('OFF', 'WEEKEND_OFF')
                      ORDER BY sdr2.date DESC LIMIT 1
                     ) as duty_type
-                    
+
                 FROM staff s
                 LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN staff_attendance sa ON s.id = sa.staff_id 
+                LEFT JOIN staff_attendance sa ON s.id = sa.staff_id
                     AND sa.date BETWEEN ? AND ?
                 WHERE s.status = 'active' {$whereClause}
                 GROUP BY s.id, s.first_name, s.last_name, s.staff_no, d.name
                 ORDER BY s.first_name, s.last_name
             ";
 
-            // Add extra params for subqueries
-            $params = array_merge([$dateFrom, $dateTo], [$dateTo, $dateFrom], [$dateFrom, $dateTo], [$dateFrom, $dateTo]);
-            if ($departmentId) {
-                $params[] = $departmentId;
-            }
+            // Params in SQL placeholder order:
+            // 1. sl.start_date <= ? ($dateTo)
+            // 2. sl.end_date >= ? ($dateFrom)
+            // 3. sdr.date BETWEEN ? AND ? ($dateFrom, $dateTo)
+            // 4. sa.date BETWEEN ? AND ? ($dateFrom, $dateTo)
+            // 5. optional: s.department_id = ?
+            $params = [$dateTo, $dateFrom, $dateFrom, $dateTo, $dateFrom, $dateTo];
+            $params = array_merge($params, $whereParams);
 
             $result = $this->db->query($sql, $params);
             $staffData = $result->fetchAll(\PDO::FETCH_ASSOC);
@@ -1307,6 +1329,15 @@ class AttendanceController extends BaseController
     private function handleResponse($result)
     {
         if (is_array($result)) {
+            // Handle successResponse/errorResponse format: {status, message, type, code, data}
+            if (isset($result['status'])) {
+                if ($result['status'] === 'success') {
+                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+                } else {
+                    return $this->badRequest($result['message'] ?? 'Operation failed');
+                }
+            }
+            // Handle legacy {success: true/false, data, message} format
             if (isset($result['success'])) {
                 if ($result['success']) {
                     return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');

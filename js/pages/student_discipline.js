@@ -96,8 +96,8 @@ const StudentDisciplineController = {
 
     try {
       const studentResp = await window.API.apiCall(
-        `/students/student?limit=500`,
-        "GET"
+        `/students?limit=500`,
+        "GET",
       );
       const payload = this.unwrapPayload(studentResp);
       const students = payload?.students || payload || [];

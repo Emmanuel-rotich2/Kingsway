@@ -62,7 +62,6 @@ $sidebar_items = [];
                     echo '<i class="bi bi-exclamation-triangle me-2"></i>';
                     echo 'Page not found: ' . htmlspecialchars($route);
                     echo '</div>';
-                    echo '<p><a href="/Kingsway/home.php?route=system_administrator_dashboard" class="btn btn-primary">Go to Dashboard</a></p>';
                 } else {
                     // No route (shouldn't happen because home.php redirects)
                     echo '<div class="alert alert-info">Redirecting to dashboard...</div>';
