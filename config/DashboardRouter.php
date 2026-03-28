@@ -20,20 +20,90 @@ use App\Database\Database;
 
 class DashboardRouter
 {
-    private static ?\PDO $db = null;
-    private static array $roleDashboardCache = [];
-    private static array $dashboardCache = [];
-
     /**
-     * Get database connection
+     * Map of role names to dashboard file keys
+     * Role names should match the database role_name (lowercase, normalized)
      */
-    private static function getDb(): \PDO
-    {
-        if (self::$db === null) {
-            self::$db = Database::getInstance()->getConnection();
-        }
-        return self::$db;
-    }
+    private static $roleToDashboard = [
+        // System & Administration
+        'system_administrator' => 'system_administrator_dashboard',
+        'system administrator' => 'system_administrator_dashboard',
+        'admin' => 'system_administrator_dashboard',
+
+        // Leadership
+        'director/owner' => 'director_owner_dashboard',
+        'director_owner' => 'director_owner_dashboard',
+        'director' => 'director_owner_dashboard',
+        'headteacher' => 'headteacher_dashboard',
+        'head_teacher' => 'headteacher_dashboard',
+        'deputy_headteacher' => 'deputy_headteacher_dashboard',
+        'deputy headteacher' => 'deputy_headteacher_dashboard',
+
+        // Administrative Staff
+        'school_administrative_officer' => 'school_administrative_officer_dashboard',
+        'school administrative officer' => 'school_administrative_officer_dashboard',
+        'registrar' => 'registrar_dashboard',
+        'secretary' => 'secretary_dashboard',
+
+        // Teaching Staff
+        'class_teacher' => 'class_teacher_dashboard',
+        'class teacher' => 'class_teacher_dashboard',
+        'subject_teacher' => 'subject_teacher_dashboard',
+        'subject teacher' => 'subject_teacher_dashboard',
+        'teacher' => 'teacher_dashboard',
+        'intern/student_teacher' => 'intern_student_teacher_dashboard',
+        'intern_student_teacher' => 'intern_student_teacher_dashboard',
+
+        // Finance
+        'school_accountant' => 'school_accountant_dashboard',
+        'school accountant' => 'school_accountant_dashboard',
+        'accountant' => 'school_accountant_dashboard',
+        'accounts_assistant' => 'accounts_assistant_dashboard',
+        'accounts assistant' => 'accounts_assistant_dashboard',
+        'accounts' => 'school_accountant_dashboard',
+
+        // Operations - Stores
+        'store_manager' => 'store_manager_dashboard',
+        'store manager' => 'store_manager_dashboard',
+        'store_attendant' => 'store_attendant_dashboard',
+        'store attendant' => 'store_attendant_dashboard',
+
+        // Operations - Catering
+        'catering_manager/cook_lead' => 'catering_manager_cook_lead_dashboard',
+        'catering_manager_cook_lead' => 'catering_manager_cook_lead_dashboard',
+        'cook/food_handler' => 'cook_food_handler_dashboard',
+        'cook_food_handler' => 'cook_food_handler_dashboard',
+        'matron/housemother' => 'matron_housemother_dashboard',
+        'matron_housemother' => 'matron_housemother_dashboard',
+
+        // Heads of Department
+        'hod_food_&_nutrition' => 'hod_food_nutrition_dashboard',
+        'hod_food_nutrition' => 'hod_food_nutrition_dashboard',
+        'hod_games_&_sports' => 'hod_games_sports_dashboard',
+        'hod_games_sports' => 'hod_games_sports_dashboard',
+        'hod_talent_development' => 'hod_talent_development_dashboard',
+        'hod transport' => 'hod_transport_dashboard',
+        'hod_transport' => 'hod_transport_dashboard',
+
+        // Support Services
+        'driver' => 'driver_dashboard',
+        'school_counselor/chaplain' => 'school_counselor_chaplain_dashboard',
+        'school_counselor_chaplain' => 'school_counselor_chaplain_dashboard',
+        'security_officer' => 'security_officer_dashboard',
+        'security officer' => 'security_officer_dashboard',
+        'cleaner/janitor' => 'cleaner_janitor_dashboard',
+        'cleaner_janitor' => 'cleaner_janitor_dashboard',
+        'librarian' => 'librarian_dashboard',
+        'activities_coordinator' => 'activities_coordinator_dashboard',
+        'activities coordinator' => 'activities_coordinator_dashboard',
+
+        // External
+        'parent/guardian' => 'parent_guardian_dashboard',
+        'parent_guardian' => 'parent_guardian_dashboard',
+        'parent' => 'parent_guardian_dashboard',
+        'visiting_staff' => 'visiting_staff_dashboard',
+        'visiting staff' => 'visiting_staff_dashboard',
+    ];
 
     /**
      * Get dashboard route for a given role (by ID or name)
