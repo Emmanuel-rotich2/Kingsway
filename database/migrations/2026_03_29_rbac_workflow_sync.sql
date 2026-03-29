@@ -1,3 +1,6 @@
+-- DEPRECATED FOR RE-RUN: section 2 ALTERs fail if already applied. Use instead:
+--   2026_04_01_rbac_schema_extensions_idempotent.sql + 2026_04_01_rbac_module_tagging_updates.sql
+-- Section 6 route_permissions JOIN is superseded by 2026_03_30_rebuild_route_permissions_and_role_routes.sql
 -- =========================================================================
 -- PHASE 3: DATABASE SYNCHRONIZATION MIGRATION SCRIPTS
 -- Project: Kingsway School ERP - RBAC & Workflow Synchronization

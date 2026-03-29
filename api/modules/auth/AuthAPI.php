@@ -321,11 +321,6 @@ class AuthAPI extends BaseAPI
         $userPermissions = array_values(array_filter(array_unique($userPermissions)));
         error_log("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
 
-        // Add default role permissions for well-known roles (e.g., Accountant role id 10)
-        if (in_array(10, $roleIds, true)) {
-            $userPermissions = array_values(array_unique(array_merge($userPermissions, $this->getDefaultRolePermissions(10))));
-        }
-
         // NOTE: We no longer add Headteacher (role 5) wholesale to a Deputy's
         // effective roles when delegation exists. Delegation is performed at
         // the per-menu-item level (see `role_delegations_items`). MenuBuilderService
@@ -457,11 +452,6 @@ class AuthAPI extends BaseAPI
             // Normalize user permissions to codes and merge delegated permissions
             $userData = $this->normalizeUserPermissions($userData);
             $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
-
-            // Add default role permissions for known roles (e.g., Accountant role id 10)
-            if (in_array(10, $roleIds, true)) {
-                $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'], $this->getDefaultRolePermissions(10))));
-            }
 
             // Generate refresh token and set it as HttpOnly secure cookie (do not return in body)
             $refreshToken = $this->generateRefreshToken($userId);
@@ -717,11 +707,8 @@ class AuthAPI extends BaseAPI
             }
         }
 
-        // Normalize user permissions and merge any role-specific defaults
+        // Normalize user permissions (effective permissions come from DB / stored procedure only)
         $userData = $this->normalizeUserPermissions($userData);
-        if ($primaryRoleId === 10) {
-            $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $this->getDefaultRolePermissions(10))));
-        }
 
         // Generate refresh token and set as HttpOnly cookie (do not return in body)
         $refreshToken = $this->generateRefreshToken($userData['id']);
@@ -994,31 +981,6 @@ class AuthAPI extends BaseAPI
         $codes = array_values(array_filter(array_unique($codes)));
         $userData['permissions'] = $codes;
         return $userData;
-    }
-
-    /**
-     * Return default role permissions for well-known roles
-     */
-    private function getDefaultRolePermissions(int $roleId): array
-    {
-        switch ($roleId) {
-            case 10: // Accountant
-                return [
-                    'finance_view',
-                    'manage_payments',
-                    'bank_accounts_view',
-                    'bank_transactions_view',
-                    'mpesa_view',
-                    'payroll_view',
-                    'payslips_view',
-                    'vendors_manage',
-                    'purchase_orders_manage',
-                    'finance_reports_view',
-                    'fee_structure_manage'
-                ];
-            default:
-                return [];
-        }
     }
 
     /**
