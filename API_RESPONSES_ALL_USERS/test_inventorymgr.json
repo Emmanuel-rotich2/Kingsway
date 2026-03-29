@@ -1,0 +1,63 @@
+{
+  "status": "success",
+  "message": "Login successful",
+  "data": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxMCwidXNlcm5hbWUiOiJ0ZXN0X2ludmVudG9yeW1nciIsImVtYWlsIjoiY2hyaXN0b3BoZXJAZ21haWwuY29tIiwicm9sZXMiOlt7ImlkIjoxNCwibmFtZSI6IkludmVudG9yeSBNYW5hZ2VyIiwiZGVzY3JpcHRpb24iOiJJbnZlbnRvcnkgTWFuYWdlciAtIFNjaG9vbCB1bmlmb3JtcyBzdG9yZSBtYW5hZ2VtZW50LCB1bmlmb3JtIGludmVudG9yeSwgcmVxdWlzaXRpb25zLCBzdG9jayBjb250cm9sIiwiY3JlYXRlZF9hdCI6IjIwMjUtMTItMDYgMTU6NTQ6MDciLCJ1cGRhdGVkX2F0IjoiMjAyNS0xMi0xMCAxMToxOToxNCJ9XSwiZGlzcGxheV9uYW1lIjoiQ2hyaXN0b3BoZXIgSW52ZW50b3J5TWdyIiwiaWF0IjoxNzc0Nzc3NDU5LCJleHAiOjE3NzQ3ODEwNTksImlzcyI6Imtpbmdzd2F5LXByZXAtc2Nob29sIiwiYXVkIjoia2luZ3N3YXktc3RhZmYifQ.38PoojNHodJERoV3cV-aKjK-mGs658STyF0ffJZHgVA",
+    "token_expires_in": 3600,
+    "user": {
+      "id": 10,
+      "username": "test_inventorymgr",
+      "email": "christopher@gmail.com",
+      "first_name": "Christopher",
+      "last_name": "InventoryMgr",
+      "role_id": 14,
+      "status": "active",
+      "roles": [
+        {
+          "id": 14,
+          "name": "Inventory Manager",
+          "description": "Inventory Manager - School uniforms store management, uniform inventory, requisitions, stock control",
+          "created_at": "2025-12-06 15:54:07",
+          "updated_at": "2025-12-10 11:19:14"
+        }
+      ],
+      "permissions": [
+        "communications_inbound_view",
+        "communications_messages_create",
+        "communications_messages_view",
+        "communications_messages_view_all",
+        "communications_messages_view_own",
+        "communications_view",
+        "inventory_view",
+        "students_view"
+      ]
+    },
+    "sidebar_items": [
+      {
+        "id": "dashboard_14",
+        "label": "Inventory Manager Dashboard",
+        "icon": "bi-house-door",
+        "url": "store_manager_dashboard",
+        "route_url": "home.php?route=store_manager_dashboard",
+        "domain": "SCHOOL",
+        "display_order": -200,
+        "subitems": [],
+        "show_badge": false,
+        "badge_source": null,
+        "badge_color": "danger",
+        "open_in_new_tab": false,
+        "requires_confirmation": false,
+        "confirmation_message": null,
+        "css_class": null,
+        "tooltip": null
+      }
+    ],
+    "dashboard": {
+      "key": "store_manager_dashboard",
+      "url": "home.php?route=store_manager_dashboard",
+      "label": "Inventory Manager Dashboard"
+    },
+    "delegated_permissions": [],
+    "config_source": "database"
+  }
+}

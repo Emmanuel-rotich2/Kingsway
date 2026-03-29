@@ -1,0 +1,54 @@
+{
+  "status": "success",
+  "message": "Login successful",
+  "data": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxOCwidXNlcm5hbWUiOiJ0ZXN0X2phbml0b3IiLCJlbWFpbCI6Im1hcnlAZ21haWwuY29tIiwicm9sZXMiOlt7ImlkIjozNCwibmFtZSI6Ikphbml0b3IiLCJkZXNjcmlwdGlvbiI6IltUUkFDS0lORyBPTkxZXSBNYWludGVuYW5jZSBhbmQgY2xlYW5pbmcgc3RhZmYgLSBObyBzeXN0ZW0gYWNjZXNzLiBGb3IgcGF5cm9sbCBhbmQgcmVjb3JkcyBvbmx5LiIsImNyZWF0ZWRfYXQiOiIyMDI1LTEyLTEwIDExOjE5OjE0IiwidXBkYXRlZF9hdCI6IjIwMjUtMTItMTAgMTE6MTk6MTQifV0sImRpc3BsYXlfbmFtZSI6Ik1hcnkgSmFuaXRvciIsImlhdCI6MTc3NDc3NzQ2NCwiZXhwIjoxNzc0NzgxMDY0LCJpc3MiOiJraW5nc3dheS1wcmVwLXNjaG9vbCIsImF1ZCI6Imtpbmdzd2F5LXN0YWZmIn0.3vILqC2OD3_Xy2rYJ1_rRc9CNQihWTZArVE_EiSKRLA",
+    "token_expires_in": 3600,
+    "user": {
+      "id": 18,
+      "username": "test_janitor",
+      "email": "mary@gmail.com",
+      "first_name": "Mary",
+      "last_name": "Janitor",
+      "role_id": 34,
+      "status": "active",
+      "roles": [
+        {
+          "id": 34,
+          "name": "Janitor",
+          "description": "[TRACKING ONLY] Maintenance and cleaning staff - No system access. For payroll and records only.",
+          "created_at": "2025-12-10 11:19:14",
+          "updated_at": "2025-12-10 11:19:14"
+        }
+      ],
+      "permissions": []
+    },
+    "sidebar_items": [
+      {
+        "id": "dashboard_34",
+        "label": "Support Staff Dashboard",
+        "icon": "bi-house-door",
+        "url": "support_staff_dashboard",
+        "route_url": "home.php?route=support_staff_dashboard",
+        "domain": "SCHOOL",
+        "display_order": -200,
+        "subitems": [],
+        "show_badge": false,
+        "badge_source": null,
+        "badge_color": "danger",
+        "open_in_new_tab": false,
+        "requires_confirmation": false,
+        "confirmation_message": null,
+        "css_class": null,
+        "tooltip": null
+      }
+    ],
+    "dashboard": {
+      "key": "support_staff_dashboard",
+      "url": "home.php?route=support_staff_dashboard",
+      "label": "Support Staff Dashboard"
+    },
+    "delegated_permissions": [],
+    "config_source": "database"
+  }
+}
