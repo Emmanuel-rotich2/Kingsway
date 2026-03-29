@@ -1,4 +1,5 @@
 # PHASE 1: COMPREHENSIVE SYSTEM AUDIT
+
 ## Full RBAC/Workflow Synchronization Analysis
 
 **Date**: 2026-03-29
@@ -55,6 +56,7 @@
 | Deputy Head - Discipline | 1 | 2 | 25+ | ⚠️ MINIMAL |
 
 **Findings**:
+
 - **11 roles have only 1-2 sidebar items** (critical truncation)
 - **3 roles have 3+ items but still well below expected** (headteacher/admin roles)
 - **Only 1 role at acceptable level** (Sysadmin with 12, but should have more)
@@ -62,11 +64,13 @@
 ### 1.3 Permissions by Role
 
 **Sysadmin**: 4,459 permissions (ALL, as superuser)
+
 ```
 academic_assessments_annotate, academic_assessments_approve, ... (4,459 total)
 ```
 
 **Director**: 25 permissions
+
 ```
 academic_view, activities_view, admission_view, attendance_view, boarding_view,
 chapel_view, communications_announcements_create, communications_announcements_publish,
@@ -78,6 +82,7 @@ staff_view, students_view, transport_view
 ```
 
 **Headteacher**: 24 permissions
+
 ```
 academic_update, academic_view, activities_view, admission_view, attendance_view,
 boarding_view, communications_inbound_view, communications_messages_create,
@@ -87,6 +92,7 @@ transport_view, ... (24 total)
 ```
 
 **Accountant**: 18 permissions
+
 ```
 bank_accounts_view, bank_transactions_view, communications_inbound_view,
 communications_messages_create, communications_messages_view, communications_view,
@@ -95,6 +101,7 @@ students_view, ... (18 total)
 ```
 
 **Class Teacher**: 10 permissions
+
 ```
 academic_update, academic_view, attendance_view, communications_inbound_view,
 communications_messages_create, communications_messages_view, communications_view,
@@ -104,6 +111,7 @@ reports_view, schedules_view, students_view
 ### 1.4 Dashboard Assignments (All Correct)
 
 ✓ Every user has a valid dashboard assigned
+
 - System Administrator → system_administrator_dashboard
 - Director → director_owner_dashboard
 - Headteacher → headteacher_dashboard
@@ -114,6 +122,7 @@ reports_view, schedules_view, students_view
 ### 1.5 Config Source (All Using Database)
 
 ✓ All 31 users get `config_source: "database"`
+
 - System is NOT using legacy fallback
 - Database-driven configuration is ACTIVE
 
@@ -131,6 +140,7 @@ reports_view, schedules_view, students_view
 ### 2.2 The Problem
 
 **Director's case** (to exemplify the issue):
+
 - Expected: 50-100+ sidebar items (all Director-accessible modules)
 - Actual: Only 1 item (dashboard)
 - Root cause: `role_sidebar_menus` probably contains 567+ items per previous findings
@@ -139,6 +149,7 @@ reports_view, schedules_view, students_view
 ### 2.3 Evidence of Incomplete Synchronization
 
 From previous audit notes:
+
 - Database WAS synchronized (3,922 permissions, 8,551 sidebar assignments)
 - BUT authorization checks fail (role_routes incomplete)
 - Result: Items filtered out before user sees them
@@ -176,6 +187,7 @@ From previous audit notes:
 ### 3.3 Route/Page Permission Mapping
 
 **Status**: Incomplete
+
 - Routes exist
 - Some route_permissions exist
 - But not all routes have guarding permissions
@@ -184,6 +196,7 @@ From previous audit notes:
 ### 3.4 Workflow System
 
 **Status**: Partially defined
+
 - workflow_definitions: Small number (need audit)
 - workflow_stages: Partially populated
 - workflow_instances: Limited tracking
@@ -220,6 +233,7 @@ Based on findings from test responses and noted issues:
 **File**: `api/services/MenuBuilderService.php`
 
 **Issue**: Authorization filter (lines 510-523)
+
 ```php
 $authorization = $configService->isUserAuthorizedForRoute($userId, $roleId, $routeName);
 return (bool) ($authorization['authorized'] ?? false);
@@ -242,11 +256,13 @@ return (bool) ($authorization['authorized'] ?? false);
 **Issue**: System returns "module_view" type permissions instead of full module-action-component permissions
 
 **Expected**:
+
 ```
 students_view, students_create, students_edit, students_delete, students_export
 ```
 
 **Actual**:
+
 ```
 students_view
 ```
@@ -269,26 +285,30 @@ The target model is ALREADY documented in the project:
 ## 7. WHAT NEEDS TO BE FIXED (PRIORITIZED)
 
 ### PHASE 1: IMMEDIATE (Authorization Data)
+
 1. ✅ Audit all 31 users (DONE)
 2. 🔴 Populate role_routes for ALL roles (BLOCKING)
 3. 🔴 Populate route_permissions for ALL routes (BLOCKING)
 4. 🔴 Verify role_sidebar_menus has full assignments (AUDIT NEEDED)
 
 ### PHASE 2: SHORT-TERM (Permission Model)
+
 5. 🔴 Expand permissions from "view" only to full action tier (create, edit, delete, approve, publish, export, manage, etc.)
-6. 🔴 Classify ALL permissions by module + action + component (per RBAC_PERMISSION_CATALOG.md)
-7. 🔴 Rebuild role_permissions with complete mappings
+2. 🔴 Classify ALL permissions by module + action + component (per RBAC_PERMISSION_CATALOG.md)
+3. 🔴 Rebuild role_permissions with complete mappings
 
 ### PHASE 3: MEDIUM-TERM (Workflow Synchronization)
+
 8. 🔴 Complete workflow_definitions (audit existing, add missing)
-9. 🔴 Complete workflow_stages with permission guards and responsible roles
-10. 🔴 Link workflow_stages to required permissions
+2. 🔴 Complete workflow_stages with permission guards and responsible roles
+3. 🔴 Link workflow_stages to required permissions
 
 ### PHASE 4: LONG-TERM (Validation & Deployment)
+
 11. 🔴 Re-test all 31 users (expect 50-100+ sidebar items per role)
-12. 🔴 Verify permissions work at page/component level
-13. 🔴 Verify workflows are enforced via permissions
-14. 🔴 Validate all authorization checks pass
+2. 🔴 Verify permissions work at page/component level
+3. 🔴 Verify workflows are enforced via permissions
+4. 🔴 Validate all authorization checks pass
 
 ---
 
@@ -312,12 +332,14 @@ The target model is ALREADY documented in the project:
 **System Status**: 🔴 NOT PRODUCTION READY
 
 **Critical Issues**:
+
 - Authorization incomplete (users can't access assigned functions)
 - Workflows not enforced (no permission guards)
 - Sidebars severely truncated (users can't find features)
 - Permission model incomplete (actions missing)
 
 **Impact**:
+
 - Users cannot access features they should be able to
 - Workflows can be bypassed
 - No audit trail for critical actions
@@ -328,23 +350,27 @@ The target model is ALREADY documented in the project:
 ## 10. RECOMMENDATIONS - IMMEDIATE NEXT STEPS
 
 ### Step 1: Deep Database Audit (This Session)
+
 - [ ] Read all RBAC tables to understand current state
 - [ ] Generate complete audit report
 - [ ] Identify all missing entries
 
 ### Step 2: Synchronization Plan (This Session)
+
 - [ ] Design complete role_routes population (all roles, all routes)
 - [ ] Design route_permissions completion
 - [ ] Design permission model expansion
 - [ ] Design workflow permission mapping
 
 ### Step 3: Execute Migrations (Next Session)
+
 - [ ] Backup all RBAC/workflow tables
 - [ ] Execute population scripts
 - [ ] Validate with audit queries
 - [ ] Re-test all 31 users
 
 ### Step 4: Verify Synchronization (Final)
+
 - [ ] Confirm each role gets expected sidebar items (50-100+ per role)
 - [ ] Confirm each role has comprehensive permissions
 - [ ] Confirm workflow transitions are protected

@@ -302,9 +302,24 @@ class AuthAPI extends BaseAPI
         if (empty($userData['permissions'])) {
             $permsRes = $this->userPermissionManager->getEffectivePermissions($userId);
             $userData['permissions'] = $permsRes['data'] ?? [];
+            error_log("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
+            error_log("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
         }
 
-        $userPermissions = array_column($userData['permissions'] ?? [], 'code');
+        // Extract permission codes - handle both 'code' and 'permission_code' field names
+        $userPermissions = [];
+        foreach ($userData['permissions'] ?? [] as $perm) {
+            if (is_array($perm)) {
+                $code = $perm['code'] ?? $perm['permission_code'] ?? null;
+                if ($code) {
+                    $userPermissions[] = $code;
+                }
+            } else {
+                $userPermissions[] = $perm;
+            }
+        }
+        $userPermissions = array_values(array_filter(array_unique($userPermissions)));
+        error_log("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
 
         // Add default role permissions for well-known roles (e.g., Accountant role id 10)
         if (in_array(10, $roleIds, true)) {
