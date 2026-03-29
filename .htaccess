@@ -1,8 +1,8 @@
 RewriteEngine On
-RewriteBase /Kingsway/
+RewriteBase /
 
 # API requests - rewrite to api/index.php
-RewriteCond %{REQUEST_URI} ^/Kingsway/api/
+RewriteCond %{REQUEST_URI} ^/api/
 RewriteRule ^api/(.*)$ api/index.php [L,QSA]
 
 RewriteCond %{REQUEST_FILENAME} !-f
