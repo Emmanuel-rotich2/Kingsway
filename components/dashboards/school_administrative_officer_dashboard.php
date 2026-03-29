@@ -424,7 +424,7 @@ include_once __DIR__ . '/../cards/card_component.php';
                 <i class="fas fa-plus"></i>
             </button>
             <ul class="dropdown-menu dropdown-menu-end mb-2">
-                <li><a class="dropdown-item" href="home.php?route=manage_admissions"><i class="fas fa-user-plus me-2"></i>New Admission</a></li>
+                <li><a class="dropdown-item" href="home.php?route=manage_students_admissions"><i class="fas fa-user-plus me-2"></i>New Admission</a></li>
                 <li><a class="dropdown-item" href="home.php?route=manage_announcements"><i class="fas fa-bullhorn me-2"></i>New Announcement</a></li>
                 <li><a class="dropdown-item" href="home.php?route=mark_attendance"><i class="fas fa-clipboard-check me-2"></i>Mark Attendance</a></li>
                 <li><hr class="dropdown-divider"></li>

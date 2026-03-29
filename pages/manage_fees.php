@@ -1,15 +1,8 @@
 <?php
 /**
- * Manage Fees Page - Stateless JWT-based Router
+ * Manage Fees - Legacy Entry
  *
- * Uses JavaScript to determine user role from JWT token and load appropriate template
+ * Canonical finance student-fee workflow now lives in student_fees.php.
+ * Keep this file as a compatibility alias so existing route links keep working.
  */
-
-// Default template (will be overridden by JavaScript)
-$templatePath = __DIR__ . '/fees/manager_fees.php'; // Default fallback
-
-// Include the template (JavaScript will replace content based on role)
-include $templatePath;
-exit;
-?>
-}
+include __DIR__ . '/student_fees.php';

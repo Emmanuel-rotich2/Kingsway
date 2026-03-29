@@ -1,0 +1,35 @@
+================================================================================
+USER API RESPONSES INDEX
+================================================================================
+
+  test_accountant                | Sidebar:   3 | Perms:   0
+  test_boardingmaster            | Sidebar:   1 | Perms:   0
+  test_cateress                  | Sidebar:   1 | Perms:   0
+  test_chaplain                  | Sidebar:   2 | Perms:   0
+  test_classteacher_g1           | Sidebar:   2 | Perms:   0
+  test_classteacher_g2           | Sidebar:   2 | Perms:   0
+  test_classteacher_g3           | Sidebar:   2 | Perms:   0
+  test_classteacher_g4           | Sidebar:   2 | Perms:   0
+  test_classteacher_g5           | Sidebar:   2 | Perms:   0
+  test_classteacher_g6           | Sidebar:   2 | Perms:   0
+  test_classteacher_g7           | Sidebar:   2 | Perms:   0
+  test_classteacher_g8           | Sidebar:   2 | Perms:   0
+  test_classteacher_g9           | Sidebar:   2 | Perms:   0
+  test_classteacher              | Sidebar:   3 | Perms:   0
+  test_classteacher_pg           | Sidebar:   2 | Perms:   0
+  test_classteacher_pp1          | Sidebar:   2 | Perms:   0
+  test_classteacher_pp2          | Sidebar:   2 | Perms:   0
+  test_deputy_acad               | Sidebar:   1 | Perms:   0
+  test_deputy_disc               | Sidebar:   2 | Perms:   0
+  test_director                  | Sidebar:   1 | Perms:   0
+  test_driver                    | Sidebar:   1 | Perms:   0
+  test_headteacher               | Sidebar:   9 | Perms:   0
+  test_internteacher             | Sidebar:   3 | Perms:   0
+  test_inventorymgr              | Sidebar:   1 | Perms:   0
+  test_janitor                   | Sidebar:   1 | Perms:   0
+  test_kitchenstaff              | Sidebar:   1 | Perms:   0
+  test_scholadmin                | Sidebar:   3 | Perms:   0
+  test_securitystaff             | Sidebar:   1 | Perms:   0
+  test_subjectteacher            | Sidebar:   3 | Perms:   0
+  test_sysadmin                  | Sidebar:  12 | Perms:   0
+  test_talentdev                 | Sidebar:   1 | Perms:   0

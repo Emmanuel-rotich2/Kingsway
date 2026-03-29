@@ -40,7 +40,7 @@
     }
 
     .dormitory-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #0f766e 0%, #14532d 100%);
         color: white;
     }
 
@@ -84,7 +84,7 @@
                     <p class="text-muted mb-0">Mark dormitory attendance for morning and evening sessions</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="/Kingsway/home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary">
+                    <a href="/Kingsway/home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary d-none" id="viewAttendanceHistoryLink">
                         <i class="bi bi-clock-history me-1"></i> View History
                     </a>
                 </div>
@@ -129,31 +129,31 @@
     <!-- Quick Stats -->
     <div class="quick-stats mb-4" id="quickStats" style="display: none;">
         <div class="row">
-            <div class="col">
+            <div class="col-6 col-md">
                 <div class="stat-item">
                     <div class="stat-value text-primary" id="statTotal">0</div>
                     <div class="text-muted">Total</div>
                 </div>
             </div>
-            <div class="col">
+            <div class="col-6 col-md">
                 <div class="stat-item">
                     <div class="stat-value text-success" id="statPresent">0</div>
                     <div class="text-muted">Present</div>
                 </div>
             </div>
-            <div class="col">
+            <div class="col-6 col-md">
                 <div class="stat-item">
                     <div class="stat-value text-danger" id="statAbsent">0</div>
                     <div class="text-muted">Absent</div>
                 </div>
             </div>
-            <div class="col">
+            <div class="col-6 col-md">
                 <div class="stat-item">
                     <div class="stat-value text-warning" id="statPermission">0</div>
                     <div class="text-muted">On Permission</div>
                 </div>
             </div>
-            <div class="col">
+            <div class="col-6 col-md">
                 <div class="stat-item">
                     <div class="stat-value text-info" id="statSickBay">0</div>
                     <div class="text-muted">Sick Bay</div>

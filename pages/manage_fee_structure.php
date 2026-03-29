@@ -170,12 +170,3 @@
             });
     })();
 </script>
-
-
-<script>
-    // Initialize fee structure management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('Fee Structure Management page loaded');
-        // TODO: Implement feeStructureController in js/pages/feeStructure.js
-    });
-</script>

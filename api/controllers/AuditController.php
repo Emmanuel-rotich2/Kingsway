@@ -16,8 +16,7 @@ class AuditController extends BaseController
         $user = $_SERVER['auth_user'] ?? null;
         if (!$user)
             return $this->unauthorized('Authentication required');
-        $perms = $user['effective_permissions'] ?? [];
-        if (!in_array('system.view', (array) $perms) && !in_array('audit.view', (array) $perms) && !in_array(10, (array) $user['roles'])) {
+        if (!$this->userHasAny(['system.view', 'system_view', 'audit.view', 'audit_view'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 
@@ -42,8 +41,7 @@ class AuditController extends BaseController
         $user = $_SERVER['auth_user'] ?? null;
         if (!$user)
             return $this->unauthorized('Authentication required');
-        $perms = $user['effective_permissions'] ?? [];
-        if (!in_array('finance.approve', (array) $perms) && !in_array(10, (array) $user['roles'])) {
+        if (!$this->userHasAny(['finance.approve', 'finance_approve'], [10])) {
             return $this->forbidden('Insufficient permissions');
         }
 

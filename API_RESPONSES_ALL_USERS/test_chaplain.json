@@ -1,0 +1,100 @@
+{
+  "status": "success",
+  "message": "Login successful",
+  "data": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxNSwidXNlcm5hbWUiOiJ0ZXN0X2NoYXBsYWluIiwiZW1haWwiOiJlbGl6YWJldGhAb3V0bG9vay5jb20iLCJyb2xlcyI6W3siaWQiOjI0LCJuYW1lIjoiQ2hhcGxhaW4iLCJkZXNjcmlwdGlvbiI6IkNoYXBsYWluIC0gU3Bpcml0dWFsIHdlbGZhcmUsIHN0dWRlbnQgY291bnNlbGluZywgcGFzdG9yYWwgY2FyZSwgY2hhcGVsIHNlcnZpY2VzIiwiY3JlYXRlZF9hdCI6IjIwMjUtMTItMDYgMTU6NTQ6MDciLCJ1cGRhdGVkX2F0IjoiMjAyNS0xMi0xMCAxMToxOToxMyJ9XSwiZGlzcGxheV9uYW1lIjoiRWxpemFiZXRoIENoYXBsYWluIiwiaWF0IjoxNzc0Nzc3NDYyLCJleHAiOjE3NzQ3ODEwNjIsImlzcyI6Imtpbmdzd2F5LXByZXAtc2Nob29sIiwiYXVkIjoia2luZ3N3YXktc3RhZmYifQ.pF-IljSue1ZwMG9ypQG6F3N28oWrqKKl18YdvISYBRU",
+    "token_expires_in": 3600,
+    "user": {
+      "id": 15,
+      "username": "test_chaplain",
+      "email": "elizabeth@outlook.com",
+      "first_name": "Elizabeth",
+      "last_name": "Chaplain",
+      "role_id": 24,
+      "status": "active",
+      "roles": [
+        {
+          "id": 24,
+          "name": "Chaplain",
+          "description": "Chaplain - Spiritual welfare, student counseling, pastoral care, chapel services",
+          "created_at": "2025-12-06 15:54:07",
+          "updated_at": "2025-12-10 11:19:13"
+        }
+      ],
+      "permissions": [
+        "chapel_view",
+        "communications_inbound_view",
+        "communications_messages_create",
+        "communications_messages_view",
+        "communications_messages_view_all",
+        "communications_messages_view_own",
+        "communications_view",
+        "students_view"
+      ]
+    },
+    "sidebar_items": [
+      {
+        "id": "dashboard_24",
+        "label": "Chaplain Dashboard",
+        "icon": "bi-house-door",
+        "url": "school_counselor_chaplain_dashboard",
+        "route_url": "home.php?route=school_counselor_chaplain_dashboard",
+        "domain": "SCHOOL",
+        "display_order": -200,
+        "subitems": [],
+        "show_badge": false,
+        "badge_source": null,
+        "badge_color": "danger",
+        "open_in_new_tab": false,
+        "requires_confirmation": false,
+        "confirmation_message": null,
+        "css_class": null,
+        "tooltip": null
+      },
+      {
+        "id": 850,
+        "label": "Counseling",
+        "icon": "fas fa-hands-helping",
+        "url": null,
+        "route_url": null,
+        "domain": "SCHOOL",
+        "display_order": 1,
+        "subitems": [
+          {
+            "id": 852,
+            "label": "Chapel Services",
+            "icon": null,
+            "url": "chapel_services",
+            "route_url": "home.php?route=chapel_services",
+            "domain": "SCHOOL",
+            "display_order": 1,
+            "subitems": [],
+            "show_badge": false,
+            "badge_source": null,
+            "badge_color": "danger",
+            "open_in_new_tab": false,
+            "requires_confirmation": false,
+            "confirmation_message": null,
+            "css_class": null,
+            "tooltip": null
+          }
+        ],
+        "show_badge": false,
+        "badge_source": null,
+        "badge_color": "danger",
+        "open_in_new_tab": false,
+        "requires_confirmation": false,
+        "confirmation_message": null,
+        "css_class": null,
+        "tooltip": null
+      }
+    ],
+    "dashboard": {
+      "key": "school_counselor_chaplain_dashboard",
+      "url": "home.php?route=school_counselor_chaplain_dashboard",
+      "label": "Chaplain Dashboard"
+    },
+    "delegated_permissions": [],
+    "config_source": "database"
+  }
+}

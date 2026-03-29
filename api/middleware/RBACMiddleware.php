@@ -38,40 +38,89 @@ class RBACMiddleware
     {
         try {
             $db = Database::getInstance();
-
-            // Query all permissions for user: from roles and direct assignments
-            $stmt = $db->query(
-                "SELECT DISTINCT p.id, p.name, 
-                        COALESCE(up.type, rp.type) as permission_type
-                 FROM permissions p
-                 LEFT JOIN role_permissions rp ON rp.permission_id = p.id
-                 LEFT JOIN user_roles ur ON ur.role_id = rp.role_id
-                 LEFT JOIN user_permissions up ON up.permission_id = p.id
-                 WHERE ur.user_id = ? OR up.user_id = ?
-                 ORDER BY p.name, permission_type DESC",
-                [$userId, $userId]
-            );
-
-            $permissionMap = [];
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $permName = $row['name'];
-                $permType = $row['permission_type'] ?? 'allow'; // default to allow
-
-                // Allow > Deny: if permission is allowed explicitly, keep it even if there's a deny
-                if ($permType === 'allow' || !isset($permissionMap[$permName])) {
-                    $permissionMap[$permName] = $permType;
-                }
+            $codes = self::resolvePermissionsFromProcedure($db, (int) $userId);
+            if ($codes === null) {
+                $codes = self::resolvePermissionsFromTables($db, (int) $userId);
             }
 
-            // Extract only allowed permissions
-            return array_keys(array_filter($permissionMap, function ($type) {
-                return $type === 'allow';
-            }));
+            return self::expandPermissionAliases($codes);
 
         } catch (\Exception $e) {
             error_log("RBAC permission resolution failed: " . $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * Preferred resolution path: use the procedure defined in the seed SQL.
+     */
+    private static function resolvePermissionsFromProcedure(Database $db, int $userId): ?array
+    {
+        try {
+            $stmt = $db->query('CALL sp_user_get_effective_permissions(?)', [$userId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            while ($stmt->nextRowset()) {
+                // Drain remaining result sets so the connection stays usable.
+            }
+
+            return array_values(array_unique(array_filter(array_map(
+                static fn(array $row): ?string => $row['permission_code'] ?? null,
+                $rows
+            ))));
+        } catch (\Exception $e) {
+            error_log("RBAC procedure fallback triggered: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Fallback for environments where the stored procedure has not been loaded.
+     */
+    private static function resolvePermissionsFromTables(Database $db, int $userId): array
+    {
+        $stmt = $db->query(
+            "SELECT DISTINCT p.code
+             FROM user_roles ur
+             JOIN role_permissions rp ON rp.role_id = ur.role_id
+             JOIN permissions p ON p.id = rp.permission_id
+             WHERE ur.user_id = ?
+
+             UNION DISTINCT
+
+             SELECT DISTINCT p.code
+             FROM user_permissions up
+             JOIN permissions p ON p.id = up.permission_id
+             WHERE up.user_id = ?
+               AND up.permission_type IN ('grant', 'override')
+               AND (up.expires_at IS NULL OR up.expires_at > NOW())",
+            [$userId, $userId]
+        );
+
+        return array_values(array_unique(array_filter($stmt->fetchAll(PDO::FETCH_COLUMN))));
+    }
+
+    /**
+     * Some controllers still use dotted permission names while the schema stores
+     * underscore codes. Keep both for backward compatibility during cleanup.
+     */
+    private static function expandPermissionAliases(array $codes): array
+    {
+        $expanded = [];
+
+        foreach ($codes as $code) {
+            if (!is_string($code) || $code === '') {
+                continue;
+            }
+
+            $expanded[$code] = true;
+
+            if (strpos($code, '_') !== false) {
+                $expanded[str_replace('_', '.', $code)] = true;
+            }
+        }
+
+        return array_keys($expanded);
     }
 
     /**

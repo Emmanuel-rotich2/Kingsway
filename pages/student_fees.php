@@ -44,9 +44,7 @@
             <div class="col-md-2">
                 <select class="form-select" id="termFilter">
                     <option value="">Current Term</option>
-                    <option value="1">Term 1</option>
-                    <option value="2">Term 2</option>
-                    <option value="3">Term 3</option>
+                    <option value="" disabled>Loading terms...</option>
                 </select>
             </div>
         </div>

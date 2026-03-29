@@ -279,9 +279,28 @@ class AcademicController extends BaseController
             }
 
             if (isset($result['status'])) {
-                return $result['status'] === 'success'
-                    ? $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful')
-                    : $this->badRequest($result['message'] ?? 'Operation failed', $result['data'] ?? []);
+                if ($result['status'] === 'success') {
+                    return $this->success($result['data'] ?? [], $result['message'] ?? 'Operation successful');
+                }
+
+                $message = $result['message'] ?? 'Operation failed';
+                $data = $result['data'] ?? [];
+                $code = (int) ($result['code'] ?? 400);
+
+                if ($code === 401) {
+                    return $this->unauthorized($message);
+                }
+                if ($code === 403) {
+                    return $this->forbidden($message);
+                }
+                if ($code === 404) {
+                    return $this->notFound($message);
+                }
+                if ($code >= 500) {
+                    return $this->serverError($message, $data);
+                }
+
+                return $this->badRequest($message, is_array($data) ? $data : []);
             }
 
             return $this->success($result);
@@ -475,7 +494,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/promotions/start-workflow - Start promotion workflow
      */
-    public function postPromotionsStartWorkflow($data = [])
+    public function postPromotionsStartWorkflow($id = null, $data = [], $segments = [])
     {
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startPromotionWorkflow($payload);
@@ -485,7 +504,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/promotions/identify-candidates - Identify promotion candidates
      */
-    public function postPromotionsIdentifyCandidates($data = [])
+    public function postPromotionsIdentifyCandidates($id = null, $data = [], $segments = [])
     {
         $result = $this->api->identifyPromotionCandidates($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -494,7 +513,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/promotions/validate-eligibility - Validate promotion eligibility
      */
-    public function postPromotionsValidateEligibility($data = [])
+    public function postPromotionsValidateEligibility($id = null, $data = [], $segments = [])
     {
         $result = $this->api->validatePromotionEligibility($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -503,7 +522,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/promotions/execute - Execute promotions
      */
-    public function postPromotionsExecute($data = [])
+    public function postPromotionsExecute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->executePromotions($data['instance_id'] ?? null, $data['promotion_data'] ?? [], $data);
         return $this->handleResponse($result);
@@ -512,7 +531,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/promotions/generate-reports - Generate promotion reports
      */
-    public function postPromotionsGenerateReports($data = [])
+    public function postPromotionsGenerateReports($id = null, $data = [], $segments = [])
     {
         $result = $this->api->generatePromotionReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -523,7 +542,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/assessments/start-workflow - Start assessment workflow
      */
-    public function postAssessmentsStartWorkflow($data = [])
+    public function postAssessmentsStartWorkflow($id = null, $data = [], $segments = [])
     {
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startAssessmentWorkflow($payload);
@@ -533,24 +552,58 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/assessments/create-items - Create assessment items
      */
-    public function postAssessmentsCreateItems($data = [])
+    public function postAssessmentsCreateItems($id = null, $data = [], $segments = [])
     {
-        // ...existing code...
+        $result = $this->api->createAssessmentItems(
+            $data['instance_id'] ?? null,
+            $data['items'] ?? $data['assessment_items'] ?? []
+        );
+        return $this->handleResponse($result);
     }
-    public function postAssessmentsAdminister($data = [])
+
+    /**
+     * POST /api/academic/assessments/administer - Record assessment administration
+     */
+    public function postAssessmentsAdminister($id = null, $data = [], $segments = [])
     {
-        // ...existing code...
+        $result = $this->api->administerAssessment(
+            $data['instance_id'] ?? null,
+            $data['administration_data'] ?? $data
+        );
+        return $this->handleResponse($result);
     }
-    public function postAssessmentsMarkAndGrade($data = [])
+
+    /**
+     * POST /api/academic/assessments/mark-and-grade
+     * Supports both:
+     * - Workflow mode (instance_id + grading_data)
+     * - Direct mode (assessment_id + grading_data/marks) fallback
+     */
+    public function postAssessmentsMarkAndGrade($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->markAndGradeAssessment($data['instance_id'] ?? null, $data['grading_data'] ?? [], $data);
+        $instanceId = $data['instance_id'] ?? null;
+        $assessmentId = $data['assessment_id'] ?? null;
+        $gradingData = $data['grading_data'] ?? $data['marks_data'] ?? $data['marks'] ?? [];
+
+        // Prefer direct mode when no workflow instance is provided.
+        if (empty($instanceId) && !empty($assessmentId)) {
+            $result = $this->api->saveAssessmentResults([
+                'assessment_id' => (int) $assessmentId,
+                'marks' => $gradingData,
+                'is_final' => (bool) ($data['is_final'] ?? true),
+                'marked_by' => $data['marked_by'] ?? null,
+            ]);
+            return $this->handleResponse($result);
+        }
+
+        $result = $this->api->markAndGradeAssessment($instanceId, $gradingData, $data);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/academic/assessments/analyze-results - Analyze assessment results
      */
-    public function postAssessmentsAnalyzeResults($data = [])
+    public function postAssessmentsAnalyzeResults($id = null, $data = [], $segments = [])
     {
         $result = $this->api->analyzeAssessmentResults($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -561,12 +614,16 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/start-workflow - Start report workflow
      */
-    // (Removed duplicate, correct version already defined above)
+    public function postReportsStartWorkflow($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->startReportWorkflow($data);
+        return $this->handleResponse($result);
+    }
 
     /**
      * POST /api/academic/reports/compile-data - Compile report data
      */
-    public function postReportsCompileData($data = [])
+    public function postReportsCompileData($id = null, $data = [], $segments = [])
     {
         $result = $this->api->compileReportData($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -575,7 +632,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/generate-student-reports - Generate student reports
      */
-    public function postReportsGenerateStudentReports($data = [])
+    public function postReportsGenerateStudentReports($id = null, $data = [], $segments = [])
     {
         $result = $this->api->generateStudentReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -584,7 +641,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/review-and-approve - Review and approve reports
      */
-    public function postReportsReviewAndApprove($data = [])
+    public function postReportsReviewAndApprove($id = null, $data = [], $segments = [])
     {
         $result = $this->api->reviewAndApproveReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -593,7 +650,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/reports/distribute - Distribute reports
      */
-    public function postReportsDistribute($data = [])
+    public function postReportsDistribute($id = null, $data = [], $segments = [])
     {
         $result = $this->api->distributeReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -609,7 +666,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/library/review-request - Review library request
      */
-    public function postLibraryReviewRequest($data = [])
+    public function postLibraryReviewRequest($id = null, $data = [], $segments = [])
     {
         $result = $this->api->reviewLibraryRequest($data['instance_id'] ?? null, $data['decision'] ?? null, $data);
         return $this->handleResponse($result);
@@ -618,7 +675,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/library/catalog-resources - Catalog library resources
      */
-    public function postLibraryCatalogResources($data = [])
+    public function postLibraryCatalogResources($id = null, $data = [], $segments = [])
     {
         $result = $this->api->catalogLibraryResources($data['instance_id'] ?? null, $data['resources'] ?? [], $data);
         return $this->handleResponse($result);
@@ -627,7 +684,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/library/distribute-and-track - Distribute and track resources
      */
-    public function postLibraryDistributeAndTrack($data = [])
+    public function postLibraryDistributeAndTrack($id = null, $data = [], $segments = [])
     {
         $result = $this->api->distributeAndTrackResources($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -638,7 +695,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum/start-workflow - Start curriculum workflow
      */
-    public function postCurriculumStartWorkflow($data = [])
+    public function postCurriculumStartWorkflow($id = null, $data = [], $segments = [])
     {
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startCurriculumWorkflow($payload);
@@ -648,7 +705,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum/map-outcomes - Map curriculum outcomes
      */
-    public function postCurriculumMapOutcomes($data = [])
+    public function postCurriculumMapOutcomes($id = null, $data = [], $segments = [])
     {
         $result = $this->api->mapCurriculumOutcomes($data['instance_id'] ?? null, $data['mappings'] ?? [], $data);
         return $this->handleResponse($result);
@@ -657,7 +714,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum/create-scheme - Create curriculum scheme
      */
-    public function postCurriculumCreateScheme($data = [])
+    public function postCurriculumCreateScheme($id = null, $data = [], $segments = [])
     {
         // Assuming createCurriculumScheme expects ($instanceId, $data)
         $result = $this->api->createCurriculumScheme($data['instance_id'] ?? null, $data);
@@ -667,7 +724,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum
      */
-    public function postCurriculumReviewAndApprove($data = [])
+    public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
         $result = $this->api->reviewAndApproveCurriculum($data['instance_id'] ?? null, $data['decision'] ?? null, $data);
         return $this->handleResponse($result);
@@ -678,7 +735,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/start-workflow - Start year transition workflow
      */
-    public function postYearTransitionStartWorkflow($data = [])
+    public function postYearTransitionStartWorkflow($id = null, $data = [], $segments = [])
     {
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startYearTransitionWorkflow($payload);
@@ -688,7 +745,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/archive-data - Archive academic data
      */
-    public function postYearTransitionArchiveData($data = [])
+    public function postYearTransitionArchiveData($id = null, $data = [], $segments = [])
     {
         $result = $this->api->archiveAcademicData($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -697,7 +754,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/execute-promotions - Execute year promotions
      */
-    public function postYearTransitionExecutePromotions($data = [])
+    public function postYearTransitionExecutePromotions($id = null, $data = [], $segments = [])
     {
         $result = $this->api->executeYearPromotions($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -706,7 +763,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/setup-new-year - Setup new academic year
      */
-    public function postYearTransitionSetupNewYear($data = [])
+    public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
         $result = $this->api->setupNewAcademicYear($data['instance_id'] ?? null, $data['year_config'] ?? [], $data);
         return $this->handleResponse($result);
@@ -715,7 +772,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/migrate-competency-baselines - Migrate competency baselines
      */
-    public function postYearTransitionMigrateCompetencyBaselines($data = [])
+    public function postYearTransitionMigrateCompetencyBaselines($id = null, $data = [], $segments = [])
     {
         $result = $this->api->migrateCompetencyBaselines($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -724,7 +781,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/year-transition/validate-readiness - Validate year readiness
      */
-    public function postYearTransitionValidateReadiness($data = [])
+    public function postYearTransitionValidateReadiness($id = null, $data = [], $segments = [])
     {
         $result = $this->api->validateYearReadiness($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -735,7 +792,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/competency/record-evidence - Record competency evidence
      */
-    public function postCompetencyRecordEvidence($data = [])
+    public function postCompetencyRecordEvidence($id = null, $data = [], $segments = [])
     {
         // Assuming recordCompetencyEvidence expects ($studentId, $competencyId, $evidence, $data)
         $result = $this->api->recordCompetencyEvidence(
@@ -750,7 +807,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/competency/record-core-value-evidence - Record core value evidence
      */
-    public function postCompetencyRecordCoreValueEvidence($data = [])
+    public function postCompetencyRecordCoreValueEvidence($id = null, $data = [], $segments = [])
     {
         // Assuming recordCoreValueEvidence expects ($studentId, $coreValueId, $data)
         $result = $this->api->recordCoreValueEvidence(
@@ -764,7 +821,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/competency/dashboard - Get competency dashboard
      */
-    public function getCompetencyDashboard($data = [])
+    public function getCompetencyDashboard($id = null, $data = [], $segments = [])
     {
         $studentId = isset($data['student_id']) ? $data['student_id'] : null;
         $termId = isset($data['term_id']) ? $data['term_id'] : null;
@@ -777,7 +834,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/years/list - Get all academic years
      */
-    public function getYearsList($data = [])
+    public function getYearsList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getAcademicYears($data);
         return $this->handleResponse($result);
@@ -786,7 +843,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/years/current - Get current academic year
      */
-    public function getYearsCurrent($data = [])
+    public function getYearsCurrent($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getCurrentAcademicYear($data);
         return $this->handleResponse($result);
@@ -822,9 +879,10 @@ class AcademicController extends BaseController
     /**
      * PUT /api/academic/years/set-current/{id} - Set year as current
      */
-    public function putYearsSetCurrent($data = [])
+    public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->setCurrentAcademicYear($data['id'] ?? null);
+        $yearId = $id ?? ($data['id'] ?? null);
+        $result = $this->api->setCurrentAcademicYear($yearId);
         return $this->handleResponse($result);
     }
 
@@ -842,7 +900,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/terms/list - Get all academic terms
      */
-    public function getTermsList($data = [])
+    public function getTermsList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getAcademicTerms($data);
         return $this->handleResponse($result);
@@ -871,7 +929,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/learning-areas/list - List all learning areas
      */
-    public function getLearningAreasList($data = [])
+    public function getLearningAreasList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->list($data);
         return $this->handleResponse($result);
@@ -880,9 +938,9 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/learning-areas/get/{id} - Get specific learning area
      */
-    public function getLearningAreasGet($data = [])
+    public function getLearningAreasGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->get($data['id'] ?? null);
+        $result = $this->api->get($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
@@ -927,18 +985,76 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/classes/list - List all classes
      */
-    public function getClassesList($data = [])
+    public function getClassesList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->listClasses($data);
         return $this->handleResponse($result);
     }
 
     /**
+     * GET /api/academic/assessments-list - List assessments with submission stats
+     */
+    public function getAssessmentsList($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAssessmentsList($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/grading-results - List student grading rows with filters
+     */
+    public function getGradingResults($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getGradingResults($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/results-analysis - Aggregate class/subject performance metrics
+     */
+    public function getResultsAnalysis($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getResultsAnalysis($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/student-results - Get result summary for one student
+     */
+    public function getStudentResults($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $data['student_id'] = $id;
+        }
+        $result = $this->api->getStudentResults($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/report-cards/download/{student_id}
+     * Route compatibility endpoint for report card download payload.
+     * Returns normalized student-results data consumable by frontend exporters.
+     */
+    public function getReportCardsDownload($id = null, $data = [], $segments = [])
+    {
+        if ($id !== null) {
+            $data['student_id'] = (int) $id;
+        }
+
+        if (empty($data['student_id'])) {
+            return $this->badRequest('student_id is required');
+        }
+
+        $result = $this->api->getStudentResults($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * GET /api/academic/classes/get/{id} - Get specific class
      */
-    public function getClassesGet($data = [])
+    public function getClassesGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getClass($data['id'] ?? null);
+        $result = $this->api->getClass($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
@@ -963,7 +1079,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/classes/assign-teacher - Assign class teacher
      */
-    public function postClassesAssignTeacher($data = [])
+    public function postClassesAssignTeacher($id = null, $data = [], $segments = [])
     {
         $result = $this->api->assignClassTeacher($data['class_id'] ?? null, $data['teacher_id'] ?? null);
         return $this->handleResponse($result);
@@ -972,7 +1088,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/classes/auto-create-streams - Auto-create class streams
      */
-    public function postClassesAutoCreateStreams($data = [])
+    public function postClassesAutoCreateStreams($id = null, $data = [], $segments = [])
     {
         $result = $this->api->autoCreateStreams($data['class_id'] ?? null);
         return $this->handleResponse($result);
@@ -983,9 +1099,8 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/streams/create - Create stream
      */
-    public function postStreamsCreate($data = [])
+    public function postStreamsCreate($id = null, $data = [], $segments = [])
     {
-        // Assuming createStream expects ($classId, $data)
         $result = $this->api->createStream($data['class_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -993,9 +1108,40 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/streams/list - List class streams
      */
-    public function getStreamsList($data = [])
+    public function getStreamsList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->listClassStreams($data['class_id'] ?? null);
+        $classId = $data['class_id'] ?? $id ?? null;
+        $result = $this->api->listClassStreams($classId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/streams/get/{id} - Get specific stream
+     */
+    public function getStreamsGet($id = null, $data = [], $segments = [])
+    {
+        $streamId = $id ?? ($data['id'] ?? null);
+        $result = $this->api->getStream($streamId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/academic/streams/update/{id} - Update class stream
+     */
+    public function putStreamsUpdate($id = null, $data = [], $segments = [])
+    {
+        $streamId = $id ?? ($data['id'] ?? null);
+        $result = $this->api->updateStream($streamId, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/academic/streams/delete/{id} - Delete/deactivate stream
+     */
+    public function deleteStreamsDelete($id = null, $data = [], $segments = [])
+    {
+        $streamId = $id ?? ($data['id'] ?? null);
+        $result = $this->api->deleteStream($streamId);
         return $this->handleResponse($result);
     }
 
@@ -1004,7 +1150,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/schedules/create - Create class schedule
      */
-    public function postSchedulesCreate($data = [])
+    public function postSchedulesCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createClassSchedule($data);
         return $this->handleResponse($result);
@@ -1013,7 +1159,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/schedules/list - List class schedules
      */
-    public function getSchedulesList($data = [])
+    public function getSchedulesList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->listClassSchedules($data['class_id'] ?? null);
         return $this->handleResponse($result);
@@ -1022,34 +1168,34 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/schedules/get/{id} - Get specific schedule
      */
-    public function getSchedulesGet($data = [])
+    public function getSchedulesGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getClassSchedule($data['id'] ?? null);
+        $result = $this->api->getClassSchedule($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
     /**
      * PUT /api/academic/schedules/update/{id} - Update schedule
      */
-    public function putSchedulesUpdate($data = [])
+    public function putSchedulesUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateClassSchedule($data['id'] ?? null, $data);
+        $result = $this->api->updateClassSchedule($id ?? ($data['id'] ?? null), $data);
         return $this->handleResponse($result);
     }
 
     /**
      * DELETE /api/academic/schedules/delete/{id} - Delete schedule
      */
-    public function deleteSchedulesDelete($data = [])
+    public function deleteSchedulesDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteClassSchedule($data['id'] ?? null);
+        $result = $this->api->deleteClassSchedule($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/academic/schedules/assign-room - Assign room to schedule
      */
-    public function postSchedulesAssignRoom($data = [])
+    public function postSchedulesAssignRoom($id = null, $data = [], $segments = [])
     {
         $result = $this->api->assignRoom($data['schedule_id'] ?? null, $data['room_id'] ?? null);
         return $this->handleResponse($result);
@@ -1060,7 +1206,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/curriculum-units/create - Create curriculum unit
      */
-    public function postCurriculumUnitsCreate($data = [])
+    public function postCurriculumUnitsCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createCurriculumUnit($data);
         return $this->handleResponse($result);
@@ -1069,7 +1215,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/curriculum-units/list - List curriculum units
      */
-    public function getCurriculumUnitsList($data = [])
+    public function getCurriculumUnitsList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getCurriculumUnits($data);
         return $this->handleResponse($result);
@@ -1078,27 +1224,27 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/curriculum-units/get/{id} - Get specific curriculum unit
      */
-    public function getCurriculumUnitsGet($data = [])
+    public function getCurriculumUnitsGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getCurriculumUnit($data['id'] ?? null);
+        $result = $this->api->getCurriculumUnit($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
     /**
      * PUT /api/academic/curriculum-units/update/{id} - Update curriculum unit
      */
-    public function putCurriculumUnitsUpdate($data = [])
+    public function putCurriculumUnitsUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateCurriculumUnit($data['id'] ?? null, $data);
+        $result = $this->api->updateCurriculumUnit($id ?? ($data['id'] ?? null), $data);
         return $this->handleResponse($result);
     }
 
     /**
      * DELETE /api/academic/curriculum-units/delete/{id} - Delete curriculum unit
      */
-    public function deleteCurriculumUnitsDelete($data = [])
+    public function deleteCurriculumUnitsDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteCurriculumUnit($data['id'] ?? null);
+        $result = $this->api->deleteCurriculumUnit($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
@@ -1107,7 +1253,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/topics/create - Create unit topic
      */
-    public function postTopicsCreate($data = [])
+    public function postTopicsCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createUnitTopic($data);
         return $this->handleResponse($result);
@@ -1116,7 +1262,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/topics/list - List unit topics
      */
-    public function getTopicsList($data = [])
+    public function getTopicsList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->listUnitTopics($data['unit_id'] ?? null);
         return $this->handleResponse($result);
@@ -1125,27 +1271,27 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/topics/get/{id} - Get specific topic
      */
-    public function getTopicsGet($data = [])
+    public function getTopicsGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getUnitTopic($data['id'] ?? null);
+        $result = $this->api->getUnitTopic($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
     /**
      * PUT /api/academic/topics/update/{id} - Update topic
      */
-    public function putTopicsUpdate($data = [])
+    public function putTopicsUpdate($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->updateUnitTopic($data['id'] ?? null, $data);
+        $result = $this->api->updateUnitTopic($id ?? ($data['id'] ?? null), $data);
         return $this->handleResponse($result);
     }
 
     /**
      * DELETE /api/academic/topics/delete/{id} - Delete topic
      */
-    public function deleteTopicsDelete($data = [])
+    public function deleteTopicsDelete($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->deleteUnitTopic($data['id'] ?? null);
+        $result = $this->api->deleteUnitTopic($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
@@ -1293,7 +1439,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/lesson-observations/create - Create lesson observation
      */
-    public function postLessonObservationsCreate($data = [])
+    public function postLessonObservationsCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createLessonObservation($data);
         return $this->handleResponse($result);
@@ -1302,7 +1448,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/lesson-observations/list - List lesson observations
      */
-    public function getLessonObservationsList($data = [])
+    public function getLessonObservationsList($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getLessonObservations($data['filters'] ?? []);
         return $this->handleResponse($result);
@@ -1313,7 +1459,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/scheme-of-work/create - Create scheme of work
      */
-    public function postSchemeOfWorkCreate($data = [])
+    public function postSchemeOfWorkCreate($id = null, $data = [], $segments = [])
     {
         $result = $this->api->createSchemeOfWork($data);
         return $this->handleResponse($result);
@@ -1322,9 +1468,9 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/scheme-of-work/get/{id} - Get scheme of work
      */
-    public function getSchemeOfWorkGet($data = [])
+    public function getSchemeOfWorkGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getSchemeOfWork($data['id'] ?? null);
+        $result = $this->api->getSchemeOfWork($id ?? ($data['id'] ?? null));
         return $this->handleResponse($result);
     }
 
@@ -1333,34 +1479,46 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/teachers/classes - Get teacher's classes
      */
-    public function getTeachersClasses($data = [])
+    public function getTeachersClasses($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getTeacherClasses($data['teacher_id'] ?? null);
+        $teacherId = $data['teacher_id'] ?? $id ?? null;
+        $result = $this->api->getTeacherClasses($teacherId);
         return $this->handleResponse($result);
     }
 
     /**
      * GET /api/academic/teachers/subjects - Get teacher's subjects
      */
-    public function getTeachersSubjects($data = [])
+    public function getTeachersSubjects($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getTeacherSubjects($data['teacher_id'] ?? null);
+        $teacherId = $data['teacher_id'] ?? $id ?? null;
+        $result = $this->api->getTeacherSubjects($teacherId);
         return $this->handleResponse($result);
     }
 
     /**
      * GET /api/academic/teachers/schedule - Get teacher's schedule
      */
-    public function getTeachersSchedule($data = [])
+    public function getTeachersSchedule($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getTeacherSchedule($data['teacher_id'] ?? null);
+        $teacherId = $data['teacher_id'] ?? $id ?? null;
+        $result = $this->api->getTeacherSchedule($teacherId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/teachers/list - List available teaching staff
+     */
+    public function getTeachersList($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->listTeachers($data);
         return $this->handleResponse($result);
     }
 
     /**
      * GET /api/academic/subjects/teachers - Get subject teachers
      */
-    public function getSubjectsTeachers($data = [])
+    public function getSubjectsTeachers($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getSubjectTeachers($data['subject_id'] ?? null);
         return $this->handleResponse($result);
@@ -1371,10 +1529,14 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/workflow/status - Get workflow status
      */
-    public function getWorkflowStatus($data = [])
+    public function getWorkflowStatus($id = null, $data = [], $segments = [])
     {
-        // Assuming getWorkflowStatus expects ($instanceId, $data)
-        $result = $this->api->getWorkflowStatus($data['instance_id'] ?? null, $data);
+        $workflowType = $data['workflow_type'] ?? $data['type'] ?? null;
+        $instanceId = $data['instance_id'] ?? null;
+        if (empty($workflowType) || empty($instanceId)) {
+            return $this->badRequest('workflow_type and instance_id are required');
+        }
+        $result = $this->api->getWorkflowStatus($workflowType, $instanceId);
         return $this->handleResponse($result);
     }
 
@@ -1383,7 +1545,7 @@ class AcademicController extends BaseController
     /**
      * GET /api/academic/custom - Handle custom GET operations
      */
-    public function getCustom($data = [])
+    public function getCustom($id = null, $data = [], $segments = [])
     {
         // Assuming handleCustomGet expects ($action, $params, $data)
         $result = $this->api->handleCustomGet(
@@ -1397,7 +1559,7 @@ class AcademicController extends BaseController
     /**
      * POST /api/academic/custom - Handle custom POST operations
      */
-    public function postCustom($data = [])
+    public function postCustom($id = null, $data = [], $segments = [])
     {
         // Assuming handleCustomPost expects ($action, $params, $data)
         $result = $this->api->handleCustomPost(

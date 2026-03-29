@@ -368,15 +368,41 @@ class SchedulesController extends BaseController
      */
     private function handleResponse($result)
     {
-        if (is_array($result)) {
-            if (isset($result['success'])) {
-                if ($result['success']) {
-                    return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
-                } else {
-                    return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
-                }
-            }
+        if (!is_array($result)) {
             return $this->success($result);
+        }
+
+        if (isset($result['status'])) {
+            $status = strtolower((string) $result['status']);
+            $code = (int) ($result['code'] ?? 0);
+            $message = $result['message'] ?? ($status === 'success' ? 'Success' : 'Operation failed');
+            $data = $result['data'] ?? null;
+
+            if ($status === 'success') {
+                return $this->success($data, $message);
+            }
+
+            if ($code === 401) {
+                return $this->unauthorized($message);
+            }
+            if ($code === 403) {
+                return $this->forbidden($message);
+            }
+            if ($code === 404) {
+                return $this->notFound($message);
+            }
+            if ($code >= 500) {
+                return $this->serverError($message, $data);
+            }
+
+            return $this->badRequest($message, is_array($data) ? $data : null);
+        }
+
+        if (isset($result['success'])) {
+            if ($result['success']) {
+                return $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+            }
+            return $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
         }
 
         return $this->success($result);

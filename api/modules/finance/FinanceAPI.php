@@ -1707,19 +1707,20 @@ class FinanceAPI extends BaseAPI
     public function getStaffForPayroll()
     {
         try {
-            $sql = "SELECT 
+            $sql = "SELECT
                         s.id,
-                        s.staff_number,
+                        s.staff_no,
                         CONCAT(s.first_name, ' ', s.last_name) AS full_name,
                         s.first_name,
                         s.last_name,
                         s.position,
-                        s.department,
-                        s.basic_salary,
-                        s.employment_status,
+                        d.name AS department,
+                        s.salary AS basic_salary,
+                        s.status,
                         (SELECT COUNT(*) FROM staff_children sc WHERE sc.staff_id = s.id) AS children_count
                     FROM staff s
-                    WHERE s.employment_status = 'active'
+                    LEFT JOIN departments d ON s.department_id = d.id
+                    WHERE s.status = 'active'
                     ORDER BY s.first_name, s.last_name";
             $stmt = $this->db->query($sql);
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -1737,16 +1738,17 @@ class FinanceAPI extends BaseAPI
     {
         try {
             // Get staff info
-            $sql = "SELECT 
+            $sql = "SELECT
                         s.id,
-                        s.staff_number,
+                        s.staff_no,
                         s.first_name,
                         s.last_name,
                         s.position,
-                        s.department,
-                        s.basic_salary,
-                        s.employment_status
+                        d.name AS department,
+                        s.salary AS basic_salary,
+                        s.status
                     FROM staff s
+                    LEFT JOIN departments d ON s.department_id = d.id
                     WHERE s.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$staffId]);
@@ -2093,17 +2095,18 @@ class FinanceAPI extends BaseAPI
     {
         try {
             // Get payroll record
-            $sql = "SELECT 
+            $sql = "SELECT
                         sp.*,
-                        s.staff_number,
+                        s.staff_no,
                         s.first_name,
                         s.last_name,
                         s.position,
-                        s.department,
-                        s.bank_name,
-                        s.bank_account_number
+                        d.name AS department,
+                        s.bank_account,
+                        s.bank_account AS bank_account_number
                     FROM staff_payroll sp
                     JOIN staff s ON sp.staff_id = s.id
+                    LEFT JOIN departments d ON s.department_id = d.id
                     WHERE sp.id = ?";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$payrollId]);
@@ -2153,7 +2156,7 @@ class FinanceAPI extends BaseAPI
             $year = $year ?: date('Y');
 
             // Total staff
-            $staffSql = "SELECT COUNT(*) FROM staff WHERE employment_status = 'active'";
+            $staffSql = "SELECT COUNT(*) FROM staff WHERE status = 'active'";
             $totalStaff = $this->db->query($staffSql)->fetchColumn();
 
             // Staff with children
@@ -2271,17 +2274,18 @@ class FinanceAPI extends BaseAPI
     public function getPayrollList($filters = [])
     {
         try {
-            $sql = "SELECT 
+            $sql = "SELECT
                         sp.*,
-                        s.staff_number,
+                        s.staff_no,
                         CONCAT(s.first_name, ' ', s.last_name) AS staff_name,
                         s.position,
-                        s.department,
-                        (SELECT COALESCE(SUM(scfd.deducted_amount), 0) 
-                         FROM staff_child_fee_deductions scfd 
+                        d.name AS department,
+                        (SELECT COALESCE(SUM(scfd.deducted_amount), 0)
+                         FROM staff_child_fee_deductions scfd
                          WHERE scfd.payslip_id = sp.id) AS children_fees_deducted
                     FROM staff_payroll sp
                     JOIN staff s ON sp.staff_id = s.id
+                    LEFT JOIN departments d ON s.department_id = d.id
                     WHERE 1=1";
             $params = [];
 
@@ -2298,7 +2302,7 @@ class FinanceAPI extends BaseAPI
                 $params[] = $filters['status'];
             }
             if (!empty($filters['search'])) {
-                $sql .= " AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.staff_number LIKE ?)";
+                $sql .= " AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.staff_no LIKE ?)";
                 $search = '%' . $filters['search'] . '%';
                 $params[] = $search;
                 $params[] = $search;

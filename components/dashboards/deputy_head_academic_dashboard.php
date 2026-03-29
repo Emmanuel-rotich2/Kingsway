@@ -171,7 +171,7 @@
                         <h5 class="mb-0"><i class="bi bi-person-plus me-2 text-success"></i>Pending Admissions</h5>
                         <small class="text-muted">Awaiting review</small>
                     </div>
-                    <a href="home.php?route=new_applications" class="btn btn-sm btn-outline-primary">View All</a>
+                    <a href="home.php?route=manage_students_admissions" class="btn btn-sm btn-outline-primary">View All</a>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">

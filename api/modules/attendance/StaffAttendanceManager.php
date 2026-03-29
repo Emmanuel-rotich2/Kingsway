@@ -75,21 +75,21 @@ class StaffAttendanceManager
     }
 
     /**
-     * Get attendance summary for a staff member by year, term, and department.
+     * Get attendance summary for a staff member grouped by month.
      * @param int $staffId
      * @return array
      */
     public function getStaffAttendanceSummary($staffId)
     {
-        $sql = "SELECT sa.term_id,
+        $sql = "SELECT DATE_FORMAT(sa.date, '%Y-%m') as month,
                        COUNT(*) as total_days,
                        SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present_days,
                        SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent_days,
                        SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late_days
                 FROM staff_attendance sa
                 WHERE sa.staff_id = ?
-                GROUP BY sa.term_id
-                ORDER BY sa.term_id DESC";
+                GROUP BY DATE_FORMAT(sa.date, '%Y-%m')
+                ORDER BY month DESC";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$staffId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -102,16 +102,17 @@ class StaffAttendanceManager
      * @param int $yearId
      * @return array
      */
-    public function getDepartmentAttendance($departmentId, $termId, $yearId)
+    public function getDepartmentAttendance($departmentId, $termId = null, $yearId = null)
     {
         $sql = "SELECT sa.*,
                        CONCAT(s.first_name, ' ', s.last_name) as staff_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                WHERE sa.term_id = ?
-                ORDER BY sa.date, s.first_name, s.last_name";
+                WHERE s.department_id = ?
+                ORDER BY sa.date DESC, s.first_name, s.last_name
+                LIMIT 500";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$termId]);
+        $stmt->execute([$departmentId]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -122,14 +123,15 @@ class StaffAttendanceManager
      * @param int $yearId
      * @return float
      */
-    public function getAttendancePercentage($staffId, $termId, $yearId)
+    public function getAttendancePercentage($staffId, $termId = null, $yearId = null)
     {
         $sql = "SELECT COUNT(*) as total_days,
                        SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days
                 FROM staff_attendance
-                WHERE staff_id = ? AND term_id = ?";
+                WHERE staff_id = ?";
+        $params = [$staffId];
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$staffId, $termId]);
+        $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($row && $row['total_days'] > 0) {
             return round(100 * $row['present_days'] / $row['total_days'], 2);
@@ -145,7 +147,7 @@ class StaffAttendanceManager
      * @param float $threshold (e.g., 0.2 for 20%)
      * @return array
      */
-    public function getChronicAbsentees($departmentId, $termId, $yearId, $threshold = 0.2)
+    public function getChronicAbsentees($departmentId = null, $termId = null, $yearId = null, $threshold = 0.2)
     {
         $sql = "SELECT sa.staff_id,
                        CONCAT(s.first_name, ' ', s.last_name) as staff_name,
@@ -154,12 +156,18 @@ class StaffAttendanceManager
                        (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
-                WHERE sa.term_id = ?
-                GROUP BY sa.staff_id
+                WHERE 1=1";
+        $params = [];
+        if ($departmentId) {
+            $sql .= " AND s.department_id = ?";
+            $params[] = $departmentId;
+        }
+        $sql .= " GROUP BY sa.staff_id, s.first_name, s.last_name
                 HAVING absent_ratio > ?
                 ORDER BY absent_ratio DESC";
+        $params[] = $threshold;
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$termId, $threshold]);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

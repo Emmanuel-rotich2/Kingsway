@@ -1,402 +1,358 @@
 /**
- * Performance Reports Controller
- * Page: performance_reports.php
- * Generate academic performance reports with subject charts, grade distribution
+ * performance_reports.js — Performance Reports Controller
+ * Live class metrics only (no random/demo values).
  */
-const PerformanceReportsController = {
-  state: {
-    data: [],
-    classes: [],
-    subjects: [],
-    charts: {},
-  },
+const performanceReportsCtrl = (() => {
+    let subjectChart = null;
+    let gradeChart = null;
 
-  async init() {
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
-      return;
-    }
-    this.bindEvents();
-    await this.loadFilters();
-  },
-
-  bindEvents() {
-    document
-      .getElementById("generateBtn")
-      ?.addEventListener("click", () => this.generateReport());
-    document
-      .getElementById("exportReportBtn")
-      ?.addEventListener("click", () => this.exportCSV());
-    document
-      .getElementById("printBtn")
-      ?.addEventListener("click", () => window.print());
-    document
-      .getElementById("reportType")
-      ?.addEventListener("change", () => this.updateTableHeaders());
-  },
-
-  async loadFilters() {
-    try {
-      const [yearsRes, classesRes, subjectsRes] = await Promise.all([
-        window.API.academic.getAllAcademicYears(),
-        window.API.academic.listClasses(),
-        window.API.academic.listLearningAreas().catch(() => null),
-      ]);
-
-      if (yearsRes?.success) {
-        const sel = document.getElementById("examTerm");
-        if (sel) {
-          const years = yearsRes.data || [];
-          const currentYear = years.find((y) => y.is_current);
-          if (currentYear) {
-            const terms = await window.API.academic
-              .listTerms(currentYear.id)
-              .catch(() => ({ data: [] }));
-            sel.innerHTML =
-              '<option value="">Select Term</option>' +
-              (terms.data || [])
-                .map(
-                  (t) =>
-                    `<option value="${t.id}" ${t.is_current ? "selected" : ""}>${this.esc(currentYear.name)} - ${this.esc(t.name)}</option>`,
-                )
-                .join("");
-          }
-        }
-      }
-
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-        const sel = document.getElementById("classFilter");
-        if (sel)
-          sel.innerHTML =
-            '<option value="">All Classes</option>' +
-            this.state.classes
-              .map(
-                (c) => `<option value="${c.id}">${this.esc(c.name)}</option>`,
-              )
-              .join("");
-      }
-
-      if (subjectsRes?.success) {
-        this.state.subjects = subjectsRes.data || [];
-        const sel = document.getElementById("subjectFilter");
-        if (sel) {
-          const existing = sel.innerHTML;
-          sel.innerHTML =
-            '<option value="">All Subjects</option>' +
-            this.state.subjects
-              .map(
-                (s) => `<option value="${s.id}">${this.esc(s.name)}</option>`,
-              )
-              .join("");
-        }
-      }
-    } catch (error) {
-      console.error("Error loading filters:", error);
-    }
-  },
-
-  async generateReport() {
-    const btn = document.getElementById("generateBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML =
-        '<span class="spinner-border spinner-border-sm me-1"></span>Generating...';
-    }
-
-    try {
-      const reportType =
-        document.getElementById("reportType")?.value || "class_performance";
-      const termId = document.getElementById("examTerm")?.value;
-      const classId = document.getElementById("classFilter")?.value;
-      const subjectId = document.getElementById("subjectFilter")?.value;
-
-      const res = (await window.API.academic.compileData)
-        ? window.API.academic.compileData({
-            report_type: reportType,
-            term_id: termId,
-            class_id: classId,
-            subject_id: subjectId,
-          })
-        : window.API.academic.getCustom({
-            action: "performance-report",
-            report_type: reportType,
-            term_id: termId,
-            class_id: classId,
-            subject_id: subjectId,
-          });
-
-      this.state.data = res?.success ? res.data || [] : [];
-      this.updateStats();
-      this.renderTable();
-      this.renderCharts();
-    } catch (error) {
-      console.error("Error generating report:", error);
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = "Generate Report";
-      }
-    }
-  },
-
-  updateStats() {
-    const data = this.state.data;
-    const el = (id, val) => {
-      const e = document.getElementById(id);
-      if (e) e.textContent = val;
+    const state = {
+        terms: [],
+        classes: [],
+        subjects: [],
+        classMetrics: [],
     };
 
-    const scores = data
-      .map((d) => parseFloat(d.average || d.score || d.mean || 0))
-      .filter((s) => s > 0);
-    const avg =
-      scores.length > 0
-        ? (scores.reduce((s, v) => s + v, 0) / scores.length).toFixed(1)
-        : 0;
-    const passCount = scores.filter((s) => s >= 50).length;
-
-    el("classAverage", avg + "%");
-    el(
-      "passRate",
-      scores.length > 0
-        ? Math.round((passCount / scores.length) * 100) + "%"
-        : "0%",
-    );
-    el(
-      "topScore",
-      scores.length > 0 ? Math.max(...scores).toFixed(1) + "%" : "0%",
-    );
-    el("studentsCount", data.length);
-  },
-
-  updateTableHeaders() {
-    const type = document.getElementById("reportType")?.value;
-    const headers = document.getElementById("tableHeaders");
-    if (!headers) return;
-
-    if (type === "subject_analysis") {
-      headers.innerHTML =
-        "<th>#</th><th>Subject</th><th>Students</th><th>Mean</th><th>Highest</th><th>Lowest</th><th>Pass Rate</th>";
-    } else {
-      headers.innerHTML =
-        "<th>#</th><th>Student</th><th>Class</th><th>Average</th><th>Grade</th><th>Position</th><th>Remarks</th>";
-    }
-  },
-
-  renderTable() {
-    const tbody = document.getElementById("tableBody");
-    if (!tbody) return;
-
-    if (this.state.data.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="7" class="text-center text-muted py-3">No data. Click Generate Report.</td></tr>';
-      return;
+    function toast(msg, type = 'info') {
+        const el = document.getElementById('prToast');
+        if (!el) return;
+        el.className = `toast align-items-center text-bg-${type} border-0`;
+        const body = document.getElementById('prToastBody');
+        if (body) body.textContent = msg;
+        bootstrap.Toast.getOrCreateInstance(el, { delay: 3200 }).show();
     }
 
-    const type = document.getElementById("reportType")?.value;
-    this.updateTableHeaders();
+    function cbcBand(score) {
+        const n = Number(score);
+        if (!Number.isFinite(n)) return null;
+        if (n >= 80) return 'EE';
+        if (n >= 50) return 'ME';
+        if (n >= 25) return 'AE';
+        return 'BE';
+    }
 
-    if (type === "subject_analysis") {
-      tbody.innerHTML = this.state.data
-        .map(
-          (d, i) => `
-            <tr>
-                <td>${i + 1}</td>
-                <td>${this.esc(d.subject || d.name || "")}</td>
-                <td>${d.students || d.count || 0}</td>
-                <td><strong>${(d.mean || d.average || 0).toFixed ? parseFloat(d.mean || d.average || 0).toFixed(1) : d.mean || d.average || 0}%</strong></td>
-                <td>${d.highest || d.max || 0}%</td>
-                <td>${d.lowest || d.min || 0}%</td>
-                <td>${d.pass_rate || 0}%</td>
-            </tr>`,
-        )
-        .join("");
-    } else {
-      tbody.innerHTML = this.state.data
-        .map((d, i) => {
-          const avg = parseFloat(d.average || d.score || d.mean || 0);
-          const grade =
-            avg >= 80
-              ? "A"
-              : avg >= 70
-                ? "B"
-                : avg >= 60
-                  ? "C"
-                  : avg >= 50
-                    ? "D"
-                    : "E";
-          const gradeColor = {
-            A: "success",
-            B: "primary",
-            C: "info",
-            D: "warning",
-            E: "danger",
-          };
-          return `
+    function gradeBadge(code) {
+        if (!code) return '—';
+        return `<span class="grade-${code}">${code}</span>`;
+    }
+
+    async function apiGet(route, params = {}) {
+        return window.API.apiCall(`/${route}`, 'GET', null, params, { checkPermission: false });
+    }
+
+    function renderNoData(canvasId, message) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.parentElement) return;
+        const parent = canvas.parentElement;
+        const existing = parent.querySelector('.pr-chart-empty');
+        if (existing) existing.remove();
+        const msg = document.createElement('div');
+        msg.className = 'pr-chart-empty text-muted text-center py-4';
+        msg.textContent = message;
+        parent.appendChild(msg);
+    }
+
+    function clearNoData(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.parentElement) return;
+        const existing = canvas.parentElement.querySelector('.pr-chart-empty');
+        if (existing) existing.remove();
+    }
+
+    async function loadTerms() {
+        const terms = await apiGet('academic/terms-list');
+        state.terms = Array.isArray(terms) ? terms : [];
+        const sel = document.getElementById('examTerm');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Terms</option>';
+        state.terms.forEach((t) => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.name} (${t.year_code || ''})`;
+            if (t.status === 'current') opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadClasses() {
+        const classes = await apiGet('academic/classes-list');
+        state.classes = Array.isArray(classes) ? classes : [];
+        const sel = document.getElementById('classFilter');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Classes</option>';
+        state.classes.forEach((c) => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name} (${c.level_code || ''})`;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadSubjects() {
+        const subjects = await apiGet('academic');
+        state.subjects = Array.isArray(subjects) ? subjects : [];
+        const sel = document.getElementById('subjectFilter');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Subjects</option>';
+        state.subjects.forEach((s) => {
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = `${s.name}${s.code ? ` (${s.code})` : ''}`;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function fetchStudentsByClass(classId) {
+        try {
+            const rows = await apiGet(`students/by-class-get/${classId}`);
+            return Array.isArray(rows) ? rows : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function computeMetric(classInfo, students) {
+        const scores = students
+            .map((s) => (s.year_average != null ? Number(s.year_average) : null))
+            .filter((v) => v !== null && Number.isFinite(v));
+
+        const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+        const passRate = scores.length ? (scores.filter((v) => v >= 50).length / scores.length) * 100 : null;
+        const top = scores.length ? Math.max(...scores) : null;
+
+        return {
+            class_name: classInfo.name,
+            level_name: classInfo.level_name || classInfo.level_code || '—',
+            class_teacher: classInfo.class_teacher_name || '—',
+            students: students.length,
+            streams: Number(classInfo.stream_count || 0),
+            scored: scores.length,
+            avg,
+            passRate,
+            top,
+            grades: {
+                EE: scores.filter((v) => cbcBand(v) === 'EE').length,
+                ME: scores.filter((v) => cbcBand(v) === 'ME').length,
+                AE: scores.filter((v) => cbcBand(v) === 'AE').length,
+                BE: scores.filter((v) => cbcBand(v) === 'BE').length,
+            }
+        };
+    }
+
+    async function buildMetrics(selectedClassId = '') {
+        const classes = selectedClassId
+            ? state.classes.filter((c) => Number(c.id) === Number(selectedClassId))
+            : state.classes;
+
+        const metrics = await Promise.all(
+            classes.map(async (c) => {
+                const students = await fetchStudentsByClass(c.id);
+                return computeMetric(c, students);
+            })
+        );
+
+        state.classMetrics = metrics;
+        return metrics;
+    }
+
+    function updateKpis(metrics) {
+        const totalStudents = metrics.reduce((sum, m) => sum + m.students, 0);
+        const avgValues = metrics.map((m) => m.avg).filter((v) => v != null);
+        const passValues = metrics.map((m) => m.passRate).filter((v) => v != null);
+        const topValues = metrics.map((m) => m.top).filter((v) => v != null);
+
+        const overallAvg = avgValues.length ? avgValues.reduce((a, b) => a + b, 0) / avgValues.length : null;
+        const passRate = passValues.length ? passValues.reduce((a, b) => a + b, 0) / passValues.length : null;
+        const topScore = topValues.length ? Math.max(...topValues) : null;
+
+        document.getElementById('studentsCount').textContent = totalStudents;
+        document.getElementById('classAverage').textContent = overallAvg != null ? `${overallAvg.toFixed(1)}%` : 'No scores';
+        document.getElementById('passRate').textContent = passRate != null ? `${passRate.toFixed(1)}%` : 'No scores';
+        document.getElementById('topScore').textContent = topScore != null ? `${topScore.toFixed(1)}%` : 'No scores';
+        document.getElementById('prMeta').textContent = `${metrics.length} class(es) · ${totalStudents} students`;
+    }
+
+    function renderTable(reportType, metrics) {
+        const headers = document.getElementById('tableHeaders');
+        const body = document.getElementById('tableBody');
+        const footer = document.getElementById('tableFooter');
+        if (!headers || !body || !footer) return;
+
+        if (reportType === 'grade_distribution') {
+            headers.innerHTML = '<th>Class</th><th>EE</th><th>ME</th><th>AE</th><th>BE</th><th>Scored</th>';
+            body.innerHTML = metrics.map((m) => `
                 <tr>
-                    <td>${i + 1}</td>
-                    <td>${this.esc(d.student_name || d.name || "")}</td>
-                    <td>${this.esc(d.class_name || d.form || "")}</td>
-                    <td><strong>${avg.toFixed(1)}%</strong></td>
-                    <td><span class="badge bg-${gradeColor[grade]}">${grade}</span></td>
-                    <td>${d.position || i + 1}</td>
-                    <td>${d.remarks || (avg >= 50 ? "Pass" : "Below Average")}</td>
-                </tr>`;
-        })
-        .join("");
+                    <td><strong>${m.class_name}</strong></td>
+                    <td>${m.grades.EE}</td>
+                    <td>${m.grades.ME}</td>
+                    <td>${m.grades.AE}</td>
+                    <td>${m.grades.BE}</td>
+                    <td>${m.scored}</td>
+                </tr>
+            `).join('') || '<tr><td colspan="6" class="pr-empty">No records</td></tr>';
+            footer.innerHTML = '';
+            return;
+        }
+
+        headers.innerHTML = '<th>Class</th><th>Level</th><th>Students</th><th>Streams</th><th>Teacher</th><th>Average</th><th>Pass Rate</th><th>Top Score</th><th>CBC Band</th>';
+        body.innerHTML = metrics.map((m) => {
+            const band = m.avg != null ? cbcBand(m.avg) : null;
+            return `
+                <tr>
+                    <td><strong>${m.class_name}</strong></td>
+                    <td>${m.level_name}</td>
+                    <td>${m.students}</td>
+                    <td>${m.streams}</td>
+                    <td>${m.class_teacher}</td>
+                    <td>${m.avg != null ? `${m.avg.toFixed(1)}%` : '—'}</td>
+                    <td>${m.passRate != null ? `${m.passRate.toFixed(1)}%` : '—'}</td>
+                    <td>${m.top != null ? `${m.top.toFixed(1)}%` : '—'}</td>
+                    <td>${band ? gradeBadge(band) : '—'}</td>
+                </tr>
+            `;
+        }).join('') || '<tr><td colspan="9" class="pr-empty">No records</td></tr>';
+        footer.innerHTML = '';
     }
-  },
 
-  renderCharts() {
-    if (typeof Chart === "undefined") return;
+    function drawCharts(metrics) {
+        const scoreCanvas = document.getElementById('subjectPerformanceChart');
+        const gradeCanvas = document.getElementById('gradeDistributionChart');
+        if (typeof Chart === 'undefined' || !scoreCanvas || !gradeCanvas) return;
 
-    // Subject Performance Bar Chart
-    const ctx1 = document
-      .getElementById("subjectPerformanceChart")
-      ?.getContext("2d");
-    if (ctx1 && this.state.data.length > 0) {
-      if (this.state.charts.subject) this.state.charts.subject.destroy();
-      const labels = this.state.data
-        .slice(0, 15)
-        .map((d) => d.subject || d.name || d.student_name || "");
-      const values = this.state.data
-        .slice(0, 15)
-        .map((d) => parseFloat(d.average || d.mean || d.score || 0));
-      this.state.charts.subject = new Chart(ctx1, {
-        type: "bar",
-        data: {
-          labels,
-          datasets: [
-            {
-              label: "Average (%)",
-              data: values,
-              backgroundColor: "rgba(54,162,235,0.7)",
+        if (subjectChart) subjectChart.destroy();
+        if (gradeChart) gradeChart.destroy();
+        clearNoData('subjectPerformanceChart');
+        clearNoData('gradeDistributionChart');
+
+        const withScores = metrics.filter((m) => m.avg != null);
+        if (!withScores.length) {
+            renderNoData('subjectPerformanceChart', 'No class score data available yet.');
+            renderNoData('gradeDistributionChart', 'No graded records available yet.');
+            return;
+        }
+
+        subjectChart = new Chart(scoreCanvas, {
+            type: 'bar',
+            data: {
+                labels: withScores.map((m) => m.class_name),
+                datasets: [{
+                    label: 'Average Score (%)',
+                    data: withScores.map((m) => Number(m.avg.toFixed(2))),
+                    backgroundColor: '#1565c0',
+                    borderRadius: 6,
+                }]
             },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: { y: { beginAtZero: true, max: 100 } },
-          plugins: { legend: { display: false } },
-        },
-      });
-    }
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100 } } }
+        });
 
-    // Grade Distribution Doughnut
-    const ctx2 = document
-      .getElementById("gradeDistributionChart")
-      ?.getContext("2d");
-    if (ctx2 && this.state.data.length > 0) {
-      if (this.state.charts.grade) this.state.charts.grade.destroy();
-      const grades = { A: 0, B: 0, C: 0, D: 0, E: 0 };
-      this.state.data.forEach((d) => {
-        const avg = parseFloat(d.average || d.score || d.mean || 0);
-        if (avg >= 80) grades.A++;
-        else if (avg >= 70) grades.B++;
-        else if (avg >= 60) grades.C++;
-        else if (avg >= 50) grades.D++;
-        else grades.E++;
-      });
-      this.state.charts.grade = new Chart(ctx2, {
-        type: "doughnut",
-        data: {
-          labels: Object.keys(grades),
-          datasets: [
-            {
-              data: Object.values(grades),
-              backgroundColor: [
-                "#28a745",
-                "#007bff",
-                "#17a2b8",
-                "#ffc107",
-                "#dc3545",
-              ],
+        const totals = { EE: 0, ME: 0, AE: 0, BE: 0 };
+        withScores.forEach((m) => {
+            totals.EE += m.grades.EE;
+            totals.ME += m.grades.ME;
+            totals.AE += m.grades.AE;
+            totals.BE += m.grades.BE;
+        });
+
+        gradeChart = new Chart(gradeCanvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['EE', 'ME', 'AE', 'BE'],
+                datasets: [{
+                    data: [totals.EE, totals.ME, totals.AE, totals.BE],
+                    backgroundColor: ['#1b5e20', '#2e7d32', '#f57c00', '#b71c1c'],
+                    borderWidth: 0,
+                }]
             },
-          ],
-        },
-        options: {
-          responsive: true,
-          plugins: { legend: { position: "bottom" } },
-        },
-      });
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
     }
-  },
 
-  exportCSV() {
-    if (this.state.data.length === 0) {
-      this.showNotification("No data to export", "warning");
-      return;
+    function renderSubjectSection(reportType) {
+        const card = document.getElementById('subjectAnalysisCard');
+        const body = document.getElementById('subjectStatsBody');
+        const chartCanvas = document.getElementById('strengthsWeaknessChart');
+
+        if (!card || !body) return;
+        if (reportType !== 'subject_analysis') {
+            card.style.display = 'none';
+            return;
+        }
+
+        card.style.display = 'block';
+        body.innerHTML = '<tr><td colspan="5" class="text-center text-muted">Subject-level scores are not recorded yet. Enter assessments and marks to populate this section.</td></tr>';
+
+        if (chartCanvas && chartCanvas.parentElement) {
+            const existing = chartCanvas.parentElement.querySelector('.pr-chart-empty');
+            if (existing) existing.remove();
+            const msg = document.createElement('div');
+            msg.className = 'pr-chart-empty text-muted text-center py-4';
+            msg.textContent = 'No subject analytics available.';
+            chartCanvas.parentElement.appendChild(msg);
+        }
     }
-    const type = document.getElementById("reportType")?.value;
-    let headers, rows;
-    if (type === "subject_analysis") {
-      headers = [
-        "#",
-        "Subject",
-        "Students",
-        "Mean",
-        "Highest",
-        "Lowest",
-        "Pass Rate",
-      ];
-      rows = this.state.data.map((d, i) => [
-        i + 1,
-        d.subject || d.name,
-        d.students || 0,
-        d.mean || d.average || 0,
-        d.highest || 0,
-        d.lowest || 0,
-        d.pass_rate || 0,
-      ]);
-    } else {
-      headers = ["#", "Student", "Class", "Average", "Grade", "Position"];
-      rows = this.state.data.map((d, i) => {
-        const avg = parseFloat(d.average || d.score || 0);
-        return [
-          i + 1,
-          d.student_name || d.name,
-          d.class_name || "",
-          avg.toFixed(1),
-          avg >= 80
-            ? "A"
-            : avg >= 70
-              ? "B"
-              : avg >= 60
-                ? "C"
-                : avg >= 50
-                  ? "D"
-                  : "E",
-          d.position || i + 1,
+
+    async function generateReport() {
+        try {
+            const reportType = document.getElementById('reportType')?.value || 'class_performance';
+            const classId = document.getElementById('classFilter')?.value || '';
+            document.getElementById('tableTitle').textContent = reportType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+            const metrics = await buildMetrics(classId);
+            updateKpis(metrics);
+            renderTable(reportType, metrics);
+            drawCharts(metrics);
+            renderSubjectSection(reportType);
+
+            const chartsRow = document.getElementById('chartsRow');
+            if (chartsRow) chartsRow.style.display = 'flex';
+            toast('Performance report refreshed', 'success');
+        } catch (error) {
+            toast(error.message || 'Failed to generate report', 'danger');
+        }
+    }
+
+    function exportReport() {
+        if (!state.classMetrics.length) {
+            toast('No class metrics available to export', 'warning');
+            return;
+        }
+        const rows = [
+            ['Class', 'Students', 'Scored', 'Average', 'Pass Rate', 'Top'],
+            ...state.classMetrics.map((m) => [
+                m.class_name,
+                m.students,
+                m.scored,
+                m.avg != null ? m.avg.toFixed(2) : '',
+                m.passRate != null ? m.passRate.toFixed(2) : '',
+                m.top != null ? m.top.toFixed(2) : ''
+            ])
         ];
-      });
+        const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `performance_report_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     }
-    const csv = [headers, ...rows]
-      .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "performance_report.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  },
 
-  esc(str) {
-    if (!str) return "";
-    const d = document.createElement("div");
-    d.textContent = str;
-    return d.innerHTML;
-  },
-  showNotification(msg, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
-  },
-};
+    function printReport() {
+        window.print();
+    }
 
-document.addEventListener('DOMContentLoaded', () => PerformanceReportsController.init());
+    async function init() {
+        try {
+            await Promise.all([loadTerms(), loadClasses(), loadSubjects()]);
+            await generateReport();
+        } catch (error) {
+            toast(`Failed to initialise: ${error.message}`, 'danger');
+        }
+    }
+
+    return { init, generateReport, exportReport, printReport };
+})();
+
+document.addEventListener('DOMContentLoaded', performanceReportsCtrl.init);

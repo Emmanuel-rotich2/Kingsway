@@ -73,16 +73,21 @@ class StudentAttendanceManager
      * @param int $yearId
      * @return array
      */
-    public function getClassAttendance($classId, $termId, $yearId)
+    public function getClassAttendance($classId, $termId = null, $yearId = null)
     {
         $sql = "SELECT sa.*,
                        CONCAT(s.first_name, ' ', s.last_name) as student_name
                 FROM student_attendance sa
                 JOIN students s ON sa.student_id = s.id
-                WHERE sa.class_id = ? AND sa.term_id = ?
-                ORDER BY sa.date, s.first_name, s.last_name";
+                WHERE sa.class_id = ?";
+        $params = [$classId];
+        if ($termId) {
+            $sql .= " AND sa.term_id = ?";
+            $params[] = $termId;
+        }
+        $sql .= " ORDER BY sa.date DESC, s.first_name, s.last_name LIMIT 500";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$classId, $termId]);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -93,17 +98,21 @@ class StudentAttendanceManager
      * @param int $yearId
      * @return float
      */
-    public function getAttendancePercentage($studentId, $termId, $yearId)
+    public function getAttendancePercentage($studentId, $termId = null, $yearId = null)
     {
-        $sql = "SELECT COUNT(*) as total_days,
-                       SUM(status = 'present') as present_days
-                FROM student_attendance
-                WHERE student_id = ? AND term_id = ? AND academic_year = ?";
+        $sql = "SELECT COUNT(*) as total_days, SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present_days FROM student_attendance WHERE student_id = ?";
+        $params = [$studentId];
+        if ($termId) {
+            $sql .= " AND term_id = ?";
+            $params[] = $termId;
+        }
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$studentId, $termId, $yearId]);
+        $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($row && $row['total_days'] > 0) {
-            return round(100 * $row['present_days'] / $row['total_days'], 2);
+        $total = (int) ($row['total_days'] ?? 0);
+        $present = (int) ($row['present_days'] ?? 0);
+        if ($total > 0) {
+            return round(100 * $present / $total, 2);
         }
         return 0.0;
     }
@@ -116,7 +125,7 @@ class StudentAttendanceManager
      * @param float $threshold (e.g., 0.2 for 20%)
      * @return array
      */
-    public function getChronicAbsentees($classId, $termId, $yearId, $threshold = 0.2)
+    public function getChronicAbsentees($classId, $termId = null, $yearId = null, $threshold = 0.2)
     {
         $sql = "SELECT sa.student_id,
                        CONCAT(s.first_name, ' ', s.last_name) as student_name,
@@ -125,12 +134,18 @@ class StudentAttendanceManager
                        (SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) / COUNT(*)) as absent_ratio
                 FROM student_attendance sa
                 JOIN students s ON sa.student_id = s.id
-                WHERE sa.class_id = ? AND sa.term_id = ?
-                GROUP BY sa.student_id
+                WHERE sa.class_id = ?";
+        $params = [$classId];
+        if ($termId) {
+            $sql .= " AND sa.term_id = ?";
+            $params[] = $termId;
+        }
+        $sql .= " GROUP BY sa.student_id, s.first_name, s.last_name
                 HAVING absent_ratio > ?
                 ORDER BY absent_ratio DESC";
+        $params[] = $threshold;
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$classId, $termId, $threshold]);
+        $stmt->execute($params);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

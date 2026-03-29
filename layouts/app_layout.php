@@ -53,7 +53,14 @@ $sidebar_items = [];
         <main class="main-content flex-grow-1" id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
-                if ($requestedPath && file_exists($requestedPath)) {
+                if ($route === 'loading') {
+                    echo '<div class="d-flex align-items-center justify-content-center py-5 text-muted">';
+                    echo '<div class="text-center">';
+                    echo '<div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>';
+                    echo '<div>Loading dashboard...</div>';
+                    echo '</div>';
+                    echo '</div>';
+                } elseif ($requestedPath && file_exists($requestedPath)) {
                     // Load the requested dashboard or page directly
                     include $requestedPath;
                 } elseif ($route) {
@@ -62,7 +69,6 @@ $sidebar_items = [];
                     echo '<i class="bi bi-exclamation-triangle me-2"></i>';
                     echo 'Page not found: ' . htmlspecialchars($route);
                     echo '</div>';
-                    echo '<p><a href="/Kingsway/home.php?route=system_administrator_dashboard" class="btn btn-primary">Go to Dashboard</a></p>';
                 } else {
                     // No route (shouldn't happen because home.php redirects)
                     echo '<div class="alert alert-info">Redirecting to dashboard...</div>';
