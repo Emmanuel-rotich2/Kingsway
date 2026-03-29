@@ -14,7 +14,7 @@ $baseUrl = $isLocal ? 'http://localhost/Kingsway' : 'https://kingsway.ac.ke';
 define('BASE_URL', $baseUrl);
 
 // File upload paths
-define('UPLOAD_PATH', __DIR__ . '/../uploads');
+define('UPLOAD_PATH', __DIR__ . '	/home/kingswa4/');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
@@ -68,10 +68,10 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database Configuration
-define('DB_HOST', '127.0.0.1');
-define('DB_USER', 'root');
+define('DB_HOST', 'da28.host-ww.net');
+define('DB_USER', 'kingswa4_root');
 define('DB_PASS', 'admin123');
-define('DB_NAME', 'KingsWayAcademy');
+define('DB_NAME', 'kingswa4_kingswayacademy');
 define('DB_PORT', '3306');
 define('DB_CHARSET', 'utf8mb4');
 
