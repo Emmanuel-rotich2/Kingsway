@@ -1134,11 +1134,12 @@ class SchedulesAPI extends BaseAPI {
                 SELECT 
                     r.*,
                     COUNT(DISTINCT cs.id) as timetable_count,
-                    COUNT(DISTINCT e.id) as event_count
+                    COUNT(DISTINCT es.id) as exam_count
                 FROM rooms r
                 LEFT JOIN class_schedules cs ON r.id = cs.room_id AND cs.status = 'active'
-                LEFT JOIN events e ON r.id = e.room_id AND e.status = 'active'
-                WHERE r.status = 'active'
+                LEFT JOIN exam_schedules es ON r.id = es.room_id
+                    AND es.status IN ('scheduled', 'upcoming', 'in_progress')
+                WHERE r.status IN ('active', 'maintenance')
                 GROUP BY r.id
                 ORDER BY r.building, r.name
             ";
@@ -1146,6 +1147,11 @@ class SchedulesAPI extends BaseAPI {
             $stmt = $this->db->prepare($sql);
             $stmt->execute();
             $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            foreach ($rooms as &$room) {
+                $room['active_bookings'] = (int) ($room['timetable_count'] ?? 0) + (int) ($room['exam_count'] ?? 0);
+            }
+            unset($room);
 
             return successResponse($rooms);
         } catch (Exception $e) {

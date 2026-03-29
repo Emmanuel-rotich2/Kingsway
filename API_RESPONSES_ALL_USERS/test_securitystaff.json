@@ -1,0 +1,54 @@
+{
+  "status": "success",
+  "message": "Login successful",
+  "data": {
+    "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyX2lkIjoxNywidXNlcm5hbWUiOiJ0ZXN0X3NlY3VyaXR5c3RhZmYiLCJlbWFpbCI6Impvc2VwaEBvdXRsb29rLmNvbSIsInJvbGVzIjpbeyJpZCI6MzMsIm5hbWUiOiJTZWN1cml0eSBTdGFmZiIsImRlc2NyaXB0aW9uIjoiW1RSQUNLSU5HIE9OTFldIFNlY3VyaXR5IHBlcnNvbm5lbCAtIE5vIHN5c3RlbSBhY2Nlc3MuIEZvciBwYXlyb2xsIGFuZCByZWNvcmRzIG9ubHkuIiwiY3JlYXRlZF9hdCI6IjIwMjUtMTItMTAgMTE6MTk6MTQiLCJ1cGRhdGVkX2F0IjoiMjAyNS0xMi0xMCAxMToxOToxNCJ9XSwiZGlzcGxheV9uYW1lIjoiSm9zZXBoIFNlY3VyaXR5U3RhZmYiLCJpYXQiOjE3NzQ3Nzc0NjMsImV4cCI6MTc3NDc4MTA2MywiaXNzIjoia2luZ3N3YXktcHJlcC1zY2hvb2wiLCJhdWQiOiJraW5nc3dheS1zdGFmZiJ9.cAG5iMrzUv6vBt58H0abNnkxDn52WDwWnImz3Fhm20s",
+    "token_expires_in": 3600,
+    "user": {
+      "id": 17,
+      "username": "test_securitystaff",
+      "email": "joseph@outlook.com",
+      "first_name": "Joseph",
+      "last_name": "SecurityStaff",
+      "role_id": 33,
+      "status": "active",
+      "roles": [
+        {
+          "id": 33,
+          "name": "Security Staff",
+          "description": "[TRACKING ONLY] Security personnel - No system access. For payroll and records only.",
+          "created_at": "2025-12-10 11:19:14",
+          "updated_at": "2025-12-10 11:19:14"
+        }
+      ],
+      "permissions": []
+    },
+    "sidebar_items": [
+      {
+        "id": "dashboard_33",
+        "label": "Support Staff Dashboard",
+        "icon": "bi-house-door",
+        "url": "support_staff_dashboard",
+        "route_url": "home.php?route=support_staff_dashboard",
+        "domain": "SCHOOL",
+        "display_order": -200,
+        "subitems": [],
+        "show_badge": false,
+        "badge_source": null,
+        "badge_color": "danger",
+        "open_in_new_tab": false,
+        "requires_confirmation": false,
+        "confirmation_message": null,
+        "css_class": null,
+        "tooltip": null
+      }
+    ],
+    "dashboard": {
+      "key": "support_staff_dashboard",
+      "url": "home.php?route=support_staff_dashboard",
+      "label": "Support Staff Dashboard"
+    },
+    "delegated_permissions": [],
+    "config_source": "database"
+  }
+}

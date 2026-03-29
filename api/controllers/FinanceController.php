@@ -869,10 +869,10 @@ class FinanceController extends BaseController
     {
         try {
             $db = Database::getInstance()->getConnection();
-            $stmt = $db->prepare("SELECT year FROM academic_years WHERE is_current = 1 LIMIT 1");
+            $stmt = $db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
             $stmt->execute();
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return $result['year'] ?? date('Y');
+            return $result['year_code'] ?? date('Y');
         } catch (\Exception $e) {
             return date('Y');
         }
@@ -921,15 +921,15 @@ class FinanceController extends BaseController
         $user = $_SERVER['auth_user'] ?? null;
         if (!$user)
             return $this->unauthorized('Authentication required');
-        $perms = $user['effective_permissions'] ?? [];
-        $roles = $user['roles'] ?? [];
-        $role = $user['role'] ?? '';
-        $allowed = false;
-        if (in_array('finance.reconcile', $perms) || in_array('finance.view', $perms) || in_array(10, $roles) || $role === 'accountant' || $role === 'finance' || $role === 'admin') {
-            $allowed = true;
-        }
-        if (!$allowed)
+        if (
+            !$this->userHasAny(
+                ['finance.reconcile', 'finance_reconcile', 'finance.view', 'finance_view'],
+                [10],
+                ['accountant', 'finance', 'admin']
+            )
+        ) {
             return $this->forbidden('Insufficient permissions');
+        }
 
         try {
             $recon = new PaymentReconciliationAPI();

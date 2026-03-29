@@ -805,27 +805,75 @@ class FeeManager
     public function getStudentFeeBalance($studentId, $academicYear = null)
     {
         try {
-            $sql = "SELECT sfb.*, fs.name as fee_structure_name, fs.amount as total_fee,
-                           s.student_no, CONCAT(s.first_name, ' ', s.last_name) as student_name
-                    FROM student_fee_balances sfb
-                    INNER JOIN students s ON sfb.student_id = s.id
-                    LEFT JOIN fee_structures fs ON sfb.fee_structure_id = fs.id
-                    WHERE sfb.student_id = ?";
+            $summaryWhere = ["sfo.student_id = ?"];
+            $summaryParams = [$studentId];
 
-            $params = [$studentId];
-
-            if ($academicYear !== null) {
-                $sql .= " AND sfb.academic_year = ?";
-                $params[] = $academicYear;
+            if (!empty($academicYear)) {
+                $summaryWhere[] = "sfo.academic_year = ?";
+                $summaryParams[] = $academicYear;
             }
 
-            $sql .= " ORDER BY sfb.academic_year DESC, sfb.term_id DESC";
+            $summarySql = "
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                    c.name AS class_name,
+                    cs.stream_name,
+                    COALESCE(SUM(sfo.amount_due), 0) AS total_due,
+                    COALESCE(SUM(sfo.amount_paid), 0) AS total_paid,
+                    COALESCE(SUM(sfo.amount_waived), 0) AS total_waived,
+                    COALESCE(SUM(sfo.balance), 0) AS total_balance,
+                    MAX(sfo.updated_at) AS last_updated
+                FROM students s
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN student_fee_obligations sfo ON s.id = sfo.student_id
+                WHERE " . implode(' AND ', $summaryWhere) . "
+                GROUP BY s.id, s.admission_no, s.first_name, s.last_name, c.name, cs.stream_name
+            ";
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $balances = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $summaryStmt = $this->db->prepare($summarySql);
+            $summaryStmt->execute($summaryParams);
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC);
 
-            return formatResponse(true, ['balances' => $balances]);
+            if (!$summary) {
+                return formatResponse(false, null, 'Student not found');
+            }
+
+            $termsWhere = ["sfo.student_id = ?"];
+            $termsParams = [$studentId];
+            if (!empty($academicYear)) {
+                $termsWhere[] = "sfo.academic_year = ?";
+                $termsParams[] = $academicYear;
+            }
+
+            $termsSql = "
+                SELECT
+                    sfo.term_id,
+                    at.name AS term_name,
+                    at.term_number,
+                    sfo.academic_year,
+                    SUM(sfo.amount_due) AS amount_due,
+                    SUM(sfo.amount_paid) AS amount_paid,
+                    SUM(sfo.amount_waived) AS amount_waived,
+                    SUM(sfo.balance) AS balance
+                FROM student_fee_obligations sfo
+                LEFT JOIN academic_terms at ON sfo.term_id = at.id
+                WHERE " . implode(' AND ', $termsWhere) . "
+                GROUP BY sfo.academic_year, sfo.term_id, at.name, at.term_number
+                ORDER BY sfo.academic_year DESC, at.term_number DESC, sfo.term_id DESC
+            ";
+
+            $termsStmt = $this->db->prepare($termsSql);
+            $termsStmt->execute($termsParams);
+            $termBalances = $termsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, [
+                'summary' => $summary,
+                'term_balances' => $termBalances,
+                'balances' => $termBalances // backward compatibility
+            ]);
 
         } catch (Exception $e) {
             return formatResponse(false, null, 'Failed to retrieve balance: ' . $e->getMessage());
@@ -997,12 +1045,25 @@ class FeeManager
     public function getStudentFeeStatement($studentId, $academicYear)
     {
         try {
+            if (empty($academicYear)) {
+                $yearStmt = $this->db->prepare("SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1");
+                $yearStmt->execute();
+                $currentYear = $yearStmt->fetchColumn();
+                $academicYear = $currentYear ?: date('Y');
+            }
+
             // Get student details
             $stmt = $this->db->prepare("
-                SELECT s.admission_no, CONCAT(s.first_name, ' ', s.last_name) as student_name,
-                       c.name as class_name, sl.name as level_name
+                SELECT
+                    s.id,
+                    s.admission_no,
+                    CONCAT(s.first_name, ' ', s.last_name) as student_name,
+                    c.name as class_name,
+                    cs.stream_name,
+                    sl.name as level_name
                 FROM students s
-                LEFT JOIN classes c ON s.class_id = c.id
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
                 WHERE s.id = ?
             ");
@@ -1015,36 +1076,54 @@ class FeeManager
 
             // Get fee obligations
             $stmt = $this->db->prepare("
-                SELECT sfo.*, fs.name as fee_structure_name, fs.amount as total_fee
+                SELECT
+                    sfo.*,
+                    at.name AS term_name,
+                    at.term_number,
+                    ft.name AS fee_type_name,
+                    fsd.amount AS configured_amount
                 FROM student_fee_obligations sfo
-                INNER JOIN fee_structures_detailed fs ON sfo.fee_structure_detail_id = fs.id
+                LEFT JOIN academic_terms at ON sfo.term_id = at.id
+                LEFT JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
+                LEFT JOIN fee_types ft ON fsd.fee_type_id = ft.id
                 WHERE sfo.student_id = ? AND sfo.academic_year = ?
+                ORDER BY at.term_number ASC, ft.name ASC, sfo.id ASC
             ");
             $stmt->execute([$studentId, $academicYear]);
             $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Get payments
             $stmt = $this->db->prepare("
-                SELECT * FROM vw_all_school_payments
-                WHERE student_id = ? AND academic_year = ?
+                SELECT
+                    pt.*,
+                    at.name AS term_name,
+                    at.term_number
+                FROM payment_transactions pt
+                LEFT JOIN academic_terms at ON pt.term_id = at.id
+                WHERE pt.student_id = ? AND pt.academic_year = ?
                 ORDER BY payment_date DESC
             ");
             $stmt->execute([$studentId, $academicYear]);
             $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get current balance
-            $stmt = $this->db->prepare("
-                SELECT * FROM student_fee_balances
-                WHERE student_id = ? AND academic_year = ?
-            ");
-            $stmt->execute([$studentId, $academicYear]);
-            $balance = $stmt->fetch(PDO::FETCH_ASSOC);
+            $totalDue = array_sum(array_map(static fn($row) => (float) ($row['amount_due'] ?? 0), $obligations));
+            $totalPaid = array_sum(array_map(static fn($row) => (float) ($row['amount_paid'] ?? 0), $obligations));
+            $totalWaived = array_sum(array_map(static fn($row) => (float) ($row['amount_waived'] ?? 0), $obligations));
+            $totalBalance = array_sum(array_map(static fn($row) => (float) ($row['balance'] ?? 0), $obligations));
 
             return formatResponse(true, [
                 'student' => $student,
+                'summary' => [
+                    'total_due' => $totalDue,
+                    'total_paid' => $totalPaid,
+                    'total_waived' => $totalWaived,
+                    'balance' => $totalBalance,
+                ],
                 'obligations' => $obligations,
                 'payments' => $payments,
-                'balance' => $balance,
+                'balance' => [
+                    'balance' => $totalBalance
+                ],
                 'academic_year' => $academicYear
             ]);
 
@@ -1709,7 +1788,8 @@ class FeeManager
 
             $sql .= " ORDER BY academic_year DESC, term_number";
 
-            $stmt = $this->db->query($sql, $params);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
             $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Calculate totals

@@ -167,7 +167,7 @@
                         <th>Name</th>
                         <th>Class/Stream</th>
                         <th>Gender</th>
-                        <th>Contact</th>
+                        <th>Guardian Contact</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -421,7 +421,7 @@ $admissionNumber = generateAdmissionNumber();
                                 <option value="">-- Select Method --</option>
                                 <option value="cash">Cash</option>
                                 <option value="mpesa">M-Pesa</option>
-                                <option value="bank">Bank Transfer</option>
+                                <option value="bank_transfer">Bank Transfer</option>
                                 <option value="cheque">Cheque</option>
                             </select>
                         </div>
@@ -613,3 +613,4 @@ $admissionNumber = generateAdmissionNumber();
 
 <!-- Link Controller Script -->
 <script src="/Kingsway/js/pages/manage_students.js"></script>
+<script src="/Kingsway/js/pages/student_schedule_extension.js"></script>

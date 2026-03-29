@@ -38,9 +38,7 @@
                 <label class="form-label">Term</label>
                 <select class="form-select" id="term">
                     <option value="">All Terms</option>
-                    <option value="1">Term 1</option>
-                    <option value="2">Term 2</option>
-                    <option value="3">Term 3</option>
+                    <option value="" disabled>Loading terms...</option>
                 </select>
             </div>
             <div class="col-md-2">

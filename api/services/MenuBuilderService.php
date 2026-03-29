@@ -504,31 +504,23 @@ class MenuBuilderService
             }
         }
 
-        // 5. Filter by permissions (route-level)
-        if (!empty($userPermissions)) {
-            $configService = SystemConfigService::getInstance();
-            $filteredItems = array_filter($filteredItems, function ($item) use ($userPermissions, $configService) {
-                // If no route, always show (parent menu)
-                if (empty($item['route_name'])) {
-                    return true;
-                }
+        // 5. Filter by effective route authorization so sidebar visibility and
+        // route access decisions come from the same source of truth.
+        $configService = SystemConfigService::getInstance();
+        $filteredItems = array_filter($filteredItems, function ($item) use ($userId, $roleId, $configService) {
+            $routeName = $this->resolveRouteNameForAuthorization($item);
+            if ($routeName === null) {
+                return true; // Parent/group items without a route
+            }
 
-                // Check if user has required permissions for the route
-                $requiredPerms = $configService->getPermissionsForRouteName($item['route_name']);
-                if (empty($requiredPerms)) {
-                    return true; // No permissions required
-                }
+            $authorization = $configService->isUserAuthorizedForRoute(
+                $userId,
+                $roleId,
+                $routeName
+            );
 
-                // Check if user has any of the required permissions
-                foreach ($requiredPerms as $perm) {
-                    if (in_array($perm['name'], $userPermissions)) {
-                        return true;
-                    }
-                }
-
-                return false;
-            });
-        }
+            return (bool) ($authorization['authorized'] ?? false);
+        });
 
         // 6. Build hierarchical tree
         return $this->buildMenuTree(array_values($filteredItems));
@@ -554,6 +546,12 @@ class MenuBuilderService
                         parse_str($query, $params);
                         $normalizedUrl = $params['route'] ?? $rawUrl;
                     }
+                }
+
+                // Hide dead-end placeholders: no route and no visible children.
+                $hasRoute = !empty($normalizedUrl) && $normalizedUrl !== '#';
+                if (!$hasRoute && empty($children)) {
+                    continue;
                 }
 
                 $menuItem = [
@@ -583,7 +581,96 @@ class MenuBuilderService
         // Sort by display_order
         usort($tree, fn($a, $b) => ($a['display_order'] ?? 0) <=> ($b['display_order'] ?? 0));
 
+        if ($parentId === null) {
+            $tree = $this->mergeDuplicateTopLevelLabels($tree);
+        }
+
         return $tree;
+    }
+
+    /**
+     * Merge duplicate top-level labels into a single node so users see a clean sidebar.
+     */
+    private function mergeDuplicateTopLevelLabels(array $tree): array
+    {
+        $merged = [];
+        $indexByLabel = [];
+
+        foreach ($tree as $item) {
+            $labelKey = strtolower(trim((string) ($item['label'] ?? '')));
+            if ($labelKey === '' || !isset($indexByLabel[$labelKey])) {
+                $indexByLabel[$labelKey] = count($merged);
+                $merged[] = $item;
+                continue;
+            }
+
+            $existingIndex = $indexByLabel[$labelKey];
+            $merged[$existingIndex] = $this->mergeMenuNodes($merged[$existingIndex], $item);
+        }
+
+        usort($merged, fn($a, $b) => ($a['display_order'] ?? 0) <=> ($b['display_order'] ?? 0));
+        return array_values($merged);
+    }
+
+    /**
+     * Merge two menu nodes with the same label while preserving navigable entries.
+     */
+    private function mergeMenuNodes(array $primary, array $secondary): array
+    {
+        if (!$this->hasNavigableUrl($primary['url'] ?? null) && $this->hasNavigableUrl($secondary['url'] ?? null)) {
+            $primary['url'] = $secondary['url'];
+            $primary['route_url'] = $secondary['route_url'] ?? ($primary['route_url'] ?? null);
+        }
+
+        if (empty($primary['icon']) && !empty($secondary['icon'])) {
+            $primary['icon'] = $secondary['icon'];
+        }
+
+        if (($secondary['display_order'] ?? 0) < ($primary['display_order'] ?? 0)) {
+            $primary['display_order'] = $secondary['display_order'];
+        }
+
+        $combinedChildren = array_merge($primary['subitems'] ?? [], $secondary['subitems'] ?? []);
+        $primary['subitems'] = $this->mergeSubitemsByKey($combinedChildren);
+
+        return $primary;
+    }
+
+    /**
+     * Deduplicate child menu items by label+url and keep stable order.
+     */
+    private function mergeSubitemsByKey(array $subitems): array
+    {
+        $seen = [];
+        $merged = [];
+
+        foreach ($subitems as $item) {
+            $label = strtolower(trim((string) ($item['label'] ?? '')));
+            $url = trim((string) ($item['url'] ?? ''));
+            $key = $label . '|' . $url;
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $merged[] = $item;
+        }
+
+        usort($merged, fn($a, $b) => ($a['display_order'] ?? 0) <=> ($b['display_order'] ?? 0));
+        return array_values($merged);
+    }
+
+    /**
+     * True when a menu URL points to an actual route target.
+     */
+    private function hasNavigableUrl($url): bool
+    {
+        if (!is_string($url)) {
+            return false;
+        }
+
+        $trimmed = trim($url);
+        return $trimmed !== '' && $trimmed !== '#';
     }
 
     /**
@@ -683,28 +770,22 @@ class MenuBuilderService
             // ignore and proceed
         }
 
-        // Filter by permissions
-        if (!empty($userPermissions)) {
-            $configService = SystemConfigService::getInstance();
-            $filteredItems = array_filter($filteredItems, function ($item) use ($userPermissions, $configService) {
-                if (empty($item['route_name'])) {
-                    return true;
-                }
+        // Filter by effective route authorization for any assigned role.
+        $configService = SystemConfigService::getInstance();
+        $filteredItems = array_filter($filteredItems, function ($item) use ($userId, $roleIds, $configService) {
+            $routeName = $this->resolveRouteNameForAuthorization($item);
+            if ($routeName === null) {
+                return true;
+            }
 
-                $requiredPerms = $configService->getPermissionsForRouteName($item['route_name']);
-                if (empty($requiredPerms)) {
-                    return true;
-                }
+            $authorization = $configService->isUserAuthorizedForAnyRole(
+                $userId,
+                $roleIds,
+                $routeName
+            );
 
-                foreach ($requiredPerms as $perm) {
-                    if (in_array($perm['name'], $userPermissions)) {
-                        return true;
-                    }
-                }
-
-                return false;
-            });
-        }
+            return (bool) ($authorization['authorized'] ?? false);
+        });
 
         return $this->buildMenuTree(array_values($filteredItems));
     }
@@ -718,7 +799,7 @@ class MenuBuilderService
      */
     public function getAllRoleMenusForExport(): array
     {
-        $stmt = $this->db->query("SELECT id, name FROM roles WHERE is_active = 1");
+        $stmt = $this->db->query("SELECT id, name FROM roles ORDER BY id");
         $roles = $stmt->fetchAll();
 
         $export = [];
@@ -860,6 +941,39 @@ class MenuBuilderService
         );
         $result = $stmt->fetch();
         return $result ? (int) $result['id'] : null;
+    }
+
+    /**
+     * Resolve route name for authorization checks from a menu item payload.
+     */
+    private function resolveRouteNameForAuthorization(array $item): ?string
+    {
+        $routeName = trim((string) ($item['route_name'] ?? ''));
+        if ($routeName !== '') {
+            return $routeName;
+        }
+
+        $candidate = trim((string) ($item['url'] ?? ($item['route_url'] ?? '')));
+        if ($candidate === '' || $candidate === '#') {
+            return null;
+        }
+
+        if (strpos($candidate, 'route=') !== false) {
+            $query = parse_url($candidate, PHP_URL_QUERY);
+            if ($query) {
+                parse_str($query, $params);
+                $parsed = trim((string) ($params['route'] ?? ''));
+                if ($parsed !== '') {
+                    return $parsed;
+                }
+            }
+        }
+
+        if (strpos($candidate, 'home.php') !== false || strpos($candidate, '/') !== false) {
+            return null;
+        }
+
+        return $candidate;
     }
 
     /**

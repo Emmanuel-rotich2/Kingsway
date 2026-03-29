@@ -1,25 +1,5 @@
 # StudentsController API Endpoints
 
-## postMediaUpload
-
----
-
-## getMedia
-
----
-
-## postMediaDelete
-
----
-
-## public
-
----
-
-## function
-
----
-
 ## getStudent
 
 ---
@@ -95,29 +75,6 @@
 ## postPhotoUpload
 
 ---
-
-## postAdmissionStartWorkflow
-
----
-
-## postAdmissionVerifyDocuments
-
----
-
-## postAdmissionConductInterview
-
----
-
-## postAdmissionApprove
-
----
-
-## postAdmissionCompleteRegistration
-
----
-
-## getAdmissionWorkflowStatus
-
 ---
 
 ## postTransferStartWorkflow
@@ -307,4 +264,3 @@
 ## getEnrollmentCurrent
 
 ---
-

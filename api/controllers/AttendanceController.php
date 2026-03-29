@@ -189,6 +189,10 @@ class AttendanceController extends BaseController
     public function getStaffHistory($staffId = null, $data = [], $segments = [])
     {
         $staffId = $staffId ?? ($data['staffId'] ?? null);
+        $scope = $this->getAccessibleStaffScope();
+        if (!$this->isStaffInScope($staffId ? (int) $staffId : null, $scope)) {
+            return $this->forbidden('You are not allowed to access this staff attendance history');
+        }
         $result = $this->api->getStaffAttendanceHistory($staffId);
         return $this->handleResponse($result);
     }
@@ -196,6 +200,10 @@ class AttendanceController extends BaseController
     public function getStaffSummary($staffId = null, $data = [], $segments = [])
     {
         $staffId = $staffId ?? ($data['staffId'] ?? null);
+        $scope = $this->getAccessibleStaffScope();
+        if (!$this->isStaffInScope($staffId ? (int) $staffId : null, $scope)) {
+            return $this->forbidden('You are not allowed to access this staff attendance summary');
+        }
         $result = $this->api->getStaffAttendanceSummary($staffId);
         return $this->handleResponse($result);
     }
@@ -268,14 +276,43 @@ class AttendanceController extends BaseController
     public function getClasses($id = null, $data = [], $segments = [])
     {
         try {
+            $scope = $this->userCanAccessBoardingAttendance()
+                ? [
+                    'restricted' => false,
+                    'staff_id' => $this->getCurrentStaffId(),
+                    'class_ids' => [],
+                    'stream_ids' => [],
+                ]
+                : $this->getAccessibleClassScope();
+            if ($scope['restricted'] && empty($scope['class_ids'])) {
+                return $this->success([], 'No classes assigned to the current user');
+            }
+
+            $where = "WHERE cs.status = 'active'";
+            $params = [];
+
+            if ($scope['restricted']) {
+                $placeholders = implode(',', array_fill(0, count($scope['class_ids']), '?'));
+                $where .= " AND c.id IN ({$placeholders})";
+                $params = array_map('intval', $scope['class_ids']);
+            }
+
             $query = "
-                SELECT c.id, c.name, cs.id as stream_id,
+                SELECT c.id, c.name, cs.id as stream_id, cs.stream_name,
+                       CONCAT(
+                           c.name,
+                           CASE
+                               WHEN cs.stream_name IS NULL OR cs.stream_name = '' OR cs.stream_name = c.name THEN ''
+                               ELSE CONCAT(' - ', cs.stream_name)
+                           END
+                       ) as display_name,
                        (SELECT COUNT(*) FROM students s WHERE s.stream_id = cs.id AND s.status = 'active') as student_count
                 FROM classes c
                 JOIN class_streams cs ON cs.class_id = c.id
-                ORDER BY c.id
+                {$where}
+                ORDER BY c.id, cs.stream_name
             ";
-            $result = $this->db->query($query);
+            $result = $this->db->query($query, $params);
             $classes = $result->fetchAll(\PDO::FETCH_ASSOC);
 
             return $this->success($classes, 'Classes retrieved successfully');
@@ -295,20 +332,39 @@ class AttendanceController extends BaseController
                 return $this->badRequest('Missing stream_id');
             }
 
+            $scope = $this->getAccessibleClassScope();
+            if ($scope['restricted'] && !in_array((int) $streamId, $scope['stream_ids'], true)) {
+                return $this->forbidden('You are not allowed to access this class attendance register');
+            }
+
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
 
             $query = "
                 SELECT s.id, s.admission_no, s.first_name, s.last_name,
                        st.name as student_type,
-                       sa.status as attendance_status,
-                       sa.id as attendance_id
+                       st.code as student_type_code,
+                       sa.id as attendance_id,
+                       sa.status as stored_status,
+                       sa.absence_reason,
+                       CASE
+                           WHEN sa.absence_reason = 'permission' THEN 'permission'
+                           ELSE sa.status
+                       END as attendance_status,
+                       CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission,
+                       spt.code as permission_type_code,
+                       spt.name as permission_type,
+                       sp.reason as permission_reason
                 FROM students s
                 LEFT JOIN student_types st ON s.student_type_id = st.id
                 LEFT JOIN student_attendance sa ON sa.student_id = s.id AND sa.date = ?
+                LEFT JOIN student_permissions sp ON sp.student_id = s.id
+                    AND ? BETWEEN sp.start_date AND sp.end_date
+                    AND sp.status = 'approved'
+                LEFT JOIN student_permission_types spt ON spt.id = sp.permission_type_id
                 WHERE s.stream_id = ? AND s.status = 'active'
                 ORDER BY s.last_name, s.first_name
             ";
-            $result = $this->db->query($query, [$date, $streamId]);
+            $result = $this->db->query($query, [$date, $date, $streamId]);
             $students = $result->fetchAll(\PDO::FETCH_ASSOC);
 
             return $this->success($students, 'Students retrieved successfully');
@@ -445,11 +501,35 @@ class AttendanceController extends BaseController
                 return $this->badRequest('Session ID is required');
             }
 
+            $scope = $this->getAccessibleClassScope();
+            $streamScope = $this->buildStreamScopeClause($streamId ? (int) $streamId : null, $scope);
+            if ($streamScope['forbidden']) {
+                return $this->forbidden('You are not allowed to access this class attendance register');
+            }
+            if ($streamScope['empty']) {
+                return $this->success([
+                    'session' => null,
+                    'date' => $date,
+                    'students' => [],
+                ], 'Session attendance retrieved');
+            }
+
             $sql = "
                 SELECT s.id, s.admission_no, s.first_name, s.last_name,
                        st.name as student_type, st.code as student_type_code,
-                       sa.status as attendance_status, sa.check_in_time, sa.notes,
+                       sa.status as stored_status,
+                       sa.absence_reason,
+                       CASE
+                           WHEN sa.absence_reason = 'permission' THEN 'permission'
+                           WHEN sa.status IS NOT NULL THEN sa.status
+                           WHEN sp.id IS NOT NULL THEN 'permission'
+                           ELSE NULL
+                       END as attendance_status,
+                       sa.check_in_time, sa.notes,
+                       CASE WHEN sp.id IS NULL THEN 0 ELSE 1 END as has_permission,
                        sp.id as permission_id, spt.name as permission_type,
+                       spt.code as permission_type_code,
+                       sp.reason as permission_reason,
                        sp.start_date as permission_start, sp.end_date as permission_end
                 FROM students s
                 JOIN student_types st ON s.student_type_id = st.id
@@ -462,10 +542,8 @@ class AttendanceController extends BaseController
             ";
             $params = [$date, $sessionId, $date];
 
-            if ($streamId) {
-                $sql .= " AND s.stream_id = ?";
-                $params[] = $streamId;
-            }
+            $sql .= $streamScope['sql'];
+            $params = array_merge($params, $streamScope['params']);
 
             $sql .= " ORDER BY s.last_name, s.first_name";
 
@@ -510,6 +588,14 @@ class AttendanceController extends BaseController
                 return $this->badRequest('No attendance data provided');
             }
 
+            $scope = $this->getAccessibleClassScope();
+            if ($streamId) {
+                $streamScope = $this->buildStreamScopeClause((int) $streamId, $scope);
+                if ($streamScope['forbidden']) {
+                    return $this->forbidden('You are not allowed to mark attendance for this class');
+                }
+            }
+
             // Get class_id from stream
             $classQuery = $this->db->query("SELECT class_id FROM class_streams WHERE id = ?", [$streamId]);
             $classRow = $classQuery->fetch(\PDO::FETCH_ASSOC);
@@ -521,11 +607,15 @@ class AttendanceController extends BaseController
 
             foreach ($attendance as $record) {
                 $studentId = $record['student_id'] ?? null;
-                $status = $record['status'] ?? 'present';
+                $requestedStatus = strtolower((string) ($record['status'] ?? 'present'));
                 $notes = $record['notes'] ?? null;
 
                 if (!$studentId)
                     continue;
+
+                if (!in_array($requestedStatus, ['present', 'absent', 'late', 'permission'], true)) {
+                    $requestedStatus = 'present';
+                }
 
                 // Check for active permission
                 $permQuery = $this->db->query(
@@ -536,12 +626,15 @@ class AttendanceController extends BaseController
                 $permission = $permQuery->fetch(\PDO::FETCH_ASSOC);
                 $permissionId = $permission['id'] ?? null;
 
-                // If absent but has permission, set absence_reason
+                $status = $requestedStatus === 'permission' ? 'absent' : $requestedStatus;
                 $absenceReason = null;
+
                 if ($status === 'absent') {
-                    if ($permissionId) {
+                    if ($permissionId || $requestedStatus === 'permission') {
                         $absenceReason = 'permission';
-                        $excused++;
+                        if ($permissionId) {
+                            $excused++;
+                        }
                     } else {
                         $absenceReason = 'unexcused';
                     }
@@ -597,6 +690,225 @@ class AttendanceController extends BaseController
         }
     }
 
+    /**
+     * GET /api/attendance/academic-summary
+     * Aggregate learner attendance for the shared reports page.
+     */
+    public function getAcademicSummary($id = null, $data = [], $segments = [])
+    {
+        try {
+            $dateFrom = $data['date_from'] ?? $_GET['date_from'] ?? date('Y-m-01');
+            $dateTo = $data['date_to'] ?? $_GET['date_to'] ?? date('Y-m-d');
+            $sessionId = $data['session_id'] ?? $_GET['session_id'] ?? null;
+            $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $statusFilter = $data['status'] ?? $_GET['status'] ?? null;
+
+            if ($dateFrom > $dateTo) {
+                [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+            }
+
+            $scope = $this->getAccessibleClassScope();
+            $streamScope = $this->buildStreamScopeClause($streamId ? (int) $streamId : null, $scope);
+            if ($streamScope['forbidden']) {
+                return $this->forbidden('You are not allowed to access attendance for this class');
+            }
+            if ($streamScope['empty']) {
+                return $this->success(
+                    $this->buildEmptyAcademicSummary($dateFrom, $dateTo, $streamId ? (int) $streamId : null),
+                    'Academic attendance summary retrieved'
+                );
+            }
+
+            $attendanceJoin = " AND sa.date BETWEEN ? AND ?";
+            $params = [$dateFrom, $dateTo];
+            if ($sessionId) {
+                $attendanceJoin .= " AND sa.session_id = ?";
+                $params[] = (int) $sessionId;
+            }
+
+            $sql = "
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    s.first_name,
+                    s.last_name,
+                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
+                    c.name AS class_name,
+                    cs.stream_name,
+                    st.name AS student_type,
+                    st.code AS student_type_code,
+                    COUNT(sa.id) AS total_days,
+                    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present,
+                    SUM(CASE WHEN sa.status = 'absent' AND COALESCE(sa.absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
+                    SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS late,
+                    SUM(CASE WHEN sa.absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
+                    MAX(CASE WHEN sa.status = 'absent' OR sa.absence_reason = 'permission' THEN sa.date END) AS last_absent_date
+                FROM students s
+                JOIN class_streams cs ON cs.id = s.stream_id
+                JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN student_types st ON st.id = s.student_type_id
+                LEFT JOIN student_attendance sa ON sa.student_id = s.id {$attendanceJoin}
+                WHERE s.status = 'active' {$streamScope['sql']}
+                GROUP BY
+                    s.id,
+                    s.admission_no,
+                    s.first_name,
+                    s.last_name,
+                    s.middle_name,
+                    c.name,
+                    cs.stream_name,
+                    st.name,
+                    st.code
+                ORDER BY c.name, cs.stream_name, s.last_name, s.first_name
+            ";
+
+            $params = array_merge($params, $streamScope['params']);
+            $students = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
+
+            $students = array_map(static function (array $row): array {
+                $row['student_id'] = (int) $row['student_id'];
+                $row['total_days'] = (int) ($row['total_days'] ?? 0);
+                $row['present'] = (int) ($row['present'] ?? 0);
+                $row['absent'] = (int) ($row['absent'] ?? 0);
+                $row['late'] = (int) ($row['late'] ?? 0);
+                $row['permission'] = (int) ($row['permission'] ?? 0);
+                $row['attendance_percentage'] = $row['total_days'] > 0
+                    ? round(($row['present'] / $row['total_days']) * 100, 1)
+                    : 0;
+                return $row;
+            }, $students);
+
+            $students = $this->applyAcademicStatusFilter($students, $statusFilter);
+            $summary = $this->summarizeAcademicRows($students);
+
+            $trendSql = "
+                SELECT
+                    sa.date,
+                    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present,
+                    SUM(CASE WHEN sa.status = 'absent' AND COALESCE(sa.absence_reason, 'unexcused') <> 'permission' THEN 1 ELSE 0 END) AS absent,
+                    SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) AS late,
+                    SUM(CASE WHEN sa.absence_reason = 'permission' THEN 1 ELSE 0 END) AS permission,
+                    COUNT(sa.id) AS total
+                FROM student_attendance sa
+                JOIN students s ON s.id = sa.student_id
+                WHERE sa.date BETWEEN ? AND ? {$streamScope['sql']}
+            ";
+            $trendParams = [$dateFrom, $dateTo];
+            if ($sessionId) {
+                $trendSql .= " AND sa.session_id = ?";
+                $trendParams[] = (int) $sessionId;
+            }
+            $trendSql .= "
+                GROUP BY sa.date
+                ORDER BY sa.date ASC
+            ";
+            $trendParams = array_merge($trendParams, $streamScope['params']);
+            $trend = $this->db->query($trendSql, $trendParams)->fetchAll(\PDO::FETCH_ASSOC);
+
+            $trend = array_map(static function (array $row): array {
+                return [
+                    'date' => $row['date'],
+                    'present' => (int) ($row['present'] ?? 0),
+                    'absent' => (int) ($row['absent'] ?? 0),
+                    'late' => (int) ($row['late'] ?? 0),
+                    'permission' => (int) ($row['permission'] ?? 0),
+                    'total' => (int) ($row['total'] ?? 0),
+                ];
+            }, $trend);
+
+            $lowAttendance = array_values(array_map(static function (array $student): array {
+                return [
+                    'student_id' => $student['student_id'],
+                    'student_name' => $student['student_name'],
+                    'admission_no' => $student['admission_no'],
+                    'attendance_percentage' => $student['attendance_percentage'],
+                    'absent_days' => $student['absent'] + $student['permission'],
+                    'last_absent_date' => $student['last_absent_date'] ?? null,
+                ];
+            }, array_filter($students, static function (array $student): bool {
+                return ($student['total_days'] ?? 0) > 0 && ($student['attendance_percentage'] ?? 0) < 80;
+            })));
+
+            return $this->success([
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'stream_id' => $streamId ? (int) $streamId : null,
+                'students' => $students,
+                'summary' => $summary,
+                'trend' => $trend,
+                'low_attendance' => $lowAttendance,
+            ], 'Academic attendance summary retrieved');
+        } catch (\Exception $e) {
+            return $this->error('Failed to load academic attendance summary: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/attendance/daily-register
+     * Return raw attendance rows for the selected day/session.
+     */
+    public function getDailyRegister($id = null, $data = [], $segments = [])
+    {
+        try {
+            $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
+            $sessionId = $data['session_id'] ?? $_GET['session_id'] ?? null;
+            $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+
+            $scope = $this->getAccessibleClassScope();
+            $streamScope = $this->buildStreamScopeClause($streamId ? (int) $streamId : null, $scope);
+            if ($streamScope['forbidden']) {
+                return $this->forbidden('You are not allowed to access attendance for this class');
+            }
+            if ($streamScope['empty']) {
+                return $this->success([], 'Daily register retrieved');
+            }
+
+            $sql = "
+                SELECT
+                    sa.id,
+                    sa.student_id,
+                    sa.date,
+                    s.admission_no,
+                    s.first_name,
+                    s.last_name,
+                    c.name AS class_name,
+                    cs.stream_name,
+                    st.name AS student_type,
+                    st.code AS student_type_code,
+                    ass.name AS session_name,
+                    CASE
+                        WHEN sa.absence_reason = 'permission' THEN 'permission'
+                        ELSE sa.status
+                    END AS status,
+                    sa.status AS stored_status,
+                    sa.absence_reason,
+                    sa.check_in_time AS marked_at,
+                    sa.notes
+                FROM student_attendance sa
+                JOIN students s ON s.id = sa.student_id
+                JOIN class_streams cs ON cs.id = s.stream_id
+                JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN student_types st ON st.id = s.student_type_id
+                LEFT JOIN attendance_sessions ass ON ass.id = sa.session_id
+                WHERE sa.date = ? {$streamScope['sql']}
+            ";
+            $params = [$date];
+
+            if ($sessionId) {
+                $sql .= " AND sa.session_id = ?";
+                $params[] = (int) $sessionId;
+            }
+
+            $sql .= " ORDER BY cs.class_id, cs.stream_name, s.last_name, s.first_name";
+            $params = array_merge($params, $streamScope['params']);
+
+            $rows = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows, 'Daily register retrieved');
+        } catch (\Exception $e) {
+            return $this->error('Failed to load daily register: ' . $e->getMessage());
+        }
+    }
+
     // ========================================================================
     // BOARDING ATTENDANCE METHODS
     // ========================================================================
@@ -607,6 +919,10 @@ class AttendanceController extends BaseController
     public function getDormitories($id = null, $data = [], $segments = [])
     {
         try {
+            if (!$this->userCanAccessBoardingAttendance()) {
+                return $this->forbidden('You are not allowed to access boarding attendance');
+            }
+
             $sql = "
                 SELECT d.*, 
                        CONCAT(hp.first_name, ' ', hp.last_name) as house_parent_name,
@@ -632,6 +948,10 @@ class AttendanceController extends BaseController
     public function getDormitoryStudents($id = null, $data = [], $segments = [])
     {
         try {
+            if (!$this->userCanAccessBoardingAttendance()) {
+                return $this->forbidden('You are not allowed to access boarding attendance');
+            }
+
             $dormitoryId = $id ?? $data['dormitory_id'] ?? $_GET['dormitory_id'] ?? null;
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
             $sessionId = $data['session_id'] ?? $_GET['session_id'] ?? null;
@@ -700,6 +1020,10 @@ class AttendanceController extends BaseController
     public function postMarkBoarding($id = null, $data = [], $segments = [])
     {
         try {
+            if (!$this->userCanAccessBoardingAttendance()) {
+                return $this->forbidden('You are not allowed to mark boarding attendance');
+            }
+
             $dormitoryId = $data['dormitory_id'] ?? null;
             $sessionId = $data['session_id'] ?? null;
             $date = $data['date'] ?? date('Y-m-d');
@@ -787,6 +1111,10 @@ class AttendanceController extends BaseController
     public function getBoardingSummary($id = null, $data = [], $segments = [])
     {
         try {
+            if (!$this->userCanAccessBoardingAttendance()) {
+                return $this->forbidden('You are not allowed to access boarding attendance');
+            }
+
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
 
             $sql = "
@@ -849,20 +1177,47 @@ class AttendanceController extends BaseController
             $studentId = $data['student_id'] ?? $_GET['student_id'] ?? null;
             $status = $data['status'] ?? $_GET['status'] ?? null;
             $active = $data['active'] ?? $_GET['active'] ?? null;
+            $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $search = trim((string) ($data['search'] ?? $_GET['search'] ?? ''));
+            $dateFrom = $data['date_from'] ?? $_GET['date_from'] ?? null;
+            $dateTo = $data['date_to'] ?? $_GET['date_to'] ?? null;
+            $permissionTypeId = $data['permission_type_id'] ?? $_GET['permission_type_id'] ?? null;
+
+            $scope = $this->getAccessibleClassScope();
+            $streamScope = $this->buildStreamScopeClause($streamId ? (int) $streamId : null, $scope);
+            if ($streamScope['forbidden']) {
+                return $this->forbidden('You are not allowed to access permissions for this class');
+            }
+            if ($streamScope['empty']) {
+                return $this->success([], 'Permissions retrieved');
+            }
 
             $sql = "
                 SELECT sp.*, 
                        CONCAT(s.first_name, ' ', s.last_name) as student_name,
                        s.admission_no,
+                       c.name as class_name,
+                       cs.stream_name,
+                       st.name as student_type,
+                       st.code as student_type_code,
                        spt.name as permission_type_name, spt.code as permission_type_code,
-                       CONCAT(staff.first_name, ' ', staff.last_name) as approved_by_name
+                       spt.applies_to,
+                       COALESCE(
+                           CONCAT(approver_staff.first_name, ' ', approver_staff.last_name),
+                           CONCAT(approver_user.first_name, ' ', approver_user.last_name),
+                           approver_user.username
+                       ) as approved_by_name
                 FROM student_permissions sp
                 JOIN students s ON sp.student_id = s.id
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN student_types st ON st.id = s.student_type_id
                 JOIN student_permission_types spt ON sp.permission_type_id = spt.id
-                LEFT JOIN staff ON sp.approved_by = staff.id
-                WHERE 1=1
+                LEFT JOIN users approver_user ON sp.approved_by = approver_user.id
+                LEFT JOIN staff approver_staff ON approver_staff.user_id = approver_user.id
+                WHERE 1=1 {$streamScope['sql']}
             ";
-            $params = [];
+            $params = $streamScope['params'];
 
             if ($studentId) {
                 $sql .= " AND sp.student_id = ?";
@@ -873,10 +1228,41 @@ class AttendanceController extends BaseController
                 $params[] = $status;
             }
             if ($active === 'true' || $active === '1') {
-                $sql .= " AND CURDATE() BETWEEN sp.start_date AND sp.end_date";
+                $sql .= " AND CURDATE() BETWEEN sp.start_date AND sp.end_date AND sp.status = 'approved'";
+            }
+            if ($permissionTypeId) {
+                $sql .= " AND sp.permission_type_id = ?";
+                $params[] = (int) $permissionTypeId;
+            }
+            if ($dateFrom && $dateTo) {
+                if ($dateFrom > $dateTo) {
+                    [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+                }
+                $sql .= " AND sp.end_date >= ? AND sp.start_date <= ?";
+                $params[] = $dateFrom;
+                $params[] = $dateTo;
+            } elseif ($dateFrom) {
+                $sql .= " AND sp.end_date >= ?";
+                $params[] = $dateFrom;
+            } elseif ($dateTo) {
+                $sql .= " AND sp.start_date <= ?";
+                $params[] = $dateTo;
+            }
+            if ($search !== '') {
+                $sql .= " AND (
+                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?
+                    OR s.admission_no LIKE ?
+                    OR sp.reason LIKE ?
+                    OR spt.name LIKE ?
+                )";
+                $searchTerm = '%' . $search . '%';
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
+                $params[] = $searchTerm;
             }
 
-            $sql .= " ORDER BY sp.created_at DESC LIMIT 100";
+            $sql .= " ORDER BY sp.created_at DESC LIMIT 250";
 
             $result = $this->db->query($sql, $params);
             $permissions = $result->fetchAll(\PDO::FETCH_ASSOC);
@@ -893,24 +1279,86 @@ class AttendanceController extends BaseController
     public function postPermissions($id = null, $data = [], $segments = [])
     {
         try {
-            $studentId = $data['student_id'] ?? null;
-            $permissionTypeId = $data['permission_type_id'] ?? null;
+            $studentId = isset($data['student_id']) ? (int) $data['student_id'] : null;
+            $permissionTypeId = isset($data['permission_type_id']) ? (int) $data['permission_type_id'] : null;
             $startDate = $data['start_date'] ?? null;
+            $startTime = $data['start_time'] ?? null;
             $endDate = $data['end_date'] ?? null;
-            $reason = $data['reason'] ?? null;
+            $endTime = $data['end_time'] ?? null;
+            $reason = trim((string) ($data['reason'] ?? ''));
             $parentId = $data['parent_id'] ?? null;
             $requestedByParent = $data['requested_by_parent'] ?? false;
+            $expectedReturn = $data['expected_return'] ?? null;
+            $notes = $data['notes'] ?? null;
+            if ($expectedReturn) {
+                $expectedReturn = str_replace('T', ' ', (string) $expectedReturn);
+            }
 
-            if (!$studentId || !$permissionTypeId || !$startDate || !$endDate || !$reason) {
+            if (!$studentId || !$permissionTypeId || !$startDate || !$endDate || $reason === '') {
                 return $this->badRequest('Missing required fields');
+            }
+
+            if ($startDate > $endDate) {
+                [$startDate, $endDate] = [$endDate, $startDate];
+            }
+
+            $permissionType = $this->db->query(
+                "SELECT id, code, name, max_days, applies_to, status
+                 FROM student_permission_types
+                 WHERE id = ? AND status = 'active'
+                 LIMIT 1",
+                [$permissionTypeId]
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$permissionType) {
+                return $this->badRequest('Invalid permission type');
+            }
+
+            $student = $this->db->query(
+                "SELECT s.id, st.code AS student_type_code, st.name AS student_type
+                 FROM students s
+                 LEFT JOIN student_types st ON st.id = s.student_type_id
+                 WHERE s.id = ?
+                 LIMIT 1",
+                [$studentId]
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$student) {
+                return $this->badRequest('Invalid student');
+            }
+
+            $studentTypeCode = strtoupper((string) ($student['student_type_code'] ?? ''));
+            $isBoarder = str_contains($studentTypeCode, 'BOARD');
+            if (($permissionType['applies_to'] ?? 'all') === 'boarders_only' && !$isBoarder) {
+                return $this->badRequest('This permission type is only available for boarders');
+            }
+            if (($permissionType['applies_to'] ?? 'all') === 'day_only' && $isBoarder) {
+                return $this->badRequest('This permission type is only available for day scholars');
+            }
+
+            if (!empty($permissionType['max_days'])) {
+                $daysRequested = (new \DateTime($startDate))->diff(new \DateTime($endDate))->days + 1;
+                if ($daysRequested > (int) $permissionType['max_days']) {
+                    return $this->badRequest('Request exceeds the maximum allowed duration for this permission type');
+                }
             }
 
             $this->db->query(
                 "INSERT INTO student_permissions 
-                 (student_id, permission_type_id, start_date, end_date, reason, 
-                  parent_id, requested_by_parent, status, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NOW())",
-                [$studentId, $permissionTypeId, $startDate, $endDate, $reason, $parentId, $requestedByParent ? 1 : 0]
+                 (student_id, permission_type_id, start_date, start_time, end_date, end_time, reason,
+                  parent_id, requested_by_parent, expected_return, notes, status, requested_at, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+                [
+                    $studentId,
+                    $permissionTypeId,
+                    $startDate,
+                    $startTime ?: null,
+                    $endDate,
+                    $endTime ?: null,
+                    $reason,
+                    $parentId ?: null,
+                    filter_var($requestedByParent, FILTER_VALIDATE_BOOLEAN) ? 1 : 0,
+                    $expectedReturn ?: null,
+                    $notes ?: null,
+                ]
             );
 
             $permissionId = $this->db->getConnection()->lastInsertId();
@@ -931,20 +1379,93 @@ class AttendanceController extends BaseController
                 return $this->badRequest('Permission ID is required');
             }
 
-            $status = $data['status'] ?? null;
-            $rejectionReason = $data['rejection_reason'] ?? null;
-            $approvedBy = $_SERVER['auth_user']['user_id'] ?? 1;
+            $existing = $this->db->query(
+                "SELECT * FROM student_permissions WHERE id = ? LIMIT 1",
+                [$id]
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$existing) {
+                return $this->notFound('Permission request not found');
+            }
 
-            if (!in_array($status, ['approved', 'rejected', 'cancelled'])) {
+            $status = $data['status'] ?? null;
+            $approvedBy = $_SERVER['auth_user']['user_id'] ?? 1;
+            $rejectionReason = trim((string) ($data['rejection_reason'] ?? $data['comments'] ?? ''));
+
+            $editableFields = [
+                'permission_type_id',
+                'start_date',
+                'start_time',
+                'end_date',
+                'end_time',
+                'reason',
+                'parent_id',
+                'requested_by_parent',
+                'expected_return',
+                'notes',
+            ];
+
+            $hasEditPayload = false;
+            foreach ($editableFields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $hasEditPayload = true;
+                    break;
+                }
+            }
+
+            if ($hasEditPayload && !$status) {
+                if (($existing['status'] ?? 'pending') !== 'pending') {
+                    return $this->badRequest('Only pending requests can be edited');
+                }
+
+                $updates = [];
+                $params = [];
+                foreach ($editableFields as $field) {
+                    if (!array_key_exists($field, $data)) {
+                        continue;
+                    }
+                    $updates[] = "{$field} = ?";
+                    if ($field === 'requested_by_parent') {
+                        $params[] = filter_var($data[$field], FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+                    } elseif ($field === 'expected_return' && !empty($data[$field])) {
+                        $params[] = str_replace('T', ' ', (string) $data[$field]);
+                    } else {
+                        $params[] = $data[$field] === '' ? null : $data[$field];
+                    }
+                }
+
+                if (empty($updates)) {
+                    return $this->badRequest('No editable fields supplied');
+                }
+
+                $params[] = $id;
+                $this->db->query(
+                    "UPDATE student_permissions SET " . implode(', ', $updates) . ", updated_at = NOW() WHERE id = ?",
+                    $params
+                );
+
+                return $this->success(['id' => $id], 'Permission request updated');
+            }
+
+            if (!in_array($status, ['approved', 'rejected', 'cancelled', 'completed'], true)) {
                 return $this->badRequest('Invalid status');
             }
 
-            $sql = "UPDATE student_permissions SET status = ?, approved_by = ?, approved_at = NOW()";
-            $params = [$status, $approvedBy];
+            $sql = "UPDATE student_permissions SET status = ?, updated_at = NOW()";
+            $params = [$status];
 
-            if ($status === 'rejected' && $rejectionReason) {
+            if (in_array($status, ['approved', 'rejected'], true)) {
+                $sql .= ", approved_by = ?, approved_at = NOW()";
+                $params[] = $approvedBy;
+            }
+
+            if ($status === 'rejected') {
                 $sql .= ", rejection_reason = ?";
-                $params[] = $rejectionReason;
+                $params[] = $rejectionReason !== '' ? $rejectionReason : null;
+            }
+
+            if (!empty($data['notes'])) {
+                $sql .= ", notes = ?";
+                $params[] = $data['notes'];
             }
 
             $sql .= " WHERE id = ?";
@@ -969,20 +1490,63 @@ class AttendanceController extends BaseController
     {
         try {
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
+            $departmentId = $data['department_id'] ?? $_GET['department_id'] ?? null;
+            $scope = $this->getAccessibleStaffScope();
+
+            if ($scope['restricted'] && empty($scope['staff_ids'])) {
+                return $this->success([
+                    'date' => $date,
+                    'summary' => [
+                        'total' => 0,
+                        'present' => 0,
+                        'absent' => 0,
+                        'late' => 0,
+                        'on_leave' => 0,
+                        'off_day' => 0,
+                        'not_marked' => 0,
+                    ],
+                    'staff' => [],
+                ], 'Staff attendance retrieved');
+            }
+
+            $where = ["st.status = 'active'"];
+            $params = [$date, $date, $date];
+
+            if ($departmentId) {
+                $where[] = "st.department_id = ?";
+                $params[] = (int) $departmentId;
+            }
+
+            if ($scope['restricted']) {
+                $placeholders = implode(',', array_fill(0, count($scope['staff_ids']), '?'));
+                $where[] = "st.id IN ({$placeholders})";
+                $params = array_merge($params, array_map('intval', $scope['staff_ids']));
+            }
 
             $sql = "
                 SELECT 
-                    st.id, st.staff_no, st.first_name, st.last_name, st.position,
-                    d.name as department,
-                    sa.status as attendance_status, sa.check_in_time, sa.check_out_time,
+                    st.id AS staff_id,
+                    st.id,
+                    st.staff_no,
+                    st.first_name,
+                    st.last_name,
+                    st.position,
+                    d.name AS department_name,
+                    d.name AS department,
+                    sa.status AS attendance_status,
+                    sa.status AS current_status,
+                    sa.check_in_time,
+                    sa.check_out_time,
                     sl.id as leave_id, lt.name as leave_type, sl.status as leave_status,
-                    sdr.id as duty_id, sdt.name as duty_type,
+                    sdr.id as duty_id, sdt.id as duty_type_id, sdt.name as duty_type, sdt.code as duty_type_code,
                     CASE 
                         WHEN sl.id IS NOT NULL AND sl.status = 'approved' THEN 'on_leave'
                         WHEN sdt.code IN ('OFF', 'WEEKEND_OFF') THEN 'off_day'
                         WHEN sa.status IS NULL THEN 'not_marked'
                         ELSE sa.status
-                    END as effective_status
+                    END as effective_status,
+                    CASE WHEN sl.id IS NOT NULL AND sl.status = 'approved' THEN 1 ELSE 0 END as is_on_leave,
+                    CASE WHEN sdt.code IN ('OFF', 'WEEKEND_OFF') THEN 1 ELSE 0 END as is_off_day
                 FROM staff st
                 LEFT JOIN departments d ON st.department_id = d.id
                 LEFT JOIN staff_attendance sa ON st.id = sa.staff_id AND sa.date = ?
@@ -991,11 +1555,11 @@ class AttendanceController extends BaseController
                 LEFT JOIN leave_types lt ON sl.leave_type_id = lt.id
                 LEFT JOIN staff_duty_roster sdr ON st.id = sdr.staff_id AND sdr.date = ?
                 LEFT JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-                WHERE st.status = 'active'
-                ORDER BY d.name, st.last_name, st.first_name
             ";
+            $sql .= " WHERE " . implode(' AND ', $where);
+            $sql .= " ORDER BY d.name, st.last_name, st.first_name";
 
-            $result = $this->db->query($sql, [$date, $date, $date]);
+            $result = $this->db->query($sql, $params);
             $staff = $result->fetchAll(\PDO::FETCH_ASSOC);
 
             // Calculate summary
@@ -1035,9 +1599,14 @@ class AttendanceController extends BaseController
             $date = $data['date'] ?? date('Y-m-d');
             $attendance = $data['attendance'] ?? [];
             $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
+            $scope = $this->getAccessibleStaffScope();
 
             if (empty($attendance)) {
                 return $this->badRequest('No attendance data provided');
+            }
+
+            if ($scope['restricted'] && empty($scope['staff_ids'])) {
+                return $this->forbidden('You are not allowed to mark staff attendance');
             }
 
             $created = 0;
@@ -1046,13 +1615,21 @@ class AttendanceController extends BaseController
 
             foreach ($attendance as $record) {
                 $staffId = $record['staff_id'] ?? null;
-                $status = $record['status'] ?? 'present';
+                $status = strtolower((string) ($record['status'] ?? 'present'));
                 $checkIn = $record['check_in_time'] ?? null;
                 $checkOut = $record['check_out_time'] ?? null;
                 $notes = $record['notes'] ?? null;
 
                 if (!$staffId)
                     continue;
+
+                if (!$this->isStaffInScope((int) $staffId, $scope)) {
+                    return $this->forbidden('You are not allowed to mark attendance for one or more staff members');
+                }
+
+                if (!in_array($status, ['present', 'absent', 'late'], true)) {
+                    $status = 'present';
+                }
 
                 // Check if staff is on approved leave
                 $leaveQuery = $this->db->query(
@@ -1161,87 +1738,246 @@ class AttendanceController extends BaseController
             $dutyTypeId = $data['duty_type_id'] ?? $_GET['duty_type_id'] ?? null;
             $statusFilter = $data['status'] ?? $_GET['status'] ?? null;
 
-            // Build dynamic query
-            $whereClause = "";
-            $whereParams = [];
-
-            if ($departmentId) {
-                $whereClause .= " AND s.department_id = ?";
-                $whereParams[] = $departmentId;
+            if ($dateFrom > $dateTo) {
+                [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
             }
 
-            $sql = "
+            $scope = $this->getAccessibleStaffScope();
+            if ($scope['restricted'] && empty($scope['staff_ids'])) {
+                return $this->success(
+                    $this->buildEmptyStaffReport($dateFrom, $dateTo),
+                    'Staff report generated'
+                );
+            }
+
+            $where = ["s.status = 'active'"];
+            $params = [];
+
+            if ($departmentId) {
+                $where[] = "s.department_id = ?";
+                $params[] = (int) $departmentId;
+            }
+
+            if ($scope['restricted']) {
+                $placeholders = implode(',', array_fill(0, count($scope['staff_ids']), '?'));
+                $where[] = "s.id IN ({$placeholders})";
+                $params = array_merge($params, array_map('intval', $scope['staff_ids']));
+            }
+
+            if ($dutyTypeId) {
+                $where[] = "EXISTS (
+                    SELECT 1
+                    FROM staff_duty_roster sdr_filter
+                    WHERE sdr_filter.staff_id = s.id
+                      AND sdr_filter.date BETWEEN ? AND ?
+                      AND sdr_filter.duty_type_id = ?
+                )";
+                $params[] = $dateFrom;
+                $params[] = $dateTo;
+                $params[] = (int) $dutyTypeId;
+            }
+
+            $staffSql = "
                 SELECT
-                    s.id as staff_id,
+                    s.id AS staff_id,
                     s.first_name,
                     s.last_name,
                     s.staff_no,
-                    d.name as department_name,
-
-                    -- Aggregate attendance counts
-                    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) as present,
-                    SUM(CASE WHEN sa.status = 'absent' THEN 1 ELSE 0 END) as absent,
-                    SUM(CASE WHEN sa.status = 'late' THEN 1 ELSE 0 END) as late,
-
-                    -- Count leave days
-                    (SELECT COUNT(*) FROM staff_leaves sl
-                     WHERE sl.staff_id = s.id
-                     AND sl.status = 'approved'
-                     AND sl.start_date <= ?
-                     AND sl.end_date >= ?
-                    ) as on_leave,
-
-                    -- Count off days from roster
-                    (SELECT COUNT(*) FROM staff_duty_roster sdr
-                     JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-                     WHERE sdr.staff_id = s.id
-                     AND sdr.date BETWEEN ? AND ?
-                     AND sdt.code IN ('OFF', 'WEEKEND_OFF')
-                    ) as off_days,
-
-                    -- Get typical duty type
-                    (SELECT sdt2.name FROM staff_duty_roster sdr2
-                     JOIN staff_duty_types sdt2 ON sdr2.duty_type_id = sdt2.id
-                     WHERE sdr2.staff_id = s.id
-                     AND sdt2.code NOT IN ('OFF', 'WEEKEND_OFF')
-                     ORDER BY sdr2.date DESC LIMIT 1
-                    ) as duty_type
-
+                    s.position,
+                    s.user_id,
+                    d.name AS department_name
                 FROM staff s
                 LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN staff_attendance sa ON s.id = sa.staff_id
-                    AND sa.date BETWEEN ? AND ?
-                WHERE s.status = 'active' {$whereClause}
-                GROUP BY s.id, s.first_name, s.last_name, s.staff_no, d.name
-                ORDER BY s.first_name, s.last_name
+                WHERE " . implode(' AND ', $where) . "
+                ORDER BY s.last_name, s.first_name
             ";
 
-            // Params in SQL placeholder order:
-            // 1. sl.start_date <= ? ($dateTo)
-            // 2. sl.end_date >= ? ($dateFrom)
-            // 3. sdr.date BETWEEN ? AND ? ($dateFrom, $dateTo)
-            // 4. sa.date BETWEEN ? AND ? ($dateFrom, $dateTo)
-            // 5. optional: s.department_id = ?
-            $params = [$dateTo, $dateFrom, $dateFrom, $dateTo, $dateFrom, $dateTo];
-            $params = array_merge($params, $whereParams);
-
-            $result = $this->db->query($sql, $params);
-            $staffData = $result->fetchAll(\PDO::FETCH_ASSOC);
-
-            // Filter by status if specified
-            if ($statusFilter && $statusFilter !== '') {
-                $staffData = array_filter($staffData, function ($s) use ($statusFilter) {
-                    if ($statusFilter === 'off_day') {
-                        return ($s['off_days'] ?? 0) > 0;
-                    } elseif ($statusFilter === 'on_leave') {
-                        return ($s['on_leave'] ?? 0) > 0;
-                    }
-                    return true;
-                });
-                $staffData = array_values($staffData);
+            $staffRows = $this->db->query($staffSql, $params)->fetchAll(\PDO::FETCH_ASSOC);
+            if (empty($staffRows)) {
+                return $this->success(
+                    $this->buildEmptyStaffReport($dateFrom, $dateTo),
+                    'Staff report generated'
+                );
             }
 
-            return $this->success($staffData, 'Staff report generated');
+            $staffIds = array_map('intval', array_column($staffRows, 'staff_id'));
+            $dateKeys = $this->buildDateRangeArray($dateFrom, $dateTo);
+            $staffPlaceholders = implode(',', array_fill(0, count($staffIds), '?'));
+
+            $attendanceRows = $this->db->query(
+                "SELECT
+                    sa.staff_id,
+                    sa.date,
+                    sa.status,
+                    sa.check_in_time,
+                    sa.check_out_time,
+                    sa.notes,
+                    sa.absence_reason,
+                    sa.duty_type_id,
+                    sdt.name AS duty_type,
+                    sdt.code AS duty_type_code
+                 FROM staff_attendance sa
+                 LEFT JOIN staff_duty_types sdt ON sa.duty_type_id = sdt.id
+                 WHERE sa.date BETWEEN ? AND ?
+                   AND sa.staff_id IN ({$staffPlaceholders})",
+                array_merge([$dateFrom, $dateTo], $staffIds)
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $leaveRows = $this->db->query(
+                "SELECT
+                    sl.staff_id,
+                    sl.start_date,
+                    sl.end_date,
+                    sl.reason,
+                    lt.name AS leave_type
+                 FROM staff_leaves sl
+                 LEFT JOIN leave_types lt ON sl.leave_type_id = lt.id
+                 WHERE sl.status = 'approved'
+                   AND sl.end_date >= ?
+                   AND sl.start_date <= ?
+                   AND sl.staff_id IN ({$staffPlaceholders})",
+                array_merge([$dateFrom, $dateTo], $staffIds)
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $rosterRows = $this->db->query(
+                "SELECT
+                    sdr.staff_id,
+                    sdr.date,
+                    sdt.id AS duty_type_id,
+                    sdt.name AS duty_type,
+                    sdt.code AS duty_type_code
+                 FROM staff_duty_roster sdr
+                 JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
+                 WHERE sdr.date BETWEEN ? AND ?
+                   AND sdr.staff_id IN ({$staffPlaceholders})",
+                array_merge([$dateFrom, $dateTo], $staffIds)
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $attendanceMap = [];
+            foreach ($attendanceRows as $row) {
+                $attendanceMap[(int) $row['staff_id']][$row['date']] = $row;
+            }
+
+            $leaveMap = [];
+            foreach ($leaveRows as $row) {
+                $leaveMap[(int) $row['staff_id']][] = $row;
+            }
+
+            $rosterMap = [];
+            foreach ($rosterRows as $row) {
+                $rosterMap[(int) $row['staff_id']][$row['date']] = $row;
+            }
+
+            $staffData = [];
+            foreach ($staffRows as $staff) {
+                $staffId = (int) $staff['staff_id'];
+                $dailyStatuses = [];
+                $present = 0;
+                $absent = 0;
+                $late = 0;
+                $onLeave = 0;
+                $offDays = 0;
+                $notMarked = 0;
+                $primaryDutyType = null;
+
+                foreach ($dateKeys as $date) {
+                    $attendance = $attendanceMap[$staffId][$date] ?? null;
+                    $roster = $rosterMap[$staffId][$date] ?? null;
+                    $leave = $this->findActiveLeaveForDate($leaveMap[$staffId] ?? [], $date);
+
+                    $effectiveStatus = 'not_marked';
+                    $statusLabel = 'Not Marked';
+
+                    if ($leave) {
+                        $effectiveStatus = 'on_leave';
+                        $statusLabel = 'On Leave';
+                        $onLeave++;
+                    } elseif ($roster && in_array($roster['duty_type_code'], ['OFF', 'WEEKEND_OFF'], true)) {
+                        $effectiveStatus = 'off_day';
+                        $statusLabel = 'Off Day';
+                        $offDays++;
+                    } elseif ($attendance) {
+                        $effectiveStatus = $attendance['status'] ?: 'not_marked';
+                        $statusLabel = ucfirst((string) $effectiveStatus);
+
+                        if ($effectiveStatus === 'present') {
+                            $present++;
+                        } elseif ($effectiveStatus === 'absent') {
+                            $absent++;
+                        } elseif ($effectiveStatus === 'late') {
+                            $late++;
+                        } else {
+                            $notMarked++;
+                        }
+                    } else {
+                        $notMarked++;
+                    }
+
+                    if ($roster && !in_array($roster['duty_type_code'], ['OFF', 'WEEKEND_OFF'], true)) {
+                        $primaryDutyType = $roster['duty_type'];
+                    } elseif (!$primaryDutyType && !empty($attendance['duty_type'])) {
+                        $primaryDutyType = $attendance['duty_type'];
+                    }
+
+                    $dailyStatuses[] = [
+                        'date' => $date,
+                        'status' => $effectiveStatus,
+                        'label' => $statusLabel,
+                        'duty_type' => $roster['duty_type'] ?? $attendance['duty_type'] ?? null,
+                        'duty_type_code' => $roster['duty_type_code'] ?? $attendance['duty_type_code'] ?? null,
+                        'leave_type' => $leave['leave_type'] ?? null,
+                        'check_in_time' => $attendance['check_in_time'] ?? null,
+                        'check_out_time' => $attendance['check_out_time'] ?? null,
+                        'notes' => $attendance['notes'] ?? null,
+                    ];
+                }
+
+                $staffRow = [
+                    'staff_id' => $staffId,
+                    'first_name' => $staff['first_name'],
+                    'last_name' => $staff['last_name'],
+                    'staff_no' => $staff['staff_no'],
+                    'position' => $staff['position'],
+                    'department_name' => $staff['department_name'],
+                    'duty_type' => $primaryDutyType ?: 'General',
+                    'present' => $present,
+                    'absent' => $absent,
+                    'late' => $late,
+                    'on_leave' => $onLeave,
+                    'off_days' => $offDays,
+                    'not_marked' => $notMarked,
+                    'daily_statuses' => $dailyStatuses,
+                ];
+
+                if ($this->matchesStaffStatusFilter($staffRow, $statusFilter)) {
+                    $staffData[] = $staffRow;
+                }
+            }
+
+            $reportMeta = $this->summarizeStaffReportRows($staffData, $dateKeys);
+
+            return $this->success([
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
+                'filters' => [
+                    'department_id' => $departmentId ? (int) $departmentId : null,
+                    'duty_type_id' => $dutyTypeId ? (int) $dutyTypeId : null,
+                    'status' => $statusFilter ?: null,
+                ],
+                'staff' => $staffData,
+                'summary' => $reportMeta['summary'],
+                'trend' => $reportMeta['trend'],
+                'daily_breakdown' => array_map(static function (array $row): array {
+                    return [
+                        'staff_id' => $row['staff_id'],
+                        'staff_name' => trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')),
+                        'staff_no' => $row['staff_no'] ?? null,
+                        'department_name' => $row['department_name'] ?? null,
+                        'duty_type' => $row['duty_type'] ?? null,
+                        'statuses' => $row['daily_statuses'] ?? [],
+                    ];
+                }, $staffData),
+            ], 'Staff report generated');
         } catch (\Exception $e) {
             return $this->error('Failed to generate staff report: ' . $e->getMessage());
         }
@@ -1316,11 +2052,478 @@ class AttendanceController extends BaseController
                 'date' => $date,
                 'is_school_day' => $isSchoolDay,
                 'day_type' => $calendarEntry['day_type'] ?? 'school_day',
-                'reason' => $reason
+                'reason' => $reason,
+                'calendar_event' => $calendarEntry ? [
+                    'event_type' => $calendarEntry['day_type'],
+                    'event_name' => $calendarEntry['title'],
+                ] : null,
             ], 'School day check completed');
         } catch (\Exception $e) {
             return $this->error('Failed to check school day: ' . $e->getMessage());
         }
+    }
+
+    private function normalizeRoleName($roleName): string
+    {
+        return trim((string) preg_replace('/[^a-z0-9]+/', '_', strtolower((string) $roleName)), '_');
+    }
+
+    private function getCurrentRoleNames(): array
+    {
+        $roles = [];
+
+        if (!empty($this->user['role_names']) && is_array($this->user['role_names'])) {
+            foreach ($this->user['role_names'] as $roleName) {
+                if ($roleName) {
+                    $roles[] = $this->normalizeRoleName($roleName);
+                }
+            }
+        }
+
+        if (!empty($this->user['roles']) && is_array($this->user['roles'])) {
+            foreach ($this->user['roles'] as $role) {
+                if (is_array($role) && !empty($role['name'])) {
+                    $roles[] = $this->normalizeRoleName($role['name']);
+                } elseif (is_string($role) && $role !== '') {
+                    $roles[] = $this->normalizeRoleName($role);
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($roles)));
+    }
+
+    private function currentUserHasAnyRole(array $roleNames): bool
+    {
+        $currentRoles = $this->getCurrentRoleNames();
+        if (empty($currentRoles)) {
+            return false;
+        }
+
+        $normalizedTargets = array_map([$this, 'normalizeRoleName'], $roleNames);
+        return count(array_intersect($currentRoles, $normalizedTargets)) > 0;
+    }
+
+    private function getCurrentUserId(): ?int
+    {
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $userId ? (int) $userId : null;
+    }
+
+    private function getCurrentStaffId(): ?int
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return null;
+        }
+
+        $result = $this->db->query(
+            "SELECT id FROM staff WHERE user_id = ? AND status = 'active' LIMIT 1",
+            [$userId]
+        );
+
+        $staffId = $result->fetchColumn();
+        return $staffId ? (int) $staffId : null;
+    }
+
+    private function getCurrentAcademicYearId(): ?int
+    {
+        $result = $this->db->query(
+            "SELECT id
+             FROM academic_years
+             WHERE is_current = 1 OR status = 'active'
+             ORDER BY is_current DESC, id DESC
+             LIMIT 1"
+        );
+
+        $yearId = $result->fetchColumn();
+        return $yearId ? (int) $yearId : null;
+    }
+
+    private function userCanManageAllAttendance(): bool
+    {
+        return $this->currentUserHasAnyRole([
+            'System Administrator',
+            'Director',
+            'School Administrator',
+            'Headteacher',
+            'Deputy Head - Academic',
+            'Deputy Head - Discipline',
+        ]);
+    }
+
+    private function userCanAccessBoardingAttendance(): bool
+    {
+        return $this->userCanManageAllAttendance()
+            || $this->currentUserHasAnyRole([
+                'Boarding Master',
+            ]);
+    }
+
+    private function getAccessibleClassScope(): array
+    {
+        $scope = [
+            'restricted' => !$this->userCanManageAllAttendance(),
+            'staff_id' => $this->getCurrentStaffId(),
+            'class_ids' => [],
+            'stream_ids' => [],
+        ];
+
+        if (!$scope['restricted']) {
+            return $scope;
+        }
+
+        if (!$scope['staff_id']) {
+            return $scope;
+        }
+
+        $academicYearId = $this->getCurrentAcademicYearId();
+        if (!$academicYearId) {
+            return $scope;
+        }
+
+        $classRows = $this->db->query(
+            "SELECT DISTINCT class_id
+             FROM staff_class_assignments
+             WHERE staff_id = ?
+               AND academic_year_id = ?
+               AND status = 'active'
+               AND role = 'class_teacher'
+               AND class_id IS NOT NULL",
+            [$scope['staff_id'], $academicYearId]
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $classIds = array_map('intval', array_column($classRows, 'class_id'));
+
+        if (empty($classIds)) {
+            $streamRows = $this->db->query(
+                "SELECT DISTINCT id AS stream_id, class_id
+                 FROM class_streams
+                 WHERE teacher_id = ?
+                   AND status = 'active'",
+                [$scope['staff_id']]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $scope['stream_ids'] = array_map('intval', array_column($streamRows, 'stream_id'));
+            $scope['class_ids'] = array_values(array_unique(array_map('intval', array_column($streamRows, 'class_id'))));
+            return $scope;
+        }
+
+        $scope['class_ids'] = array_values(array_unique($classIds));
+
+        $placeholders = implode(',', array_fill(0, count($scope['class_ids']), '?'));
+        $streamRows = $this->db->query(
+            "SELECT id AS stream_id
+             FROM class_streams
+             WHERE status = 'active'
+               AND class_id IN ({$placeholders})",
+            $scope['class_ids']
+        )->fetchAll(\PDO::FETCH_ASSOC);
+
+        $scope['stream_ids'] = array_values(array_unique(array_map('intval', array_column($streamRows, 'stream_id'))));
+        return $scope;
+    }
+
+    private function getAccessibleStaffScope(): array
+    {
+        $canViewAll = $this->userHasAny(
+            [
+                'attendance_staff_view_all',
+                'attendance_staff_create',
+                'attendance_staff_submit',
+                'attendance_staff_approve',
+                'attendance_staff_generate',
+                'attendance_staff_export',
+                'attendance_staff_delete',
+            ],
+            [],
+            [
+                'System Administrator',
+                'Director',
+                'School Administrator',
+                'Headteacher',
+                'Deputy Headteacher',
+                'Human Resources Officer',
+            ]
+        );
+
+        $staffId = $this->getCurrentStaffId();
+
+        if ($canViewAll) {
+            return [
+                'restricted' => false,
+                'staff_id' => $staffId,
+                'staff_ids' => [],
+            ];
+        }
+
+        return [
+            'restricted' => true,
+            'staff_id' => $staffId,
+            'staff_ids' => $staffId ? [(int) $staffId] : [],
+        ];
+    }
+
+    private function isStaffInScope(?int $staffId, array $scope): bool
+    {
+        if (!$staffId) {
+            return false;
+        }
+
+        if (!$scope['restricted']) {
+            return true;
+        }
+
+        return in_array((int) $staffId, $scope['staff_ids'], true);
+    }
+
+    private function buildStreamScopeClause(?int $requestedStreamId, array $scope, string $column = 's.stream_id'): array
+    {
+        if ($requestedStreamId) {
+            if ($scope['restricted'] && !in_array((int) $requestedStreamId, $scope['stream_ids'], true)) {
+                return [
+                    'forbidden' => true,
+                    'empty' => false,
+                    'sql' => '',
+                    'params' => [],
+                ];
+            }
+
+            return [
+                'forbidden' => false,
+                'empty' => false,
+                'sql' => " AND {$column} = ?",
+                'params' => [(int) $requestedStreamId],
+            ];
+        }
+
+        if (!$scope['restricted']) {
+            return [
+                'forbidden' => false,
+                'empty' => false,
+                'sql' => '',
+                'params' => [],
+            ];
+        }
+
+        if (empty($scope['stream_ids'])) {
+            return [
+                'forbidden' => false,
+                'empty' => true,
+                'sql' => '',
+                'params' => [],
+            ];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($scope['stream_ids']), '?'));
+
+        return [
+            'forbidden' => false,
+            'empty' => false,
+            'sql' => " AND {$column} IN ({$placeholders})",
+            'params' => array_map('intval', $scope['stream_ids']),
+        ];
+    }
+
+    private function buildDateRangeArray(string $dateFrom, string $dateTo): array
+    {
+        $dates = [];
+        $current = new \DateTime($dateFrom);
+        $end = new \DateTime($dateTo);
+
+        while ($current <= $end) {
+            $dates[] = $current->format('Y-m-d');
+            $current->modify('+1 day');
+        }
+
+        return $dates;
+    }
+
+    private function findActiveLeaveForDate(array $leaveRows, string $date): ?array
+    {
+        foreach ($leaveRows as $leave) {
+            if (($leave['start_date'] ?? null) <= $date && ($leave['end_date'] ?? null) >= $date) {
+                return $leave;
+            }
+        }
+
+        return null;
+    }
+
+    private function matchesStaffStatusFilter(array $row, ?string $statusFilter): bool
+    {
+        if (!$statusFilter) {
+            return true;
+        }
+
+        switch ($statusFilter) {
+            case 'present':
+                return (int) ($row['present'] ?? 0) > 0;
+            case 'absent':
+                return (int) ($row['absent'] ?? 0) > 0;
+            case 'late':
+                return (int) ($row['late'] ?? 0) > 0;
+            case 'on_leave':
+                return (int) ($row['on_leave'] ?? 0) > 0;
+            case 'off_day':
+                return (int) ($row['off_days'] ?? 0) > 0;
+            case 'not_marked':
+                return (int) ($row['not_marked'] ?? 0) > 0;
+            default:
+                return true;
+        }
+    }
+
+    private function buildEmptyAcademicSummary(string $dateFrom, string $dateTo, ?int $streamId = null): array
+    {
+        return [
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'stream_id' => $streamId,
+            'students' => [],
+            'summary' => [
+                'present' => 0,
+                'absent' => 0,
+                'late' => 0,
+                'permission' => 0,
+                'total_days' => 0,
+                'average_attendance' => 0,
+                'student_count' => 0,
+            ],
+            'trend' => [],
+            'low_attendance' => [],
+        ];
+    }
+
+    private function buildEmptyStaffReport(string $dateFrom, string $dateTo): array
+    {
+        return [
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+            'filters' => [
+                'department_id' => null,
+                'duty_type_id' => null,
+                'status' => null,
+            ],
+            'staff' => [],
+            'summary' => [
+                'present' => 0,
+                'absent' => 0,
+                'late' => 0,
+                'on_leave' => 0,
+                'off_day' => 0,
+                'not_marked' => 0,
+                'total_days' => 0,
+                'average_attendance' => 0,
+                'staff_count' => 0,
+            ],
+            'trend' => [],
+            'daily_breakdown' => [],
+        ];
+    }
+
+    private function summarizeStaffReportRows(array $rows, array $dateKeys): array
+    {
+        $summary = [
+            'present' => 0,
+            'absent' => 0,
+            'late' => 0,
+            'on_leave' => 0,
+            'off_day' => 0,
+            'not_marked' => 0,
+            'total_days' => 0,
+            'average_attendance' => 0,
+            'staff_count' => count($rows),
+        ];
+
+        $trendMap = [];
+        foreach ($dateKeys as $date) {
+            $trendMap[$date] = [
+                'date' => $date,
+                'present' => 0,
+                'absent' => 0,
+                'late' => 0,
+                'on_leave' => 0,
+                'off_day' => 0,
+                'not_marked' => 0,
+            ];
+        }
+
+        foreach ($rows as $row) {
+            $summary['present'] += (int) ($row['present'] ?? 0);
+            $summary['absent'] += (int) ($row['absent'] ?? 0);
+            $summary['late'] += (int) ($row['late'] ?? 0);
+            $summary['on_leave'] += (int) ($row['on_leave'] ?? 0);
+            $summary['off_day'] += (int) ($row['off_days'] ?? 0);
+            $summary['not_marked'] += (int) ($row['not_marked'] ?? 0);
+
+            foreach (($row['daily_statuses'] ?? []) as $daily) {
+                $date = $daily['date'] ?? null;
+                $status = $daily['status'] ?? 'not_marked';
+                if ($date && isset($trendMap[$date]) && array_key_exists($status, $trendMap[$date])) {
+                    $trendMap[$date][$status]++;
+                }
+            }
+        }
+
+        $summary['total_days'] = $summary['present'] + $summary['absent'] + $summary['late'];
+        if ($summary['total_days'] > 0) {
+            $summary['average_attendance'] = round((($summary['present'] + $summary['late']) / $summary['total_days']) * 100, 1);
+        }
+
+        return [
+            'summary' => $summary,
+            'trend' => array_values($trendMap),
+        ];
+    }
+
+    private function applyAcademicStatusFilter(array $students, ?string $statusFilter): array
+    {
+        if (!$statusFilter) {
+            return $students;
+        }
+
+        return array_values(array_filter($students, static function (array $student) use ($statusFilter) {
+            switch ($statusFilter) {
+                case 'present':
+                    return ($student['present'] ?? 0) > 0;
+                case 'absent':
+                    return ($student['absent'] ?? 0) > 0;
+                case 'late':
+                    return ($student['late'] ?? 0) > 0;
+                case 'permission':
+                    return ($student['permission'] ?? 0) > 0;
+                default:
+                    return true;
+            }
+        }));
+    }
+
+    private function summarizeAcademicRows(array $students): array
+    {
+        $summary = [
+            'present' => 0,
+            'absent' => 0,
+            'late' => 0,
+            'permission' => 0,
+            'total_days' => 0,
+            'average_attendance' => 0,
+            'student_count' => count($students),
+        ];
+
+        foreach ($students as $student) {
+            $summary['present'] += (int) ($student['present'] ?? 0);
+            $summary['absent'] += (int) ($student['absent'] ?? 0);
+            $summary['late'] += (int) ($student['late'] ?? 0);
+            $summary['permission'] += (int) ($student['permission'] ?? 0);
+            $summary['total_days'] += (int) ($student['total_days'] ?? 0);
+        }
+
+        if ($summary['total_days'] > 0) {
+            $summary['average_attendance'] = round(($summary['present'] / $summary['total_days']) * 100, 1);
+        }
+
+        return $summary;
     }
 
     /**
@@ -1351,4 +2554,3 @@ class AttendanceController extends BaseController
     }
 
 }
-

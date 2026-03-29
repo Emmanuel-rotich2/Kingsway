@@ -755,6 +755,7 @@ const studentsManagementController = {
       ]);
 
       const student = this.unwrapPayload(studentResp.value) || {};
+      content.dataset.studentId = (student.id || student.student_id || '').toString();
       const parents = this.unwrapPayload(parentsResp.value) || [];
       const fees = this.unwrapPayload(feesResp.value) || {};
       const attendance = this.unwrapPayload(attendanceResp.value) || {};

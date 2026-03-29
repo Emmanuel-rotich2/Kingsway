@@ -350,15 +350,15 @@ class PaymentsController extends BaseController
         if (!$user) {
             return $this->unauthorized('Authentication required');
         }
-        $perms = $user['effective_permissions'] ?? [];
-        $roles = $user['roles'] ?? [];
-        $role = $user['role'] ?? '';
-        $allowed = false;
-        if (in_array('finance.import', $perms) || in_array(10, $roles) || $role === 'accountant' || $role === 'finance' || $role === 'admin') {
-            $allowed = true;
-        }
-        if (!$allowed)
+        if (
+            !$this->userHasAny(
+                ['finance.import', 'finance_import'],
+                [10],
+                ['accountant', 'finance', 'admin']
+            )
+        ) {
             return $this->forbidden('Insufficient permissions');
+        }
 
         $txns = $data['transactions'] ?? [];
         if (!is_array($txns) || count($txns) === 0) {
@@ -780,18 +780,15 @@ class PaymentsController extends BaseController
             return $this->unauthorized('Authentication required');
 
         // Permission check
-        $perms = $user['effective_permissions'] ?? [];
-        $roles = $user['roles'] ?? [];
-        $role = $user['role'] ?? '';
-        $allowed = false;
         if (
-            in_array('finance.reconcile', $perms) || in_array('payments.reconcile', $perms) ||
-            in_array(10, $roles) || $role === 'accountant' || $role === 'finance' || $role === 'admin'
+            !$this->userHasAny(
+                ['finance.reconcile', 'finance_reconcile', 'payments.reconcile', 'payments_reconcile'],
+                [10],
+                ['accountant', 'finance', 'admin']
+            )
         ) {
-            $allowed = true;
-        }
-        if (!$allowed)
             return $this->forbidden('Insufficient permissions');
+        }
 
         $mpesaId = $data['mpesa_id'] ?? null;
         $studentId = $data['student_id'] ?? null;
@@ -840,5 +837,4 @@ class PaymentsController extends BaseController
         }
     }
 }
-
 

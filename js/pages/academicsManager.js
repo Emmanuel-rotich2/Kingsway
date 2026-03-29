@@ -36,6 +36,9 @@ const academicsManager = {
     // ==================== UTILITY FUNCTIONS ====================
     showToast(message, type = 'info', title = 'Notification') {
         const toastEl = document.getElementById('academicToast');
+        if (!toastEl) {
+            return;
+        }
         const toastIcon = document.getElementById('toastIcon');
         const toastTitle = document.getElementById('toastTitle');
         const toastBody = document.getElementById('toastBody');
@@ -47,9 +50,15 @@ const academicsManager = {
             info: 'bi-info-circle-fill text-info'
         };
 
-        toastIcon.className = `bi ${icons[type]} me-2`;
-        toastTitle.textContent = title;
-        toastBody.textContent = message;
+        if (toastIcon) {
+            toastIcon.className = `bi ${icons[type]} me-2`;
+        }
+        if (toastTitle) {
+            toastTitle.textContent = title;
+        }
+        if (toastBody) {
+            toastBody.textContent = message;
+        }
 
         const toast = new bootstrap.Toast(toastEl, { delay: 4000 });
         toast.show();
@@ -380,6 +389,7 @@ const academicsManager = {
             
             if (data) {
                 this.state.terms = data;
+                this.state.currentTerm = data.find((term) => term.status === 'current') || null;
                 this.renderTerms();
             }
         } catch (error) {
@@ -741,7 +751,7 @@ const academicsManager = {
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Academic Year</label>
-                                    <input type="text" class="form-control" id="academicYear" value="${cls?.academic_year || this.state.currentYear?.year || ''}">
+                                    <input type="text" class="form-control" id="academicYear" value="${cls?.academic_year || this.state.currentYear?.year_code || ''}">
                                 </div>
                             </div>
                             <div class="mb-3">
@@ -767,8 +777,38 @@ const academicsManager = {
         const bsModal = new bootstrap.Modal(modal);
         bsModal.show();
         modal.addEventListener('hidden.bs.modal', () => modal.remove());
+        this.populateClassModalOptions(cls || null);
+    },
 
-        // TODO: Populate teachers and levels dropdowns
+    populateClassModalOptions(classData = null) {
+        const levelSelect = document.getElementById('classLevel');
+        if (levelSelect) {
+            const levels = [];
+            const seen = new Set();
+            this.state.classes.forEach((item) => {
+                if (!item || !item.level_id) return;
+                const key = String(item.level_id);
+                if (seen.has(key)) return;
+                seen.add(key);
+                levels.push({
+                    id: item.level_id,
+                    name: item.level_name || item.level_code || `Level ${item.level_id}`,
+                });
+            });
+
+            levelSelect.innerHTML = '<option value="">Select Level...</option>' +
+                levels.map((level) =>
+                    `<option value="${level.id}" ${String(classData?.level_id || '') === String(level.id) ? 'selected' : ''}>${level.name}</option>`
+                ).join('');
+        }
+
+        const teacherSelect = document.getElementById('classTeacher');
+        if (teacherSelect) {
+            teacherSelect.innerHTML = '<option value="">Select Teacher...</option>' +
+                this.state.teachers.map((teacher) =>
+                    `<option value="${teacher.id}" ${String(classData?.teacher_id || '') === String(teacher.id) ? 'selected' : ''}>${teacher.full_name || teacher.teacher_name}</option>`
+                ).join('');
+        }
     },
 
     async saveClass(classId = null) {
@@ -1054,13 +1094,9 @@ const academicsManager = {
     async loadStreams() {
         try {
             const response = await window.API.academic.listStreams();
-            // Handle both flat array and nested data structure
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
-            
-            if (data) {
-                this.state.streams = data;
-                this.renderStreams();
-            }
+            this.state.streams = Array.isArray(data) ? data : [];
+            this.renderStreams();
         } catch (error) {
             this.showToast('Failed to load streams', 'error');
             console.error(error);
@@ -1094,11 +1130,14 @@ const academicsManager = {
                             <td><strong>${stream.stream_name}</strong></td>
                             <td>${stream.teacher_name || 'Not assigned'}</td>
                             <td>${stream.capacity || '-'}</td>
-                            <td><span class="badge badge-academic">${stream.current_students || 0}</span></td>
+                            <td><span class="badge badge-academic">${stream.student_count || stream.current_students || 0}</span></td>
                             <td><span class="badge ${stream.status === 'active' ? 'bg-success' : 'bg-secondary'}">${stream.status}</span></td>
                             <td>
                                 <button class="btn btn-sm btn-outline-primary" onclick="academicsManager.editStream(${stream.id})" title="Edit">
                                     <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteStream(${stream.id})" title="Delete">
+                                    <i class="bi bi-trash"></i>
                                 </button>
                             </td>
                         </tr>
@@ -1109,23 +1148,136 @@ const academicsManager = {
     },
 
     showStreamModal(streamId = null) {
-        this.showToast('Stream creation modal - Coming soon', 'info');
-        // TODO: Implement stream creation modal
+        const stream = streamId ? this.state.streams.find((item) => Number(item.id) === Number(streamId)) : null;
+        const isEdit = !!stream;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">${isEdit ? 'Edit' : 'Add'} Stream</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="streamForm">
+                            <div class="mb-3">
+                                <label class="form-label">Class *</label>
+                                <select class="form-select" id="streamClass" required>
+                                    <option value="">Select class...</option>
+                                    ${this.state.classes.map((cls) =>
+                                        `<option value="${cls.id}" ${String(stream?.class_id || '') === String(cls.id) ? 'selected' : ''}>${cls.name}</option>`
+                                    ).join('')}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Stream Name *</label>
+                                <input type="text" class="form-control" id="streamName" value="${stream?.stream_name || ''}" placeholder="e.g., A, East, Blue" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Capacity *</label>
+                                <input type="number" min="1" class="form-control" id="streamCapacity" value="${stream?.capacity || 40}" required>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Teacher</label>
+                                <select class="form-select" id="streamTeacher">
+                                    <option value="">Not assigned</option>
+                                    ${this.state.teachers.map((teacher) =>
+                                        `<option value="${teacher.id}" ${String(stream?.teacher_id || '') === String(teacher.id) ? 'selected' : ''}>${teacher.full_name || teacher.teacher_name}</option>`
+                                    ).join('')}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <select class="form-select" id="streamStatus">
+                                    <option value="active" ${stream?.status === 'active' || !stream ? 'selected' : ''}>Active</option>
+                                    <option value="inactive" ${stream?.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                                </select>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveStream(${streamId || 'null'})">
+                            <i class="bi bi-save"></i> Save Stream
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
 
     editStream(streamId) {
-        this.showToast('Stream editing - Coming soon', 'info');
-        // TODO: Implement stream editing
+        this.showStreamModal(streamId);
+    },
+
+    async saveStream(streamId = null) {
+        const payload = {
+            class_id: parseInt(document.getElementById('streamClass')?.value || '0', 10) || null,
+            stream_name: document.getElementById('streamName')?.value?.trim(),
+            capacity: parseInt(document.getElementById('streamCapacity')?.value || '0', 10) || 0,
+            teacher_id: parseInt(document.getElementById('streamTeacher')?.value || '0', 10) || null,
+            status: document.getElementById('streamStatus')?.value || 'active',
+        };
+
+        if (!payload.class_id || !payload.stream_name || payload.capacity <= 0) {
+            this.showToast('Class, stream name and valid capacity are required', 'warning');
+            return;
+        }
+
+        try {
+            if (streamId) {
+                await window.API.academic.updateStream(streamId, payload);
+            } else {
+                await window.API.academic.createStream(payload);
+            }
+
+            this.showToast(`Stream ${streamId ? 'updated' : 'created'} successfully`, 'success');
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) {
+                modal.hide();
+            }
+            await this.loadStreams();
+            await this.loadClasses();
+            await this.loadStatistics();
+        } catch (error) {
+            this.showToast(`Failed to ${streamId ? 'update' : 'create'} stream: ${error.message}`, 'error');
+        }
+    },
+
+    async deleteStream(streamId) {
+        if (!confirm('Delete this stream? Active students must be reassigned first.')) {
+            return;
+        }
+
+        try {
+            await window.API.academic.deleteStream(streamId);
+            this.showToast('Stream removed successfully', 'success');
+            await this.loadStreams();
+            await this.loadClasses();
+            await this.loadStatistics();
+        } catch (error) {
+            this.showToast(`Failed to delete stream: ${error.message}`, 'error');
+        }
     },
 
     // ==================== TEACHERS ====================
     async loadTeachers() {
         try {
-            // Load teachers list from API
-            // TODO: Implement when teacher endpoint is available
-            this.state.teachers = [];
+            const response = await window.API.academic.listTeachers();
+            const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
+            this.state.teachers = Array.isArray(data) ? data : [];
+            this.renderTeachersOverview();
         } catch (error) {
             console.error('Failed to load teachers:', error);
+            this.state.teachers = [];
+            this.renderTeachersOverview();
         }
     },
 
@@ -1142,22 +1294,62 @@ const academicsManager = {
                 window.API.academic.getTeacherSchedule(teacherId)
             ]);
 
-            this.renderTeacherDetails(teacherId, classesRes.data, subjectsRes.data, scheduleRes.data);
+            const classes = Array.isArray(classesRes) ? classesRes : (Array.isArray(classesRes?.data) ? classesRes.data : []);
+            const subjects = Array.isArray(subjectsRes) ? subjectsRes : (Array.isArray(subjectsRes?.data) ? subjectsRes.data : []);
+            const schedule = Array.isArray(scheduleRes) ? scheduleRes : (Array.isArray(scheduleRes?.data) ? scheduleRes.data : []);
+            this.renderTeacherDetails(teacherId, classes, subjects, schedule);
         } catch (error) {
             this.showToast('Failed to load teacher details', 'error');
         }
     },
 
-    renderTeacherDetails(teacherId, classes, subjects, schedule) {
+    renderTeachersOverview() {
         const container = document.getElementById('teacherDetailsContainer');
+        if (!container) {
+            return;
+        }
+
+        if (!this.state.teachers.length) {
+            container.innerHTML = '<p class="text-muted text-center py-4">No active teaching staff found.</p>';
+            return;
+        }
+
         container.innerHTML = `
+            <div class="row g-3 mb-3">
+                <div class="col-md-7">
+                    <label class="form-label mb-1">Select Teacher</label>
+                    <select class="form-select" id="teacherSelect" onchange="academicsManager.loadTeacherDetails(this.value)">
+                        <option value="">Choose a teacher...</option>
+                        ${this.state.teachers.map((teacher) =>
+                            `<option value="${teacher.id}">${teacher.full_name || teacher.teacher_name} (${teacher.position || 'Staff'})</option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="col-md-5">
+                    <label class="form-label mb-1">Quick Summary</label>
+                    <div class="alert alert-light border mb-0">
+                        <strong>${this.state.teachers.length}</strong> teaching staff available for allocation
+                    </div>
+                </div>
+            </div>
+            <div id="teacherDetailsBody" class="text-muted text-center py-3">Select a teacher to view class, subject, and schedule assignments.</div>
+        `;
+    },
+
+    renderTeacherDetails(teacherId, classes, subjects, schedule) {
+        const details = document.getElementById('teacherDetailsBody') || document.getElementById('teacherDetailsContainer');
+        if (!details) {
+            return;
+        }
+
+        details.innerHTML = `
             <div class="row">
                 <div class="col-md-4">
                     <div class="card academic-card mb-3">
                         <div class="card-body">
                             <h6 class="card-title">Assigned Classes</h6>
                             <ul class="list-unstyled">
-                                ${classes?.length ? classes.map(c => `<li><i class="bi bi-journal-bookmark"></i> ${c.name}</li>`).join('') : '<li class="text-muted">No classes assigned</li>'}
+                                ${classes?.length ? classes.map(c => `<li><i class="bi bi-journal-bookmark"></i> ${c.class_name || c.name}</li>`).join('') : '<li class="text-muted">No classes assigned</li>'}
                             </ul>
                         </div>
                     </div>
@@ -1167,7 +1359,7 @@ const academicsManager = {
                         <div class="card-body">
                             <h6 class="card-title">Assigned Subjects</h6>
                             <ul class="list-unstyled">
-                                ${subjects?.length ? subjects.map(s => `<li><i class="bi bi-book"></i> ${s.name}</li>`).join('') : '<li class="text-muted">No subjects assigned</li>'}
+                                ${subjects?.length ? subjects.map(s => `<li><i class="bi bi-book"></i> ${s.subject_name || s.name}</li>`).join('') : '<li class="text-muted">No subjects assigned</li>'}
                             </ul>
                         </div>
                     </div>
@@ -1176,9 +1368,9 @@ const academicsManager = {
                     <div class="card academic-card mb-3">
                         <div class="card-body">
                             <h6 class="card-title">Schedule</h6>
-                            <div id="teacherSchedule">
-                                ${schedule?.length ? '<p class="text-muted">Schedule details...</p>' : '<p class="text-muted">No schedule assigned</p>'}
-                            </div>
+                            ${schedule?.length
+                                ? `<ul class="list-unstyled mb-0">${schedule.map((slot) => `<li><small><strong>${slot.day_of_week}</strong> ${slot.start_time}-${slot.end_time} (${slot.class_name || '-'})</small></li>`).join('')}</ul>`
+                                : '<p class="text-muted mb-0">No schedule assigned</p>'}
                         </div>
                     </div>
                 </div>
@@ -1234,33 +1426,470 @@ const academicsManager = {
                 const target = e.target.getAttribute('data-bs-target');
                 if (target === '#schedulesTab') this.loadSchedules();
                 if (target === '#curriculumTab') this.loadCurriculum();
+                if (target === '#teachersTab') this.renderTeachersOverview();
             });
         });
     },
 
-    // ==================== PLACEHOLDERS FOR FUTURE IMPLEMENTATION ====================
+    // ==================== SCHEDULES ====================
     async loadSchedules() {
-        this.showToast('Schedules/Timetable module - Implementation in progress', 'info');
+        const container = document.getElementById('schedulesContainer');
+        if (!container) return;
+
+        try {
+            const response = await window.API.academic.listSchedules();
+            const schedules = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
+            this.state.schedules = Array.isArray(schedules) ? schedules : [];
+            this.renderSchedules();
+        } catch (error) {
+            console.error('Failed to load schedules:', error);
+            container.innerHTML = '<p class="text-danger text-center py-4">Failed to load schedules.</p>';
+        }
     },
 
+    renderSchedules() {
+        const container = document.getElementById('schedulesContainer');
+        if (!container) return;
+
+        const rows = this.state.schedules;
+        container.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted">${rows.length} active lessons</div>
+                <button class="btn btn-sm btn-academic" onclick="academicsManager.showScheduleModal()">Add Schedule Slot</button>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-academic table-hover">
+                    <thead>
+                        <tr>
+                            <th>Class</th>
+                            <th>Subject</th>
+                            <th>Teacher</th>
+                            <th>Day</th>
+                            <th>Time</th>
+                            <th>Room</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows.length ? rows.map((row) => `
+                            <tr>
+                                <td>${row.class_name || '-'}</td>
+                                <td>${row.subject_name || '-'}</td>
+                                <td>${row.teacher_name || '-'}</td>
+                                <td>${row.day_of_week || '-'}</td>
+                                <td>${row.start_time || '-'} - ${row.end_time || '-'}</td>
+                                <td>${row.room_name || '-'}</td>
+                                <td><button class="btn btn-sm btn-outline-danger" onclick="academicsManager.deleteSchedule(${row.id})"><i class="bi bi-trash"></i></button></td>
+                            </tr>
+                        `).join('') : '<tr><td colspan="7" class="text-center text-muted py-4">No schedule slots yet.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    },
+
+    async deleteSchedule(scheduleId) {
+        if (!confirm('Delete this timetable slot?')) return;
+        try {
+            await window.API.academic.deleteSchedule(scheduleId);
+            await this.loadSchedules();
+            this.showToast('Schedule slot deleted', 'success');
+        } catch (error) {
+            this.showToast(`Failed to delete schedule: ${error.message}`, 'error');
+        }
+    },
+
+    // ==================== CURRICULUM ====================
     async loadCurriculum() {
-        this.showToast('Curriculum module - Implementation in progress', 'info');
+        const container = document.getElementById('curriculumUnitsContainer');
+        if (!container) return;
+
+        try {
+            const response = await window.API.academic.listCurriculumUnits();
+            const payload = response?.data?.units || response?.units || response?.data || response;
+            const units = Array.isArray(payload) ? payload : [];
+            this.state.curriculumUnits = units;
+            this.renderCurriculum();
+        } catch (error) {
+            console.error('Failed to load curriculum units:', error);
+            container.innerHTML = '<p class="text-danger text-center py-4">Failed to load curriculum units.</p>';
+        }
+    },
+
+    renderCurriculum() {
+        const container = document.getElementById('curriculumUnitsContainer');
+        if (!container) return;
+
+        container.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="text-muted">${this.state.curriculumUnits.length} curriculum units</div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-academic" onclick="academicsManager.showCurriculumUnitModal()">Add Unit</button>
+                    <button class="btn btn-outline-success" onclick="academicsManager.showTopicModal()">Add Topic</button>
+                    <button class="btn btn-outline-primary" onclick="academicsManager.showLessonPlanModal()">Add Lesson Plan</button>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-academic table-hover">
+                    <thead>
+                        <tr>
+                            <th>Unit</th>
+                            <th>Learning Area</th>
+                            <th>Duration</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${this.state.curriculumUnits.length
+                            ? this.state.curriculumUnits.map((unit) => `
+                                <tr>
+                                    <td>${unit.name}</td>
+                                    <td>${unit.learning_area_name || '-'}</td>
+                                    <td>${unit.duration || '-'} hrs</td>
+                                    <td><span class="badge ${unit.status === 'active' ? 'bg-success' : 'bg-secondary'}">${unit.status || 'active'}</span></td>
+                                </tr>
+                            `).join('')
+                            : '<tr><td colspan="4" class="text-center text-muted py-4">No curriculum units found.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        `;
     },
 
     showScheduleModal() {
-        this.showToast('Schedule creation - Implementation in progress', 'info');
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Add Schedule Slot</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Class *</label>
+                            <select class="form-select" id="scheduleClass">
+                                <option value="">Select class...</option>
+                                ${this.state.classes.map((cls) => `<option value="${cls.id}">${cls.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Subject (Unit)</label>
+                            <select class="form-select" id="scheduleSubject">
+                                <option value="">Select subject...</option>
+                                ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Teacher</label>
+                            <select class="form-select" id="scheduleTeacher">
+                                <option value="">Select teacher...</option>
+                                ${this.state.teachers.map((teacher) => `<option value="${teacher.id}">${teacher.full_name || teacher.teacher_name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Day *</label>
+                            <select class="form-select" id="scheduleDay">
+                                <option value="Monday">Monday</option>
+                                <option value="Tuesday">Tuesday</option>
+                                <option value="Wednesday">Wednesday</option>
+                                <option value="Thursday">Thursday</option>
+                                <option value="Friday">Friday</option>
+                                <option value="Saturday">Saturday</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Start Time *</label>
+                                <input type="time" class="form-control" id="scheduleStart">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">End Time *</label>
+                                <input type="time" class="form-control" id="scheduleEnd">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveSchedule()">Save Slot</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
 
     showCurriculumUnitModal() {
-        this.showToast('Curriculum unit creation - Implementation in progress', 'info');
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Add Curriculum Unit</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Learning Area *</label>
+                            <select class="form-select" id="unitLearningArea">
+                                <option value="">Select learning area...</option>
+                                ${this.state.subjects.map((subject) => `<option value="${subject.id}">${subject.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Unit Name *</label>
+                            <input type="text" class="form-control" id="unitName" placeholder="e.g., Fractions and Decimals">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-control" id="unitDescription" rows="3"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Duration (hours)</label>
+                            <input type="number" min="1" class="form-control" id="unitDuration" value="12">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveCurriculumUnit()">Save Unit</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
 
     showTopicModal() {
-        this.showToast('Topic creation - Implementation in progress', 'info');
+        const unitOptions = this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('');
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Add Unit Topic</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Curriculum Unit *</label>
+                            <select class="form-select" id="topicUnit">
+                                <option value="">Select unit...</option>
+                                ${unitOptions}
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Topic Name *</label>
+                            <input type="text" class="form-control" id="topicName" placeholder="e.g., Equivalent Fractions">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Week Number</label>
+                            <input type="number" min="1" class="form-control" id="topicWeek" value="1">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveTopic()">Save Topic</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
     },
 
     showLessonPlanModal() {
-        this.showToast('Lesson plan creation - Implementation in progress', 'info');
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header bg-success text-white">
+                        <h5 class="modal-title">Create Lesson Plan</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Teacher *</label>
+                                <select class="form-select" id="planTeacher">
+                                    <option value="">Select teacher...</option>
+                                    ${this.state.teachers.map((teacher) => `<option value="${teacher.id}">${teacher.full_name || teacher.teacher_name}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Class *</label>
+                                <select class="form-select" id="planClass">
+                                    <option value="">Select class...</option>
+                                    ${this.state.classes.map((cls) => `<option value="${cls.id}">${cls.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Learning Area *</label>
+                                <select class="form-select" id="planLearningArea">
+                                    <option value="">Select learning area...</option>
+                                    ${this.state.subjects.map((subject) => `<option value="${subject.id}">${subject.name}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Curriculum Unit *</label>
+                                <select class="form-select" id="planUnit">
+                                    <option value="">Select unit...</option>
+                                    ${this.state.curriculumUnits.map((unit) => `<option value="${unit.id}">${unit.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Topic *</label>
+                            <input type="text" class="form-control" id="planTopic">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Objectives *</label>
+                            <textarea class="form-control" id="planObjectives" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Activities *</label>
+                            <textarea class="form-control" id="planActivities" rows="2"></textarea>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Lesson Date *</label>
+                                <input type="date" class="form-control" id="planDate">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Duration (mins) *</label>
+                                <input type="number" min="10" class="form-control" id="planDuration" value="40">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-academic-primary" onclick="academicsManager.saveLessonPlan()">Save Lesson Plan</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        modal.addEventListener('hidden.bs.modal', () => modal.remove());
+    },
+
+    async saveSchedule() {
+        const payload = {
+            class_id: parseInt(document.getElementById('scheduleClass')?.value || '0', 10) || null,
+            subject_id: parseInt(document.getElementById('scheduleSubject')?.value || '0', 10) || null,
+            teacher_id: parseInt(document.getElementById('scheduleTeacher')?.value || '0', 10) || null,
+            day_of_week: document.getElementById('scheduleDay')?.value || null,
+            start_time: document.getElementById('scheduleStart')?.value || null,
+            end_time: document.getElementById('scheduleEnd')?.value || null,
+            status: 'active',
+        };
+
+        if (!payload.class_id || !payload.day_of_week || !payload.start_time || !payload.end_time) {
+            this.showToast('Class, day, start and end time are required', 'warning');
+            return;
+        }
+
+        try {
+            await window.API.academic.createSchedule(payload);
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) modal.hide();
+            await this.loadSchedules();
+            this.showToast('Schedule slot created successfully', 'success');
+        } catch (error) {
+            this.showToast(`Failed to create schedule slot: ${error.message}`, 'error');
+        }
+    },
+
+    async saveCurriculumUnit() {
+        const payload = {
+            learning_area_id: parseInt(document.getElementById('unitLearningArea')?.value || '0', 10) || null,
+            name: document.getElementById('unitName')?.value?.trim(),
+            description: document.getElementById('unitDescription')?.value?.trim() || null,
+            duration: parseInt(document.getElementById('unitDuration')?.value || '0', 10) || null,
+            status: 'active',
+        };
+
+        if (!payload.learning_area_id || !payload.name) {
+            this.showToast('Learning area and unit name are required', 'warning');
+            return;
+        }
+
+        try {
+            await window.API.academic.createCurriculumUnit(payload);
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) modal.hide();
+            await this.loadCurriculum();
+            this.showToast('Curriculum unit created successfully', 'success');
+        } catch (error) {
+            this.showToast(`Failed to create curriculum unit: ${error.message}`, 'error');
+        }
+    },
+
+    async saveTopic() {
+        const payload = {
+            unit_id: parseInt(document.getElementById('topicUnit')?.value || '0', 10) || null,
+            name: document.getElementById('topicName')?.value?.trim(),
+            week_number: parseInt(document.getElementById('topicWeek')?.value || '1', 10) || 1,
+        };
+
+        if (!payload.unit_id || !payload.name) {
+            this.showToast('Unit and topic name are required', 'warning');
+            return;
+        }
+
+        try {
+            await window.API.academic.createTopic(payload);
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) modal.hide();
+            this.showToast('Topic created successfully', 'success');
+        } catch (error) {
+            this.showToast(`Failed to create topic: ${error.message}`, 'error');
+        }
+    },
+
+    async saveLessonPlan() {
+        const payload = {
+            teacher_id: parseInt(document.getElementById('planTeacher')?.value || '0', 10) || null,
+            class_id: parseInt(document.getElementById('planClass')?.value || '0', 10) || null,
+            learning_area_id: parseInt(document.getElementById('planLearningArea')?.value || '0', 10) || null,
+            unit_id: parseInt(document.getElementById('planUnit')?.value || '0', 10) || null,
+            topic: document.getElementById('planTopic')?.value?.trim(),
+            objectives: document.getElementById('planObjectives')?.value?.trim(),
+            activities: document.getElementById('planActivities')?.value?.trim(),
+            lesson_date: document.getElementById('planDate')?.value || null,
+            duration: parseInt(document.getElementById('planDuration')?.value || '0', 10) || null,
+            status: 'draft',
+            term_id: this.state.currentTerm?.id || this.state.terms.find((term) => term.status === 'current')?.id || null,
+            academic_year_id: this.state.currentYear?.id || null,
+        };
+
+        if (!payload.teacher_id || !payload.class_id || !payload.learning_area_id || !payload.unit_id || !payload.topic || !payload.objectives || !payload.activities || !payload.lesson_date || !payload.duration) {
+            this.showToast('All lesson plan fields marked required must be filled', 'warning');
+            return;
+        }
+
+        try {
+            await window.API.academic.createLessonPlan(payload);
+            const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+            if (modal) modal.hide();
+            this.showToast('Lesson plan created successfully', 'success');
+        } catch (error) {
+            this.showToast(`Failed to create lesson plan: ${error.message}`, 'error');
+        }
     }
 };
 

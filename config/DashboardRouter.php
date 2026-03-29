@@ -215,10 +215,10 @@ class DashboardRouter
     {
         try {
             $stmt = self::getDb()->query(
-                "SELECT id, name, title, icon, description, domain, is_active
+                "SELECT id, name, display_name AS title, NULL AS icon, description, domain, is_active
                  FROM dashboards
                  WHERE is_active = 1
-                 ORDER BY domain, title"
+                 ORDER BY domain, display_name"
             );
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
@@ -271,11 +271,11 @@ class DashboardRouter
     {
         try {
             $stmt = self::getDb()->prepare(
-                "SELECT d.id, d.name, d.title, d.icon, d.description, d.domain, rd.is_default
+                "SELECT d.id, d.name, d.display_name AS title, NULL AS icon, d.description, d.domain, rd.is_primary
                  FROM role_dashboards rd
                  JOIN dashboards d ON d.id = rd.dashboard_id
                  WHERE rd.role_id = ? AND d.is_active = 1
-                 ORDER BY rd.is_default DESC, d.title"
+                 ORDER BY rd.is_primary DESC, d.display_name"
             );
             $stmt->execute([$roleId]);
             return $stmt->fetchAll(\PDO::FETCH_ASSOC);

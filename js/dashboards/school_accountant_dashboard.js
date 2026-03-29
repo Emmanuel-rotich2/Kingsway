@@ -1994,8 +1994,17 @@ schoolAccountantDashboardController.openStudentProfileModal = async function (
   `;
 
   // Set full profile link
+  const allowedRoutes = window.AppRouteAccess?.getAllowedRoutes?.();
+  let profileRoute = "all_students";
+  if (allowedRoutes && typeof allowedRoutes.has === "function") {
+    if (allowedRoutes.has("all_students")) {
+      profileRoute = "all_students";
+    } else if (allowedRoutes.has("manage_students")) {
+      profileRoute = "manage_students";
+    }
+  }
   document.getElementById("btnViewFullProfile").href =
-    `/Kingsway/home.php?route=student_profile&student_id=${data.studentId}`;
+    `/Kingsway/home.php?route=${encodeURIComponent(profileRoute)}&student_id=${data.studentId}&view=profile`;
 
   const bsModal = new bootstrap.Modal(modal);
   bsModal.show();

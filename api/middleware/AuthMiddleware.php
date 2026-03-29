@@ -52,11 +52,17 @@ class AuthMiddleware
             }
         }
 
-        // TEST MODE: Accept X-Test-Token header to inject test user
-        $headers = function_exists('getallheaders') ? getallheaders() : [];
-        if (isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
-            $_SERVER['auth_user'] = self::TEST_USER;
-            return;
+        // TEST MODE: Accept X-Test-Token header to inject a test user.
+        // Only active on localhost/127.0.0.1 — disabled in production automatically.
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $isLocalEnv = ($host === 'localhost' || strpos($host, '127.0.0.1') !== false);
+        if ($isLocalEnv) {
+            $headers = function_exists('getallheaders') ? getallheaders() : [];
+            if (isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
+                error_log('AuthMiddleware: DEV test token used from ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+                $_SERVER['auth_user'] = self::TEST_USER;
+                return;
+            }
         }
 
         // Validate JWT token for protected endpoints
@@ -124,11 +130,54 @@ class AuthMiddleware
             );
 
             // Attach user info to $_SERVER for later use
-            $_SERVER['auth_user'] = (array) $decoded;
+            $_SERVER['auth_user'] = self::normalizeDecodedUser((array) $decoded);
 
         } catch (\Exception $e) {
             self::deny(401, 'Invalid or expired token: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Normalize role data so downstream authorization code has stable helpers.
+     */
+    private static function normalizeDecodedUser(array $user): array
+    {
+        $roles = $user['roles'] ?? [];
+        $roleIds = [];
+        $roleNames = [];
+
+        foreach ((array) $roles as $role) {
+            if (is_array($role)) {
+                if (isset($role['id'])) {
+                    $roleIds[] = (int) $role['id'];
+                } elseif (isset($role['role_id'])) {
+                    $roleIds[] = (int) $role['role_id'];
+                }
+
+                if (!empty($role['name'])) {
+                    $roleNames[] = strtolower((string) $role['name']);
+                }
+            } elseif (is_object($role)) {
+                if (isset($role->id)) {
+                    $roleIds[] = (int) $role->id;
+                } elseif (isset($role->role_id)) {
+                    $roleIds[] = (int) $role->role_id;
+                }
+
+                if (!empty($role->name)) {
+                    $roleNames[] = strtolower((string) $role->name);
+                }
+            } elseif (is_numeric($role)) {
+                $roleIds[] = (int) $role;
+            } elseif (is_string($role)) {
+                $roleNames[] = strtolower($role);
+            }
+        }
+
+        $user['role_ids'] = array_values(array_unique($roleIds));
+        $user['role_names'] = array_values(array_unique($roleNames));
+
+        return $user;
     }
 
     /**

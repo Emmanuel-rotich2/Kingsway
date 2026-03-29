@@ -54,14 +54,55 @@ class SystemConfigController extends BaseController
     {
         $roles = $this->user['roles'] ?? [];
         if (empty($roles)) {
-            return null;
+            $roleIds = $this->user['role_ids'] ?? [];
+            return !empty($roleIds) ? (int) reset($roleIds) : null;
         }
 
         $firstRole = $roles[0];
         if (is_array($firstRole)) {
             return (int) ($firstRole['id'] ?? $firstRole['role_id'] ?? null);
         }
+        if (is_object($firstRole)) {
+            return (int) ($firstRole->id ?? $firstRole->role_id ?? null);
+        }
         return (int) $firstRole;
+    }
+
+    /**
+     * Get current authenticated user ID from the auth context.
+     */
+    private function getCurrentUserId(): ?int
+    {
+        $userId = $this->user['id'] ?? $this->user['user_id'] ?? null;
+        return $userId !== null ? (int) $userId : null;
+    }
+
+    /**
+     * Get all role IDs assigned to the current authenticated user.
+     */
+    private function getRoleIds(): array
+    {
+        $roleIds = $this->user['role_ids'] ?? [];
+        if (!empty($roleIds)) {
+            return array_values(array_unique(array_filter(array_map('intval', (array) $roleIds))));
+        }
+
+        $resolved = [];
+        foreach (($this->user['roles'] ?? []) as $role) {
+            if (is_array($role)) {
+                $roleId = $role['id'] ?? $role['role_id'] ?? null;
+            } elseif (is_object($role)) {
+                $roleId = $role->id ?? $role->role_id ?? null;
+            } else {
+                $roleId = $role;
+            }
+
+            if ($roleId !== null && $roleId !== '') {
+                $resolved[] = (int) $roleId;
+            }
+        }
+
+        return array_values(array_unique(array_filter($resolved)));
     }
 
     /**
@@ -671,11 +712,55 @@ class SystemConfigController extends BaseController
      */
     public function postAuthorize($id = null, $data = null, $segments = [])
     {
-        if (!$this->requireSystemAdmin()) {
-            return $this->forbidden('System Administrator role required');
+        $currentUserId = $this->getCurrentUserId();
+        if ($currentUserId === null) {
+            return $this->unauthorized('Authentication required');
         }
 
-        return $this->success($this->api->checkAuthorization($data));
+        $currentRoleIds = $this->getRoleIds();
+        $isSystemAdmin = $this->requireSystemAdmin();
+        $payload = is_array($data) ? $data : [];
+
+        $payload['user_id'] = isset($payload['user_id']) ? (int) $payload['user_id'] : $currentUserId;
+
+        $requestedRoleIds = $payload['role_ids'] ?? [];
+        if (!is_array($requestedRoleIds)) {
+            $requestedRoleIds = [$requestedRoleIds];
+        }
+        $requestedRoleIds = array_values(array_unique(array_filter(array_map('intval', $requestedRoleIds))));
+
+        if (empty($requestedRoleIds) && !empty($payload['role_id'])) {
+            $requestedRoleIds = [(int) $payload['role_id']];
+        }
+
+        if (empty($requestedRoleIds)) {
+            $requestedRoleIds = $currentRoleIds;
+        }
+
+        if (!$isSystemAdmin) {
+            if ($payload['user_id'] !== $currentUserId) {
+                return $this->forbidden('You can only verify routes for the current user');
+            }
+
+            $unknownRoles = array_diff($requestedRoleIds, $currentRoleIds);
+            if (!empty($unknownRoles)) {
+                return $this->forbidden('You can only verify routes for your assigned roles');
+            }
+        }
+
+        if (empty($requestedRoleIds)) {
+            return $this->badRequest('At least one role is required to verify a route');
+        }
+
+        if (count($requestedRoleIds) > 1) {
+            $payload['role_ids'] = $requestedRoleIds;
+            unset($payload['role_id']);
+        } else {
+            $payload['role_id'] = $requestedRoleIds[0];
+            unset($payload['role_ids']);
+        }
+
+        return $this->success($this->api->checkAuthorization($payload));
     }
 
     /**

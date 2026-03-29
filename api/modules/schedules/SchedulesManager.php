@@ -27,12 +27,18 @@ class SchedulesManager
     // TEACHING STAFF: Get timetable for a teacher (all classes, rooms, periods)
     public function getTeacherSchedule($teacherId, $termId = null)
     {
-        $sql = "SELECT cs.*, c.name as class_name, s.name as subject_name, r.name as room_name
+        $sql = "SELECT
+                    cs.*,
+                    c.name as class_name,
+                    COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                    r.name as room_name
                 FROM class_schedules cs
                 JOIN classes c ON cs.class_id = c.id
-                JOIN subjects s ON cs.subject_id = s.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cs.subject_id = la.id
                 LEFT JOIN rooms r ON cs.room_id = r.id
-                WHERE cs.teacher_id = :teacher_id";
+                WHERE cs.teacher_id = :teacher_id
+                  AND cs.status = 'active'";
         $params = ['teacher_id' => $teacherId];
         if ($termId) {
             $sql .= " AND cs.term_id = :term_id";
@@ -47,12 +53,20 @@ class SchedulesManager
     // SUBJECT SPECIALIST: Get teaching load for a subject (all teachers, classes, periods)
     public function getSubjectTeachingLoad($subjectId, $termId = null)
     {
-        $sql = "SELECT cs.*, t.name as teacher_name, c.name as class_name, r.name as room_name
+        $sql = "SELECT
+                    cs.*,
+                    CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, '')) as teacher_name,
+                    c.name as class_name,
+                    COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                    r.name as room_name
                 FROM class_schedules cs
-                JOIN staff t ON cs.teacher_id = t.id
+                LEFT JOIN staff t ON cs.teacher_id = t.id
                 JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cs.subject_id = la.id
                 LEFT JOIN rooms r ON cs.room_id = r.id
-                WHERE cs.subject_id = :subject_id";
+                WHERE cs.subject_id = :subject_id
+                  AND cs.status = 'active'";
         $params = ['subject_id' => $subjectId];
         if ($termId) {
             $sql .= " AND cs.term_id = :term_id";
@@ -67,21 +81,30 @@ class SchedulesManager
     // ACTIVITIES COORDINATOR: Get all activity schedules
     public function getAllActivitySchedules($filters = [])
     {
-        $sql = "SELECT a.*, r.name as room_name, t.name as teacher_name
-                FROM activity_schedules a
-                LEFT JOIN rooms r ON a.room_id = r.id
-                LEFT JOIN staff t ON a.coordinator_id = t.id
+        $sql = "SELECT
+                    asch.*,
+                    a.title as activity_title,
+                    a.description as activity_description,
+                    a.status as activity_status,
+                    CONCAT(COALESCE(st.first_name, ''), ' ', COALESCE(st.last_name, '')) as coordinator_name
+                FROM activity_schedule asch
+                JOIN activities a ON asch.activity_id = a.id
+                LEFT JOIN staff st ON a.started_by = st.id
                 WHERE 1=1";
         $params = [];
         if (!empty($filters['term_id'])) {
-            $sql .= " AND a.term_id = :term_id";
+            $sql .= " AND EXISTS (
+                        SELECT 1 FROM academic_terms at
+                        WHERE at.id = :term_id
+                          AND asch.schedule_date BETWEEN at.start_date AND at.end_date
+                     )";
             $params['term_id'] = $filters['term_id'];
         }
         if (!empty($filters['coordinator_id'])) {
-            $sql .= " AND a.coordinator_id = :coordinator_id";
+            $sql .= " AND a.started_by = :coordinator_id";
             $params['coordinator_id'] = $filters['coordinator_id'];
         }
-        $sql .= " ORDER BY a.date, a.start_time";
+        $sql .= " ORDER BY asch.schedule_date, asch.start_time";
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -147,14 +170,14 @@ class SchedulesManager
     {
         // Example: count total classes, activities, conflicts, etc.
         $analytics = [];
-        $sql = "SELECT COUNT(*) as total_classes FROM class_schedules WHERE status IN ('planned','approved','published')";
+        $sql = "SELECT COUNT(*) as total_classes FROM class_schedules WHERE status = 'active'";
         $stmt = $this->db->query($sql);
         $analytics['total_classes'] = $stmt->fetchColumn();
-        $sql = "SELECT COUNT(*) as total_activities FROM activity_schedules WHERE status = 'active'";
+        $sql = "SELECT COUNT(*) as total_activities FROM activity_schedule";
         $stmt = $this->db->query($sql);
         $analytics['total_activities'] = $stmt->fetchColumn();
-        $sql = "SELECT COUNT(*) as total_conflicts FROM schedule_conflicts WHERE resolved = 0";
-        if ($this->db->query("SHOW TABLES LIKE 'schedule_conflicts'")) {
+        $sql = "SELECT COUNT(*) as total_conflicts FROM timetable_conflicts WHERE status IN ('reported', 'acknowledged')";
+        if ($this->db->query("SHOW TABLES LIKE 'timetable_conflicts'")) {
             $stmt = $this->db->query($sql);
             $analytics['total_conflicts'] = $stmt->fetchColumn();
         } else {
@@ -170,13 +193,13 @@ class SchedulesManager
         $conflicts = [];
         switch ($resourceType) {
             case 'room':
-                $sql = "SELECT * FROM class_schedules WHERE room_id = :id AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+                $sql = "SELECT * FROM class_schedules WHERE room_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
                 break;
             case 'staff':
-                $sql = "SELECT * FROM class_schedules WHERE teacher_id = :id AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+                $sql = "SELECT * FROM class_schedules WHERE teacher_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
                 break;
             case 'class':
-                $sql = "SELECT * FROM class_schedules WHERE class_id = :id AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+                $sql = "SELECT * FROM class_schedules WHERE class_id = :id AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
                 break;
             case 'vehicle':
                 $sql = "SELECT * FROM route_schedules WHERE vehicle_id = :id AND ((pickup_time < :end AND dropoff_time > :start)) AND status = 'active'";
@@ -205,7 +228,7 @@ class SchedulesManager
                 $slotStart = sprintf('%02d:00:00', $hour);
                 $slotEnd = sprintf('%02d:00:00', $hour + $duration);
                 // Check for conflicts for this slot
-                $sql = "SELECT * FROM class_schedules WHERE class_id = :id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+                $sql = "SELECT * FROM class_schedules WHERE class_id = :id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
                 $stmt = $this->db->prepare($sql);
                 $stmt->execute([
                     'id' => $entityId,
@@ -232,7 +255,7 @@ class SchedulesManager
         // Example: Check for room and teacher conflicts for a class schedule
         foreach ($proposedSchedule as $entry) {
             // Room conflict
-            $sql = "SELECT * FROM class_schedules WHERE room_id = :room_id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+            $sql = "SELECT * FROM class_schedules WHERE room_id = :room_id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'room_id' => $entry['room_id'],
@@ -248,7 +271,7 @@ class SchedulesManager
                 ];
             }
             // Teacher conflict
-            $sql = "SELECT * FROM class_schedules WHERE teacher_id = :teacher_id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status IN ('planned','approved','published')";
+            $sql = "SELECT * FROM class_schedules WHERE teacher_id = :teacher_id AND day_of_week = :day AND ((start_time < :end AND end_time > :start)) AND status = 'active'";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'teacher_id' => $entry['teacher_id'],
@@ -271,13 +294,19 @@ class SchedulesManager
     public function generateMasterSchedule($scope, $filters = [])
     {
         // Example: Return all class schedules, optionally filtered by class, staff, or room
-        $sql = "SELECT cs.*, c.name as class_name, s.name as subject_name, t.name as teacher_name, r.name as room_name
+        $sql = "SELECT
+                    cs.*,
+                    c.name as class_name,
+                    COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                    CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, '')) as teacher_name,
+                    r.name as room_name
                 FROM class_schedules cs
                 JOIN classes c ON cs.class_id = c.id
-                JOIN subjects s ON cs.subject_id = s.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cs.subject_id = la.id
                 LEFT JOIN staff t ON cs.teacher_id = t.id
                 LEFT JOIN rooms r ON cs.room_id = r.id
-                WHERE 1=1";
+                WHERE cs.status = 'active'";
         $params = [];
         if (!empty($filters['class_id'])) {
             $sql .= " AND cs.class_id = :class_id";
@@ -300,7 +329,12 @@ class SchedulesManager
     public function validateScheduleCompliance($scheduleId)
     {
         // Example: Check for overlaps in class_schedules for the same class
-        $sql = "SELECT * FROM class_schedules WHERE class_id = (SELECT class_id FROM class_schedules WHERE id = :id) AND id != :id AND ((start_time < (SELECT end_time FROM class_schedules WHERE id = :id) AND end_time > (SELECT start_time FROM class_schedules WHERE id = :id))) AND status IN ('planned','approved','published')";
+        $sql = "SELECT * FROM class_schedules
+                WHERE class_id = (SELECT class_id FROM class_schedules WHERE id = :id)
+                  AND id != :id
+                  AND ((start_time < (SELECT end_time FROM class_schedules WHERE id = :id)
+                        AND end_time > (SELECT start_time FROM class_schedules WHERE id = :id)))
+                  AND status = 'active'";
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => $scheduleId]);
         $overlaps = $stmt->fetchAll(\PDO::FETCH_ASSOC);

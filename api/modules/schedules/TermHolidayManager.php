@@ -15,12 +15,28 @@ class TermHolidayManager
     public function getStudentSchedules($studentId, $termId = null)
     {
         $params = ['student_id' => $studentId];
-        $sql = "SELECT cs.*, t.name as term_name, s.name as subject_name, r.name as room_name
+        $sql = "SELECT
+                    cs.*,
+                    at.name as term_name,
+                    at.term_number,
+                    COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                    r.name as room_name,
+                    c.name as class_name
                 FROM class_schedules cs
-                JOIN academic_terms t ON cs.term_id = t.id
-                JOIN subjects s ON cs.subject_id = s.id
+                JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN academic_terms at ON cs.term_id = at.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cs.subject_id = la.id
                 LEFT JOIN rooms r ON cs.room_id = r.id
-                WHERE cs.class_id = (SELECT class_id FROM students WHERE id = :student_id)";
+                WHERE cs.class_id = (
+                    SELECT ce.class_id
+                    FROM class_enrollments ce
+                    WHERE ce.student_id = :student_id
+                      AND ce.enrollment_status = 'active'
+                    ORDER BY ce.id DESC
+                    LIMIT 1
+                )
+                  AND cs.status = 'active'";
         if ($termId) {
             $sql .= " AND cs.term_id = :term_id";
             $params['term_id'] = $termId;
@@ -28,14 +44,20 @@ class TermHolidayManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        // Add holidays for the term
+
+        $holidaysSql = "SELECT *
+                        FROM school_calendar
+                        WHERE day_type IN ('public_holiday', 'school_holiday')";
+        $holidayParams = [];
         if ($termId) {
-            $stmt = $this->db->prepare("SELECT * FROM holidays WHERE term_id = :term_id");
-            $stmt->execute(['term_id' => $termId]);
-            $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } else {
-            $holidays = [];
+            $holidaysSql .= " AND term_id = :term_id";
+            $holidayParams['term_id'] = $termId;
         }
+        $holidaysSql .= " ORDER BY date ASC";
+        $holidayStmt = $this->db->prepare($holidaysSql);
+        $holidayStmt->execute($holidayParams);
+        $holidays = $holidayStmt->fetchAll(PDO::FETCH_ASSOC);
+
         return [
             'schedules' => $schedules,
             'holidays' => $holidays
@@ -46,12 +68,21 @@ class TermHolidayManager
     public function getStaffSchedules($staffId, $termId = null)
     {
         $params = ['staff_id' => $staffId];
-        $sql = "SELECT cs.*, t.name as term_name, s.name as subject_name, r.name as room_name
+        $sql = "SELECT
+                    cs.*,
+                    at.name as term_name,
+                    at.term_number,
+                    COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                    r.name as room_name,
+                    c.name as class_name
                 FROM class_schedules cs
-                JOIN academic_terms t ON cs.term_id = t.id
-                JOIN subjects s ON cs.subject_id = s.id
+                JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN academic_terms at ON cs.term_id = at.id
+                LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+                LEFT JOIN learning_areas la ON cs.subject_id = la.id
                 LEFT JOIN rooms r ON cs.room_id = r.id
-                WHERE cs.teacher_id = :staff_id";
+                WHERE cs.teacher_id = :staff_id
+                  AND cs.status = 'active'";
         if ($termId) {
             $sql .= " AND cs.term_id = :term_id";
             $params['term_id'] = $termId;
@@ -59,15 +90,20 @@ class TermHolidayManager
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         $teaching = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        // TODO: Add invigilation, events, etc. as needed
-        // Add holidays for the term
+
+        $holidaySql = "SELECT *
+                       FROM school_calendar
+                       WHERE day_type IN ('public_holiday', 'school_holiday')";
+        $holidayParams = [];
         if ($termId) {
-            $stmt = $this->db->prepare("SELECT * FROM holidays WHERE term_id = :term_id");
-            $stmt->execute(['term_id' => $termId]);
-            $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        } else {
-            $holidays = [];
+            $holidaySql .= " AND term_id = :term_id";
+            $holidayParams['term_id'] = $termId;
         }
+        $holidaySql .= " ORDER BY date ASC";
+        $holidayStmt = $this->db->prepare($holidaySql);
+        $holidayStmt->execute($holidayParams);
+        $holidays = $holidayStmt->fetchAll(PDO::FETCH_ASSOC);
+
         return [
             'teaching' => $teaching,
             'holidays' => $holidays
@@ -81,25 +117,65 @@ class TermHolidayManager
         $stmt = $this->db->prepare("SELECT * FROM academic_terms WHERE id = :term_id");
         $stmt->execute(['term_id' => $termId]);
         $term = $stmt->fetch(PDO::FETCH_ASSOC);
-        // Holidays
-        $stmt = $this->db->prepare("SELECT * FROM holidays WHERE term_id = :term_id");
+
+        // Holiday/special-day calendar entries
+        $stmt = $this->db->prepare("
+            SELECT *
+            FROM school_calendar
+            WHERE term_id = :term_id
+              AND day_type IN ('public_holiday', 'school_holiday', 'special_event')
+            ORDER BY date ASC
+        ");
         $stmt->execute(['term_id' => $termId]);
         $holidays = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
         // All class schedules
-        $stmt = $this->db->prepare("SELECT cs.*, c.name as class_name, s.name as subject_name, r.name as room_name, t.name as teacher_name
-                                    FROM class_schedules cs
-                                    JOIN classes c ON cs.class_id = c.id
-                                    JOIN subjects s ON cs.subject_id = s.id
-                                    LEFT JOIN rooms r ON cs.room_id = r.id
-                                    LEFT JOIN staff t ON cs.teacher_id = t.id
-                                    WHERE cs.term_id = :term_id");
+        $stmt = $this->db->prepare("
+            SELECT
+                cs.*,
+                c.name as class_name,
+                COALESCE(cu.name, la.name, CONCAT('Subject #', cs.subject_id)) as subject_name,
+                r.name as room_name,
+                CONCAT(COALESCE(t.first_name, ''), ' ', COALESCE(t.last_name, '')) as teacher_name
+            FROM class_schedules cs
+            JOIN classes c ON cs.class_id = c.id
+            LEFT JOIN curriculum_units cu ON cs.subject_id = cu.id
+            LEFT JOIN learning_areas la ON cs.subject_id = la.id
+            LEFT JOIN rooms r ON cs.room_id = r.id
+            LEFT JOIN staff t ON cs.teacher_id = t.id
+            WHERE cs.term_id = :term_id
+              AND cs.status = 'active'
+            ORDER BY FIELD(cs.day_of_week, 'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), cs.start_time
+        ");
         $stmt->execute(['term_id' => $termId]);
         $schedules = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        // TODO: Add events, exams, etc. as needed
+
+        // Term-linked activity/exam counts for quick admin view
+        $activityStmt = $this->db->prepare("
+            SELECT COUNT(*) AS total
+            FROM activity_schedule asch
+            WHERE EXISTS (
+                SELECT 1 FROM academic_terms at
+                WHERE at.id = :term_id
+                  AND asch.schedule_date BETWEEN at.start_date AND at.end_date
+            )
+        ");
+        $activityStmt->execute(['term_id' => $termId]);
+        $activitiesCount = (int) ($activityStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+        $examStmt = $this->db->prepare("SELECT COUNT(*) AS total FROM exam_schedules WHERE term_id = :term_id");
+        $examStmt->execute(['term_id' => $termId]);
+        $examsCount = (int) ($examStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
         return [
             'term' => $term,
             'holidays' => $holidays,
-            'schedules' => $schedules
+            'schedules' => $schedules,
+            'summary' => [
+                'total_schedules' => count($schedules),
+                'activities_count' => $activitiesCount,
+                'exams_count' => $examsCount,
+            ],
         ];
     }
     // Get detailed info for a term, including holidays, workflow status, and related schedules

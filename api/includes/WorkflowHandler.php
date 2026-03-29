@@ -483,15 +483,26 @@ class WorkflowHandler extends BaseAPI
                 return;
             }
 
-            // Get users with the required role
-            $sql = "SELECT u.id, u.username, u.email 
-                    FROM users u 
-                    JOIN roles r ON u.role_id = r.id 
-                    WHERE r.name = :role AND u.status = 'active'";
-            
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute(['role' => $required_role]);
-            $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $users = $this->getUsersForRequiredRoleAlias($required_role);
+
+            // Parent stages often map to the workflow initiator in this system.
+            if (empty($users) && $this->normalizeRoleAlias($required_role) === 'parent') {
+                $instance = $this->getWorkflowInstance($instance_id);
+                $starterId = (int) ($instance['started_by'] ?? 0);
+                if ($starterId > 0) {
+                    $stmt = $this->db->prepare(
+                        "SELECT id, username, email
+                         FROM users
+                         WHERE id = :id AND status = 'active'
+                         LIMIT 1"
+                    );
+                    $stmt->execute(['id' => $starterId]);
+                    $starter = $stmt->fetch(PDO::FETCH_ASSOC);
+                    if ($starter) {
+                        $users[] = $starter;
+                    }
+                }
+            }
 
             $instance = $this->getWorkflowInstance($instance_id);
             $title = "Action Required: {$instance['workflow_name']}";
@@ -503,6 +514,49 @@ class WorkflowHandler extends BaseAPI
         } catch (Exception $e) {
             $this->logError('notification_failed', $e->getMessage());
         }
+    }
+
+    private function normalizeRoleAlias(?string $roleName): ?string
+    {
+        if ($roleName === null) {
+            return null;
+        }
+
+        $normalized = strtolower(trim($roleName));
+        $normalized = preg_replace('/[^a-z0-9]/', '', $normalized);
+        return $normalized !== '' ? $normalized : null;
+    }
+
+    private function getUsersForRequiredRoleAlias(string $requiredRole): array
+    {
+        $required = $this->normalizeRoleAlias($requiredRole);
+        if (!$required) {
+            return [];
+        }
+
+        $sql = "SELECT DISTINCT u.id, u.username, u.email, r.name as role_name
+                FROM users u
+                LEFT JOIN user_roles ur ON ur.user_id = u.id
+                LEFT JOIN roles r ON r.id = COALESCE(ur.role_id, u.role_id)
+                WHERE u.status = 'active'";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $matched = [];
+        foreach ($rows as $row) {
+            $roleAlias = $this->normalizeRoleAlias($row['role_name'] ?? '');
+            if ($roleAlias === $required) {
+                $matched[(int) $row['id']] = [
+                    'id' => (int) $row['id'],
+                    'username' => $row['username'] ?? null,
+                    'email' => $row['email'] ?? null,
+                ];
+            }
+        }
+
+        return array_values($matched);
     }
 
     protected function sendWorkflowNotification($instance_id, $title, $message, $type)

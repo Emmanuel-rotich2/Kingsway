@@ -21,6 +21,7 @@ const markAttendanceController = {
   init: function () {
     console.log("Mark Attendance Controller initialized");
     this.setDefaultDate();
+    this.configureSharedActions();
     this.loadClasses();
     this.loadSessions();
     this.bindEvents();
@@ -28,6 +29,29 @@ const markAttendanceController = {
     // Initialize tooltips
     const tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
     tooltips.forEach((t) => new bootstrap.Tooltip(t));
+  },
+
+  async configureSharedActions() {
+    if (!window.API?.systemconfig?.authorizeRoute) {
+      return;
+    }
+
+    const boardingLink = document.getElementById("boardingRollCallLink");
+    const viewAttendanceLink = document.getElementById("viewAttendanceLink");
+    try {
+      const [boardingAccess, viewAttendanceAccess] = await Promise.all([
+        window.API.systemconfig.authorizeRoute("boarding_roll_call"),
+        window.API.systemconfig.authorizeRoute("view_attendance"),
+      ]);
+      if (boardingLink && boardingAccess?.allowed === false) {
+        boardingLink.classList.add("d-none");
+      }
+      if (viewAttendanceLink && viewAttendanceAccess?.allowed === false) {
+        viewAttendanceLink.classList.add("d-none");
+      }
+    } catch (error) {
+      console.warn("Could not resolve shared attendance route access:", error);
+    }
   },
 
   setDefaultDate: function () {
@@ -159,7 +183,7 @@ const markAttendanceController = {
     this.classes.forEach((cls) => {
       const option = document.createElement("option");
       option.value = cls.stream_id;
-      option.textContent = `${cls.name} (${cls.student_count} students)`;
+      option.textContent = `${cls.display_name || cls.name} (${cls.student_count} students)`;
       select.appendChild(option);
     });
   },
@@ -279,9 +303,13 @@ const markAttendanceController = {
 
     this.students.forEach((student, index) => {
       const status =
-        student.existing_status || student.attendance_status || "present";
-      const hasPermission = student.has_permission;
-      const permissionInfo = student.permission_info;
+        student.effective_status ||
+        student.attendance_status ||
+        student.existing_status ||
+        "present";
+      const hasPermission = Boolean(
+        Number(student.has_permission) || student.has_permission,
+      );
       const studentId = student.student_id || student.id;
 
       const tr = document.createElement("tr");
@@ -299,9 +327,11 @@ const markAttendanceController = {
                 </td>
                 <td>
                     <span class="badge ${this.getTypeBadgeClass(
-                      student.student_type,
+                      student.student_type_code || student.student_type,
                     )}">
-                        ${this.getTypeShortName(student.student_type)}
+                        ${this.getTypeShortName(
+                          student.student_type_code || student.student_type,
+                        )}
                     </span>
                 </td>
                 <td>
@@ -309,9 +339,9 @@ const markAttendanceController = {
                       hasPermission
                         ? `
                         <span class="badge bg-warning text-dark" title="${
-                          permissionInfo?.reason || "Active permission"
+                          student.permission_reason || "Active permission"
                         }">
-                            ${permissionInfo?.type_code || "PERM"}
+                            ${student.permission_type_code || "PERM"}
                         </span>
                     `
                         : '<span class="text-muted">-</span>'
@@ -371,10 +401,14 @@ const markAttendanceController = {
   },
 
   getTypeBadgeClass: function (type) {
-    switch (type) {
-      case "Full Boarder":
+    switch (String(type || "").toUpperCase()) {
+      case "BOARD":
+      case "FULL_BOARDER":
+      case "FULL BOARDER":
         return "bg-primary";
-      case "Weekly Boarder":
+      case "WEEKLY":
+      case "WEEKLY_BOARDER":
+      case "WEEKLY BOARDER":
         return "bg-info";
       default:
         return "bg-secondary";
@@ -382,12 +416,16 @@ const markAttendanceController = {
   },
 
   getTypeShortName: function (type) {
-    switch (type) {
-      case "Full Boarder":
+    switch (String(type || "").toUpperCase()) {
+      case "BOARD":
+      case "FULL_BOARDER":
+      case "FULL BOARDER":
         return "FB";
-      case "Weekly Boarder":
+      case "WEEKLY":
+      case "WEEKLY_BOARDER":
+      case "WEEKLY BOARDER":
         return "WB";
-      case "Day":
+      case "DAY":
         return "Day";
       default:
         return type || "Day";
