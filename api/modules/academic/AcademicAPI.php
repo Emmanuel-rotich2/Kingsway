@@ -196,7 +196,9 @@ class AcademicAPI extends BaseAPI
 
     public function startAssessmentWorkflow($data)
     {
-        return $this->assessmentWorkflow->planAssessment($data);
+        // Use direct assessment record creation for production compatibility.
+        // The workflow engine tables for academic assessment may be unavailable in some deployments.
+        return $this->createAssessmentRecord($data);
     }
 
     public function createAssessmentItems($instanceId, $data)
@@ -225,10 +227,19 @@ class AcademicAPI extends BaseAPI
 
     public function markAndGradeAssessment($instanceId, $data)
     {
+        // Fallback: direct grading mode without workflow instance.
         if (empty($instanceId)) {
+            if (!empty($data['assessment_id'])) {
+                return $this->saveAssessmentResults([
+                    'assessment_id' => $data['assessment_id'],
+                    'marks' => $data['grading_data'] ?? $data['marks'] ?? $data,
+                    'is_final' => (bool) ($data['is_final'] ?? true),
+                    'marked_by' => $data['marked_by'] ?? null,
+                ]);
+            }
             return [
                 'status' => 'error',
-                'message' => 'Missing assessment instance_id',
+                'message' => 'Missing assessment instance_id or assessment_id',
                 'code' => 400
             ];
         }
@@ -238,11 +249,7 @@ class AcademicAPI extends BaseAPI
     public function analyzeAssessmentResults($instanceId, $data)
     {
         if (empty($instanceId)) {
-            return [
-                'status' => 'error',
-                'message' => 'Missing assessment instance_id',
-                'code' => 400
-            ];
+            return $this->getResultsAnalysis($data);
         }
         return $this->assessmentWorkflow->analyzeResults($instanceId, $data);
     }
@@ -253,17 +260,75 @@ class AcademicAPI extends BaseAPI
 
     public function startReportWorkflow($data)
     {
-        return $this->reportWorkflow->defineScope($data);
+        $scope = is_array($data) ? $data : [];
+        if (empty($scope['report_type'])) {
+            $scope['report_type'] = 'end_of_term';
+        }
+        if (empty($scope['academic_year']) && !empty($scope['academic_year_id'])) {
+            $scope['academic_year'] = $scope['academic_year_id'];
+        }
+
+        return successResponse([
+            'instance_id' => null,
+            'mode' => 'direct',
+            'scope' => [
+                'term_id' => $scope['term_id'] ?? null,
+                'academic_year_id' => $scope['academic_year_id'] ?? $scope['academic_year'] ?? null,
+                'class_id' => $scope['class_id'] ?? null,
+                'student_ids' => $scope['student_ids'] ?? [],
+                'report_type' => $scope['report_type'],
+            ],
+        ]);
     }
 
     public function compileReportData($instanceId, $data)
     {
-        return $this->reportWorkflow->compileData($instanceId, $data);
+        if (!empty($instanceId)) {
+            $result = $this->reportWorkflow->compileData($instanceId, $data);
+            if (!$this->isWorkflowUnavailableResult($result)) {
+                return $result;
+            }
+        }
+
+        $students = $this->resolveReportStudents($data);
+        return successResponse([
+            'instance_id' => $instanceId ?: null,
+            'mode' => 'direct',
+            'compiled_count' => count($students),
+            'students' => $students,
+        ]);
     }
 
     public function generateStudentReports($instanceId, $data)
     {
-        return $this->reportWorkflow->generateReports($instanceId, $data);
+        if (!empty($instanceId)) {
+            $result = $this->reportWorkflow->generateReports($instanceId, $data);
+            if (!$this->isWorkflowUnavailableResult($result)) {
+                return $result;
+            }
+        }
+
+        $students = $this->resolveReportStudents($data);
+        $generated = [];
+        foreach ($students as $student) {
+            $generated[] = [
+                'student_id' => (int) $student['id'],
+                'admission_no' => $student['admission_no'] ?? null,
+                'student_name' => trim(($student['first_name'] ?? '') . ' ' . ($student['last_name'] ?? '')),
+                'class_name' => $student['class_name'] ?? null,
+                'stream_name' => $student['stream_name'] ?? null,
+                'overall_percentage' => isset($student['overall_percentage']) ? (float) $student['overall_percentage'] : null,
+                'cbc_grade' => $this->deriveGradeFromPercentage($student['overall_percentage'] ?? null),
+                'status' => 'generated',
+            ];
+        }
+
+        return successResponse([
+            'instance_id' => $instanceId ?: null,
+            'mode' => 'direct',
+            'generated_count' => count($generated),
+            'reports' => $generated,
+        ]);
     }
 
     public function reviewAndApproveReports($instanceId, $data)
@@ -2985,23 +3050,49 @@ class AcademicAPI extends BaseAPI
     // CLASS STREAMS METHODS
     // ========================================================================
 
-    public function listClassStreams($classId)
+    public function listClassStreams($classId = null, $params = [])
     {
         try {
+            $where = ["cs.status = 'active'"];
+            $bindings = [];
+
+            if (!empty($params['status'])) {
+                $where = ["cs.status = ?"];
+                $bindings[] = $params['status'];
+            }
+
+            if (!empty($classId)) {
+                $where[] = "cs.class_id = ?";
+                $bindings[] = (int) $classId;
+            }
+
+            if (!empty($params['class_id']) && empty($classId)) {
+                $where[] = "cs.class_id = ?";
+                $bindings[] = (int) $params['class_id'];
+            }
+
+            $whereClause = implode(' AND ', $where);
+
             $sql = "
                 SELECT 
                     cs.*,
                     c.name as class_name,
-                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name
+                    c.academic_year,
+                    sl.name as level_name,
+                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                    COUNT(DISTINCT st.id) as student_count
                 FROM class_streams cs
                 JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN school_levels sl ON c.level_id = sl.id
                 LEFT JOIN staff s ON cs.teacher_id = s.id
-                WHERE cs.class_id = ? AND cs.status = 'active'
+                LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
+                WHERE {$whereClause}
+                GROUP BY cs.id
                 ORDER BY cs.stream_name
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$classId]);
+            $stmt->execute($bindings);
             $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return successResponse($streams);
@@ -3076,6 +3167,48 @@ class AcademicAPI extends BaseAPI
             $allClasses = array_merge($classes, $subjectClasses);
 
             return successResponse($allClasses);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function listTeachers($params = [])
+    {
+        try {
+            $where = ["s.status = 'active'"];
+            $bindings = [];
+
+            if (!empty($params['search'])) {
+                $where[] = "(s.first_name LIKE ? OR s.last_name LIKE ? OR s.staff_no LIKE ?)";
+                $search = '%' . trim((string) $params['search']) . '%';
+                $bindings[] = $search;
+                $bindings[] = $search;
+                $bindings[] = $search;
+            }
+
+            // Teaching staff + leadership likely to handle academic assignments
+            $where[] = "(s.staff_type_id = 1 OR LOWER(s.position) REGEXP 'teacher|head|academic|deputy')";
+            $whereClause = implode(' AND ', $where);
+
+            $sql = "
+                SELECT
+                    s.id,
+                    s.staff_no,
+                    s.first_name,
+                    s.last_name,
+                    CONCAT(s.first_name, ' ', s.last_name) AS full_name,
+                    s.position,
+                    s.staff_type_id,
+                    st.name AS staff_type_name
+                FROM staff s
+                LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                WHERE {$whereClause}
+                ORDER BY s.first_name, s.last_name
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+            return successResponse($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -3179,6 +3312,957 @@ class AcademicAPI extends BaseAPI
     }
 
     /**
+     * Create an assessment record directly (non-workflow mode).
+     */
+    public function createAssessmentRecord($data = [])
+    {
+        try {
+            $required = ['title', 'subject_id', 'class_id', 'term_id'];
+            foreach ($required as $field) {
+                if (empty($data[$field])) {
+                    return errorResponse([
+                        'status' => 'error',
+                        'message' => "Missing required field: {$field}"
+                    ], 400);
+                }
+            }
+
+            $title = trim((string) $data['title']);
+            $subjectId = (int) $data['subject_id'];
+            $classId = (int) $data['class_id'];
+            $termId = (int) $data['term_id'];
+            $maxMarks = (float) ($data['max_marks'] ?? $data['total_marks'] ?? 100);
+            if ($maxMarks <= 0) {
+                $maxMarks = 100;
+            }
+            $assessmentDate = !empty($data['assessment_date']) ? $data['assessment_date'] : date('Y-m-d');
+            $assignedBy = (int) ($data['assigned_by'] ?? $this->user_id ?? 1);
+            $status = $data['status'] ?? 'pending_submission';
+
+            $assessmentTypeId = null;
+            if (!empty($data['assessment_type_id'])) {
+                $assessmentTypeId = (int) $data['assessment_type_id'];
+            } elseif (!empty($data['assessment_type'])) {
+                $typeStmt = $this->db->prepare("
+                    SELECT id
+                    FROM assessment_types
+                    WHERE LOWER(name) = LOWER(?)
+                    LIMIT 1
+                ");
+                $typeStmt->execute([(string) $data['assessment_type']]);
+                $typeId = $typeStmt->fetchColumn();
+                $assessmentTypeId = $typeId ? (int) $typeId : null;
+                if (empty($assessmentTypeId)) {
+                    $lookupStmt = $this->db->query("SELECT id, name, is_formative, is_summative FROM assessment_types WHERE status='active'");
+                    $types = $lookupStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $input = strtolower((string) $data['assessment_type']);
+                    foreach ($types as $type) {
+                        $name = strtolower((string) ($type['name'] ?? ''));
+                        if ($name === $input) {
+                            $assessmentTypeId = (int) $type['id'];
+                            break;
+                        }
+                        if (
+                            in_array($input, ['quiz', 'assignment', 'class_activity', 'practical', 'project', 'oral_test'], true)
+                            && (int) ($type['is_formative'] ?? 0) === 1
+                        ) {
+                            $assessmentTypeId = (int) $type['id'];
+                            break;
+                        }
+                        if (
+                            in_array($input, ['midterm', 'endterm', 'mock'], true)
+                            && (int) ($type['is_summative'] ?? 0) === 1
+                        ) {
+                            $assessmentTypeId = (int) $type['id'];
+                            break;
+                        }
+                    }
+                }
+            }
+
+            $insert = $this->db->prepare("
+                INSERT INTO assessments (
+                    class_id,
+                    subject_id,
+                    term_id,
+                    title,
+                    max_marks,
+                    assessment_date,
+                    assigned_by,
+                    status,
+                    assessment_type_id,
+                    learning_outcome_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+
+            $insert->execute([
+                $classId,
+                $subjectId,
+                $termId,
+                $title,
+                $maxMarks,
+                $assessmentDate,
+                $assignedBy,
+                $status,
+                $assessmentTypeId,
+                !empty($data['learning_outcome_id']) ? (int) $data['learning_outcome_id'] : null,
+            ]);
+
+            $assessmentId = (int) $this->db->lastInsertId();
+            $this->logAction('create', $assessmentId, 'Created assessment record');
+
+            return successResponse([
+                'assessment_id' => $assessmentId,
+                'instance_id' => null,
+                'mode' => 'direct',
+                'status' => $status,
+            ], 'Assessment created successfully');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Save assessment marks directly to assessment_results.
+     */
+    public function saveAssessmentResults($data = [])
+    {
+        try {
+            $assessmentId = (int) ($data['assessment_id'] ?? 0);
+            $marks = $data['marks'] ?? [];
+            $isFinal = (bool) ($data['is_final'] ?? true);
+            $responderId = (int) ($data['marked_by'] ?? $this->user_id ?? 1);
+
+            if ($assessmentId <= 0) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'assessment_id is required'
+                ], 400);
+            }
+            if (!is_array($marks) || empty($marks)) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'marks array is required'
+                ], 400);
+            }
+
+            $assessmentStmt = $this->db->prepare("SELECT id, max_marks FROM assessments WHERE id = ? LIMIT 1");
+            $assessmentStmt->execute([$assessmentId]);
+            $assessment = $assessmentStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$assessment) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Assessment not found'
+                ], 404);
+            }
+            $maxMarks = max(1.0, (float) ($assessment['max_marks'] ?? 100));
+
+            $this->db->beginTransaction();
+
+            $upsert = $this->db->prepare("
+                INSERT INTO assessment_results (
+                    assessment_id,
+                    student_id,
+                    marks_obtained,
+                    grade,
+                    points,
+                    remarks,
+                    submitted_at,
+                    is_submitted,
+                    is_approved,
+                    responder_type,
+                    responder_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'teacher', ?)
+                ON DUPLICATE KEY UPDATE
+                    marks_obtained = VALUES(marks_obtained),
+                    grade = VALUES(grade),
+                    points = VALUES(points),
+                    remarks = VALUES(remarks),
+                    submitted_at = VALUES(submitted_at),
+                    is_submitted = VALUES(is_submitted),
+                    responder_type = 'teacher',
+                    responder_id = VALUES(responder_id)
+            ");
+
+            $saved = 0;
+            foreach ($marks as $row) {
+                $studentId = (int) ($row['student_id'] ?? 0);
+                if ($studentId <= 0) {
+                    continue;
+                }
+
+                $rawScore = $row['score_obtained'] ?? $row['marks_obtained'] ?? $row['marks'] ?? $row['score'] ?? null;
+                if ($rawScore === null || $rawScore === '') {
+                    continue;
+                }
+
+                $score = (float) $rawScore;
+                if ($score < 0) {
+                    $score = 0;
+                }
+                if ($score > $maxMarks) {
+                    $score = $maxMarks;
+                }
+
+                $percentage = $maxMarks > 0 ? ($score / $maxMarks) * 100 : 0;
+                $grade = $this->deriveGradeFromPercentage($percentage);
+                $points = $grade === 'EE' ? 4.0 : ($grade === 'ME' ? 3.0 : ($grade === 'AE' ? 2.0 : 1.0));
+                $submittedAt = $isFinal ? date('Y-m-d H:i:s') : null;
+                $isSubmitted = $isFinal ? 1 : 0;
+
+                $upsert->execute([
+                    $assessmentId,
+                    $studentId,
+                    $score,
+                    $grade,
+                    $points,
+                    $row['remarks'] ?? '',
+                    $submittedAt,
+                    $isSubmitted,
+                    0,
+                    $responderId,
+                ]);
+
+                $saved++;
+            }
+
+            $assessmentStatus = $isFinal ? 'submitted' : 'pending_submission';
+            $statusStmt = $this->db->prepare("UPDATE assessments SET status = ? WHERE id = ?");
+            $statusStmt->execute([$assessmentStatus, $assessmentId]);
+
+            $summaryStmt = $this->db->prepare("
+                SELECT
+                    COUNT(*) AS total_rows,
+                    SUM(CASE WHEN is_submitted = 1 THEN 1 ELSE 0 END) AS submitted_rows
+                FROM assessment_results
+                WHERE assessment_id = ?
+            ");
+            $summaryStmt->execute([$assessmentId]);
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: ['total_rows' => 0, 'submitted_rows' => 0];
+
+            $this->db->commit();
+
+            return successResponse([
+                'assessment_id' => $assessmentId,
+                'saved_count' => $saved,
+                'summary' => [
+                    'total_rows' => (int) ($summary['total_rows'] ?? 0),
+                    'submitted_rows' => (int) ($summary['submitted_rows'] ?? 0),
+                ],
+                'status' => $assessmentStatus,
+            ], $isFinal ? 'Assessment results submitted successfully' : 'Assessment draft saved successfully');
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * List grading results for assessment/report pages.
+     * Route: GET /api/academic/grading-results
+     */
+    public function getGradingResults($params = [])
+    {
+        try {
+            $page = max(1, (int) ($params['page'] ?? 1));
+            $limit = max(1, min(100, (int) ($params['limit'] ?? 20)));
+            $offset = ($page - 1) * $limit;
+
+            $where = ["1=1"];
+            $bindings = [];
+
+            if (!empty($params['class_id'])) {
+                $where[] = "c.id = ?";
+                $bindings[] = (int) $params['class_id'];
+            }
+            if (!empty($params['term_id'])) {
+                $where[] = "tss.term_id = ?";
+                $bindings[] = (int) $params['term_id'];
+            }
+            if (!empty($params['subject_id'])) {
+                $where[] = "tss.subject_id = ?";
+                $bindings[] = (int) $params['subject_id'];
+            }
+
+            $whereClause = implode(' AND ', $where);
+
+            $countSql = "
+                SELECT COUNT(*) AS total
+                FROM term_subject_scores tss
+                JOIN students s ON s.id = tss.student_id
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                WHERE {$whereClause}
+            ";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($bindings);
+            $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+            $sql = "
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    s.first_name,
+                    s.middle_name,
+                    s.last_name,
+                    c.id AS class_id,
+                    c.name AS class_name,
+                    cs.stream_name,
+                    tss.subject_id,
+                    COALESCE(la.name, cu.name, CONCAT('Subject ', tss.subject_id)) AS subject_name,
+                    ROUND(tss.formative_percentage, 2) AS formative_pct,
+                    ROUND(tss.summative_percentage, 2) AS summative_pct,
+                    ROUND(tss.overall_percentage, 2) AS overall_pct,
+                    UPPER(LEFT(COALESCE(tss.overall_grade, ''), 2)) AS cbc_grade
+                FROM term_subject_scores tss
+                JOIN students s ON s.id = tss.student_id
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN learning_areas la ON la.id = tss.subject_id
+                LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
+                WHERE {$whereClause}
+                ORDER BY c.name, s.first_name, s.last_name, subject_name
+                LIMIT ? OFFSET ?
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
+            $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Fallback when term_subject_scores is not populated yet.
+            if (empty($items)) {
+                $fallbackWhere = ["1=1"];
+                $fallbackBindings = [];
+                if (!empty($params['class_id'])) {
+                    $fallbackWhere[] = "ce.class_id = ?";
+                    $fallbackBindings[] = (int) $params['class_id'];
+                }
+                $fallbackWhereClause = implode(' AND ', $fallbackWhere);
+
+                $fallbackSql = "
+                    SELECT
+                        s.id AS student_id,
+                        s.admission_no,
+                        s.first_name,
+                        s.middle_name,
+                        s.last_name,
+                        c.id AS class_id,
+                        c.name AS class_name,
+                        cs.stream_name,
+                        NULL AS subject_id,
+                        'Overall' AS subject_name,
+                        NULL AS formative_pct,
+                        NULL AS summative_pct,
+                        ROUND(ce.year_average, 2) AS overall_pct,
+                        UPPER(LEFT(COALESCE(ce.overall_grade, ''), 2)) AS cbc_grade
+                    FROM class_enrollments ce
+                    JOIN students s ON s.id = ce.student_id
+                    LEFT JOIN class_streams cs ON cs.id = ce.stream_id
+                    LEFT JOIN classes c ON c.id = ce.class_id
+                    WHERE {$fallbackWhereClause}
+                    ORDER BY c.name, s.first_name, s.last_name
+                    LIMIT ? OFFSET ?
+                ";
+                $fallbackStmt = $this->db->prepare($fallbackSql);
+                $fallbackStmt->execute(array_merge($fallbackBindings, [$limit, $offset]));
+                $items = $fallbackStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $fallbackCountSql = "SELECT COUNT(*) AS total FROM class_enrollments ce WHERE {$fallbackWhereClause}";
+                $fallbackCountStmt = $this->db->prepare($fallbackCountSql);
+                $fallbackCountStmt->execute($fallbackBindings);
+                $total = (int) ($fallbackCountStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+            }
+
+            return successResponse([
+                'items' => $items,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => $limit > 0 ? (int) ceil($total / $limit) : 0,
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Aggregate class + subject analysis for assessment reporting.
+     * Route: GET /api/academic/results-analysis
+     */
+    public function getResultsAnalysis($params = [])
+    {
+        try {
+            $where = ["1=1"];
+            $bindings = [];
+
+            if (!empty($params['term_id'])) {
+                $where[] = "tss.term_id = ?";
+                $bindings[] = (int) $params['term_id'];
+            }
+            if (!empty($params['class_id'])) {
+                $where[] = "c.id = ?";
+                $bindings[] = (int) $params['class_id'];
+            }
+            if (!empty($params['subject_id'])) {
+                $where[] = "tss.subject_id = ?";
+                $bindings[] = (int) $params['subject_id'];
+            }
+
+            $whereClause = implode(' AND ', $where);
+
+            $classSql = "
+                SELECT
+                    c.id AS class_id,
+                    c.name AS class_name,
+                    sl.name AS level_name,
+                    COUNT(DISTINCT tss.student_id) AS students_assessed,
+                    ROUND(AVG(tss.overall_percentage), 2) AS average_overall,
+                    SUM(CASE WHEN tss.overall_percentage >= 80 THEN 1 ELSE 0 END) AS ee_count,
+                    SUM(CASE WHEN tss.overall_percentage >= 50 AND tss.overall_percentage < 80 THEN 1 ELSE 0 END) AS me_count,
+                    SUM(CASE WHEN tss.overall_percentage >= 25 AND tss.overall_percentage < 50 THEN 1 ELSE 0 END) AS ae_count,
+                    SUM(CASE WHEN tss.overall_percentage < 25 THEN 1 ELSE 0 END) AS be_count,
+                    ROUND(
+                        (SUM(CASE WHEN tss.overall_percentage >= 50 THEN 1 ELSE 0 END) / NULLIF(COUNT(tss.id), 0)) * 100,
+                        2
+                    ) AS pass_rate
+                FROM term_subject_scores tss
+                JOIN students s ON s.id = tss.student_id
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN school_levels sl ON sl.id = c.level_id
+                WHERE {$whereClause}
+                GROUP BY c.id, c.name, sl.name
+                ORDER BY c.name
+            ";
+            $classStmt = $this->db->prepare($classSql);
+            $classStmt->execute($bindings);
+            $classMetrics = $classStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $subjectSql = "
+                SELECT
+                    tss.subject_id,
+                    COALESCE(la.name, cu.name, CONCAT('Subject ', tss.subject_id)) AS subject_name,
+                    GROUP_CONCAT(DISTINCT sl.name ORDER BY sl.name SEPARATOR ', ') AS level_name,
+                    COUNT(DISTINCT tss.student_id) AS students_assessed,
+                    ROUND(AVG(tss.formative_percentage), 2) AS avg_formative_pct,
+                    ROUND(AVG(tss.summative_percentage), 2) AS avg_summative_pct,
+                    ROUND(AVG(tss.overall_percentage), 2) AS avg_overall_pct,
+                    SUM(CASE WHEN tss.overall_percentage >= 80 THEN 1 ELSE 0 END) AS ee_count,
+                    SUM(CASE WHEN tss.overall_percentage >= 50 AND tss.overall_percentage < 80 THEN 1 ELSE 0 END) AS me_count,
+                    SUM(CASE WHEN tss.overall_percentage >= 25 AND tss.overall_percentage < 50 THEN 1 ELSE 0 END) AS ae_count,
+                    SUM(CASE WHEN tss.overall_percentage < 25 THEN 1 ELSE 0 END) AS be_count,
+                    ROUND(
+                        (SUM(CASE WHEN tss.overall_percentage >= 50 THEN 1 ELSE 0 END) / NULLIF(COUNT(tss.id), 0)) * 100,
+                        2
+                    ) AS pass_rate
+                FROM term_subject_scores tss
+                JOIN students s ON s.id = tss.student_id
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN school_levels sl ON sl.id = c.level_id
+                LEFT JOIN learning_areas la ON la.id = tss.subject_id
+                LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
+                WHERE {$whereClause}
+                GROUP BY tss.subject_id, subject_name
+                ORDER BY subject_name
+            ";
+            $subjectStmt = $this->db->prepare($subjectSql);
+            $subjectStmt->execute($bindings);
+            $subjectMetrics = $subjectStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            $source = 'term_subject_scores';
+
+            // Fallback to assessment_results if rollup table has no records.
+            if (empty($classMetrics) && empty($subjectMetrics)) {
+                $source = 'assessment_results';
+                $fallbackWhere = ["1=1"];
+                $fallbackBindings = [];
+
+                if (!empty($params['term_id'])) {
+                    $fallbackWhere[] = "a.term_id = ?";
+                    $fallbackBindings[] = (int) $params['term_id'];
+                }
+                if (!empty($params['class_id'])) {
+                    $fallbackWhere[] = "a.class_id = ?";
+                    $fallbackBindings[] = (int) $params['class_id'];
+                }
+                if (!empty($params['subject_id'])) {
+                    $fallbackWhere[] = "a.subject_id = ?";
+                    $fallbackBindings[] = (int) $params['subject_id'];
+                }
+                $fallbackWhereClause = implode(' AND ', $fallbackWhere);
+
+                $classFallbackSql = "
+                    SELECT
+                        c.id AS class_id,
+                        c.name AS class_name,
+                        sl.name AS level_name,
+                        COUNT(DISTINCT ar.student_id) AS students_assessed,
+                        ROUND(AVG(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END), 2) AS average_overall,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 80) THEN 1 ELSE 0 END) AS ee_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 AND (ar.marks_obtained / a.max_marks) * 100 < 80) THEN 1 ELSE 0 END) AS me_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 25 AND (ar.marks_obtained / a.max_marks) * 100 < 50) THEN 1 ELSE 0 END) AS ae_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 < 25) THEN 1 ELSE 0 END) AS be_count,
+                        ROUND(
+                            (SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50) THEN 1 ELSE 0 END) / NULLIF(COUNT(ar.id), 0)) * 100,
+                            2
+                        ) AS pass_rate
+                    FROM assessment_results ar
+                    JOIN assessments a ON a.id = ar.assessment_id
+                    LEFT JOIN classes c ON c.id = a.class_id
+                    LEFT JOIN school_levels sl ON sl.id = c.level_id
+                    WHERE {$fallbackWhereClause}
+                    GROUP BY c.id, c.name, sl.name
+                    ORDER BY c.name
+                ";
+                $classFallbackStmt = $this->db->prepare($classFallbackSql);
+                $classFallbackStmt->execute($fallbackBindings);
+                $classMetrics = $classFallbackStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $subjectFallbackSql = "
+                    SELECT
+                        a.subject_id,
+                        COALESCE(la.name, cu.name, CONCAT('Subject ', a.subject_id)) AS subject_name,
+                        GROUP_CONCAT(DISTINCT sl.name ORDER BY sl.name SEPARATOR ', ') AS level_name,
+                        COUNT(DISTINCT ar.student_id) AS students_assessed,
+                        ROUND(AVG(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END), 2) AS avg_formative_pct,
+                        NULL AS avg_summative_pct,
+                        ROUND(AVG(CASE WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100 END), 2) AS avg_overall_pct,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 80) THEN 1 ELSE 0 END) AS ee_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 AND (ar.marks_obtained / a.max_marks) * 100 < 80) THEN 1 ELSE 0 END) AS me_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 25 AND (ar.marks_obtained / a.max_marks) * 100 < 50) THEN 1 ELSE 0 END) AS ae_count,
+                        SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 < 25) THEN 1 ELSE 0 END) AS be_count,
+                        ROUND(
+                            (SUM(CASE WHEN (a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50) THEN 1 ELSE 0 END) / NULLIF(COUNT(ar.id), 0)) * 100,
+                            2
+                        ) AS pass_rate
+                    FROM assessment_results ar
+                    JOIN assessments a ON a.id = ar.assessment_id
+                    LEFT JOIN classes c ON c.id = a.class_id
+                    LEFT JOIN school_levels sl ON sl.id = c.level_id
+                    LEFT JOIN learning_areas la ON la.id = a.subject_id
+                    LEFT JOIN curriculum_units cu ON cu.id = a.subject_id
+                    WHERE {$fallbackWhereClause}
+                    GROUP BY a.subject_id, subject_name
+                    ORDER BY subject_name
+                ";
+                $subjectFallbackStmt = $this->db->prepare($subjectFallbackSql);
+                $subjectFallbackStmt->execute($fallbackBindings);
+                $subjectMetrics = $subjectFallbackStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            return successResponse([
+                'source' => $source,
+                'class_metrics' => $classMetrics,
+                'subject_metrics' => $subjectMetrics,
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * List assessments with class/term/subject context and submission metrics.
+     * Route: GET /api/academic/assessments-list
+     */
+    public function getAssessmentsList($params = [])
+    {
+        try {
+            $page = max(1, (int) ($params['page'] ?? 1));
+            $limit = max(1, min(100, (int) ($params['limit'] ?? 20)));
+            $offset = ($page - 1) * $limit;
+
+            $where = ["1=1"];
+            $bindings = [];
+
+            if (!empty($params['class_id'])) {
+                $where[] = "a.class_id = ?";
+                $bindings[] = (int) $params['class_id'];
+            }
+
+            if (!empty($params['term_id'])) {
+                $where[] = "a.term_id = ?";
+                $bindings[] = (int) $params['term_id'];
+            }
+
+            if (!empty($params['subject_id'])) {
+                $where[] = "a.subject_id = ?";
+                $bindings[] = (int) $params['subject_id'];
+            }
+
+            if (!empty($params['status'])) {
+                $where[] = "a.status = ?";
+                $bindings[] = $params['status'];
+            }
+
+            if (!empty($params['assessment_type_id'])) {
+                $where[] = "a.assessment_type_id = ?";
+                $bindings[] = (int) $params['assessment_type_id'];
+            }
+
+            $whereClause = implode(' AND ', $where);
+
+            $countSql = "SELECT COUNT(*) AS total FROM assessments a WHERE {$whereClause}";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($bindings);
+            $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+            $sql = "
+                SELECT
+                    a.id,
+                    a.class_id,
+                    a.subject_id,
+                    a.term_id,
+                    a.title,
+                    a.max_marks,
+                    a.assessment_date,
+                    a.status,
+                    a.assessment_type_id,
+                    c.name AS class_name,
+                    at.name AS term_name,
+                    at.term_number,
+                    COALESCE(la.name, cu.name, CONCAT('Subject ', a.subject_id)) AS subject_name,
+                    atp.name AS assessment_type,
+                    COUNT(DISTINCT CASE WHEN ar.is_submitted = 1 THEN ar.student_id END) AS submitted_count,
+                    COUNT(DISTINCT ce.student_id) AS total_students,
+                    ROUND(
+                        AVG(
+                            CASE
+                                WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100
+                                ELSE NULL
+                            END
+                        ),
+                        2
+                    ) AS average_percentage
+                FROM assessments a
+                LEFT JOIN classes c ON c.id = a.class_id
+                LEFT JOIN academic_terms at ON at.id = a.term_id
+                LEFT JOIN learning_areas la ON la.id = a.subject_id
+                LEFT JOIN curriculum_units cu ON cu.id = a.subject_id
+                LEFT JOIN assessment_types atp ON atp.id = a.assessment_type_id
+                LEFT JOIN assessment_results ar ON ar.assessment_id = a.id
+                LEFT JOIN academic_years ay
+                    ON ay.year_code = CAST(at.year AS CHAR)
+                LEFT JOIN class_enrollments ce
+                    ON ce.class_id = a.class_id
+                   AND ce.academic_year_id = ay.id
+                   AND ce.enrollment_status IN ('pending', 'active', 'completed')
+                WHERE {$whereClause}
+                GROUP BY a.id
+                ORDER BY a.assessment_date DESC, a.id DESC
+                LIMIT ? OFFSET ?
+            ";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute(array_merge($bindings, [$limit, $offset]));
+            $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse([
+                'items' => $items,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => $limit > 0 ? (int) ceil($total / $limit) : 0
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get subject-level results for a student in a term.
+     * Route: GET /api/academic/student-results?student_id={id}&term_id={id}
+     */
+    public function getStudentResults($params = [])
+    {
+        try {
+            $studentId = (int) ($params['student_id'] ?? 0);
+            if ($studentId <= 0) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'student_id is required'
+                ], 400);
+            }
+
+            $termId = isset($params['term_id']) && $params['term_id'] !== ''
+                ? (int) $params['term_id']
+                : null;
+
+            $studentSql = "
+                SELECT
+                    s.id,
+                    s.admission_no,
+                    s.first_name,
+                    s.middle_name,
+                    s.last_name,
+                    s.gender,
+                    s.photo_url,
+                    cs.stream_name,
+                    c.name AS class_name,
+                    ce.term1_average,
+                    ce.term2_average,
+                    ce.term3_average,
+                    ce.year_average,
+                    ce.overall_grade,
+                    ce.class_rank,
+                    ce.stream_rank,
+                    ce.attendance_percentage,
+                    ce.days_present,
+                    ce.days_absent
+                FROM students s
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                LEFT JOIN class_enrollments ce
+                    ON ce.student_id = s.id
+                   AND ce.academic_year_id = (
+                       SELECT ay.id
+                       FROM academic_years ay
+                       WHERE ay.is_current = 1 OR ay.status = 'active'
+                       ORDER BY ay.is_current DESC, ay.start_date DESC, ay.id DESC
+                       LIMIT 1
+                   )
+                WHERE s.id = ?
+                LIMIT 1
+            ";
+            $studentStmt = $this->db->prepare($studentSql);
+            $studentStmt->execute([$studentId]);
+            $student = $studentStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$student) {
+                return errorResponse([
+                    'status' => 'error',
+                    'message' => 'Student not found'
+                ], 404);
+            }
+
+            $subjects = [];
+            if ($termId !== null) {
+                $scoresSql = "
+                    SELECT
+                        tss.subject_id,
+                        COALESCE(la.name, cu.name, CONCAT('Subject ', tss.subject_id)) AS subject_name,
+                        tss.formative_percentage,
+                        tss.summative_percentage,
+                        tss.overall_percentage AS percentage,
+                        tss.overall_score AS score,
+                        tss.overall_grade AS grade,
+                        tss.assessment_count
+                    FROM term_subject_scores tss
+                    LEFT JOIN learning_areas la ON la.id = tss.subject_id
+                    LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
+                    WHERE tss.student_id = ? AND tss.term_id = ?
+                    ORDER BY subject_name ASC
+                ";
+                $scoresStmt = $this->db->prepare($scoresSql);
+                $scoresStmt->execute([$studentId, $termId]);
+                $subjects = $scoresStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            // Fallback: derive per-subject percentages from assessment_results if term rollups are unavailable.
+            if (empty($subjects)) {
+                $fallbackSql = "
+                    SELECT
+                        a.subject_id,
+                        COALESCE(la.name, cu.name, CONCAT('Subject ', a.subject_id)) AS subject_name,
+                        ROUND(
+                            AVG(
+                                CASE
+                                    WHEN a.max_marks > 0 THEN (ar.marks_obtained / a.max_marks) * 100
+                                    ELSE NULL
+                                END
+                            ),
+                            2
+                        ) AS percentage,
+                        ROUND(AVG(ar.marks_obtained), 2) AS score,
+                        COUNT(ar.id) AS assessment_count
+                    FROM assessment_results ar
+                    JOIN assessments a ON a.id = ar.assessment_id
+                    LEFT JOIN learning_areas la ON la.id = a.subject_id
+                    LEFT JOIN curriculum_units cu ON cu.id = a.subject_id
+                    WHERE ar.student_id = ?
+                ";
+                $fallbackBindings = [$studentId];
+                if ($termId !== null) {
+                    $fallbackSql .= " AND a.term_id = ?";
+                    $fallbackBindings[] = $termId;
+                }
+                $fallbackSql .= " GROUP BY a.subject_id ORDER BY subject_name ASC";
+
+                $fallbackStmt = $this->db->prepare($fallbackSql);
+                $fallbackStmt->execute($fallbackBindings);
+                $subjects = $fallbackStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+
+            $termNumber = null;
+            if ($termId !== null) {
+                $termStmt = $this->db->prepare("SELECT term_number FROM academic_terms WHERE id = ? LIMIT 1");
+                $termStmt->execute([$termId]);
+                $termNumber = (int) ($termStmt->fetchColumn() ?: 0);
+            }
+
+            $subjectPercentages = [];
+            foreach ($subjects as $row) {
+                if (isset($row['percentage']) && $row['percentage'] !== null) {
+                    $subjectPercentages[] = (float) $row['percentage'];
+                }
+            }
+
+            $derivedAverage = !empty($subjectPercentages)
+                ? round(array_sum($subjectPercentages) / count($subjectPercentages), 2)
+                : null;
+
+            $termAverage = null;
+            if ($termNumber === 1 && $student['term1_average'] !== null) {
+                $termAverage = (float) $student['term1_average'];
+            } elseif ($termNumber === 2 && $student['term2_average'] !== null) {
+                $termAverage = (float) $student['term2_average'];
+            } elseif ($termNumber === 3 && $student['term3_average'] !== null) {
+                $termAverage = (float) $student['term3_average'];
+            }
+
+            $overallPercentage = $termAverage
+                ?? ($student['year_average'] !== null ? (float) $student['year_average'] : null)
+                ?? $derivedAverage;
+            $overallGrade = $student['overall_grade'] ?? $this->deriveGradeFromPercentage($overallPercentage);
+
+            return successResponse([
+                'student' => $student,
+                'subjects' => $subjects,
+                'summary' => [
+                    'percentage' => $overallPercentage,
+                    'grade' => $overallGrade,
+                    'class_rank' => $student['class_rank'] !== null ? (int) $student['class_rank'] : null,
+                    'stream_rank' => $student['stream_rank'] !== null ? (int) $student['stream_rank'] : null,
+                    'attendance_percentage' => $student['attendance_percentage'] !== null ? (float) $student['attendance_percentage'] : null,
+                    'days_present' => isset($student['days_present']) ? (int) $student['days_present'] : null,
+                    'days_absent' => isset($student['days_absent']) ? (int) $student['days_absent'] : null
+                ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    private function isWorkflowUnavailableResult($result): bool
+    {
+        if (!is_array($result)) {
+            return false;
+        }
+
+        $isSuccess = (($result['status'] ?? null) === 'success')
+            || (($result['success'] ?? null) === true);
+        if ($isSuccess) {
+            return false;
+        }
+
+        $message = strtolower((string) ($result['message'] ?? ''));
+        if ($message === '') {
+            return false;
+        }
+
+        $keywords = [
+            'workflow definition',
+            'workflow instance',
+            'workflow',
+            'no starting stage',
+            'invalid workflow',
+            'stage',
+        ];
+
+        foreach ($keywords as $keyword) {
+            if (strpos($message, $keyword) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Resolve students for direct report generation mode.
+     */
+    private function resolveReportStudents($data = []): array
+    {
+        $academicYearId = $data['academic_year_id'] ?? $data['academic_year'] ?? null;
+        if (empty($academicYearId)) {
+            $yearStmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
+            $academicYearId = $yearStmt->fetchColumn() ?: null;
+        }
+
+        $where = ["s.status = 'active'"];
+        $bindings = [];
+
+        if (!empty($data['class_id'])) {
+            $where[] = "c.id = ?";
+            $bindings[] = (int) $data['class_id'];
+        }
+
+        if (!empty($data['student_ids']) && is_array($data['student_ids'])) {
+            $ids = array_values(array_filter(array_map('intval', $data['student_ids'])));
+            if (!empty($ids)) {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $where[] = "s.id IN ({$placeholders})";
+                $bindings = array_merge($bindings, $ids);
+            }
+        }
+
+        $whereClause = implode(' AND ', $where);
+        $joinYearClause = "";
+        if (!empty($academicYearId)) {
+            $joinYearClause = " AND ce.academic_year_id = " . (int) $academicYearId;
+        }
+
+        $sql = "
+            SELECT
+                s.id,
+                s.admission_no,
+                s.first_name,
+                s.middle_name,
+                s.last_name,
+                c.name AS class_name,
+                cs.stream_name,
+                COALESCE(ce.year_average, ce.term1_average, ce.term2_average, ce.term3_average) AS overall_percentage,
+                ce.overall_grade
+            FROM students s
+            LEFT JOIN class_streams cs ON cs.id = s.stream_id
+            LEFT JOIN classes c ON c.id = cs.class_id
+            LEFT JOIN class_enrollments ce
+                ON ce.student_id = s.id
+               AND ce.class_id = c.id
+               {$joinYearClause}
+            WHERE {$whereClause}
+            ORDER BY c.name, s.first_name, s.last_name
+        ";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($bindings);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    private function deriveGradeFromPercentage($percentage)
+    {
+        if ($percentage === null || $percentage === '') {
+            return null;
+        }
+
+        $value = (float) $percentage;
+        if ($value >= 80) {
+            return 'EE';
+        }
+        if ($value >= 50) {
+            return 'ME';
+        }
+        if ($value >= 25) {
+            return 'AE';
+        }
+        return 'BE';
+    }
+
+    /**
      * Get single class with detailed information
      */
     public function getClass($id)
@@ -3207,10 +4291,16 @@ class AcademicAPI extends BaseAPI
             }
 
             // Get streams
-            $class['streams'] = $this->listClassStreams($id)['data'] ?? [];
+            $streamsResult = $this->listClassStreams($id);
+            $class['streams'] = is_array($streamsResult) ? ($streamsResult['data'] ?? []) : [];
 
-            // Get student count
-            $countSql = "SELECT COUNT(*) as total FROM students WHERE class_id = ? AND status = 'active'";
+            // Get student count through active streams (students table has stream_id, not class_id)
+            $countSql = "
+                SELECT COUNT(*) as total
+                FROM students st
+                JOIN class_streams cs ON cs.id = st.stream_id
+                WHERE cs.class_id = ? AND st.status = 'active'
+            ";
             $stmt = $this->db->prepare($countSql);
             $stmt->execute([$id]);
             $class['student_count'] = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -3287,6 +4377,19 @@ class AcademicAPI extends BaseAPI
                         $stream['teacher_id'] ?? null
                     ]);
                 }
+
+                // If custom streams were added, deactivate the auto-generated default stream
+                // (stream named exactly as class name) to avoid duplicates.
+                $deactivateDefaultSql = "
+                    UPDATE class_streams cs
+                    JOIN classes c ON c.id = cs.class_id
+                    SET cs.status = 'inactive'
+                    WHERE cs.class_id = ?
+                      AND cs.stream_name = c.name
+                      AND cs.status = 'active'
+                ";
+                $stmt = $this->db->prepare($deactivateDefaultSql);
+                $stmt->execute([$classId]);
             }
 
             $this->db->commit();
@@ -3372,8 +4475,13 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('Class not found');
             }
 
-            // Check if class has active students
-            $studentCheckSql = "SELECT COUNT(*) as count FROM students WHERE class_id = ? AND status = 'active'";
+            // Check if class has active students via stream linkage
+            $studentCheckSql = "
+                SELECT COUNT(*) as count
+                FROM students st
+                JOIN class_streams cs ON cs.id = st.stream_id
+                WHERE cs.class_id = ? AND st.status = 'active'
+            ";
             $stmt = $this->db->prepare($studentCheckSql);
             $stmt->execute([$id]);
             $studentCount = $stmt->fetch(PDO::FETCH_ASSOC)['count'];
@@ -3505,8 +4613,7 @@ class AcademicAPI extends BaseAPI
             // Determine number of streams needed
             if ($studentCount <= $classCapacity) {
                 $this->db->commit();
-                return errorResponse([
-                    'status' => 'success',
+                return successResponse([
                     'message' => 'Single stream is sufficient for current student count',
                     'data' => ['streams_created' => 0, 'student_count' => $studentCount]
                 ]);
@@ -3559,8 +4666,7 @@ class AcademicAPI extends BaseAPI
                     'total_streams' => $streamsNeeded
                 ]);
 
-                return errorResponse([
-                    'status' => 'success',
+                return successResponse([
                     'message' => "{$createdCount} stream(s) created to accommodate {$studentCount} students",
                     'data' => [
                         'streams_created' => $createdCount,
@@ -3590,6 +4696,9 @@ class AcademicAPI extends BaseAPI
     public function createStream($classId, $data)
     {
         try {
+            $classId = $classId ?? ($data['class_id'] ?? null);
+            $this->db->beginTransaction();
+
             // Verify class exists
             $classSql = "SELECT id, name FROM classes WHERE id = ?";
             $stmt = $this->db->prepare($classSql);
@@ -3597,42 +4706,62 @@ class AcademicAPI extends BaseAPI
             $class = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$class) {
+                $this->db->rollBack();
                 return errorResponse('Class not found');
             }
 
             // Validate required fields
-            if (empty($data['stream_name'])) {
+            $streamName = trim((string) ($data['stream_name'] ?? $data['name'] ?? ''));
+            if ($streamName === '') {
+                $this->db->rollBack();
                 return errorResponse('Stream name is required');
             }
 
             if (empty($data['capacity'])) {
+                $this->db->rollBack();
                 return errorResponse('Capacity is required');
             }
 
             // Check for duplicate stream name
             $checkSql = "SELECT id FROM class_streams WHERE class_id = ? AND stream_name = ?";
             $stmt = $this->db->prepare($checkSql);
-            $stmt->execute([$classId, $data['stream_name']]);
+            $stmt->execute([$classId, $streamName]);
             if ($stmt->fetch()) {
+                $this->db->rollBack();
                 return errorResponse([
                     'status' => 'error',
-                    'message' => "Stream '{$data['stream_name']}' already exists for this class"
+                    'message' => "Stream '{$streamName}' already exists for this class"
                 ], 400);
             }
 
             // Create stream - triggers will handle capacity validation and default stream management
-            $sql = "INSERT INTO class_streams (class_id, stream_name, capacity, teacher_id, status) VALUES (?, ?, ?, ?, 'active')";
+            $sql = "INSERT INTO class_streams (class_id, stream_name, capacity, teacher_id, status) VALUES (?, ?, ?, ?, ?)";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $classId,
-                $data['stream_name'],
-                $data['capacity'],
-                $data['teacher_id'] ?? null
+                $streamName,
+                (int) $data['capacity'],
+                !empty($data['teacher_id']) ? (int) $data['teacher_id'] : null,
+                in_array(($data['status'] ?? 'active'), ['active', 'inactive'], true) ? $data['status'] : 'active'
             ]);
 
             $streamId = $this->db->lastInsertId();
 
-            $this->logAction('stream_created', "Stream {$data['stream_name']} created for class {$class['name']}", [
+            // Keep one canonical active stream: deactivate auto-generated default
+            // stream (named same as class) when a custom stream is added.
+            $deactivateDefaultSql = "
+                UPDATE class_streams cs
+                JOIN classes c ON c.id = cs.class_id
+                SET cs.status = 'inactive'
+                WHERE cs.class_id = ?
+                  AND cs.id <> ?
+                  AND cs.stream_name = c.name
+                  AND cs.status = 'active'
+            ";
+            $stmt = $this->db->prepare($deactivateDefaultSql);
+            $stmt->execute([$classId, $streamId]);
+
+            $this->logAction('stream_created', "Stream {$streamName} created for class {$class['name']}", [
                 'class_id' => $classId,
                 'stream_id' => $streamId
             ]);
@@ -3641,8 +4770,10 @@ class AcademicAPI extends BaseAPI
             $this->emitEvent('stream_created', [
                 'class_id' => $classId,
                 'stream_id' => $streamId,
-                'stream_name' => $data['stream_name']
+                'stream_name' => $streamName
             ]);
+
+            $this->db->commit();
 
             return successResponse([
                 'status' => 'success',
@@ -3650,6 +4781,199 @@ class AcademicAPI extends BaseAPI
                 'data' => ['id' => $streamId]
             ], 201);
         } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return $this->handleException($e);
+        }
+    }
+
+    public function getStream($id)
+    {
+        try {
+            if (empty($id)) {
+                return errorResponse('Stream ID is required', 400);
+            }
+
+            $sql = "
+                SELECT
+                    cs.*,
+                    c.name as class_name,
+                    c.academic_year,
+                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                    COUNT(DISTINCT st.id) as student_count
+                FROM class_streams cs
+                JOIN classes c ON cs.class_id = c.id
+                LEFT JOIN staff s ON cs.teacher_id = s.id
+                LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
+                WHERE cs.id = ?
+                GROUP BY cs.id
+                LIMIT 1
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([(int) $id]);
+            $stream = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$stream) {
+                return errorResponse('Stream not found', 404);
+            }
+
+            return successResponse($stream);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function updateStream($id, $data)
+    {
+        try {
+            if (empty($id)) {
+                return errorResponse('Stream ID is required', 400);
+            }
+
+            $stmt = $this->db->prepare("SELECT * FROM class_streams WHERE id = ? LIMIT 1");
+            $stmt->execute([(int) $id]);
+            $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$existing) {
+                return errorResponse('Stream not found', 404);
+            }
+
+            $updates = [];
+            $bindings = [];
+
+            if (array_key_exists('class_id', $data) && !empty($data['class_id'])) {
+                $updates[] = 'class_id = ?';
+                $bindings[] = (int) $data['class_id'];
+            }
+
+            if (array_key_exists('stream_name', $data) || array_key_exists('name', $data)) {
+                $streamName = trim((string) ($data['stream_name'] ?? $data['name'] ?? ''));
+                if ($streamName === '') {
+                    return errorResponse('Stream name cannot be empty', 400);
+                }
+
+                $checkStmt = $this->db->prepare("
+                    SELECT id
+                    FROM class_streams
+                    WHERE class_id = ? AND stream_name = ? AND id != ?
+                    LIMIT 1
+                ");
+                $checkStmt->execute([
+                    (int) ($data['class_id'] ?? $existing['class_id']),
+                    $streamName,
+                    (int) $id,
+                ]);
+                if ($checkStmt->fetch()) {
+                    return errorResponse("Stream '{$streamName}' already exists for this class", 400);
+                }
+
+                $updates[] = 'stream_name = ?';
+                $bindings[] = $streamName;
+            }
+
+            if (array_key_exists('capacity', $data)) {
+                $capacity = (int) $data['capacity'];
+                if ($capacity <= 0) {
+                    return errorResponse('Capacity must be greater than zero', 400);
+                }
+                $updates[] = 'capacity = ?';
+                $bindings[] = $capacity;
+            }
+
+            if (array_key_exists('teacher_id', $data)) {
+                $teacherId = !empty($data['teacher_id']) ? (int) $data['teacher_id'] : null;
+                $updates[] = 'teacher_id = ?';
+                $bindings[] = $teacherId;
+            }
+
+            if (!empty($data['status']) && in_array($data['status'], ['active', 'inactive'], true)) {
+                $updates[] = 'status = ?';
+                $bindings[] = $data['status'];
+            }
+
+            if (empty($updates)) {
+                return errorResponse('No fields to update', 400);
+            }
+
+            $bindings[] = (int) $id;
+            $sql = 'UPDATE class_streams SET ' . implode(', ', $updates) . ' WHERE id = ?';
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+
+            $this->logAction('stream_updated', "Stream {$id} updated", ['stream_id' => (int) $id]);
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Stream updated successfully',
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteStream($id)
+    {
+        try {
+            if (empty($id)) {
+                return errorResponse('Stream ID is required', 400);
+            }
+
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare("SELECT id, class_id, stream_name FROM class_streams WHERE id = ? LIMIT 1");
+            $stmt->execute([(int) $id]);
+            $stream = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$stream) {
+                $this->db->rollBack();
+                return errorResponse('Stream not found', 404);
+            }
+
+            $countStmt = $this->db->prepare("SELECT COUNT(*) FROM students WHERE stream_id = ? AND status = 'active'");
+            $countStmt->execute([(int) $id]);
+            $activeStudents = (int) $countStmt->fetchColumn();
+
+            if ($activeStudents > 0) {
+                $this->db->rollBack();
+                return errorResponse("Cannot delete stream with {$activeStudents} active students. Reassign students first.", 400);
+            }
+
+            // Soft delete to preserve history references
+            $delStmt = $this->db->prepare("UPDATE class_streams SET status = 'inactive' WHERE id = ?");
+            $delStmt->execute([(int) $id]);
+
+            // Ensure each class retains at least one active stream.
+            $activeStreamCountStmt = $this->db->prepare("
+                SELECT COUNT(*)
+                FROM class_streams
+                WHERE class_id = ? AND status = 'active'
+            ");
+            $activeStreamCountStmt->execute([(int) $stream['class_id']]);
+            $remainingActive = (int) $activeStreamCountStmt->fetchColumn();
+
+            if ($remainingActive === 0) {
+                $reactivateDefaultStmt = $this->db->prepare("
+                    UPDATE class_streams cs
+                    JOIN classes c ON c.id = cs.class_id
+                    SET cs.status = 'active'
+                    WHERE cs.class_id = ?
+                      AND cs.stream_name = c.name
+                    LIMIT 1
+                ");
+                $reactivateDefaultStmt->execute([(int) $stream['class_id']]);
+            }
+
+            $this->logAction('stream_deleted', "Stream {$stream['stream_name']} deactivated", ['stream_id' => (int) $id]);
+            $this->db->commit();
+
+            return successResponse([
+                'status' => 'success',
+                'message' => 'Stream removed successfully',
+            ]);
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             return $this->handleException($e);
         }
     }
@@ -3672,33 +4996,7 @@ class AcademicAPI extends BaseAPI
      */
     public function getStreamsList($params = [])
     {
-        try {
-            $sql = "
-                SELECT 
-                    cs.*,
-                    c.name as class_name,
-                    c.academic_year,
-                    sl.name as level_name,
-                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
-                    COUNT(DISTINCT st.id) as student_count
-                FROM class_streams cs
-                LEFT JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN school_levels sl ON c.level_id = sl.id
-                LEFT JOIN staff s ON cs.teacher_id = s.id
-                LEFT JOIN students st ON st.stream_id = cs.id AND st.status = 'active'
-                WHERE cs.status = 'active'
-                GROUP BY cs.id
-                ORDER BY c.academic_year DESC, c.name, cs.stream_name
-            ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute();
-            $streams = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return successResponse($streams);
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
+        return $this->listClassStreams($params['class_id'] ?? null, $params);
     }
 
     /**
@@ -3710,7 +5008,7 @@ class AcademicAPI extends BaseAPI
             $sql = "
                 SELECT 
                     *
-                FROM subjects
+                FROM learning_areas
                 WHERE status = 'active'
                 ORDER BY name
             ";

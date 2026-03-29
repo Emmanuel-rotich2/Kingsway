@@ -23,6 +23,10 @@ class EnhancedRBACMiddleware
      */
     public static function resolvePermissionsWithContext($userId, $workflowId = null, $stageId = null)
     {
+        if (!$userId) {
+            return;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -36,7 +40,16 @@ class EnhancedRBACMiddleware
             }
 
             // Expand aliases (underscore to dot notation)
-            return self::expandPermissionAliases($basePermissions);
+            $expanded = self::expandPermissionAliases($basePermissions);
+
+            // Get data scope
+            $dataScope = self::getUserDataScope($userId);
+
+            // Attach to auth_user
+            $_SERVER['auth_user']['_enhanced_permissions'] = $expanded;
+            $_SERVER['auth_user']['_data_scope'] = $dataScope;
+
+            return $expanded;
 
         } catch (\Exception $e) {
             error_log("Enhanced RBAC resolution failed: " . $e->getMessage());

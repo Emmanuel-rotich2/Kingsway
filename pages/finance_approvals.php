@@ -173,9 +173,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement financeApprovalsController in js/pages/finance_approvals.js
-        console.log('Finance Approvals page loaded');
-    });
-</script>
+<script src="/Kingsway/js/pages/finance_approvals.js"></script>

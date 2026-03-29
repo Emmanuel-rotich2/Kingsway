@@ -18,8 +18,8 @@
 <div class="viewer-layout">
     <!-- Header -->
     <header class="viewer-header">
-        <a href="/pages/dashboard.php" class="back-link">← Dashboard</a>
-        <h1 class="page-title">👨‍🎓 Student Profile</h1>
+        <a href="/Kingsway/home.php" class="back-link">← Dashboard</a>
+        <h1 class="page-title">Student Profile</h1>
     </header>
 
     <!-- Main Content -->
@@ -34,51 +34,77 @@
 <script src="/Kingsway/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
+        if (window.RoleBasedUI?.applyLayout) {
+            RoleBasedUI.applyLayout();
+        }
         loadProfile();
     });
 
     async function loadProfile() {
         const container = document.getElementById('profileContainer');
-        const user = AuthContext.getUser();
+        const user = window.AuthContext?.getUser?.();
 
         if (!user) {
             container.innerHTML = '<div class="error-card">Please log in to view profile</div>';
             return;
         }
 
+        container.innerHTML = '<div class="state-card">Loading linked student profile...</div>';
+
         try {
-            // Check if user is a student or parent
-            if (user.role === 'Student') {
-                // Load own profile
-                const response = await API.students.getMyProfile();
-                if (response.success) {
-                    container.innerHTML = renderStudentCard(response.data);
-                } else {
-                    container.innerHTML = '<div class="empty-card">Profile not found</div>';
-                }
-            } else if (['Parent', 'Guardian'].includes(user.role)) {
-                // Load children profiles
-                const response = await API.students.getMyChildren();
-                if (response.success && response.data.length > 0) {
-                    container.innerHTML = response.data.map(child => renderStudentCard(child)).join('');
-                } else {
-                    container.innerHTML = '<div class="empty-card">No student profiles linked to your account</div>';
-                }
-            } else {
-                container.innerHTML = '<div class="info-card">Access restricted to students and parents</div>';
+            let ownProfile = null;
+
+            try {
+                ownProfile = await API.students.getMyProfile();
+            } catch (error) {
+                ownProfile = null;
             }
+
+            if (ownProfile && ownProfile.id) {
+                container.innerHTML = renderProfiles([ownProfile], "Your learner profile");
+                return;
+            }
+
+            const children = await API.students.getMyChildren();
+            if (Array.isArray(children) && children.length > 0) {
+                container.innerHTML = renderProfiles(children, "Learner profiles linked to your account");
+                return;
+            }
+
+            container.innerHTML = '<div class="empty-card">No student profiles are linked to this account yet.</div>';
         } catch (error) {
             console.error('Error loading profile:', error);
             container.innerHTML = '<div class="error-card">Unable to load profile</div>';
         }
     }
 
+    function renderProfiles(students, title) {
+        return `
+        <section class="viewer-section">
+            <div class="viewer-section-header">
+                <h2>${escapeHtml(title)}</h2>
+                <span class="viewer-count">${students.length} profile${students.length === 1 ? '' : 's'}</span>
+            </div>
+            <div class="viewer-grid">
+                ${students.map(renderStudentCard).join('')}
+            </div>
+        </section>
+    `;
+    }
+
     function renderStudentCard(student) {
+        const studentType = student.student_type || student.student_type_name || student.boarding_status || 'day';
+        const effectiveStudentType = String(studentType).toLowerCase();
+        const studentTypeLabel =
+            effectiveStudentType.includes('board') ? 'Boarder' :
+            effectiveStudentType.includes('weekly') ? 'Weekly Boarder' :
+            'Day Scholar';
+        const photo = student.photo_url || student.photo || '/Kingsway/images/default-avatar.png';
+
         return `
         <div class="viewer-profile-card">
             <div class="profile-header">
-                <img src="${student.photo || '/images/default-avatar.png'}" alt="Photo" class="profile-photo">
+                <img src="${photo}" alt="Photo" class="profile-photo">
                 <div class="profile-name-section">
                     <h2 class="profile-name">${escapeHtml(student.full_name)}</h2>
                     <span class="profile-id">${escapeHtml(student.admission_no)}</span>
@@ -99,11 +125,11 @@
                         </div>
                         <div class="info-item">
                             <span class="info-label">Type</span>
-                            <span class="info-value">${student.student_type === 'boarder' ? '🏠 Boarder' : '🚌 Day Scholar'}</span>
+                            <span class="info-value">${escapeHtml(studentTypeLabel)}</span>
                         </div>
                         <div class="info-item">
                             <span class="info-label">Status</span>
-                            <span class="info-value status-badge status-${student.status}">${student.status}</span>
+                            <span class="info-value status-badge status-${escapeHtml(student.status || 'active')}">${escapeHtml(student.status || 'active')}</span>
                         </div>
                     </div>
                 </div>
@@ -113,11 +139,11 @@
                     <div class="profile-info-grid">
                         <div class="info-item">
                             <span class="info-label">Gender</span>
-                            <span class="info-value">${student.gender === 'male' ? '♂ Male' : '♀ Female'}</span>
+                            <span class="info-value">${formatGender(student.gender)}</span>
                         </div>
                         <div class="info-item">
                             <span class="info-label">Date of Birth</span>
-                            <span class="info-value">${formatDate(student.dob)}</span>
+                            <span class="info-value">${formatDate(student.date_of_birth || student.dob)}</span>
                         </div>
                         <div class="info-item">
                             <span class="info-label">Admission Date</span>
@@ -140,6 +166,19 @@
     `;
     }
 
+    function formatGender(gender) {
+        switch (String(gender || '').toLowerCase()) {
+            case 'male':
+                return 'Male';
+            case 'female':
+                return 'Female';
+            case 'other':
+                return 'Other';
+            default:
+                return '-';
+        }
+    }
+
     function formatDate(d) { return d ? new Date(d).toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' }) : '-'; }
     function formatNumber(n) { return n?.toLocaleString() || '0'; }
     function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
@@ -148,9 +187,34 @@
 <style>
     /* Viewer-specific styles for profile cards */
     .viewer-profile-container {
-        max-width: 600px;
+        max-width: 1100px;
         margin: 0 auto;
         padding: 1rem;
+    }
+
+    .viewer-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        margin-bottom: 1rem;
+    }
+
+    .viewer-section-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+        color: var(--green-700);
+    }
+
+    .viewer-count {
+        font-size: 0.875rem;
+        color: #64748b;
+    }
+
+    .viewer-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.25rem;
     }
 
     .viewer-profile-card {
@@ -167,6 +231,18 @@
         display: flex;
         align-items: center;
         gap: 1.5rem;
+    }
+
+    .state-card,
+    .error-card,
+    .empty-card,
+    .info-card {
+        background: #fff;
+        border: 1px solid #d9e2ec;
+        border-radius: 12px;
+        padding: 1.25rem;
+        text-align: center;
+        color: #334155;
     }
 
     .profile-photo {

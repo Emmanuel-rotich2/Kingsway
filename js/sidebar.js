@@ -117,9 +117,15 @@
         sidebarLinks.forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
+                e.stopPropagation();
                 const route = this.getAttribute('data-route');
 
                 if (route && route !== '#') {
+                  const normalizedRoute =
+                    window.AppRouteAccess &&
+                    typeof window.AppRouteAccess.normalizeRoute === "function"
+                      ? window.AppRouteAccess.normalizeRoute(route)
+                      : route;
                   // Remove active class from all links
                   document
                     .querySelectorAll(".sidebar-link")
@@ -129,14 +135,45 @@
                   // Navigate safely:
                   // - if the route already looks like a path (starts with 'home.php' or '/'), navigate to it directly
                   // - otherwise build the query string `home.php?route=<route>`
-                  if (route.startsWith("home.php") || route.startsWith("/")) {
+                  if (
+                    window.AppRouteAccess &&
+                    typeof window.AppRouteAccess.authorizeRoute === "function"
+                  ) {
+                    window.AppRouteAccess
+                      .authorizeRoute(route)
+                      .then((authorization) => {
+                        if (!authorization.authorized) {
+                          showNotification(
+                            "You are not allowed to open that page.",
+                            NOTIFICATION_TYPES.WARNING
+                          );
+                          return window.AppRouteAccess.redirectToAllowedRoute(
+                            route
+                          );
+                        }
+
+                        if (route.startsWith("home.php") || route.startsWith("/")) {
+                          window.location.href = `/Kingsway/${route.replace(
+                            /^\/+/,
+                            ""
+                          )}`;
+                        } else {
+                          window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(
+                            normalizedRoute
+                          )}`;
+                        }
+                      })
+                      .catch((error) => {
+                        console.warn("Sidebar authorization failed:", error);
+                      });
+                  } else if (route.startsWith("home.php") || route.startsWith("/")) {
                     window.location.href = `/Kingsway/${route.replace(
                       /^\/+/,
                       ""
                     )}`;
                   } else {
                     window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(
-                      route
+                      normalizedRoute
                     )}`;
                   }
                 }

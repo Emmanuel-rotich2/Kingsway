@@ -25,6 +25,7 @@ class SystemConfigService
     private array $menuCache = [];
     private array $dashboardCache = [];
     private array $policyCache = [];
+    private array $roleRoutePresenceCache = [];
     private bool $cacheLoaded = false;
 
     private function __construct()
@@ -404,25 +405,59 @@ class SystemConfigService
 
         // 3. Check role-level authorization (deny-by-default)
         if ($this->isRoleAllowedRoute($roleId, $routeName)) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
             $result['authorized'] = true;
             $result['source'] = 'role';
             $result['reason'] = 'allowed_by_role';
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
             return $result;
         }
 
         // 4. If user had an override granting access, honor it
         if ($userOverride !== null && $userOverride['is_allowed']) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
             $result['authorized'] = true;
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
             return $result;
         }
 
-        // 5. Fallback to route-permission mapping + effective user permissions
-        $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
-        if ($permissionAuth['authorized']) {
-            $result['authorized'] = true;
-            $result['source'] = 'permission';
-            $result['reason'] = 'allowed_by_route_permission';
-            $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+        // 5. Fallback to route-permission mapping only for legacy roles that
+        // have no role route whitelist configured.
+        if (!$this->hasRoleRouteWhitelistConfigured($roleId)) {
+            $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
+            if ($permissionAuth['authorized']) {
+                $result['authorized'] = true;
+                $result['source'] = 'permission';
+                $result['reason'] = 'allowed_by_route_permission_legacy';
+                $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+                return $result;
+            }
+
+            $result['reason'] = 'not_authorized_by_route_permissions';
             return $result;
         }
 
@@ -486,12 +521,26 @@ class SystemConfigService
             }
 
             if ($this->isRoleAllowedRoute($roleId, $routeName)) {
+                $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+                if (!$requiredPermissionAuth['authorized']) {
+                    $result['authorized'] = false;
+                    $result['source'] = 'permission';
+                    $result['reason'] = 'missing_required_route_permissions';
+                    $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                    $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                    return $result;
+                }
+
                 $result['authorized'] = true;
                 $result['source'] = 'role';
                 $result['reason'] = 'allowed_by_role';
                 $result['role_id'] = $roleId;
                 if (!empty($policyDenials)) {
                     $result['policy_matches'] = $policyDenials;
+                }
+                if ($requiredPermissionAuth['enforced']) {
+                    $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                    $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
                 }
                 return $result;
             }
@@ -511,23 +560,125 @@ class SystemConfigService
 
         // 4. Honor an explicit allow override.
         if ($userOverride !== null && $userOverride['is_allowed']) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
             $result['authorized'] = true;
             $result['source'] = 'user_override';
             $result['reason'] = 'granted_by_override';
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
             return $result;
         }
 
-        // 5. Fallback to route-permission mapping + effective user permissions
-        $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
-        if ($permissionAuth['authorized']) {
-            $result['authorized'] = true;
-            $result['source'] = 'permission';
-            $result['reason'] = 'allowed_by_route_permission';
-            $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+        // 5. Fallback to route-permission mapping only when none of the
+        // assigned roles have role route whitelist rows configured.
+        if (!$this->anyRoleHasRouteWhitelistConfigured($roleIds)) {
+            $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
+            if ($permissionAuth['authorized']) {
+                $result['authorized'] = true;
+                $result['source'] = 'permission';
+                $result['reason'] = 'allowed_by_route_permission_legacy';
+                $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+                return $result;
+            }
+
+            $result['reason'] = 'not_authorized_by_route_permissions';
             return $result;
         }
 
         $result['reason'] = 'not_in_role_whitelist';
+        return $result;
+    }
+
+    private function hasRoleRouteWhitelistConfigured(int $roleId): bool
+    {
+        if (!isset($this->roleRoutePresenceCache[$roleId])) {
+            $stmt = $this->db->query(
+                "SELECT 1 FROM role_routes WHERE role_id = ? LIMIT 1",
+                [$roleId]
+            );
+            $this->roleRoutePresenceCache[$roleId] = (bool) $stmt->fetchColumn();
+        }
+
+        return $this->roleRoutePresenceCache[$roleId];
+    }
+
+    private function anyRoleHasRouteWhitelistConfigured(array $roleIds): bool
+    {
+        foreach ($roleIds as $roleId) {
+            if ($this->hasRoleRouteWhitelistConfigured((int) $roleId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Enforce required route permissions for a user.
+     * This is applied even when a route is explicitly allowed in role_routes.
+     */
+    private function isUserAuthorizedByRequiredRoutePermissions(int $userId, string $routeName): array
+    {
+        $result = [
+            'authorized' => true,
+            'enforced' => false,
+            'required_permissions' => [],
+            'matched_permissions' => []
+        ];
+
+        $routePermissions = $this->getPermissionsForRouteName($routeName);
+        if (empty($routePermissions)) {
+            return $result;
+        }
+
+        $requiredPermissions = array_values(array_filter(
+            $routePermissions,
+            static fn(array $permission): bool => (int) ($permission['is_required'] ?? 0) === 1
+        ));
+
+        if (empty($requiredPermissions)) {
+            return $result;
+        }
+
+        $requiredCodes = array_values(array_unique(array_filter(array_map(
+            static fn(array $permission): ?string => $permission['name'] ?? null,
+            $requiredPermissions
+        ))));
+
+        if (empty($requiredCodes)) {
+            return $result;
+        }
+
+        $result['enforced'] = true;
+        $result['required_permissions'] = $requiredCodes;
+
+        $effectivePermissions = $this->resolveEffectivePermissions($userId);
+        if (empty($effectivePermissions)) {
+            $result['authorized'] = false;
+            return $result;
+        }
+
+        $effectiveLookup = array_fill_keys($effectivePermissions, true);
+        $matched = [];
+        foreach ($requiredCodes as $permissionCode) {
+            if (isset($effectiveLookup[$permissionCode])) {
+                $matched[] = $permissionCode;
+            }
+        }
+
+        $result['matched_permissions'] = $matched;
+        $result['authorized'] = count($matched) === count($requiredCodes);
         return $result;
     }
 

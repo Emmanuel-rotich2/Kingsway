@@ -152,6 +152,10 @@ class SystemController extends BaseController
      */
     public function getAuthEvents($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -211,6 +215,10 @@ class SystemController extends BaseController
      */
     public function getActiveSessions($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -262,46 +270,65 @@ class SystemController extends BaseController
      */
     public function getSystemUptime($id = null, $data = [], $segments = [])
     {
-        // Return healthy system metrics (default)
-        $components = [
-            [
-                'component' => 'Database Server',
-                'uptime_percent' => 99.8,
-                'status' => 'healthy',
-                'checks' => 288,
-                'last_check' => date('Y-m-d H:i:s')
-            ],
-            [
-                'component' => 'API Server',
-                'uptime_percent' => 99.9,
-                'status' => 'healthy',
-                'checks' => 288,
-                'last_check' => date('Y-m-d H:i:s')
-            ],
-            [
-                'component' => 'Web Server',
-                'uptime_percent' => 99.2,
-                'status' => 'healthy',
-                'checks' => 288,
-                'last_check' => date('Y-m-d H:i:s')
-            ],
-            [
-                'component' => 'File Storage',
-                'uptime_percent' => 99.5,
-                'status' => 'healthy',
-                'checks' => 288,
-                'last_check' => date('Y-m-d H:i:s')
-            ]
-        ];
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
 
-        $totalUptime = array_sum(array_column($components, 'uptime_percent')) / count($components);
+        try {
+            $db = Database::getInstance();
+            $databaseHealthy = false;
+            try {
+                $ping = $db->query("SELECT 1 AS ok", []);
+                $databaseHealthy = (bool) ($ping && (int) ($ping->fetchColumn() ?? 0) === 1);
+            } catch (Exception $e) {
+                $databaseHealthy = false;
+            }
 
-        return $this->success([
-            'overall_uptime_percent' => round($totalUptime, 2),
-            'components' => $components,
-            'period' => '7 days',
-            'last_updated' => date('Y-m-d H:i:s')
-        ], 'System uptime retrieved');
+            $failedAuthCount = (int) ($db->query(
+                "SELECT COUNT(*) FROM failed_auth_attempts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+                []
+            )->fetchColumn() ?? 0);
+
+            $failedAuditCount = (int) ($db->query(
+                "SELECT COUNT(*) FROM audit_logs WHERE status = 'failure' AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)",
+                []
+            )->fetchColumn() ?? 0);
+
+            $components = [
+                [
+                    'component' => 'Database Server',
+                    'uptime_percent' => $databaseHealthy ? 100.0 : 0.0,
+                    'status' => $databaseHealthy ? 'healthy' : 'down',
+                    'checks' => 1,
+                    'last_check' => date('Y-m-d H:i:s')
+                ],
+                [
+                    'component' => 'Authentication Layer',
+                    'uptime_percent' => max(0, 100 - min(100, $failedAuthCount)),
+                    'status' => $failedAuthCount >= 25 ? 'degraded' : 'healthy',
+                    'checks' => $failedAuthCount,
+                    'last_check' => date('Y-m-d H:i:s')
+                ],
+                [
+                    'component' => 'Audit Pipeline',
+                    'uptime_percent' => max(0, 100 - min(100, $failedAuditCount * 2)),
+                    'status' => $failedAuditCount > 0 ? 'degraded' : 'healthy',
+                    'checks' => $failedAuditCount,
+                    'last_check' => date('Y-m-d H:i:s')
+                ]
+            ];
+
+            $totalUptime = array_sum(array_column($components, 'uptime_percent')) / max(1, count($components));
+
+            return $this->success([
+                'overall_uptime_percent' => round($totalUptime, 2),
+                'components' => $components,
+                'period' => '24 hours',
+                'last_updated' => date('Y-m-d H:i:s')
+            ], 'System uptime retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to retrieve uptime metrics: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -311,49 +338,32 @@ class SystemController extends BaseController
      */
     public function getSystemHealthErrors($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
-            // Query error logs (last 24 hours)
+            // Query audit failures (last 24 hours)
             $query = "
                 SELECT 
-                    id,
-                    severity,
-                    error_type,
-                    message,
-                    file,
+                    al.id,
+                    'error' AS severity,
+                    al.action AS error_type,
+                    COALESCE(al.details, CONCAT('Action ', al.action, ' failed')) AS message,
+                    al.entity AS file,
                     created_at
-                FROM system_logs
-                WHERE severity IN ('critical', 'error')
-                AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                ORDER BY severity DESC, created_at DESC
+                FROM audit_logs al
+                WHERE al.status = 'failure'
+                  AND al.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                ORDER BY al.created_at DESC
                 LIMIT 25
             ";
 
             $result = $db->query($query, []);
             $errors = $result->fetchAll() ?? [];
-
-            // If table doesn't exist, return sample data
-            if (empty($errors)) {
-                $errors = [
-                    [
-                        'id' => 1,
-                        'severity' => 'critical',
-                        'error_type' => 'Database Connection',
-                        'message' => 'Connection pool exhausted',
-                        'created_at' => date('Y-m-d H:i:s', strtotime('-2 hours'))
-                    ],
-                    [
-                        'id' => 2,
-                        'severity' => 'error',
-                        'error_type' => 'API Timeout',
-                        'message' => 'Request timeout on /students endpoint',
-                        'created_at' => date('Y-m-d H:i:s', strtotime('-1 hour'))
-                    ]
-                ];
-            }
-
-            $criticalCount = count(array_filter($errors, fn($e) => $e['severity'] === 'critical'));
+            $criticalCount = count($errors);
 
             return $this->success([
                 'errors' => $errors,
@@ -375,38 +385,40 @@ class SystemController extends BaseController
      */
     public function getSystemHealthWarnings($id = null, $data = [], $segments = [])
     {
-        // Return sample warnings (system health checks)
-        $warnings = [
-            [
-                'id' => 1,
-                'severity' => 'warning',
-                'type' => 'Disk Space',
-                'message' => 'Database server disk usage at 78%',
-                'created_at' => date('Y-m-d H:i:s', strtotime('-4 hours'))
-            ],
-            [
-                'id' => 2,
-                'severity' => 'warning',
-                'type' => 'Memory Usage',
-                'message' => 'API server memory usage at 82%',
-                'created_at' => date('Y-m-d H:i:s', strtotime('-2 hours'))
-            ],
-            [
-                'id' => 3,
-                'severity' => 'warning',
-                'type' => 'Backup',
-                'message' => 'Last backup was 24 hours ago',
-                'created_at' => date('Y-m-d H:i:s', strtotime('-1 hour'))
-            ]
-        ];
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
 
-        return $this->success([
-            'warnings' => $warnings,
-            'summary' => [
-                'total_warnings' => count($warnings),
-                'timeframe' => '24 hours'
-            ]
-        ], 'System warnings retrieved');
+        try {
+            $db = Database::getInstance();
+            $query = "
+                SELECT
+                    MIN(faa.id) AS id,
+                    'warning' AS severity,
+                    'Authentication' AS type,
+                    CONCAT('IP ', faa.ip_address, ' has ', COUNT(*), ' failed authentication attempts in the last 24h') AS message,
+                    MAX(faa.created_at) AS created_at
+                FROM failed_auth_attempts faa
+                WHERE faa.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                GROUP BY faa.ip_address
+                HAVING COUNT(*) >= 3
+                ORDER BY COUNT(*) DESC, MAX(faa.created_at) DESC
+                LIMIT 25
+            ";
+
+            $result = $db->query($query, []);
+            $warnings = $result->fetchAll() ?? [];
+
+            return $this->success([
+                'warnings' => $warnings,
+                'summary' => [
+                    'total_warnings' => count($warnings),
+                    'timeframe' => '24 hours'
+                ]
+            ], 'System warnings retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to retrieve system warnings: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -416,65 +428,76 @@ class SystemController extends BaseController
      */
     public function getAPILoad($id = null, $data = [], $segments = [])
     {
-        // Return API load metrics
-        $endpoints = [
-            [
-                'route' => '/students/stats',
-                'method' => 'GET',
-                'request_count' => 542,
-                'avg_response_time' => 145,
-                'max_response_time' => 512
-            ],
-            [
-                'route' => '/attendance/today',
-                'method' => 'GET',
-                'request_count' => 389,
-                'avg_response_time' => 98,
-                'max_response_time' => 287
-            ],
-            [
-                'route' => '/staff/stats',
-                'method' => 'GET',
-                'request_count' => 267,
-                'avg_response_time' => 112,
-                'max_response_time' => 456
-            ],
-            [
-                'route' => '/payments/stats',
-                'method' => 'GET',
-                'request_count' => 156,
-                'avg_response_time' => 234,
-                'max_response_time' => 789
-            ],
-            [
-                'route' => '/schedules/weekly',
-                'method' => 'GET',
-                'request_count' => 89,
-                'avg_response_time' => 267,
-                'max_response_time' => 654
-            ]
-        ];
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
 
-        $hourlyData = [
-            ['hour' => 8, 'requests' => 342, 'avg_response_time' => 125],
-            ['hour' => 9, 'requests' => 456, 'avg_response_time' => 142],
-            ['hour' => 10, 'requests' => 523, 'avg_response_time' => 157],
-            ['hour' => 14, 'requests' => 489, 'avg_response_time' => 134]
-        ];
+        try {
+            $db = Database::getInstance();
 
-        $totalRequests = array_sum(array_column($endpoints, 'request_count'));
-        $avgResponseTime = array_sum(array_column($endpoints, 'avg_response_time')) / count($endpoints);
+            $endpointQuery = "
+                SELECT
+                    CONCAT('/', al.entity) AS route,
+                    UPPER(al.action) AS method,
+                    COUNT(*) AS request_count
+                FROM audit_logs al
+                WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                GROUP BY al.entity, al.action
+                ORDER BY request_count DESC
+                LIMIT 20
+            ";
+            $endpointRows = $db->query($endpointQuery, [])->fetchAll() ?? [];
+            $endpoints = array_map(static function ($row) {
+                return [
+                    'route' => $row['route'],
+                    'method' => $row['method'],
+                    'request_count' => (int) $row['request_count'],
+                    'avg_response_time' => null,
+                    'max_response_time' => null
+                ];
+            }, $endpointRows);
 
-        return $this->success([
-            'endpoints' => $endpoints,
-            'hourly' => $hourlyData,
-            'summary' => [
-                'total_requests_24h' => $totalRequests,
-                'avg_response_time_ms' => round($avgResponseTime, 2),
-                'peak_hour' => 10,
-                'requests_per_second' => round($totalRequests / (24 * 3600), 2)
-            ]
-        ], 'API load metrics retrieved');
+            $hourlyQuery = "
+                SELECT
+                    HOUR(created_at) AS hour,
+                    COUNT(*) AS requests
+                FROM audit_logs
+                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+                GROUP BY HOUR(created_at)
+                ORDER BY hour ASC
+            ";
+            $hourlyRows = $db->query($hourlyQuery, [])->fetchAll() ?? [];
+            $hourlyData = array_map(static function ($row) {
+                return [
+                    'hour' => (int) $row['hour'],
+                    'requests' => (int) $row['requests'],
+                    'avg_response_time' => null
+                ];
+            }, $hourlyRows);
+
+            $totalRequests = array_sum(array_column($endpoints, 'request_count'));
+            $peakHour = null;
+            $peakRequests = -1;
+            foreach ($hourlyData as $hourData) {
+                if ((int) $hourData['requests'] > $peakRequests) {
+                    $peakRequests = (int) $hourData['requests'];
+                    $peakHour = (int) $hourData['hour'];
+                }
+            }
+
+            return $this->success([
+                'endpoints' => $endpoints,
+                'hourly' => $hourlyData,
+                'summary' => [
+                    'total_requests_24h' => $totalRequests,
+                    'avg_response_time_ms' => null,
+                    'peak_hour' => $peakHour,
+                    'requests_per_second' => round($totalRequests / (24 * 3600), 6)
+                ]
+            ], 'API load metrics retrieved');
+        } catch (Exception $e) {
+            return $this->serverError('Failed to retrieve API load metrics: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -484,30 +507,12 @@ class SystemController extends BaseController
      */
     public function getPendingApprovals($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureDirectorOrSchoolAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
-
-            // Query approval workflow table
-            $query = "
-                SELECT 
-                    ap.id,
-                    ap.workflow_type as type,
-                    ap.description,
-                    ap.amount,
-                    ap.status,
-                    ap.priority,
-                    ap.created_by,
-                    u.first_name,
-                    u.last_name,
-                    ap.submitted_at,
-                    ap.due_by
-                FROM approval_workflows ap
-                JOIN users u ON ap.created_by = u.id
-                WHERE ap.status IN ('pending', 'review')
-                AND ap.assigned_to = ?
-                ORDER BY ap.priority DESC, ap.due_by ASC
-                LIMIT 50
-            ";
 
             // Get current user from auth middleware (stored in $this->user by BaseController)
             $userId = $this->getUserId();
@@ -516,85 +521,141 @@ class SystemController extends BaseController
                 return $this->badRequest('Authentication required - please log in again');
             }
 
+            // Pull pending approvals from real workflow-backed tables.
+            $query = "
+                SELECT
+                    approvals.id,
+                    approvals.type,
+                    approvals.description,
+                    approvals.amount,
+                    approvals.status,
+                    approvals.priority,
+                    approvals.created_by,
+                    approvals.first_name,
+                    approvals.last_name,
+                    approvals.submitted_at,
+                    approvals.due_by
+                FROM (
+                    SELECT
+                        CONCAT('promotion-', cpq.id) AS id,
+                        'class_promotion' AS type,
+                        CONCAT('Class promotion batch #', cpq.batch_id, ': ', c.name, ' / ', COALESCE(cs.stream_name, 'N/A')) AS description,
+                        NULL AS amount,
+                        cpq.approval_status AS status,
+                        CASE cpq.approval_status
+                            WHEN 'reviewing' THEN 'high'
+                            WHEN 'pending' THEN 'medium'
+                            ELSE 'low'
+                        END AS priority,
+                        pb.created_by AS created_by,
+                        u.first_name,
+                        u.last_name,
+                        cpq.created_at AS submitted_at,
+                        NULL AS due_by
+                    FROM class_promotion_queue cpq
+                    INNER JOIN promotion_batches pb ON pb.id = cpq.batch_id
+                    INNER JOIN classes c ON c.id = cpq.class_id
+                    LEFT JOIN class_streams cs ON cs.id = cpq.stream_id
+                    LEFT JOIN users u ON u.id = pb.created_by
+                    WHERE cpq.approval_status IN ('pending', 'reviewing')
+                      AND (cpq.assigned_to_user_id = ? OR cpq.assigned_to_user_id IS NULL)
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('fee-structure-', fsd.id) AS id,
+                        'fee_structure' AS type,
+                        CONCAT('Fee structure review: ', COALESCE(sl.name, CONCAT('Level ', fsd.level_id)), ' / ', COALESCE(at.name, CONCAT('Term ', fsd.term_id)), ' ', fsd.academic_year) AS description,
+                        fsd.amount AS amount,
+                        fsd.status AS status,
+                        CASE fsd.status
+                            WHEN 'reviewed' THEN 'high'
+                            WHEN 'pending_review' THEN 'medium'
+                            ELSE 'low'
+                        END AS priority,
+                        fsd.created_by AS created_by,
+                        u2.first_name,
+                        u2.last_name,
+                        fsd.created_at AS submitted_at,
+                        fsd.due_date AS due_by
+                    FROM fee_structures_detailed fsd
+                    LEFT JOIN school_levels sl ON sl.id = fsd.level_id
+                    LEFT JOIN academic_terms at ON at.id = fsd.term_id
+                    LEFT JOIN users u2 ON u2.id = fsd.created_by
+                    WHERE fsd.status IN ('pending_review', 'reviewed')
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('purchase-order-', po.id) AS id,
+                        'purchase_order' AS type,
+                        CONCAT('Purchase order ', po.order_number, ' awaiting approval') AS description,
+                        po.total_amount AS amount,
+                        po.status AS status,
+                        CASE
+                            WHEN po.total_amount >= 100000 THEN 'high'
+                            ELSE 'medium'
+                        END AS priority,
+                        su.id AS created_by,
+                        su.first_name,
+                        su.last_name,
+                        po.created_at AS submitted_at,
+                        po.expected_delivery_date AS due_by
+                    FROM purchase_orders po
+                    LEFT JOIN staff s ON s.id = po.created_by
+                    LEFT JOIN users su ON su.id = s.user_id
+                    WHERE po.status = 'pending'
+                ) approvals
+                ORDER BY
+                    CASE approvals.priority
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2
+                        ELSE 3
+                    END ASC,
+                    COALESCE(approvals.due_by, DATE_ADD(CURDATE(), INTERVAL 365 DAY)) ASC,
+                    approvals.submitted_at DESC
+                LIMIT 50
+            ";
+
             $result = $db->query($query, [$userId]);
             $approvals = $result->fetchAll() ?? [];
 
-            if (!$approvals) {
-                // Return sample approvals if none in system
-                $approvals = [
-                    [
-                        'id' => 1,
-                        'type' => 'Finance',
-                        'description' => 'Payment voucher approval',
-                        'amount' => 125000,
-                        'status' => 'pending',
-                        'priority' => 'high',
-                        'first_name' => 'James',
-                        'last_name' => 'Accountant',
-                        'submitted_at' => date('Y-m-d', strtotime('-2 days')),
-                        'due_by' => date('Y-m-d', strtotime('+1 day'))
-                    ],
-                    [
-                        'id' => 2,
-                        'type' => 'Academic',
-                        'description' => 'Class promotion request',
-                        'amount' => null,
-                        'status' => 'pending',
-                        'priority' => 'normal',
-                        'first_name' => 'Mary',
-                        'last_name' => 'Headteacher',
-                        'submitted_at' => date('Y-m-d', strtotime('-1 day')),
-                        'due_by' => date('Y-m-d', strtotime('+3 days'))
-                    ]
-                ];
+            foreach ($approvals as &$approval) {
+                $fullName = trim((string) (($approval['first_name'] ?? '') . ' ' . ($approval['last_name'] ?? '')));
+                $approval['student_name'] = $fullName !== '' ? $fullName : (string) ($approval['description'] ?? '');
+                $approval['submitted_by'] = $fullName !== '' ? $fullName : null;
             }
+            unset($approval);
+
+            $highPriorityCount = count(array_filter($approvals, static function ($item) {
+                return ($item['priority'] ?? null) === 'high';
+            }));
+            $dueSoonCutoff = strtotime('+3 days');
+            $dueSoonCount = count(array_filter($approvals, static function ($item) use ($dueSoonCutoff) {
+                if (empty($item['due_by'])) {
+                    return false;
+                }
+
+                $dueTs = strtotime((string) $item['due_by']);
+                if ($dueTs === false) {
+                    return false;
+                }
+
+                return $dueTs <= $dueSoonCutoff;
+            }));
 
             return $this->success([
                 'pending' => $approvals,
                 'count' => count($approvals),
                 'summary' => [
                     'total_pending' => count($approvals),
-                    'high_priority' => count(array_filter($approvals, fn($a) => $a['priority'] === 'high')),
-                    'due_soon' => count(array_filter($approvals, fn($a) => strtotime($a['due_by']) <= strtotime('+3 days')))
+                    'high_priority' => $highPriorityCount,
+                    'due_soon' => $dueSoonCount
                 ]
             ], 'Pending approvals retrieved');
 
         } catch (Exception $e) {
-            // Return sample data on error
-            return $this->success([
-                'pending' => [
-                    [
-                        'id' => 1,
-                        'type' => 'Finance',
-                        'description' => 'Payment voucher approval',
-                        'amount' => 125000,
-                        'status' => 'pending',
-                        'priority' => 'high',
-                        'first_name' => 'James',
-                        'last_name' => 'Accountant',
-                        'submitted_at' => date('Y-m-d', strtotime('-2 days')),
-                        'due_by' => date('Y-m-d', strtotime('+1 day'))
-                    ],
-                    [
-                        'id' => 2,
-                        'type' => 'Academic',
-                        'description' => 'Class promotion request',
-                        'amount' => null,
-                        'status' => 'pending',
-                        'priority' => 'normal',
-                        'first_name' => 'Mary',
-                        'last_name' => 'Headteacher',
-                        'submitted_at' => date('Y-m-d', strtotime('-1 day')),
-                        'due_by' => date('Y-m-d', strtotime('+3 days'))
-                    ]
-                ],
-                'count' => 2,
-                'summary' => [
-                    'total_pending' => 2,
-                    'high_priority' => 1,
-                    'due_soon' => 1
-                ]
-            ], 'Pending approvals retrieved');
+            return $this->serverError('Failed to retrieve pending approvals: ' . $e->getMessage());
         }
     }
 
@@ -616,6 +677,36 @@ class SystemController extends BaseController
         return $this->success($result);
     }
 
+    private function ensureSystemAdminAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if ($this->userHasRole('System Administrator') || $this->userHasPermission('*')) {
+            return null;
+        }
+
+        return $this->forbidden('System Administrator access required');
+    }
+
+    private function ensureDirectorOrSchoolAdminAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if ($this->userHasRole('System Administrator') || $this->userHasPermission('*')) {
+            return null;
+        }
+
+        if ($this->userHasAny([], [], ['Director', 'School Administrator'])) {
+            return null;
+        }
+
+        return $this->forbidden('Director or School Administrator access required');
+    }
+
     // ========================================================================
     // ROUTES MANAGEMENT (System Admin Only)
     // ========================================================================
@@ -625,6 +716,10 @@ class SystemController extends BaseController
      */
     public function getRoutes($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -658,6 +753,10 @@ class SystemController extends BaseController
      */
     public function postRoutes($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -699,6 +798,10 @@ class SystemController extends BaseController
      */
     public function putRoutes($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -745,6 +848,10 @@ class SystemController extends BaseController
      */
     public function deleteRoutes($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -767,6 +874,10 @@ class SystemController extends BaseController
      */
     public function postRoutesToggle($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -795,6 +906,10 @@ class SystemController extends BaseController
      */
     public function getRoles($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -828,6 +943,10 @@ class SystemController extends BaseController
      */
     public function postRoles($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -864,6 +983,10 @@ class SystemController extends BaseController
      */
     public function putRoles($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -881,7 +1004,7 @@ class SystemController extends BaseController
             $fields = [];
             $values = [];
 
-            foreach (['name', 'display_name', 'domain', 'description', 'icon', 'color', 'is_active'] as $field) {
+            foreach (['name', 'description'] as $field) {
                 if (array_key_exists($field, $data)) {
                     $fields[] = "$field = ?";
                     $values[] = $data[$field];
@@ -910,6 +1033,10 @@ class SystemController extends BaseController
      */
     public function deleteRoles($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -937,17 +1064,30 @@ class SystemController extends BaseController
      */
     public function postRolesToggle($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
             $roleId = $id ?? $data['id'] ?? null;
-            $isActive = $data['is_active'] ?? null;
+            $isActive = $data['is_active'] ?? $data['enabled'] ?? null;
 
             if (!$roleId) {
                 return $this->badRequest('Role ID is required');
             }
 
-            $db->query("UPDATE roles SET is_active = ?, updated_at = NOW() WHERE id = ?", [$isActive, $roleId]);
+            if (!$this->tableHasColumn('roles', 'is_active')) {
+                return $this->badRequest('Role status toggle is not supported by current schema');
+            }
+
+            $normalized = $this->normalizeToggleValue($isActive);
+            if ($normalized === null) {
+                return $this->badRequest('is_active/enabled must be true/false');
+            }
+
+            $db->query("UPDATE roles SET is_active = ?, updated_at = NOW() WHERE id = ?", [$normalized, $roleId]);
 
             return $this->success(null, 'Role status updated');
 
@@ -965,10 +1105,14 @@ class SystemController extends BaseController
      */
     public function getPermissions($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
-            $query = "SELECT * FROM permissions ORDER BY module, name";
+            $query = "SELECT * FROM permissions ORDER BY entity, action, code";
             $result = $db->query($query, []);
             $permissions = $result->fetchAll() ?? [];
 
@@ -984,6 +1128,10 @@ class SystemController extends BaseController
      */
     public function getRolePermissions($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -995,7 +1143,7 @@ class SystemController extends BaseController
             $query = "SELECT p.* FROM permissions p 
                       JOIN role_permissions rp ON p.id = rp.permission_id 
                       WHERE rp.role_id = ? 
-                      ORDER BY p.module, p.name";
+                      ORDER BY p.entity, p.action, p.code";
             $result = $db->query($query, [$roleId]);
             $permissions = $result->fetchAll() ?? [];
 
@@ -1015,6 +1163,10 @@ class SystemController extends BaseController
      */
     public function getSidebarMenus($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -1034,6 +1186,10 @@ class SystemController extends BaseController
      */
     public function getRoleSidebarAssignments($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
         try {
             $db = Database::getInstance();
 
@@ -1054,5 +1210,275 @@ class SystemController extends BaseController
         } catch (Exception $e) {
             return $this->badRequest('Failed to load assignments: ' . $e->getMessage());
         }
+    }
+
+    // ========================================================================
+    // MODULE TOGGLES (System Admin pages using ToggleConfigController)
+    // ========================================================================
+
+    /**
+     * GET /api/system/modules
+     * Lists school modules backed by SCHOOL routes starting with manage_
+     */
+    public function getModules($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            $query = "
+                SELECT id, name, description, is_active
+                FROM routes
+                WHERE domain = 'SCHOOL'
+                  AND name REGEXP '^manage_'
+                ORDER BY name
+            ";
+            $result = $db->query($query, []);
+            $routes = $result->fetchAll() ?? [];
+
+            $modules = array_map([$this, 'mapRouteToToggleItem'], $routes);
+
+            return $this->success($modules, 'Modules retrieved');
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to load modules: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/system/modules/{id}
+     * Toggles a school module route on/off.
+     */
+    public function putModules($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            $routeId = $id ?? $data['id'] ?? null;
+            if (!$routeId) {
+                return $this->badRequest('Module ID is required');
+            }
+
+            $enabled = $this->normalizeToggleValue($data['enabled'] ?? $data['is_active'] ?? null);
+            if ($enabled === null) {
+                return $this->badRequest('enabled must be true/false');
+            }
+
+            $route = $this->getRouteById((int) $routeId);
+            if (
+                !$route ||
+                strtoupper((string) ($route['domain'] ?? '')) !== 'SCHOOL' ||
+                !str_starts_with((string) ($route['name'] ?? ''), 'manage_')
+            ) {
+                return $this->badRequest('Module not found');
+            }
+
+            $db->query(
+                "UPDATE routes SET is_active = ?, updated_at = NOW() WHERE id = ?",
+                [$enabled, (int) $routeId]
+            );
+
+            return $this->success(
+                ['id' => (int) $routeId, 'enabled' => (bool) $enabled],
+                'Module updated successfully'
+            );
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to update module: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/system/module-enablement
+     * Lists SYSTEM-level enablement toggles for module governance screens.
+     */
+    public function getModuleEnablement($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+            $routeNames = $this->getModuleEnablementRouteNames();
+            $placeholders = implode(', ', array_fill(0, count($routeNames), '?'));
+            $params = array_merge(['SYSTEM'], $routeNames);
+
+            $query = "
+                SELECT id, name, description, is_active
+                FROM routes
+                WHERE domain = ?
+                  AND name IN ($placeholders)
+            ";
+            $result = $db->query($query, $params);
+            $routes = $result->fetchAll() ?? [];
+
+            $orderMap = array_flip($routeNames);
+            usort($routes, function ($a, $b) use ($orderMap) {
+                $aOrder = $orderMap[$a['name']] ?? PHP_INT_MAX;
+                $bOrder = $orderMap[$b['name']] ?? PHP_INT_MAX;
+                return $aOrder <=> $bOrder;
+            });
+
+            $items = array_map([$this, 'mapRouteToToggleItem'], $routes);
+
+            return $this->success($items, 'Module enablement settings retrieved');
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to load module enablement settings: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/system/module-enablement/{id}
+     * Toggles a SYSTEM-level module governance route on/off.
+     */
+    public function putModuleEnablement($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            $routeId = $id ?? $data['id'] ?? null;
+            if (!$routeId) {
+                return $this->badRequest('Module enablement ID is required');
+            }
+
+            $enabled = $this->normalizeToggleValue($data['enabled'] ?? $data['is_active'] ?? null);
+            if ($enabled === null) {
+                return $this->badRequest('enabled must be true/false');
+            }
+
+            $route = $this->getRouteById((int) $routeId);
+            $allowedRouteNames = $this->getModuleEnablementRouteNames();
+            if (
+                !$route ||
+                strtoupper((string) ($route['domain'] ?? '')) !== 'SYSTEM' ||
+                !in_array((string) ($route['name'] ?? ''), $allowedRouteNames, true)
+            ) {
+                return $this->badRequest('Module enablement setting not found');
+            }
+
+            $db->query(
+                "UPDATE routes SET is_active = ?, updated_at = NOW() WHERE id = ?",
+                [$enabled, (int) $routeId]
+            );
+
+            return $this->success(
+                ['id' => (int) $routeId, 'enabled' => (bool) $enabled],
+                'Module enablement setting updated successfully'
+            );
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to update module enablement setting: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Normalize toggle input to 0/1.
+     */
+    private function normalizeToggleValue($value): ?int
+    {
+        if (is_bool($value)) {
+            return $value ? 1 : 0;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            if ((int) $value === 1) {
+                return 1;
+            }
+            if ((int) $value === 0) {
+                return 0;
+            }
+        }
+
+        if (is_string($value)) {
+            $normalized = strtolower(trim($value));
+            if (in_array($normalized, ['1', 'true', 'yes', 'on'], true)) {
+                return 1;
+            }
+            if (in_array($normalized, ['0', 'false', 'no', 'off'], true)) {
+                return 0;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Fetch a route record by ID.
+     */
+    private function getRouteById(int $routeId): ?array
+    {
+        $db = Database::getInstance();
+        $result = $db->query(
+            "SELECT id, name, domain, description, is_active FROM routes WHERE id = ? LIMIT 1",
+            [$routeId]
+        );
+
+        $row = $result->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * Check whether a table column exists in the active schema.
+     */
+    private function tableHasColumn(string $tableName, string $columnName): bool
+    {
+        $db = Database::getInstance();
+        $result = $db->query(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = ?
+               AND COLUMN_NAME = ?",
+            [$tableName, $columnName]
+        );
+
+        return (int) ($result->fetchColumn() ?? 0) > 0;
+    }
+
+    /**
+     * Transform a route record to ToggleConfigController-friendly payload.
+     */
+    private function mapRouteToToggleItem(array $route): array
+    {
+        $isActive = (int) ($route['is_active'] ?? 0);
+        $name = (string) ($route['name'] ?? 'module');
+        $generatedLabel = ucwords(str_replace('_', ' ', $name));
+
+        return [
+            'id' => (int) ($route['id'] ?? 0),
+            'key' => $name,
+            'name' => $generatedLabel,
+            'description' => (string) ($route['description'] ?? ''),
+            'enabled' => $isActive === 1,
+            'is_active' => $isActive
+        ];
+    }
+
+    /**
+     * SYSTEM routes shown on Module Enablement screen.
+     */
+    private function getModuleEnablementRouteNames(): array
+    {
+        return [
+            'system_settings',
+            'module_management',
+            'module_enablement',
+            'feature_flags',
+            'maintenance_mode',
+            'domain_isolation_rules',
+            'readonly_enforcement',
+            'time_bound_access',
+            'location_device_rules',
+            'retention_policies',
+            'config_sync'
+        ];
     }
 }

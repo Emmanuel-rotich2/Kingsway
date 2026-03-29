@@ -268,10 +268,16 @@ class PaymentManager
 
             // Get payment allocations
             $stmt = $this->db->prepare("
-                SELECT pad.*, ft.name as fee_type_name, ft.code as fee_type_code
+                SELECT pad.*, 
+                       sfo.fee_structure_detail_id,
+                       fsd.fee_type_id,
+                       ft.name as fee_type_name,
+                       ft.code as fee_type_code
                 FROM payment_allocations_detailed pad
-                LEFT JOIN fee_types ft ON pad.fee_type_id = ft.id
-                WHERE pad.payment_id = ?
+                LEFT JOIN student_fee_obligations sfo ON sfo.id = pad.student_fee_obligation_id
+                LEFT JOIN fee_structures_detailed fsd ON fsd.id = sfo.fee_structure_detail_id
+                LEFT JOIN fee_types ft ON ft.id = fsd.fee_type_id
+                WHERE pad.payment_transaction_id = ?
             ");
 
             $stmt->execute([$paymentId]);
@@ -280,18 +286,18 @@ class PaymentManager
             // Get M-Pesa details if applicable
             if ($payment['payment_method'] === 'mpesa') {
                 $stmt = $this->db->prepare("
-                    SELECT * FROM mpesa_transactions WHERE payment_id = ?
+                    SELECT * FROM mpesa_transactions WHERE student_id = ? ORDER BY transaction_date DESC LIMIT 1
                 ");
-                $stmt->execute([$paymentId]);
+                $stmt->execute([$payment['student_id']]);
                 $payment['mpesa_details'] = $stmt->fetch(PDO::FETCH_ASSOC);
             }
 
             // Get bank details if applicable
-            if ($payment['payment_method'] === 'bank') {
+            if ($payment['payment_method'] === 'bank_transfer') {
                 $stmt = $this->db->prepare("
-                    SELECT * FROM bank_transactions WHERE payment_id = ?
+                    SELECT * FROM bank_transactions WHERE student_id = ? ORDER BY transaction_date DESC LIMIT 1
                 ");
-                $stmt->execute([$paymentId]);
+                $stmt->execute([$payment['student_id']]);
                 $payment['bank_details'] = $stmt->fetch(PDO::FETCH_ASSOC);
             }
 
@@ -312,88 +318,125 @@ class PaymentManager
     public function listPayments($filters = [], $page = 1, $limit = 20)
     {
         try {
+            $page = max(1, (int) ($filters['page'] ?? $page));
+            $limit = max(1, min(500, (int) ($filters['limit'] ?? $limit)));
             $offset = ($page - 1) * $limit;
 
-            // Use the view for comprehensive payment data
-            $sql = "SELECT * FROM vw_all_school_payments WHERE 1=1";
+            $baseSql = "
+                FROM payment_transactions pt
+                INNER JOIN students s ON s.id = pt.student_id
+                LEFT JOIN academic_terms at ON at.id = pt.term_id
+                WHERE 1 = 1
+            ";
             $params = [];
 
             if (!empty($filters['student_id'])) {
-                $sql .= " AND student_id = ?";
-                $params[] = $filters['student_id'];
+                $baseSql .= " AND pt.student_id = ?";
+                $params[] = (int) $filters['student_id'];
             }
 
             if (!empty($filters['academic_year'])) {
-                $sql .= " AND academic_year = ?";
-                $params[] = $filters['academic_year'];
+                $baseSql .= " AND pt.academic_year = ?";
+                $params[] = (int) $filters['academic_year'];
             }
 
             if (!empty($filters['payment_method'])) {
-                $sql .= " AND payment_method = ?";
+                $baseSql .= " AND pt.payment_method = ?";
                 $params[] = $filters['payment_method'];
             }
 
             if (!empty($filters['status'])) {
-                $sql .= " AND status = ?";
+                $baseSql .= " AND pt.status = ?";
                 $params[] = $filters['status'];
             }
 
             if (!empty($filters['date_from'])) {
-                $sql .= " AND payment_date >= ?";
+                $baseSql .= " AND pt.payment_date >= ?";
                 $params[] = $filters['date_from'];
             }
 
             if (!empty($filters['date_to'])) {
-                $sql .= " AND payment_date <= ?";
+                $baseSql .= " AND pt.payment_date <= ?";
                 $params[] = $filters['date_to'];
             }
 
             if (!empty($filters['search'])) {
-                $sql .= " AND (student_no LIKE ? OR student_name LIKE ? OR transaction_ref LIKE ?)";
                 $search = '%' . $filters['search'] . '%';
+                $baseSql .= " AND (
+                    s.admission_no LIKE ?
+                    OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?
+                    OR pt.reference_no LIKE ?
+                    OR pt.receipt_no LIKE ?
+                )";
+                $params[] = $search;
                 $params[] = $search;
                 $params[] = $search;
                 $params[] = $search;
             }
 
-            $sql .= " ORDER BY payment_date DESC LIMIT ? OFFSET ?";
-            $params[] = $limit;
-            $params[] = $offset;
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
+            $listSql = "
+                SELECT
+                    pt.id,
+                    pt.student_id,
+                    s.admission_no AS student_no,
+                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
+                    pt.amount_paid AS amount,
+                    pt.payment_date AS transaction_date,
+                    pt.payment_method,
+                    pt.reference_no AS transaction_ref,
+                    pt.receipt_no,
+                    pt.status,
+                    pt.notes AS details,
+                    pt.term_id,
+                    at.name AS term_name,
+                    at.term_number,
+                    pt.academic_year,
+                    pt.created_at,
+                    pt.updated_at
+                {$baseSql}
+                ORDER BY pt.payment_date DESC, pt.id DESC
+                LIMIT ? OFFSET ?
+            ";
+            $listParams = array_merge($params, [$limit, $offset]);
+            $stmt = $this->db->prepare($listSql);
+            $stmt->execute($listParams);
             $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            // Get total count
-            $countSql = "SELECT COUNT(*) as total FROM vw_all_school_payments WHERE 1=1";
-            $countParams = array_slice($params, 0, -2); // Remove limit and offset
+            $countSql = "SELECT COUNT(*) AS total {$baseSql}";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($params);
+            $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
-            if (!empty($filters['student_id']))
-                $countSql .= " AND student_id = ?";
-            if (!empty($filters['academic_year']))
-                $countSql .= " AND academic_year = ?";
-            if (!empty($filters['payment_method']))
-                $countSql .= " AND payment_method = ?";
-            if (!empty($filters['status']))
-                $countSql .= " AND status = ?";
-            if (!empty($filters['date_from']))
-                $countSql .= " AND payment_date >= ?";
-            if (!empty($filters['date_to']))
-                $countSql .= " AND payment_date <= ?";
-            if (!empty($filters['search']))
-                $countSql .= " AND (student_no LIKE ? OR student_name LIKE ? OR transaction_ref LIKE ?)";
-
-            $stmt = $this->db->prepare($countSql);
-            $stmt->execute($countParams);
-            $total = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            $summarySql = "
+                SELECT
+                    COALESCE(SUM(pt.amount_paid), 0) AS total_amount,
+                    COALESCE(SUM(CASE WHEN pt.status = 'pending' THEN pt.amount_paid ELSE 0 END), 0) AS pending_amount,
+                    COALESCE(SUM(CASE WHEN pt.status IN ('confirmed','successful') THEN pt.amount_paid ELSE 0 END), 0) AS confirmed_amount,
+                    COALESCE(SUM(CASE WHEN DATE(pt.payment_date) = CURDATE() AND pt.status IN ('confirmed','successful') THEN pt.amount_paid ELSE 0 END), 0) AS today_amount
+                {$baseSql}
+            ";
+            $summaryStmt = $this->db->prepare($summarySql);
+            $summaryStmt->execute($params);
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [
+                'total_amount' => 0,
+                'pending_amount' => 0,
+                'confirmed_amount' => 0,
+                'today_amount' => 0
+            ];
 
             return formatResponse(true, [
                 'payments' => $payments,
+                'summary' => [
+                    'total_amount' => (float) ($summary['total_amount'] ?? 0),
+                    'pending_amount' => (float) ($summary['pending_amount'] ?? 0),
+                    'confirmed_amount' => (float) ($summary['confirmed_amount'] ?? 0),
+                    'today_amount' => (float) ($summary['today_amount'] ?? 0)
+                ],
                 'pagination' => [
-                    'total' => (int) $total,
+                    'total' => $total,
                     'page' => $page,
                     'limit' => $limit,
-                    'pages' => ceil($total / $limit)
+                    'pages' => $limit > 0 ? (int) ceil($total / $limit) : 0
                 ]
             ]);
 

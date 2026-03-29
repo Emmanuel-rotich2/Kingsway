@@ -1,0 +1,700 @@
+role_id	role_name	row_type	parent_menu_id	parent_label	parent_route	parent_required_permissions	parent_permission_coverage	child_menu_id	child_label	child_route	child_required_permissions	child_permission_coverage
+2	System Administrator	parent	1001	Dashboard	system_administrator_dashboard	system_view	ok	NULL				
+2	System Administrator	parent	1002	Identity & Access			n/a	NULL				
+2	System Administrator	child	1002	Identity & Access			n/a	1011	User Accounts	manage_users	users_view	ok
+2	System Administrator	child	1002	Identity & Access			n/a	1012	Account Status	account_status		n/a
+2	System Administrator	child	1002	Identity & Access			n/a	1013	Role Definitions	role_definitions		n/a
+2	System Administrator	child	1002	Identity & Access			n/a	1014	Role-Permission Matrix	role_permission_matrix		n/a
+2	System Administrator	child	1002	Identity & Access			n/a	1015	Resource Permissions	resource_based_permissions		n/a
+2	System Administrator	parent	1003	Navigation & UI			n/a	NULL				
+2	System Administrator	child	1003	Navigation & UI			n/a	1016	Route Registry	route_registry		n/a
+2	System Administrator	child	1003	Navigation & UI			n/a	1017	Sidebar Menus	sidebar_menus		n/a
+2	System Administrator	child	1003	Navigation & UI			n/a	1018	Dashboard Registry	dashboard_registry		n/a
+2	System Administrator	child	1003	Navigation & UI			n/a	1019	Widget Registry	widget_registry		n/a
+2	System Administrator	child	1003	Navigation & UI			n/a	1020	Role Navigation	role_navigation_config		n/a
+2	System Administrator	parent	1004	Policy & Governance			n/a	NULL				
+2	System Administrator	child	1004	Policy & Governance			n/a	1021	Domain Isolation	domain_isolation_rules		n/a
+2	System Administrator	child	1004	Policy & Governance			n/a	1022	Time-Bound Access	time_bound_access		n/a
+2	System Administrator	child	1004	Policy & Governance			n/a	1023	Route Access Rules	route_access_rules		n/a
+2	System Administrator	child	1004	Policy & Governance			n/a	1024	Permission Policies	permission_policies		n/a
+2	System Administrator	parent	1005	Security Center			n/a	NULL				
+2	System Administrator	child	1005	Security Center			n/a	1025	Authentication Logs	authentication_logs	system_view	ok
+2	System Administrator	child	1005	Security Center			n/a	1026	Failed Logins	failed_login_attempts		n/a
+2	System Administrator	child	1005	Security Center			n/a	1027	Active Sessions	active_sessions		n/a
+2	System Administrator	child	1005	Security Center			n/a	1028	Token Management	token_management		n/a
+2	System Administrator	child	1005	Security Center			n/a	1029	IP Whitelist/Blacklist	ip_whitelist_blacklist		n/a
+2	System Administrator	parent	1006	Monitoring			n/a	NULL				
+2	System Administrator	child	1006	Monitoring			n/a	1030	System Health	system_health	system_view	ok
+2	System Administrator	child	1006	Monitoring			n/a	1031	Error Logs	error_logs	system_view	ok
+2	System Administrator	child	1006	Monitoring			n/a	1032	Background Jobs	background_jobs		n/a
+2	System Administrator	child	1006	Monitoring			n/a	1033	API Metrics	api_metrics		n/a
+2	System Administrator	child	1006	Monitoring			n/a	1034	Rate Limiting	rate_limiting_status		n/a
+2	System Administrator	parent	1007	Configuration			n/a	NULL				
+2	System Administrator	child	1007	Configuration			n/a	1035	System Settings	system_settings	system_view	ok
+2	System Administrator	child	1007	Configuration			n/a	1036	Feature Flags	feature_flags		n/a
+2	System Administrator	child	1007	Configuration			n/a	1037	Module Enablement	module_enablement		n/a
+2	System Administrator	child	1007	Configuration			n/a	1038	Maintenance Mode	maintenance_mode	system_view	ok
+2	System Administrator	parent	1008	Data Governance			n/a	NULL				
+2	System Administrator	child	1008	Data Governance			n/a	1039	Schema Registry	schema_registry		n/a
+2	System Administrator	child	1008	Data Governance			n/a	1040	Migrations	migrations		n/a
+2	System Administrator	child	1008	Data Governance			n/a	1041	Backups	backups		n/a
+2	System Administrator	child	1008	Data Governance			n/a	1042	Data Retention	data_retention		n/a
+2	System Administrator	child	1008	Data Governance			n/a	1043	Data Purge Policies	data_purge_policies		n/a
+2	System Administrator	parent	1009	Developer Tools			n/a	NULL				
+2	System Administrator	child	1009	Developer Tools			n/a	1044	API Explorer	api_explorer	system_view	ok
+2	System Administrator	child	1009	Developer Tools			n/a	1045	Webhook Registry	webhook_registry		n/a
+2	System Administrator	child	1009	Developer Tools			n/a	1046	Job Inspector	job_inspector		n/a
+2	System Administrator	child	1009	Developer Tools			n/a	1047	System Diagnostics	system_diagnostics		n/a
+2	System Administrator	parent	1010	Audit & Forensics			n/a	NULL				
+2	System Administrator	child	1010	Audit & Forensics			n/a	1048	Activity Logs	activity_audit_logs	system_view	ok
+2	System Administrator	child	1010	Audit & Forensics			n/a	1049	Permission Changes	permission_changes		n/a
+2	System Administrator	child	1010	Audit & Forensics			n/a	1050	Policy Violations	policy_violations		n/a
+2	System Administrator	child	1010	Audit & Forensics			n/a	1051	Security Incidents	security_incidents		n/a
+3	Director	parent	100	Dashboard	director_owner_dashboard	finance_view, reports_view	ok	NULL				
+3	Director	parent	200	Finance	manage_finance	finance_view	ok	NULL				
+3	Director	child	200	Finance	manage_finance	finance_view	ok	203	Approvals	finance_approvals	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	202	Budget Overview	budget_overview	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	201	Financial Reports	finance_reports	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	1055	Student Fees	manage_fees	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	1056	Fee Structure	manage_fees	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	1057	Payment Reports	manage_payments	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	1058	M-Pesa Reports	finance_reports	finance_view	ok
+3	Director	child	200	Finance	manage_finance	finance_view	ok	1059	Bank Reports	finance_reports	finance_view	ok
+3	Director	parent	204	Reports	financial_reports	reports_view	ok	NULL				
+3	Director	child	204	Reports	financial_reports	reports_view	ok	206	Enrollment	enrollment_reports	reports_view	ok
+3	Director	child	204	Reports	financial_reports	reports_view	ok	205	Financial	financial_reports	reports_view	ok
+3	Director	child	204	Reports	financial_reports	reports_view	ok	207	Performance	performance_reports		n/a
+3	Director	parent	250	Students	manage_students	students_view	ok	NULL				
+3	Director	child	250	Students	manage_students	students_view	ok	251	All Students	manage_students	students_view	ok
+3	Director	child	250	Students	manage_students	students_view	ok	252	Admissions	manage_students_admissions	admission_view	ok
+3	Director	child	250	Students	manage_students	students_view	ok	253	Attendance	mark_attendance	attendance_view	ok
+3	Director	child	250	Students	manage_students	students_view	ok	1062	Discipline	student_discipline		n/a
+3	Director	child	250	Students	manage_students	students_view	ok	1063	Counseling	student_counseling	chapel_view	ok
+3	Director	child	250	Students	manage_students	students_view	ok	1064	Performance	student_performance	academic_view	ok
+3	Director	parent	300	Academic	manage_academics	academic_view	ok	NULL				
+3	Director	child	300	Academic	manage_academics	academic_view	ok	302	Classes	manage_classes	academic_view	ok
+3	Director	child	300	Academic	manage_academics	academic_view	ok	303	Timetable	manage_timetable	schedules_view	ok
+3	Director	child	300	Academic	manage_academics	academic_view	ok	304	Results	view_results	academic_view	ok
+3	Director	child	300	Academic	manage_academics	academic_view	ok	301	Manage Academics	manage_academics	academic_view	ok
+3	Director	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+3	Director	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+3	Director	child	150	Communications	manage_communications	communications_view	ok	1052	Announcements	manage_announcements	communications_view	ok
+3	Director	child	150	Communications	manage_communications	communications_view	ok	1053	SMS Messages	manage_sms	communications_view	ok
+3	Director	child	150	Communications	manage_communications	communications_view	ok	1054	Emails	manage_email	communications_view	ok
+3	Director	parent	555	Payroll	manage_payrolls	finance_view	ok	NULL				
+3	Director	child	555	Payroll	manage_payrolls	finance_view	ok	556	Staff Payroll	payroll	finance_view	ok
+3	Director	child	555	Payroll	manage_payrolls	finance_view	ok	557	Manage Payroll	manage_payrolls	finance_view	ok
+3	Director	child	555	Payroll	manage_payrolls	finance_view	ok	1065	Payroll Processing	manage_payrolls	finance_view	ok
+3	Director	child	555	Payroll	manage_payrolls	finance_view	ok	1066	Salary Slips	manage_payrolls	finance_view	ok
+3	Director	parent	258	Staff	manage_staff	staff_view	ok	NULL				
+3	Director	child	258	Staff	manage_staff	staff_view	ok	259	All Staff	manage_staff	staff_view	ok
+3	Director	child	258	Staff	manage_staff	staff_view	ok	260	Attendance	staff_attendance	attendance_view	ok
+3	Director	parent	600	Inventory	manage_inventory	inventory_view	ok	NULL				
+3	Director	child	600	Inventory	manage_inventory	inventory_view	ok	601	Manage Inventory	manage_inventory	inventory_view	ok
+3	Director	child	600	Inventory	manage_inventory	inventory_view	ok	602	Stock Management	manage_stock	inventory_view	ok
+3	Director	child	600	Inventory	manage_inventory	inventory_view	ok	603	Requisitions	manage_requisitions	inventory_view	ok
+3	Director	child	600	Inventory	manage_inventory	inventory_view	ok	1060	Uniform Sales	manage_uniform_sales		n/a
+3	Director	parent	904	Attendance	mark_attendance	attendance_view	ok	NULL				
+3	Director	child	904	Attendance	mark_attendance	attendance_view	ok	905	Mark Attendance	mark_attendance	attendance_view	ok
+3	Director	child	904	Attendance	mark_attendance	attendance_view	ok	906	View Attendance	view_attendance	attendance_view	ok
+3	Director	child	904	Attendance	mark_attendance	attendance_view	ok	1332	Staff Attendance	staff_attendance	attendance_view	ok
+3	Director	parent	800	Transport	manage_transport		n/a	NULL				
+3	Director	child	800	Transport	manage_transport		n/a	801	My Routes	my_routes	transport_view	ok
+3	Director	child	800	Transport	manage_transport		n/a	802	My Vehicle	my_vehicle	transport_view	ok
+3	Director	child	800	Transport	manage_transport		n/a	1061	Transportation Fees	manage_transport		n/a
+3	Director	parent	750	Activities	manage_activities	activities_view	ok	NULL				
+3	Director	child	750	Activities	manage_activities	activities_view	ok	751	Manage Activities	manage_activities	activities_view	ok
+3	Director	parent	700	Boarding	manage_boarding	boarding_view	ok	NULL				
+3	Director	child	700	Boarding	manage_boarding	boarding_view	ok	701	Manage Boarding	manage_boarding	boarding_view	ok
+3	Director	child	700	Boarding	manage_boarding	boarding_view	ok	1329	Roll Call	boarding_roll_call		n/a
+3	Director	child	700	Boarding	manage_boarding	boarding_view	ok	1330	Permissions & Exeats	permissions_exeats		n/a
+3	Director	child	700	Boarding	manage_boarding	boarding_view	ok	1331	Dormitory Management	dormitory_management		n/a
+4	School Administrator	parent	101	Dashboard	school_administrative_officer_dashboard	academic_view, staff_view	ok	NULL				
+4	School Administrator	parent	250	Students	manage_students	students_view	ok	NULL				
+4	School Administrator	child	250	Students	manage_students	students_view	ok	251	All Students	manage_students	students_view	ok
+4	School Administrator	child	250	Students	manage_students	students_view	ok	252	Admissions	manage_students_admissions	admission_view	ok
+4	School Administrator	child	250	Students	manage_students	students_view	ok	253	Attendance	mark_attendance	attendance_view	ok
+4	School Administrator	child	250	Students	manage_students	students_view	ok	266	Enrollment			n/a
+4	School Administrator	child	250	Students	manage_students	students_view	ok	267	Student Reports			n/a
+4	School Administrator	child	250	Students	manage_students	students_view	ok	268	ID Cards			n/a
+4	School Administrator	child	250	Students	manage_students	students_view	ok	269	Family Groups			n/a
+4	School Administrator	parent	254	Academic			n/a	NULL				
+4	School Administrator	child	254	Academic			n/a	255	Classes	manage_classes	academic_view	ok
+4	School Administrator	child	254	Academic			n/a	256	Timetable	manage_timetable	schedules_view	ok
+4	School Administrator	child	254	Academic			n/a	257	Results	view_results	academic_view	ok
+4	School Administrator	child	254	Academic			n/a	270	Subjects			n/a
+4	School Administrator	child	254	Academic			n/a	271	Assessments			n/a
+4	School Administrator	parent	258	Staff	manage_staff	staff_view	ok	NULL				
+4	School Administrator	child	258	Staff	manage_staff	staff_view	ok	259	All Staff	manage_staff	staff_view	ok
+4	School Administrator	child	258	Staff	manage_staff	staff_view	ok	260	Attendance	staff_attendance	attendance_view	ok
+4	School Administrator	child	258	Staff	manage_staff	staff_view	ok	272	Teachers			n/a
+4	School Administrator	child	258	Staff	manage_staff	staff_view	ok	273	Non-Teaching Staff			n/a
+4	School Administrator	child	258	Staff	manage_staff	staff_view	ok	274	Staff Leaves			n/a
+4	School Administrator	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+4	School Administrator	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+4	School Administrator	child	150	Communications	manage_communications	communications_view	ok	1052	Announcements	manage_announcements	communications_view	ok
+4	School Administrator	child	150	Communications	manage_communications	communications_view	ok	275	SMS			n/a
+4	School Administrator	child	150	Communications	manage_communications	communications_view	ok	276	Email			n/a
+4	School Administrator	parent	263	Activities			n/a	NULL				
+4	School Administrator	child	263	Activities			n/a	277	All Activities			n/a
+4	School Administrator	child	263	Activities			n/a	278	Clubs & Societies			n/a
+4	School Administrator	child	263	Activities			n/a	279	Sports			n/a
+4	School Administrator	parent	265	Calendar & Events			n/a	NULL				
+4	School Administrator	child	265	Calendar & Events			n/a	280	School Events			n/a
+4	School Administrator	child	265	Calendar & Events			n/a	281	Daily Schedule			n/a
+4	School Administrator	parent	264	Reports			n/a	NULL				
+4	School Administrator	child	264	Reports			n/a	282	Attendance Reports			n/a
+4	School Administrator	child	264	Reports			n/a	283	Enrollment Statistics			n/a
+4	School Administrator	child	264	Reports			n/a	284	Staff Reports			n/a
+4	School Administrator	parent	261	Users			n/a	NULL				
+4	School Administrator	child	261	Users			n/a	262	Manage Users	manage_users	users_view	ok
+5	Headteacher	parent	102	Dashboard	headteacher_dashboard	academic_view	ok	NULL				
+5	Headteacher	parent	300	Academic	manage_academics	academic_view	ok	NULL				
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	335	Academic Years	academic_years		n/a
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	1070	Learning Areas	learning_areas		n/a
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	340	Lesson Plans	manage_lesson_plans	academic_view	ok
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	350	Timetable	manage_timetable	schedules_view	ok
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	360	Academic Calendar	academic_calendar		n/a
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	384	Assessments & Exams	assessments_exams		n/a
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	304	Results	view_results	academic_view	ok
+5	Headteacher	child	300	Academic	manage_academics	academic_view	ok	301	Manage Academics	manage_academics	academic_view	ok
+5	Headteacher	parent	1086	Classes	manage_classes	academic_view	ok	NULL				
+5	Headteacher	child	1086	Classes	manage_classes	academic_view	ok	1087	All Classes	all_classes		n/a
+5	Headteacher	child	1086	Classes	manage_classes	academic_view	ok	1088	Streams	class_streams		n/a
+5	Headteacher	child	1086	Classes	manage_classes	academic_view	ok	1089	Class Capacity	class_capacity		n/a
+5	Headteacher	child	1086	Classes	manage_classes	academic_view	ok	1090	Promotion/Progression	student_promotion		n/a
+5	Headteacher	parent	305	Students	manage_students	students_view	ok	NULL				
+5	Headteacher	child	305	Students	manage_students	students_view	ok	306	All Students	all_students		n/a
+5	Headteacher	child	305	Students	manage_students	students_view	ok	308	Performance	student_performance	academic_view	ok
+5	Headteacher	parent	309	Staff	manage_staff	staff_view	ok	NULL				
+5	Headteacher	child	309	Staff	manage_staff	staff_view	ok	310	All Staff	all_staff		n/a
+5	Headteacher	child	309	Staff	manage_staff	staff_view	ok	311	Performance	staff_performance_overview		n/a
+5	Headteacher	child	309	Staff	manage_staff	staff_view	ok	1075	Manage Teachers	all_teachers		n/a
+5	Headteacher	parent	1081	Parents	all_parents		n/a	NULL				
+5	Headteacher	child	1081	Parents	all_parents		n/a	1082	All Parents/Guardians	all_parents		n/a
+5	Headteacher	child	1081	Parents	all_parents		n/a	1083	Parent Meetings	parent_meetings		n/a
+5	Headteacher	child	1081	Parents	all_parents		n/a	1084	Feedback	parent_feedback		n/a
+5	Headteacher	child	1081	Parents	all_parents		n/a	1085	PTA Management	pta_management		n/a
+5	Headteacher	parent	363	Admissions	manage_students_admissions	admission_view	ok	NULL				
+5	Headteacher	child	363	Admissions	manage_students_admissions	admission_view	ok	364	New Applications	new_applications		n/a
+5	Headteacher	child	363	Admissions	manage_students_admissions	admission_view	ok	365	Admission Status	admission_status		n/a
+5	Headteacher	parent	904	Attendance	mark_attendance	attendance_view	ok	NULL				
+5	Headteacher	child	904	Attendance	mark_attendance	attendance_view	ok	905	Mark Attendance	mark_attendance	attendance_view	ok
+5	Headteacher	child	904	Attendance	mark_attendance	attendance_view	ok	906	View Attendance	view_attendance	attendance_view	ok
+5	Headteacher	child	904	Attendance	mark_attendance	attendance_view	ok	1332	Staff Attendance	staff_attendance	attendance_view	ok
+5	Headteacher	parent	312	Discipline	student_discipline		n/a	NULL				
+5	Headteacher	child	312	Discipline	student_discipline		n/a	313	Discipline Cases	discipline_cases		n/a
+5	Headteacher	child	312	Discipline	student_discipline		n/a	314	Conduct Reports	conduct_reports		n/a
+5	Headteacher	parent	700	Boarding	manage_boarding	boarding_view	ok	NULL				
+5	Headteacher	child	700	Boarding	manage_boarding	boarding_view	ok	701	Manage Boarding	manage_boarding	boarding_view	ok
+5	Headteacher	child	700	Boarding	manage_boarding	boarding_view	ok	1329	Roll Call	boarding_roll_call		n/a
+5	Headteacher	child	700	Boarding	manage_boarding	boarding_view	ok	1330	Permissions & Exeats	permissions_exeats		n/a
+5	Headteacher	child	700	Boarding	manage_boarding	boarding_view	ok	1331	Dormitory Management	dormitory_management		n/a
+5	Headteacher	parent	378	Activities	manage_activities	activities_view	ok	NULL				
+5	Headteacher	child	378	Activities	manage_activities	activities_view	ok	379	Clubs & Societies	clubs_societies		n/a
+5	Headteacher	child	378	Activities	manage_activities	activities_view	ok	380	Sports	sports		n/a
+5	Headteacher	child	378	Activities	manage_activities	activities_view	ok	381	Competitions	competitions		n/a
+5	Headteacher	child	378	Activities	manage_activities	activities_view	ok	382	School Events	school_events		n/a
+5	Headteacher	child	378	Activities	manage_activities	activities_view	ok	383	Assemblies	assemblies		n/a
+5	Headteacher	parent	374	Fee Balances	manage_fees	finance_view	ok	NULL				
+5	Headteacher	child	374	Fee Balances	manage_fees	finance_view	ok	375	Students with Balance	students_with_balance		n/a
+5	Headteacher	child	374	Fee Balances	manage_fees	finance_view	ok	376	Balances by Class	balances_by_class		n/a
+5	Headteacher	child	374	Fee Balances	manage_fees	finance_view	ok	377	Fee Defaulters	fee_defaulters		n/a
+5	Headteacher	parent	397	Student Welfare	student_counseling	chapel_view	ok	NULL				
+5	Headteacher	child	397	Student Welfare	student_counseling	chapel_view	ok	398	Special Needs	special_needs		n/a
+5	Headteacher	child	397	Student Welfare	student_counseling	chapel_view	ok	399	Counseling Records	counseling_records		n/a
+5	Headteacher	parent	324	Reports	performance_reports		n/a	NULL				
+5	Headteacher	child	324	Reports	performance_reports		n/a	325	Academic Reports	academic_reports		n/a
+5	Headteacher	child	324	Reports	performance_reports		n/a	326	Performance Analysis	performance_analysis		n/a
+5	Headteacher	child	324	Reports	performance_reports		n/a	327	Term Reports	term_reports		n/a
+5	Headteacher	parent	1091	Analytics	enrollment_trends		n/a	NULL				
+5	Headteacher	child	1091	Analytics	enrollment_trends		n/a	1092	Enrollment Trends	enrollment_trends		n/a
+5	Headteacher	child	1091	Analytics	enrollment_trends		n/a	1093	Performance Trends	performance_trends		n/a
+5	Headteacher	child	1091	Analytics	enrollment_trends		n/a	1094	Attendance Trends	attendance_trends		n/a
+5	Headteacher	child	1091	Analytics	enrollment_trends		n/a	1095	Comparative Reports	comparative_reports		n/a
+5	Headteacher	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+5	Headteacher	child	150	Communications	manage_communications	communications_view	ok	1052	Announcements	manage_announcements	communications_view	ok
+5	Headteacher	child	150	Communications	manage_communications	communications_view	ok	1053	SMS Messages	manage_sms	communications_view	ok
+5	Headteacher	child	150	Communications	manage_communications	communications_view	ok	1054	Emails	manage_email	communications_view	ok
+5	Headteacher	parent	99999	Headteacher Test Item	headteacher_test_item	headteacher_test_permission	ok	NULL				
+6	Deputy Head - Academic	parent	1333	Dashboard	deputy_head_academic_dashboard		n/a	NULL				
+6	Deputy Head - Academic	parent	1100	Timetable			n/a	NULL				
+6	Deputy Head - Academic	child	1100	Timetable			n/a	1101	Master Timetable			n/a
+6	Deputy Head - Academic	child	1100	Timetable			n/a	1102	Create Timetable			n/a
+6	Deputy Head - Academic	child	1100	Timetable			n/a	1103	Class Timetables			n/a
+6	Deputy Head - Academic	child	1100	Timetable			n/a	1104	Teacher Timetables			n/a
+6	Deputy Head - Academic	child	1100	Timetable			n/a	1105	Room Allocation			n/a
+6	Deputy Head - Academic	parent	1106	Academic Years			n/a	NULL				
+6	Deputy Head - Academic	child	1106	Academic Years			n/a	1109	Term Dates			n/a
+6	Deputy Head - Academic	parent	356	Students			n/a	NULL				
+6	Deputy Head - Academic	parent	1111	Admissions			n/a	NULL				
+6	Deputy Head - Academic	child	1111	Admissions			n/a	1112	New Applications			n/a
+6	Deputy Head - Academic	child	1111	Admissions			n/a	1113	Process Admissions			n/a
+6	Deputy Head - Academic	child	1111	Admissions			n/a	1114	Interviews			n/a
+6	Deputy Head - Academic	child	1111	Admissions			n/a	1115	Placement Tests			n/a
+6	Deputy Head - Academic	child	1111	Admissions			n/a	1116	Enrollment			n/a
+6	Deputy Head - Academic	parent	1122	Learning Areas			n/a	NULL				
+6	Deputy Head - Academic	child	1122	Learning Areas			n/a	1126	Syllabus Coverage			n/a
+6	Deputy Head - Academic	parent	1127	Examinations			n/a	NULL				
+6	Deputy Head - Academic	child	1127	Examinations			n/a	1128	Exam Schedule			n/a
+6	Deputy Head - Academic	child	1127	Examinations			n/a	1132	Results Entry			n/a
+6	Deputy Head - Academic	parent	366	Teachers			n/a	NULL				
+6	Deputy Head - Academic	child	366	Teachers			n/a	367	Teacher Allocation			n/a
+6	Deputy Head - Academic	child	366	Teachers			n/a	368	Subject Assignment			n/a
+6	Deputy Head - Academic	parent	1133	Assessments			n/a	NULL				
+6	Deputy Head - Academic	child	1133	Assessments			n/a	1134	Summative (Exams)			n/a
+6	Deputy Head - Academic	child	1133	Assessments			n/a	1135	Formative (CATs)			n/a
+6	Deputy Head - Academic	child	1133	Assessments			n/a	1136	Assessment Calendar			n/a
+6	Deputy Head - Academic	child	1133	Assessments			n/a	1137	Rubrics			n/a
+6	Deputy Head - Academic	parent	1138	Lesson Plans			n/a	NULL				
+6	Deputy Head - Academic	parent	1143	Class Management			n/a	NULL				
+6	Deputy Head - Academic	parent	1148	Reports			n/a	NULL				
+6	Deputy Head - Academic	child	1148	Reports			n/a	1150	Class Performance			n/a
+6	Deputy Head - Academic	child	1148	Reports			n/a	1151	Teacher Reports			n/a
+6	Deputy Head - Academic	child	1148	Reports			n/a	1152	Term Analysis			n/a
+7	Class Teacher	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+7	Class Teacher	parent	450	My Teaching			n/a	NULL				
+7	Class Teacher	parent	1204	My Students			n/a	NULL				
+7	Class Teacher	child	1204	My Students			n/a	1205	Student List			n/a
+7	Class Teacher	child	1204	My Students			n/a	1206	Student Profiles			n/a
+7	Class Teacher	child	1204	My Students			n/a	1207	Performance			n/a
+7	Class Teacher	child	1204	My Students			n/a	1208	Special Needs			n/a
+7	Class Teacher	parent	1209	Attendance			n/a	NULL				
+7	Class Teacher	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+7	Class Teacher	child	1209	Attendance			n/a	1211	Attendance History			n/a
+7	Class Teacher	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+7	Class Teacher	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+7	Class Teacher	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+7	Class Teacher	parent	1213	Lesson Plans			n/a	NULL				
+7	Class Teacher	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+7	Class Teacher	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+7	Class Teacher	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+7	Class Teacher	parent	1217	Assessments			n/a	NULL				
+7	Class Teacher	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+7	Class Teacher	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+7	Class Teacher	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+7	Class Teacher	child	1217	Assessments			n/a	1221	Class Results			n/a
+7	Class Teacher	parent	1222	Discipline			n/a	NULL				
+7	Class Teacher	child	1222	Discipline			n/a	1223	Log Incident			n/a
+7	Class Teacher	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+7	Class Teacher	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+7	Class Teacher	parent	1226	Parents			n/a	NULL				
+7	Class Teacher	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+7	Class Teacher	child	1226	Parents			n/a	1228	Send Message			n/a
+7	Class Teacher	child	1226	Parents			n/a	1229	Message History			n/a
+7	Class Teacher	parent	1230	Reports			n/a	NULL				
+7	Class Teacher	child	1230	Reports			n/a	1231	Class Report			n/a
+7	Class Teacher	child	1230	Reports			n/a	1232	Progress Reports			n/a
+7	Class Teacher	child	1230	Reports			n/a	1233	Term Reports			n/a
+7	Class Teacher	child	1230	Reports			n/a	1234	Report Cards			n/a
+8	Subject Teacher	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+8	Subject Teacher	parent	450	My Teaching			n/a	NULL				
+8	Subject Teacher	child	450	My Teaching			n/a	451	My Classes	myclasses	academic_view	ok
+8	Subject Teacher	parent	1250	My Subjects			n/a	NULL				
+8	Subject Teacher	child	1250	My Subjects			n/a	1251	Subject Overview			n/a
+8	Subject Teacher	child	1250	My Subjects			n/a	1252	Classes I Teach			n/a
+8	Subject Teacher	child	1250	My Subjects			n/a	1253	Syllabus			n/a
+8	Subject Teacher	parent	1254	My Students			n/a	NULL				
+8	Subject Teacher	child	1254	My Students			n/a	1255	Student List			n/a
+8	Subject Teacher	child	1254	My Students			n/a	1256	By Class			n/a
+8	Subject Teacher	child	1254	My Students			n/a	1257	Performance Tracking			n/a
+8	Subject Teacher	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+8	Subject Teacher	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+8	Subject Teacher	parent	1258	Lesson Plans			n/a	NULL				
+8	Subject Teacher	child	1258	Lesson Plans			n/a	1259	My Lesson Plans			n/a
+8	Subject Teacher	child	1258	Lesson Plans			n/a	1260	Create Lesson			n/a
+8	Subject Teacher	child	1258	Lesson Plans			n/a	1261	Schemes of Work			n/a
+8	Subject Teacher	parent	1262	Assessments			n/a	NULL				
+8	Subject Teacher	child	1262	Assessments			n/a	1263	Create CAT			n/a
+8	Subject Teacher	child	1262	Assessments			n/a	1264	My CATs			n/a
+8	Subject Teacher	child	1262	Assessments			n/a	1265	Grade Entry			n/a
+8	Subject Teacher	child	1262	Assessments			n/a	1266	Grading Status			n/a
+8	Subject Teacher	parent	1267	Examinations			n/a	NULL				
+8	Subject Teacher	child	1267	Examinations			n/a	1268	Exam Schedule			n/a
+8	Subject Teacher	child	1267	Examinations			n/a	1269	Enter Results			n/a
+8	Subject Teacher	child	1267	Examinations			n/a	1270	Results Summary			n/a
+8	Subject Teacher	parent	904	Attendance	mark_attendance	attendance_view	ok	NULL				
+8	Subject Teacher	child	904	Attendance	mark_attendance	attendance_view	ok	905	Mark Attendance	mark_attendance	attendance_view	ok
+8	Subject Teacher	child	904	Attendance	mark_attendance	attendance_view	ok	906	View Attendance	view_attendance	attendance_view	ok
+8	Subject Teacher	parent	1271	Resources			n/a	NULL				
+8	Subject Teacher	child	1271	Resources			n/a	1272	Teaching Materials			n/a
+8	Subject Teacher	child	1271	Resources			n/a	1273	Upload Resource			n/a
+8	Subject Teacher	child	1271	Resources			n/a	1274	Past Papers			n/a
+8	Subject Teacher	parent	1275	Reports			n/a	NULL				
+8	Subject Teacher	child	1275	Reports			n/a	1276	Subject Report			n/a
+8	Subject Teacher	child	1275	Reports			n/a	1277	Class Comparison			n/a
+8	Subject Teacher	child	1275	Reports			n/a	1278	Term Analysis			n/a
+9	Intern/Student Teacher	parent	106	Dashboard	intern_student_teacher_dashboard	academic_view	ok	NULL				
+9	Intern/Student Teacher	parent	450	My Teaching			n/a	NULL				
+9	Intern/Student Teacher	parent	1300	My Assignments			n/a	NULL				
+9	Intern/Student Teacher	child	1300	My Assignments			n/a	1301	Assigned Classes			n/a
+9	Intern/Student Teacher	child	1300	My Assignments			n/a	1302	Assigned Subjects			n/a
+9	Intern/Student Teacher	child	1300	My Assignments			n/a	1303	My Schedule			n/a
+9	Intern/Student Teacher	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+9	Intern/Student Teacher	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+9	Intern/Student Teacher	parent	1304	Lesson Plans			n/a	NULL				
+9	Intern/Student Teacher	child	1304	Lesson Plans			n/a	1305	My Lesson Plans			n/a
+9	Intern/Student Teacher	child	1304	Lesson Plans			n/a	1306	Create Lesson Plan			n/a
+9	Intern/Student Teacher	child	1304	Lesson Plans			n/a	1307	Mentor Feedback			n/a
+9	Intern/Student Teacher	parent	1308	Observations			n/a	NULL				
+9	Intern/Student Teacher	child	1308	Observations			n/a	1309	Observation Schedule			n/a
+9	Intern/Student Teacher	child	1308	Observations			n/a	1310	Feedback Received			n/a
+9	Intern/Student Teacher	child	1308	Observations			n/a	1311	Improvement Areas			n/a
+9	Intern/Student Teacher	parent	510	Development			n/a	NULL				
+9	Intern/Student Teacher	child	510	Development			n/a	511	Competencies			n/a
+9	Intern/Student Teacher	child	510	Development			n/a	512	My Progress			n/a
+9	Intern/Student Teacher	parent	1312	Mentorship			n/a	NULL				
+9	Intern/Student Teacher	child	1312	Mentorship			n/a	1313	My Mentor			n/a
+9	Intern/Student Teacher	child	1312	Mentorship			n/a	1314	Meetings			n/a
+9	Intern/Student Teacher	child	1312	Mentorship			n/a	1315	Mentor Notes			n/a
+9	Intern/Student Teacher	parent	1316	Resources			n/a	NULL				
+9	Intern/Student Teacher	child	1316	Resources			n/a	1317	Teaching Materials			n/a
+9	Intern/Student Teacher	child	1316	Resources			n/a	1318	Syllabus			n/a
+9	Intern/Student Teacher	child	1316	Resources			n/a	1319	Schemes of Work			n/a
+9	Intern/Student Teacher	child	1316	Resources			n/a	1320	Past Papers			n/a
+9	Intern/Student Teacher	parent	1321	My Development			n/a	NULL				
+9	Intern/Student Teacher	child	1321	My Development			n/a	1322	Competency Checklist			n/a
+9	Intern/Student Teacher	child	1321	My Development			n/a	1323	Progress Tracker			n/a
+9	Intern/Student Teacher	child	1321	My Development			n/a	1324	Learning Goals			n/a
+9	Intern/Student Teacher	child	1321	My Development			n/a	1325	Reflection Journal			n/a
+9	Intern/Student Teacher	parent	1326	Students			n/a	NULL				
+9	Intern/Student Teacher	child	1326	Students			n/a	1327	Class Lists			n/a
+9	Intern/Student Teacher	child	1326	Students			n/a	1328	Student Info			n/a
+10	Accountant	parent	107	Dashboard	school_accountant_dashboard	finance_view	ok	NULL				
+10	Accountant	parent	550	Fees			n/a	NULL				
+10	Accountant	child	550	Fees			n/a	560	Uniform Sales			n/a
+10	Accountant	parent	555	Payroll	manage_payrolls	finance_view	ok	NULL				
+10	Accountant	child	555	Payroll	manage_payrolls	finance_view	ok	562	Payslips			n/a
+10	Accountant	parent	558	Reports			n/a	NULL				
+10	Accountant	child	558	Reports			n/a	561	Budget Management			n/a
+10	Accountant	child	558	Reports			n/a	563	School Expenses			n/a
+10	Accountant	parent	910	Accounts & Cash			n/a	NULL				
+10	Accountant	child	910	Accounts & Cash			n/a	911	Bank Accounts			n/a
+10	Accountant	child	910	Accounts & Cash			n/a	912	Bank Transactions			n/a
+10	Accountant	child	910	Accounts & Cash			n/a	913	Petty Cash			n/a
+10	Accountant	child	910	Accounts & Cash			n/a	914	Cash Reconciliation			n/a
+10	Accountant	child	910	Accounts & Cash			n/a	915	Account Balances			n/a
+10	Accountant	parent	100000	Income			n/a	NULL				
+10	Accountant	child	100000	Income			n/a	100008	Fee Structure	manage_fee_structure	finance_view	ok
+10	Accountant	child	100000	Income			n/a	100009	Student Fee Accounts	all_students		n/a
+10	Accountant	child	100000	Income			n/a	100010	Payments	manage_payments	finance_view	ok
+10	Accountant	child	100000	Income			n/a	100011	Unmatched Payments	unmatched_payments		n/a
+10	Accountant	parent	100001	Expenditure			n/a	NULL				
+10	Accountant	child	100001	Expenditure			n/a	100012	Payroll	payroll	finance_view	ok
+10	Accountant	child	100001	Expenditure			n/a	100013	Vendors & Suppliers	vendors		n/a
+10	Accountant	child	100001	Expenditure			n/a	100014	Purchase Orders	purchase_orders		n/a
+10	Accountant	child	100001	Expenditure			n/a	100015	Petty Cash	petty_cash		n/a
+10	Accountant	parent	920	M-Pesa & Mobile Money			n/a	NULL				
+10	Accountant	child	920	M-Pesa & Mobile Money			n/a	921	M-Pesa Transactions			n/a
+10	Accountant	child	920	M-Pesa & Mobile Money			n/a	922	Unmatched Payments			n/a
+10	Accountant	child	920	M-Pesa & Mobile Money			n/a	923	Reconciliation			n/a
+10	Accountant	child	920	M-Pesa & Mobile Money			n/a	924	Till / Paybill Settings			n/a
+10	Accountant	child	920	M-Pesa & Mobile Money			n/a	925	Reversal Logs			n/a
+10	Accountant	parent	100002	Accounts & Balances			n/a	NULL				
+10	Accountant	child	100002	Accounts & Balances			n/a	100016	Bank Accounts	bank_accounts		n/a
+10	Accountant	child	100002	Accounts & Balances			n/a	100017	Bank Transactions	bank_transactions		n/a
+10	Accountant	child	100002	Accounts & Balances			n/a	100018	M-Pesa Settlements	mpesa_settlements		n/a
+10	Accountant	parent	930	Vendors & Suppliers			n/a	NULL				
+10	Accountant	child	930	Vendors & Suppliers			n/a	931	Vendors			n/a
+10	Accountant	child	930	Vendors & Suppliers			n/a	932	Purchase Orders			n/a
+10	Accountant	child	930	Vendors & Suppliers			n/a	933	Invoices			n/a
+10	Accountant	child	930	Vendors & Suppliers			n/a	934	Vendor Payments			n/a
+10	Accountant	child	930	Vendors & Suppliers			n/a	935	Outstanding Liabilities			n/a
+10	Accountant	parent	940	Financial Controls			n/a	NULL				
+10	Accountant	child	940	Financial Controls			n/a	941	Transaction Approvals			n/a
+10	Accountant	child	940	Financial Controls			n/a	942	Audit Logs			n/a
+10	Accountant	child	940	Financial Controls			n/a	943	Adjustments & Reversals			n/a
+10	Accountant	child	940	Financial Controls			n/a	944	Deleted / Voided			n/a
+10	Accountant	child	940	Financial Controls			n/a	945	Exception Reports			n/a
+10	Accountant	parent	950	Assets & Inventory			n/a	NULL				
+10	Accountant	child	950	Assets & Inventory			n/a	951	Asset Purchases			n/a
+10	Accountant	child	950	Assets & Inventory			n/a	952	Depreciation			n/a
+10	Accountant	child	950	Assets & Inventory			n/a	953	Inventory Expenses			n/a
+10	Accountant	child	950	Assets & Inventory			n/a	954	Asset Disposal			n/a
+14	Inventory Manager	parent	108	Dashboard	store_manager_dashboard	inventory_view	ok	NULL				
+14	Inventory Manager	parent	600	Inventory	manage_inventory	inventory_view	ok	NULL				
+14	Inventory Manager	child	600	Inventory	manage_inventory	inventory_view	ok	601	Manage Inventory	manage_inventory	inventory_view	ok
+14	Inventory Manager	child	600	Inventory	manage_inventory	inventory_view	ok	603	Requisitions	manage_requisitions	inventory_view	ok
+14	Inventory Manager	child	600	Inventory	manage_inventory	inventory_view	ok	602	Stock Management	manage_stock	inventory_view	ok
+14	Inventory Manager	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+14	Inventory Manager	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+16	Cateress	parent	109	Dashboard	catering_manager_cook_lead_dashboard	inventory_view	ok	NULL				
+16	Cateress	parent	650	Menu & Food			n/a	NULL				
+16	Cateress	child	650	Menu & Food			n/a	652	Food Store	food_store	inventory_view	ok
+16	Cateress	child	650	Menu & Food			n/a	651	Menu Planning	menu_planning	inventory_view	ok
+16	Cateress	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+16	Cateress	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+18	Boarding Master	parent	110	Dashboard	matron_housemother_dashboard	boarding_view	ok	NULL				
+18	Boarding Master	parent	700	Boarding	manage_boarding	boarding_view	ok	NULL				
+18	Boarding Master	child	700	Boarding	manage_boarding	boarding_view	ok	701	Manage Boarding	manage_boarding	boarding_view	ok
+18	Boarding Master	child	700	Boarding	manage_boarding	boarding_view	ok	1329	Roll Call	boarding_roll_call		n/a
+18	Boarding Master	child	700	Boarding	manage_boarding	boarding_view	ok	1330	Permissions & Exeats	permissions_exeats		n/a
+18	Boarding Master	child	700	Boarding	manage_boarding	boarding_view	ok	1331	Dormitory Management	dormitory_management		n/a
+18	Boarding Master	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+18	Boarding Master	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+21	Talent Development	parent	111	Dashboard	hod_talent_development_dashboard	activities_view	ok	NULL				
+21	Talent Development	parent	750	Activities	manage_activities	activities_view	ok	NULL				
+21	Talent Development	child	750	Activities	manage_activities	activities_view	ok	751	Manage Activities	manage_activities	activities_view	ok
+21	Talent Development	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+21	Talent Development	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+23	Driver	parent	112	Dashboard	driver_dashboard	transport_view	ok	NULL				
+23	Driver	parent	800	Transport	manage_transport		n/a	NULL				
+23	Driver	child	800	Transport	manage_transport		n/a	801	My Routes	my_routes	transport_view	ok
+23	Driver	child	800	Transport	manage_transport		n/a	802	My Vehicle	my_vehicle	transport_view	ok
+23	Driver	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+23	Driver	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+24	Chaplain	parent	113	Dashboard	school_counselor_chaplain_dashboard	chapel_view	ok	NULL				
+24	Chaplain	parent	850	Counseling			n/a	NULL				
+24	Chaplain	child	850	Counseling			n/a	852	Chapel Services	chapel_services	chapel_view	ok
+24	Chaplain	child	850	Counseling			n/a	851	Student Counseling	student_counseling	chapel_view	ok
+24	Chaplain	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+24	Chaplain	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+32	Kitchen Staff	parent	100019	Dashboard	support_staff_dashboard		n/a	NULL				
+33	Security Staff	parent	100019	Dashboard	support_staff_dashboard		n/a	NULL				
+34	Janitor	parent	100019	Dashboard	support_staff_dashboard		n/a	NULL				
+63	Deputy Head - Discipline	parent	1334	Dashboard	deputy_head_discipline_dashboard		n/a	NULL				
+63	Deputy Head - Discipline	parent	900	Students			n/a	NULL				
+63	Deputy Head - Discipline	child	900	Students			n/a	902	Admissions	manage_students_admissions	admission_view	ok
+63	Deputy Head - Discipline	child	900	Students			n/a	901	All Students	manage_students	students_view	ok
+63	Deputy Head - Discipline	parent	1160	Discipline			n/a	NULL				
+63	Deputy Head - Discipline	child	1160	Discipline			n/a	1161	All Cases			n/a
+63	Deputy Head - Discipline	child	1160	Discipline			n/a	1162	Log New Case			n/a
+63	Deputy Head - Discipline	child	1160	Discipline			n/a	1163	Pending Cases			n/a
+63	Deputy Head - Discipline	child	1160	Discipline			n/a	1164	Resolved Cases			n/a
+63	Deputy Head - Discipline	child	1160	Discipline			n/a	1165	Sanctions			n/a
+63	Deputy Head - Discipline	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+63	Deputy Head - Discipline	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+63	Deputy Head - Discipline	parent	1166	Student Conduct			n/a	NULL				
+63	Deputy Head - Discipline	child	1166	Student Conduct			n/a	1167	Behavior Logs			n/a
+63	Deputy Head - Discipline	child	1166	Student Conduct			n/a	1168	Conduct Grades			n/a
+63	Deputy Head - Discipline	child	1166	Student Conduct			n/a	1169	Rewards & Recognition			n/a
+63	Deputy Head - Discipline	child	1166	Student Conduct			n/a	1170	Counseling Referrals			n/a
+63	Deputy Head - Discipline	parent	1171	Attendance			n/a	NULL				
+63	Deputy Head - Discipline	child	1171	Attendance			n/a	1172	Daily Overview			n/a
+63	Deputy Head - Discipline	child	1171	Attendance			n/a	1173	Truancy Cases			n/a
+63	Deputy Head - Discipline	child	1171	Attendance			n/a	1174	Late Arrivals			n/a
+63	Deputy Head - Discipline	child	1171	Attendance			n/a	1175	Chronic Absenteeism			n/a
+63	Deputy Head - Discipline	parent	1176	Parent Communication			n/a	NULL				
+63	Deputy Head - Discipline	child	1176	Parent Communication			n/a	1177	Schedule Meetings			n/a
+63	Deputy Head - Discipline	child	1176	Parent Communication			n/a	1178	Send Notifications			n/a
+63	Deputy Head - Discipline	child	1176	Parent Communication			n/a	1179	Meeting Records			n/a
+63	Deputy Head - Discipline	parent	1180	Student Welfare			n/a	NULL				
+63	Deputy Head - Discipline	child	1180	Student Welfare			n/a	1181	At-Risk Students			n/a
+63	Deputy Head - Discipline	child	1180	Student Welfare			n/a	1182	Intervention Plans			n/a
+63	Deputy Head - Discipline	child	1180	Student Welfare			n/a	1183	Follow-ups			n/a
+63	Deputy Head - Discipline	parent	1184	Reports			n/a	NULL				
+63	Deputy Head - Discipline	child	1184	Reports			n/a	1185	Discipline Reports			n/a
+63	Deputy Head - Discipline	child	1184	Reports			n/a	1186	Attendance Reports			n/a
+63	Deputy Head - Discipline	child	1184	Reports			n/a	1187	Conduct Reports			n/a
+63	Deputy Head - Discipline	child	1184	Reports			n/a	1188	Weekly Summary			n/a
+64	Staff	parent	100019	Dashboard	support_staff_dashboard		n/a	NULL				
+65	TeacherTest	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+65	TeacherTest	parent	450	My Teaching			n/a	NULL				
+65	TeacherTest	parent	1204	My Students			n/a	NULL				
+65	TeacherTest	child	1204	My Students			n/a	1205	Student List			n/a
+65	TeacherTest	child	1204	My Students			n/a	1206	Student Profiles			n/a
+65	TeacherTest	child	1204	My Students			n/a	1207	Performance			n/a
+65	TeacherTest	child	1204	My Students			n/a	1208	Special Needs			n/a
+65	TeacherTest	parent	1209	Attendance			n/a	NULL				
+65	TeacherTest	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+65	TeacherTest	child	1209	Attendance			n/a	1211	Attendance History			n/a
+65	TeacherTest	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+65	TeacherTest	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+65	TeacherTest	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+65	TeacherTest	parent	1213	Lesson Plans			n/a	NULL				
+65	TeacherTest	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+65	TeacherTest	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+65	TeacherTest	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+65	TeacherTest	parent	1217	Assessments			n/a	NULL				
+65	TeacherTest	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+65	TeacherTest	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+65	TeacherTest	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+65	TeacherTest	child	1217	Assessments			n/a	1221	Class Results			n/a
+65	TeacherTest	parent	1222	Discipline			n/a	NULL				
+65	TeacherTest	child	1222	Discipline			n/a	1223	Log Incident			n/a
+65	TeacherTest	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+65	TeacherTest	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+65	TeacherTest	parent	1226	Parents			n/a	NULL				
+65	TeacherTest	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+65	TeacherTest	child	1226	Parents			n/a	1228	Send Message			n/a
+65	TeacherTest	child	1226	Parents			n/a	1229	Message History			n/a
+65	TeacherTest	parent	1230	Reports			n/a	NULL				
+65	TeacherTest	child	1230	Reports			n/a	1231	Class Report			n/a
+65	TeacherTest	child	1230	Reports			n/a	1232	Progress Reports			n/a
+65	TeacherTest	child	1230	Reports			n/a	1233	Term Reports			n/a
+65	TeacherTest	child	1230	Reports			n/a	1234	Report Cards			n/a
+66	TeacherTest_1767163062	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+66	TeacherTest_1767163062	parent	450	My Teaching			n/a	NULL				
+66	TeacherTest_1767163062	parent	1204	My Students			n/a	NULL				
+66	TeacherTest_1767163062	child	1204	My Students			n/a	1205	Student List			n/a
+66	TeacherTest_1767163062	child	1204	My Students			n/a	1206	Student Profiles			n/a
+66	TeacherTest_1767163062	child	1204	My Students			n/a	1207	Performance			n/a
+66	TeacherTest_1767163062	child	1204	My Students			n/a	1208	Special Needs			n/a
+66	TeacherTest_1767163062	parent	1209	Attendance			n/a	NULL				
+66	TeacherTest_1767163062	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+66	TeacherTest_1767163062	child	1209	Attendance			n/a	1211	Attendance History			n/a
+66	TeacherTest_1767163062	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+66	TeacherTest_1767163062	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+66	TeacherTest_1767163062	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+66	TeacherTest_1767163062	parent	1213	Lesson Plans			n/a	NULL				
+66	TeacherTest_1767163062	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+66	TeacherTest_1767163062	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+66	TeacherTest_1767163062	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+66	TeacherTest_1767163062	parent	1217	Assessments			n/a	NULL				
+66	TeacherTest_1767163062	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+66	TeacherTest_1767163062	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+66	TeacherTest_1767163062	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+66	TeacherTest_1767163062	child	1217	Assessments			n/a	1221	Class Results			n/a
+66	TeacherTest_1767163062	parent	1222	Discipline			n/a	NULL				
+66	TeacherTest_1767163062	child	1222	Discipline			n/a	1223	Log Incident			n/a
+66	TeacherTest_1767163062	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+66	TeacherTest_1767163062	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+66	TeacherTest_1767163062	parent	1226	Parents			n/a	NULL				
+66	TeacherTest_1767163062	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+66	TeacherTest_1767163062	child	1226	Parents			n/a	1228	Send Message			n/a
+66	TeacherTest_1767163062	child	1226	Parents			n/a	1229	Message History			n/a
+66	TeacherTest_1767163062	parent	1230	Reports			n/a	NULL				
+66	TeacherTest_1767163062	child	1230	Reports			n/a	1231	Class Report			n/a
+66	TeacherTest_1767163062	child	1230	Reports			n/a	1232	Progress Reports			n/a
+66	TeacherTest_1767163062	child	1230	Reports			n/a	1233	Term Reports			n/a
+66	TeacherTest_1767163062	child	1230	Reports			n/a	1234	Report Cards			n/a
+67	TeacherTest_1767164152	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+67	TeacherTest_1767164152	parent	450	My Teaching			n/a	NULL				
+67	TeacherTest_1767164152	parent	1204	My Students			n/a	NULL				
+67	TeacherTest_1767164152	child	1204	My Students			n/a	1205	Student List			n/a
+67	TeacherTest_1767164152	child	1204	My Students			n/a	1206	Student Profiles			n/a
+67	TeacherTest_1767164152	child	1204	My Students			n/a	1207	Performance			n/a
+67	TeacherTest_1767164152	child	1204	My Students			n/a	1208	Special Needs			n/a
+67	TeacherTest_1767164152	parent	1209	Attendance			n/a	NULL				
+67	TeacherTest_1767164152	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+67	TeacherTest_1767164152	child	1209	Attendance			n/a	1211	Attendance History			n/a
+67	TeacherTest_1767164152	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+67	TeacherTest_1767164152	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+67	TeacherTest_1767164152	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+67	TeacherTest_1767164152	parent	1213	Lesson Plans			n/a	NULL				
+67	TeacherTest_1767164152	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+67	TeacherTest_1767164152	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+67	TeacherTest_1767164152	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+67	TeacherTest_1767164152	parent	1217	Assessments			n/a	NULL				
+67	TeacherTest_1767164152	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+67	TeacherTest_1767164152	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+67	TeacherTest_1767164152	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+67	TeacherTest_1767164152	child	1217	Assessments			n/a	1221	Class Results			n/a
+67	TeacherTest_1767164152	parent	1222	Discipline			n/a	NULL				
+67	TeacherTest_1767164152	child	1222	Discipline			n/a	1223	Log Incident			n/a
+67	TeacherTest_1767164152	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+67	TeacherTest_1767164152	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+67	TeacherTest_1767164152	parent	1226	Parents			n/a	NULL				
+67	TeacherTest_1767164152	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+67	TeacherTest_1767164152	child	1226	Parents			n/a	1228	Send Message			n/a
+67	TeacherTest_1767164152	child	1226	Parents			n/a	1229	Message History			n/a
+67	TeacherTest_1767164152	parent	1230	Reports			n/a	NULL				
+67	TeacherTest_1767164152	child	1230	Reports			n/a	1231	Class Report			n/a
+67	TeacherTest_1767164152	child	1230	Reports			n/a	1232	Progress Reports			n/a
+67	TeacherTest_1767164152	child	1230	Reports			n/a	1233	Term Reports			n/a
+67	TeacherTest_1767164152	child	1230	Reports			n/a	1234	Report Cards			n/a
+68	TeacherTest_1767164188	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+68	TeacherTest_1767164188	parent	450	My Teaching			n/a	NULL				
+68	TeacherTest_1767164188	parent	1204	My Students			n/a	NULL				
+68	TeacherTest_1767164188	child	1204	My Students			n/a	1205	Student List			n/a
+68	TeacherTest_1767164188	child	1204	My Students			n/a	1206	Student Profiles			n/a
+68	TeacherTest_1767164188	child	1204	My Students			n/a	1207	Performance			n/a
+68	TeacherTest_1767164188	child	1204	My Students			n/a	1208	Special Needs			n/a
+68	TeacherTest_1767164188	parent	1209	Attendance			n/a	NULL				
+68	TeacherTest_1767164188	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+68	TeacherTest_1767164188	child	1209	Attendance			n/a	1211	Attendance History			n/a
+68	TeacherTest_1767164188	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+68	TeacherTest_1767164188	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+68	TeacherTest_1767164188	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+68	TeacherTest_1767164188	parent	1213	Lesson Plans			n/a	NULL				
+68	TeacherTest_1767164188	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+68	TeacherTest_1767164188	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+68	TeacherTest_1767164188	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+68	TeacherTest_1767164188	parent	1217	Assessments			n/a	NULL				
+68	TeacherTest_1767164188	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+68	TeacherTest_1767164188	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+68	TeacherTest_1767164188	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+68	TeacherTest_1767164188	child	1217	Assessments			n/a	1221	Class Results			n/a
+68	TeacherTest_1767164188	parent	1222	Discipline			n/a	NULL				
+68	TeacherTest_1767164188	child	1222	Discipline			n/a	1223	Log Incident			n/a
+68	TeacherTest_1767164188	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+68	TeacherTest_1767164188	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+68	TeacherTest_1767164188	parent	1226	Parents			n/a	NULL				
+68	TeacherTest_1767164188	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+68	TeacherTest_1767164188	child	1226	Parents			n/a	1228	Send Message			n/a
+68	TeacherTest_1767164188	child	1226	Parents			n/a	1229	Message History			n/a
+68	TeacherTest_1767164188	parent	1230	Reports			n/a	NULL				
+68	TeacherTest_1767164188	child	1230	Reports			n/a	1231	Class Report			n/a
+68	TeacherTest_1767164188	child	1230	Reports			n/a	1232	Progress Reports			n/a
+68	TeacherTest_1767164188	child	1230	Reports			n/a	1233	Term Reports			n/a
+68	TeacherTest_1767164188	child	1230	Reports			n/a	1234	Report Cards			n/a
+69	TeacherTest_1767165995	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+69	TeacherTest_1767165995	parent	450	My Teaching			n/a	NULL				
+69	TeacherTest_1767165995	parent	1204	My Students			n/a	NULL				
+69	TeacherTest_1767165995	child	1204	My Students			n/a	1205	Student List			n/a
+69	TeacherTest_1767165995	child	1204	My Students			n/a	1206	Student Profiles			n/a
+69	TeacherTest_1767165995	child	1204	My Students			n/a	1207	Performance			n/a
+69	TeacherTest_1767165995	child	1204	My Students			n/a	1208	Special Needs			n/a
+69	TeacherTest_1767165995	parent	1209	Attendance			n/a	NULL				
+69	TeacherTest_1767165995	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+69	TeacherTest_1767165995	child	1209	Attendance			n/a	1211	Attendance History			n/a
+69	TeacherTest_1767165995	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+69	TeacherTest_1767165995	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+69	TeacherTest_1767165995	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+69	TeacherTest_1767165995	parent	1213	Lesson Plans			n/a	NULL				
+69	TeacherTest_1767165995	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+69	TeacherTest_1767165995	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+69	TeacherTest_1767165995	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+69	TeacherTest_1767165995	parent	1217	Assessments			n/a	NULL				
+69	TeacherTest_1767165995	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+69	TeacherTest_1767165995	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+69	TeacherTest_1767165995	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+69	TeacherTest_1767165995	child	1217	Assessments			n/a	1221	Class Results			n/a
+69	TeacherTest_1767165995	parent	1222	Discipline			n/a	NULL				
+69	TeacherTest_1767165995	child	1222	Discipline			n/a	1223	Log Incident			n/a
+69	TeacherTest_1767165995	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+69	TeacherTest_1767165995	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+69	TeacherTest_1767165995	parent	1226	Parents			n/a	NULL				
+69	TeacherTest_1767165995	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+69	TeacherTest_1767165995	child	1226	Parents			n/a	1228	Send Message			n/a
+69	TeacherTest_1767165995	child	1226	Parents			n/a	1229	Message History			n/a
+69	TeacherTest_1767165995	parent	1230	Reports			n/a	NULL				
+69	TeacherTest_1767165995	child	1230	Reports			n/a	1231	Class Report			n/a
+69	TeacherTest_1767165995	child	1230	Reports			n/a	1232	Progress Reports			n/a
+69	TeacherTest_1767165995	child	1230	Reports			n/a	1233	Term Reports			n/a
+69	TeacherTest_1767165995	child	1230	Reports			n/a	1234	Report Cards			n/a
+70	TeacherTest_1767166489	parent	104	Dashboard	teacher_dashboard		n/a	NULL				
+70	TeacherTest_1767166489	parent	450	My Teaching			n/a	NULL				
+70	TeacherTest_1767166489	parent	1204	My Students			n/a	NULL				
+70	TeacherTest_1767166489	child	1204	My Students			n/a	1205	Student List			n/a
+70	TeacherTest_1767166489	child	1204	My Students			n/a	1206	Student Profiles			n/a
+70	TeacherTest_1767166489	child	1204	My Students			n/a	1207	Performance			n/a
+70	TeacherTest_1767166489	child	1204	My Students			n/a	1208	Special Needs			n/a
+70	TeacherTest_1767166489	parent	1209	Attendance			n/a	NULL				
+70	TeacherTest_1767166489	child	1209	Attendance			n/a	1210	Mark Attendance			n/a
+70	TeacherTest_1767166489	child	1209	Attendance			n/a	1211	Attendance History			n/a
+70	TeacherTest_1767166489	child	1209	Attendance			n/a	1212	Absentees Today			n/a
+70	TeacherTest_1767166489	parent	150	Communications	manage_communications	communications_view	ok	NULL				
+70	TeacherTest_1767166489	child	150	Communications	manage_communications	communications_view	ok	151	Messages	manage_communications	communications_view	ok
+70	TeacherTest_1767166489	parent	1213	Lesson Plans			n/a	NULL				
+70	TeacherTest_1767166489	child	1213	Lesson Plans			n/a	1214	My Lesson Plans			n/a
+70	TeacherTest_1767166489	child	1213	Lesson Plans			n/a	1215	Create Lesson Plan			n/a
+70	TeacherTest_1767166489	child	1213	Lesson Plans			n/a	1216	Schemes of Work			n/a
+70	TeacherTest_1767166489	parent	1217	Assessments			n/a	NULL				
+70	TeacherTest_1767166489	child	1217	Assessments			n/a	1218	Create Assessment			n/a
+70	TeacherTest_1767166489	child	1217	Assessments			n/a	1219	CATs (Formative)			n/a
+70	TeacherTest_1767166489	child	1217	Assessments			n/a	1220	Enter Marks			n/a
+70	TeacherTest_1767166489	child	1217	Assessments			n/a	1221	Class Results			n/a
+70	TeacherTest_1767166489	parent	1222	Discipline			n/a	NULL				
+70	TeacherTest_1767166489	child	1222	Discipline			n/a	1223	Log Incident			n/a
+70	TeacherTest_1767166489	child	1222	Discipline			n/a	1224	Behavior Notes			n/a
+70	TeacherTest_1767166489	child	1222	Discipline			n/a	1225	Conduct Grades			n/a
+70	TeacherTest_1767166489	parent	1226	Parents			n/a	NULL				
+70	TeacherTest_1767166489	child	1226	Parents			n/a	1227	Parent Contacts			n/a
+70	TeacherTest_1767166489	child	1226	Parents			n/a	1228	Send Message			n/a
+70	TeacherTest_1767166489	child	1226	Parents			n/a	1229	Message History			n/a
+70	TeacherTest_1767166489	parent	1230	Reports			n/a	NULL				
+70	TeacherTest_1767166489	child	1230	Reports			n/a	1231	Class Report			n/a
+70	TeacherTest_1767166489	child	1230	Reports			n/a	1232	Progress Reports			n/a
+70	TeacherTest_1767166489	child	1230	Reports			n/a	1233	Term Reports			n/a
+70	TeacherTest_1767166489	child	1230	Reports			n/a	1234	Report Cards			n/a

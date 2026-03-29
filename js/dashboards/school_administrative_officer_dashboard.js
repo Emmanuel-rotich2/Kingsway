@@ -1162,7 +1162,7 @@ const schoolAdminDashboardController = {
 
   handlePendingItemAction: function (type) {
     const routes = {
-      Admission: "manage_admissions",
+      Admission: "manage_students_admissions",
       "Leave Request": "manage_staff",
       Assignment: "manage_staff",
       Communication: "manage_announcements",

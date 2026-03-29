@@ -23,10 +23,10 @@
                     <p class="text-muted mb-0">Record daily attendance for your class</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="/Kingsway/home.php?route=boarding_roll_call" class="btn btn-outline-info">
+                    <a href="/Kingsway/home.php?route=boarding_roll_call" class="btn btn-outline-info" id="boardingRollCallLink">
                         <i class="bi bi-house-door"></i> Boarding Roll Call
                     </a>
-                    <a href="/Kingsway/home.php?route=view_attendance" class="btn btn-outline-primary">
+                    <a href="/Kingsway/home.php?route=view_attendance" class="btn btn-outline-primary" id="viewAttendanceLink">
                         <i class="bi bi-eye"></i> View Attendance
                     </a>
                 </div>

@@ -53,7 +53,14 @@ $sidebar_items = [];
         <main class="main-content flex-grow-1" id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
-                if ($requestedPath && file_exists($requestedPath)) {
+                if ($route === 'loading') {
+                    echo '<div class="d-flex align-items-center justify-content-center py-5 text-muted">';
+                    echo '<div class="text-center">';
+                    echo '<div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>';
+                    echo '<div>Loading dashboard...</div>';
+                    echo '</div>';
+                    echo '</div>';
+                } elseif ($requestedPath && file_exists($requestedPath)) {
                     // Load the requested dashboard or page directly
                     include $requestedPath;
                 } elseif ($route) {

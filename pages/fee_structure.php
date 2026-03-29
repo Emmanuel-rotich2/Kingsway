@@ -137,4 +137,3 @@
             });
     })();
 </script>
-<script src="/Kingsway/js/pages/fee_structure.js"></script>

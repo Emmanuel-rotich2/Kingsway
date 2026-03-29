@@ -816,7 +816,7 @@ class AuthAPI extends BaseAPI
     // Validate and exchange refresh token for new access token
     public function exchangeRefreshToken($data)
     {
-        $refreshToken = $data['refresh_token'] ?? null;
+        $refreshToken = $data['refresh_token'] ?? ($_COOKIE['refresh_token'] ?? null);
 
         if (!$refreshToken) {
             return [
@@ -897,7 +897,7 @@ class AuthAPI extends BaseAPI
     // Revoke refresh token (logout)
     public function revokeRefreshToken($data)
     {
-        $refreshToken = $data['refresh_token'] ?? null;
+        $refreshToken = $data['refresh_token'] ?? ($_COOKIE['refresh_token'] ?? null);
 
         if (!$refreshToken) {
             return [
@@ -913,6 +913,10 @@ class AuthAPI extends BaseAPI
                 WHERE token = ? AND revoked_at IS NULL
             ');
             $stmt->execute([$refreshToken]);
+
+            $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+            setcookie('refresh_token', '', time() - 3600, '/', '', $secure, true);
+            header("Set-Cookie: refresh_token=deleted; Path=/; Max-Age=0; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
 
             return [
                 'success' => true,
