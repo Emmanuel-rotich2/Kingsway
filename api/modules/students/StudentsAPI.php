@@ -2400,9 +2400,9 @@ class StudentsAPI extends BaseAPI
             }
 
             $sql = "
-                INSERT INTO student_attendance (student_id, date, status, remarks)
+                INSERT INTO student_attendance (student_id, date, status, notes)
                 VALUES (?, ?, ?, ?)
-                ON DUPLICATE KEY UPDATE status = VALUES(status), remarks = VALUES(remarks)
+                ON DUPLICATE KEY UPDATE status = VALUES(status), notes = VALUES(notes)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -2410,7 +2410,7 @@ class StudentsAPI extends BaseAPI
                 $id,
                 $data['date'],
                 $data['status'],
-                $data['remarks'] ?? null
+                $data['notes'] ?? $data['remarks'] ?? null
             ]);
 
             $this->logAction('create', null, "Marked attendance for student ID: $id");
@@ -2701,8 +2701,6 @@ class StudentsAPI extends BaseAPI
                 'data' => [
                     'summary' => $summary,
                     'payments' => $payments,
-                    'payment_history' => $payments,
-                    'statement' => $payments,
                     'obligations' => $obligations
                 ]
             ]);
@@ -2752,47 +2750,98 @@ class StudentsAPI extends BaseAPI
                 ], 400);
             }
 
-            // Verify student exists
+            // Fetch current student stream
             $stmt = $this->db->prepare("SELECT stream_id FROM students WHERE id = ?");
             $stmt->execute([$id]);
-            if (!$stmt->fetch()) {
+            $student = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$student) {
                 return $this->response(['status' => 'error', 'message' => 'Student not found'], 404);
             }
+            $currentStreamId = (int) $student['stream_id'];
 
-            // Update student's class and stream
-            $sql = "UPDATE students SET stream_id = ? WHERE id = ?";
-            $stmt = $this->db->prepare($sql);
+            // Resolve current class_id from stream
+            $stmt = $this->db->prepare("SELECT class_id FROM class_streams WHERE id = ?");
+            $stmt->execute([$currentStreamId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $currentClassId = $row ? (int)$row['class_id'] : (int)($data['current_class_id'] ?? 0);
+
+            // Get active academic year values
+            $stmt = $this->db->query(
+                "SELECT id, CAST(SUBSTRING(year_code,1,4) AS UNSIGNED) as yr
+                 FROM academic_years WHERE is_current = 1 LIMIT 1"
+            );
+            $yearRow = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $fromYearId  = $yearRow ? (int)$yearRow['id'] : 0;
+            $fromYearVal = $yearRow ? (int)$yearRow['yr'] : (int)date('Y');
+            $toYearVal   = $fromYearVal + 1;
+
+            // Get current term id
+            $stmt = $this->db->prepare(
+                "SELECT id FROM academic_terms WHERE year = ?
+                 ORDER BY FIELD(status,'current','completed','upcoming'), term_number DESC LIMIT 1"
+            );
+            $stmt->execute([$fromYearVal]);
+            $termRow = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $termId = $termRow ? (int)$termRow['id'] : 1;
+
+            // Create a manual batch for this single promotion
+            $batchStmt = $this->db->prepare(
+                "INSERT INTO promotion_batches
+                    (batch_scope, from_academic_year, to_academic_year,
+                     batch_type, total_students_processed, created_by, status)
+                 VALUES (?, ?, ?, 'manual', 1, ?, 'completed')"
+            );
+            $batchStmt->execute([
+                "Direct promotion - student {$id}",
+                $fromYearVal, $toYearVal,
+                $this->user_id ?? 1
+            ]);
+            $batchId = $this->db->lastInsertId();
+
+            $this->db->beginTransaction();
+
+            // Update student's current stream
+            $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
             $stmt->execute([$data['new_stream_id'], $id]);
 
-            // Record promotion history
-            $sql = "
-                INSERT INTO student_promotions (
-                    student_id,
-                    from_class_id,
-                    to_class_id,
-                    from_stream_id,
-                    to_stream_id,
-                    promotion_date,
-                    remarks
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            ";
+            // Mark current enrollment as promoted
+            $stmt = $this->db->prepare(
+                "UPDATE class_enrollments
+                 SET promotion_status = 'promoted',
+                     promoted_to_class_id = ?,
+                     promoted_to_stream_id = ?,
+                     promotion_date = CURDATE()
+                 WHERE student_id = ? AND academic_year_id = ?"
+            );
+            $stmt->execute([$data['new_class_id'], $data['new_stream_id'], $id, $fromYearId]);
+
+            // Record in student_promotions with correct column names
+            $sql = "INSERT INTO student_promotions (
+                        batch_id, student_id,
+                        current_class_id, current_stream_id,
+                        promoted_to_class_id, promoted_to_stream_id,
+                        from_academic_year, to_academic_year,
+                        from_term_id, promotion_status, promotion_reason
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $id,
-                $data['current_class_id'],
-                $data['new_class_id'],
-                $data['current_stream_id'],
-                $data['new_stream_id'],
-                date('Y-m-d'),
+                $batchId, $id,
+                $currentClassId, $currentStreamId,
+                $data['new_class_id'], $data['new_stream_id'],
+                $fromYearVal, $toYearVal,
+                $termId,
                 $data['remarks'] ?? null
             ]);
+
+            $this->db->commit();
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'Student promoted successfully'
             ]);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
             return $this->handleException($e);
         }
     }

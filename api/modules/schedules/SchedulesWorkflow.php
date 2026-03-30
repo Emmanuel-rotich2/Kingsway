@@ -98,7 +98,7 @@ class SchedulesWorkflow extends WorkflowHandler
             $this->db->beginTransaction();
             // Insert timetable entries into class_schedules
             foreach ($plan['timetable_entries'] as $entry) {
-                $stmt = $this->db->prepare("INSERT INTO class_schedules (class_id, term_id, day_of_week, start_time, end_time, subject_id, teacher_id, room_id, status) VALUES (:class_id, :term_id, :day_of_week, :start_time, :end_time, :subject_id, :teacher_id, :room_id, 'planned')");
+                $stmt = $this->db->prepare("INSERT INTO class_schedules (class_id, term_id, day_of_week, start_time, end_time, subject_id, teacher_id, room_id, status) VALUES (:class_id, :term_id, :day_of_week, :start_time, :end_time, :subject_id, :teacher_id, :room_id, 'inactive')");
                 $stmt->execute([
                     'class_id' => $plan['class_id'],
                     'term_id' => $plan['term_id'],
@@ -164,7 +164,7 @@ class SchedulesWorkflow extends WorkflowHandler
             }
             // Mark all class_schedules as approved for this class/term
             $data = json_decode($instance['data_json'], true);
-            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "approved" WHERE class_id = :class_id AND term_id = :term_id');
+            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "active" WHERE class_id = :class_id AND term_id = :term_id');
             $stmt->execute([
                 'class_id' => $data['class_id'],
                 'term_id' => $data['term_id']
@@ -190,7 +190,7 @@ class SchedulesWorkflow extends WorkflowHandler
             }
             // Mark all class_schedules as published for this class/term
             $data = json_decode($instance['data_json'], true);
-            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "published" WHERE class_id = :class_id AND term_id = :term_id');
+            $stmt = $this->db->prepare('UPDATE class_schedules SET status = "active" WHERE class_id = :class_id AND term_id = :term_id');
             $stmt->execute([
                 'class_id' => $data['class_id'],
                 'term_id' => $data['term_id']

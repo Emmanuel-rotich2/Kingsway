@@ -69,7 +69,7 @@ function renderProfileHeader(student) {
             <div class="col">
                 <h2 class="mb-1">${student.full_name}</h2>
                 <p class="text-muted mb-1">
-                    <i class="bi bi-hash"></i> ${student.admission_number} | 
+                    <i class="bi bi-hash"></i> ${student.admission_no} |
                     <i class="bi bi-book"></i> ${student.class_name} |
                     <i class="bi bi-gender-${student.gender === 'M' ? 'male' : 'female'}"></i> ${student.gender}
                 </p>

@@ -1905,6 +1905,8 @@ window.API = {
     // Teachers
     listTeachers: async (params = {}) =>
       apiCall("/academic/teachers-list", "GET", null, params),
+    getTeachers: async (params = {}) =>
+      apiCall("/academic/teachers-list", "GET", null, params),
     getTeacherClasses: async (teacherId) =>
       apiCall(`/academic/teachers-classes?teacher_id=${teacherId}`, "GET"),
     getTeacherSubjects: async (teacherId) =>
