@@ -575,10 +575,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize inventory management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement inventoryManagementController in js/pages/inventory.js
-        console.log('Inventory Management page loaded');
-    });
-</script>
+<script src="/Kingsway/js/pages/manage_inventory.js"></script>

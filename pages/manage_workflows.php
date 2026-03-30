@@ -76,7 +76,8 @@ $actionOptions = ['View', 'Edit', 'Deactivate', 'Duplicate'];
       <p>Pending workflow approvals will appear here.</p>
     </div>
     <div id="completed" class="tab-pane fade">
-      <p>Completed workflows will appear here.</p>
+      <p class="text-muted py-3">Loading completed workflows...</p>
     </div>
   </div>
 </div>
+<script src="/Kingsway/js/pages/manage_workflows.js"></script>

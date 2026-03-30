@@ -169,3 +169,4 @@
     </div>
   </div>
 </div>
+<script src="/Kingsway/js/pages/school_settings.js"></script>
