@@ -68,11 +68,11 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database Configuration
-define('DB_HOST', 'DB_HOST', 'da28.host-ww.net');
-define('DB_USER', 'DB_USER', 'kingswa4_root');
-define('DB_NAME', 'DB_NAME', 'kingswa4_kingswayacademy');
-define('DB_PORT', 'DB_PORT', 3306);
-define('DB_PASS', 'DB_PASS', 'admin123');
+define('DB_HOST', 'localhost');
+define('DB_USER', 'kingswa4_root');
+define('DB_NAME', 'kingswa4_kingswayacademy');
+define('DB_PORT', '3306');
+define('DB_PASS',  'admin123');
 
 // JWT Configuration
 define('JWT_SECRET', '51c47afc73a6f2cf1a052309d1f8a8bb4839d7bc7aaddb32cd8f26b2898aed23');
@@ -86,11 +86,11 @@ define('SYSTEM_VERSION', '1.0.0');
 
 // Email Configuration
 
-define('SMTP_HOST', 'SMTP_HOST', 'mail.kingswaypreparatoryschool.sc.ke');
-define('SMTP_PORT', 'SMTP_PORT', 587));
-define('SMTP_USERNAME', 'SMTP_USERNAME', 'info@kingswaypreparatoryschool.sc.ke');
-define('SMTP_FROM_EMAIL', 'SMTP_FROM_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
-define('SMTP_PASSWORD', 'SMTP_PASSWORD', '@Kingsway123'); 
+define('SMTP_HOST', 'mail.kingswaypreparatoryschool.sc.ke');
+define('SMTP_PORT',  587));
+define('SMTP_USERNAME', 'info@kingswaypreparatoryschool.sc.ke');
+define('SMTP_FROM_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
+define('SMTP_PASSWORD', '@Kingsway123'); 
 define('SMTP_FROM_NAME', 'Kingsway Preparatory School');
 
 // SMS Configuration
