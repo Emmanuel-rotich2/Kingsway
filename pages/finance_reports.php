@@ -127,4 +127,4 @@
         </div>
     </div>
 </div>
-<script src="/Kingsway/js/pages/finance_reports.js"></script>
+<script src="<?= $appBase ?>js/pages/finance_reports.js"></script>

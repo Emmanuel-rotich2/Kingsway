@@ -264,7 +264,7 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/fee_structure_admin.js"></script>
+<script src="<?= $appBase ?>js/pages/fee_structure_admin.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof window.FeeStructureAdminController !== 'undefined') {

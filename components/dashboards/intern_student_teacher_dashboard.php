@@ -73,4 +73,4 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
     </div>
 </div>
 
-<script src="/Kingsway/js/dashboards/intern_student_teacher_dashboard.js"></script>
+<script src="<?= $appBase ?>js/dashboards/intern_student_teacher_dashboard.js"></script>

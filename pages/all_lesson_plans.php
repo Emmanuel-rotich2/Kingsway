@@ -211,4 +211,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/all_lesson_plans.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/all_lesson_plans.js?v=<?php echo time(); ?>"></script>

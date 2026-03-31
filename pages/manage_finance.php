@@ -26,7 +26,7 @@
         }
 
         if (!AuthContext.isAuthenticated()) {
-            window.location.href = "/Kingsway/index.php";
+            window.location.href = window.APP_BASE + "/index.php";
             return;
         }
 
@@ -71,7 +71,7 @@
         };
 
         const templateFile = roleTemplateMap[userRoleName] || "viewer_finance.php";
-        const templatePath = "/Kingsway/pages/finance/" + templateFile;
+        const templatePath = window.APP_BASE + "/pages/finance/" + templateFile;
 
         fetch(templatePath)
             .then(response => {

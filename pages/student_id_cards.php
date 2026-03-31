@@ -324,4 +324,4 @@
 </style>
 
 <!-- Scripts -->
-<script src="/Kingsway/js/pages/student_id_cards.js"></script>
+<script src="<?= $appBase ?>js/pages/student_id_cards.js"></script>

@@ -215,10 +215,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize requisitions management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement requisitionsManagementController in js/pages/requisitions.js
-        console.log('Requisitions Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_requisitions.js"></script>

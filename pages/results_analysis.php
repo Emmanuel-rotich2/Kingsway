@@ -223,4 +223,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/results_analysis.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/results_analysis.js?v=<?php echo time(); ?>"></script>

@@ -4,6 +4,11 @@
 
 require_once __DIR__ . '/config/DashboardRouter.php';
 
+// Auto-detect the application subfolder path so JS can build correct URLs.
+// Produces '' when deployed at domain root (production) and '/Kingsway' on localhost/XAMPP.
+$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($appBase === '.') $appBase = '';
+
 // Note: Authentication is handled via JWT token in localStorage
 // PHP session is NOT used to maintain stateless REST API architecture
 // This allows the application to work with round-robin load balancing
@@ -40,7 +45,7 @@ $roles = [$main_role];
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="/Kingsway/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>/king.css">
     <style>
         #route-guard-loading {
             position: fixed;
@@ -77,6 +82,9 @@ $roles = [$main_role];
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
+        // App base path — auto-detected by PHP, used by all JS for URL construction.
+        // Empty string when deployed at domain root (production), '/Kingsway' on localhost/XAMPP.
+        window.APP_BASE = <?php echo json_encode($appBase); ?>;
         // User data is managed by AuthContext in api.js (JWT-based, stateless)
         // AuthContext loads from localStorage on page load
         // No PHP session needed - this maintains stateless architecture
@@ -110,14 +118,15 @@ $roles = [$main_role];
     </div>
 
     <!-- Application Scripts -->
-    <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/ActionButtons.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/RoleBasedUI.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/EnhancedRoleBasedUI.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/DataTable.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/index.js?v=<?php echo time(); ?>"></script>
+    <?php $v = time(); ?>
+    <script src="<?= $appBase ?>/js/api.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/ActionButtons.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/EnhancedRoleBasedUI.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/DataTable.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/sidebar.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/main.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/index.js?v=<?= $v ?>"></script>
 
     <?php include __DIR__ . '/layouts/app_layout.php'; ?>
     <script>
@@ -137,7 +146,7 @@ $roles = [$main_role];
                 }
                 
                 console.warn('Redirecting to login to obtain JWT token');
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
@@ -174,7 +183,7 @@ $roles = [$main_role];
                 // This shouldn't happen because PHP redirects, but handle it anyway
                 const dashboardInfo = AuthContext.getDashboardInfo();
                 if (dashboardInfo && dashboardInfo.key) {
-                    window.location.href = '/Kingsway/home.php?route=' + dashboardInfo.key;
+                    window.location.href = (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key;
                 } else {
                     // Fallback: use role to determine dashboard
                     const user = AuthContext.getUser();

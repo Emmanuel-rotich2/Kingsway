@@ -296,4 +296,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/report_cards.js"></script>
+<script src="<?= $appBase ?>js/pages/report_cards.js"></script>

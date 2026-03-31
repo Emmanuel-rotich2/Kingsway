@@ -315,7 +315,7 @@ const ResultsAnalysisController = (() => {
       .getElementById("exportResultsBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=academic/results-analysis/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=academic/results-analysis/export&format=csv",
           "_blank",
         );
       });

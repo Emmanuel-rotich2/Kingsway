@@ -8,6 +8,7 @@
 
 // This page no longer processes direct form submissions
 // All attendance submission is now done via REST API from mark_attendance.php
-header('Location: /Kingsway/home.php?route=mark_attendance');
+$base = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+header('Location: ' . $base . '/home.php?route=mark_attendance');
 exit;
 ?>

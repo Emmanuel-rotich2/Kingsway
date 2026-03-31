@@ -268,4 +268,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/academicsManager.js"></script>
+<script src="<?= $appBase ?>/js/pages/academicsManager.js?v=<?= time() ?>"></script>

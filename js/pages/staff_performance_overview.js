@@ -292,7 +292,7 @@ const StaffPerformanceController = (() => {
       .getElementById("exportPerformanceBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=staff/performance/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=staff/performance/export&format=csv",
           "_blank",
         );
       });

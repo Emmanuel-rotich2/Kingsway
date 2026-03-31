@@ -12,7 +12,7 @@ const studentsManagementController = {
     },
 
     loadStudents(search = '') {
-        fetch(`/Kingsway/api/students.php?action=list&search=${search}`)
+        fetch((window.APP_BASE || "") + `/api/students.php?action=list&search=${search}`)
             .then(r => r.json())
             .then(data => {
                 let html = '';
@@ -70,7 +70,7 @@ const studentsManagementController = {
     },
 
     viewStudent(id) {
-        fetch(`/Kingsway/api/students.php?action=view&id=${id}`)
+        fetch((window.APP_BASE || "") + `/api/students.php?action=view&id=${id}`)
             .then(r => r.json())
             .then(s => {
                 viewStudentContent.innerHTML = `

@@ -385,6 +385,24 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /**
+     * GET /api/staff/payroll/detailed-payslip?staff_id=&month=&year=
+     */
+    public function getPayrollDetailedPayslip($id = null, $data = [], $segments = [])
+    {
+        $params  = array_merge($_GET, $data);
+        $staffId = $id ?? $params['staff_id'] ?? null;
+        $month   = (int) ($params['month'] ?? date('n'));
+        $year    = (int) ($params['year']  ?? date('Y'));
+
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
+        return $this->handleResponse($result);
+    }
+
     // ==================== ASSIGNMENT OPERATIONS ====================
 
     /**

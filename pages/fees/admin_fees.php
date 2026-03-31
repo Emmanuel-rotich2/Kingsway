@@ -13,28 +13,28 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/admin-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/admin-theme.css">
 
 <div class="admin-layout">
     <!-- Full Sidebar -->
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="logo-section">
-            <img src="/Kingsway/images/logo.png" alt="Kingsway Academy">
+            <img src="<?= $appBase ?>images/logo.png" alt="Kingsway Academy">
             <h3>Kingsway Academy</h3>
         </div>
 
         <nav class="sidebar-nav">
             <div class="nav-section">
                 <span class="nav-section-title">Finance</span>
-                <a href="/Kingsway/home.php?route=manage_finance" class="nav-item">💰 Finance</a>
-                <a href="/Kingsway/home.php?route=manage_fees" class="nav-item active">🧾 Student Fees</a>
-                <a href="/Kingsway/home.php?route=fee_defaulters" class="nav-item">⚠️ Defaulters</a>
+                <a href="<?= $appBase ?>home.php?route=manage_finance" class="nav-item">💰 Finance</a>
+                <a href="<?= $appBase ?>home.php?route=manage_fees" class="nav-item active">🧾 Student Fees</a>
+                <a href="<?= $appBase ?>home.php?route=fee_defaulters" class="nav-item">⚠️ Defaulters</a>
             </div>
             <div class="nav-section">
                 <span class="nav-section-title">Reports</span>
-                <a href="/Kingsway/home.php?route=balances_by_class" class="nav-item">📊 Balances by Class</a>
-                <a href="/Kingsway/home.php?route=finance_reports" class="nav-item">📈 Fee Reports</a>
+                <a href="<?= $appBase ?>home.php?route=balances_by_class" class="nav-item">📊 Balances by Class</a>
+                <a href="<?= $appBase ?>home.php?route=finance_reports" class="nav-item">📈 Fee Reports</a>
             </div>
         </nav>
 

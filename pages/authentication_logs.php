@@ -21,5 +21,5 @@
     <div class="card-body p-0"><div class="table-responsive"><table class="table table-hover mb-0" id="dataTable"><thead class="table-light"><tr><th>#</th><th>Timestamp</th><th>Level</th><th>Message</th><th>Source</th><th>Actions</th></tr></thead><tbody><tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr></tbody></table></div></div></div>
 </div>
 <div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="fas fa-info-circle me-2"></i>Detail</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="detailContent">--</div></div></div></div>
-<script src="/Kingsway/js/pages/system/log_viewer_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/system/log_viewer_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._logCtrl = new LogViewerController({ title: 'Authentication Logs', apiEndpoint: '/system/authentication-logs' });</script>

@@ -147,20 +147,25 @@ class PaymentManager
      */
     private function recordMpesaTransaction($paymentId, $mpesaData)
     {
+        // mpesa_transactions uses mpesa_code as the unique identifier (no payment_id column)
+        // Store payment reference in third_party_trans_id for traceability
         $stmt = $this->db->prepare("
             INSERT INTO mpesa_transactions (
-                payment_id, transaction_id, phone_number, 
-                amount, transaction_date, status
+                mpesa_code, phone_number, amount,
+                transaction_date, status, third_party_trans_id
             ) VALUES (?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status),
+                third_party_trans_id = VALUES(third_party_trans_id)
         ");
 
         return $stmt->execute([
-            $paymentId,
-            $mpesaData['transaction_id'],
-            $mpesaData['phone_number'],
+            $mpesaData['transaction_id'] ?? $mpesaData['mpesa_code'] ?? 'MPE-' . $paymentId,
+            $mpesaData['phone_number'] ?? null,
             $mpesaData['amount'],
             $mpesaData['transaction_date'] ?? date('Y-m-d H:i:s'),
-            $mpesaData['status'] ?? 'completed'
+            $mpesaData['status'] ?? 'processed',
+            (string) $paymentId  // link back to payment_transactions.id
         ]);
     }
 
@@ -172,16 +177,18 @@ class PaymentManager
      */
     private function recordBankTransaction($paymentId, $bankData)
     {
+        // bank_transactions has no payment_id column; transaction_ref is the unique key
         $stmt = $this->db->prepare("
             INSERT INTO bank_transactions (
-                payment_id, transaction_ref, amount, 
+                transaction_ref, amount,
                 transaction_date, bank_name, account_number, narration, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                status = VALUES(status)
         ");
 
         return $stmt->execute([
-            $paymentId,
-            $bankData['transaction_ref'],
+            $bankData['transaction_ref'] ?? 'BNK-' . $paymentId . '-' . time(),
             $bankData['amount'],
             $bankData['transaction_date'] ?? date('Y-m-d H:i:s'),
             $bankData['bank_name'] ?? null,
@@ -218,15 +225,19 @@ class PaymentManager
                 return formatResponse(false, null, 'Payment not found');
             }
 
-            // Call stored procedure for each allocation
-            $stmt = $this->db->prepare("CALL sp_allocate_payment(?, ?, ?, ?)");
+            // sp_allocate_payment(p_transaction_id, p_fee_structure_id, p_amount,
+            //                     p_academic_term_id, p_allocated_by, p_notes)
+            $stmt = $this->db->prepare("CALL sp_allocate_payment(?, ?, ?, ?, ?, ?)");
 
             foreach ($allocations as $allocation) {
                 $stmt->execute([
-                    $paymentId,
-                    $payment['student_id'],
-                    $allocation['fee_type_id'],
-                    $allocation['amount']
+                    $paymentId,                             // p_transaction_id
+                    $allocation['fee_structure_id']         // p_fee_structure_id
+                        ?? $allocation['fee_type_id'] ?? null,
+                    $allocation['amount'],                  // p_amount
+                    $allocation['term_id'] ?? null,         // p_academic_term_id
+                    $this->user_id ?? null,                 // p_allocated_by
+                    $allocation['notes'] ?? null            // p_notes
                 ]);
             }
 
@@ -475,21 +486,23 @@ class PaymentManager
                 return formatResponse(false, null, 'Payment not found or already reversed');
             }
 
-            // Update payment status to reversed
+            // Update payment status to reversed.
+            // payment_transactions has no reversal_reason/reversed_by/reversed_at columns.
+            // Store reversal context in the notes column.
+            $reversalNote = sprintf(
+                '[REVERSED] Reason: %s | By: %s | At: %s',
+                $data['reason'],
+                $data['reversed_by'],
+                date('Y-m-d H:i:s')
+            );
             $stmt = $this->db->prepare("
-                UPDATE payment_transactions 
-                SET status = 'reversed', 
-                    reversal_reason = ?,
-                    reversed_by = ?,
-                    reversed_at = NOW()
+                UPDATE payment_transactions
+                SET status = 'reversed',
+                    notes = CONCAT(COALESCE(notes,''), ?)
                 WHERE id = ?
             ");
 
-            $stmt->execute([
-                $data['reason'],
-                $data['reversed_by'],
-                $paymentId
-            ]);
+            $stmt->execute(["\n" . $reversalNote, $paymentId]);
 
             // Reverse allocations - update student fee balances
             $stmt = $this->db->prepare("
@@ -544,54 +557,45 @@ class PaymentManager
 
             $this->db->beginTransaction();
 
-            // Create reconciliation record
-            $stmt = $this->db->prepare("
-                INSERT INTO payment_reconciliations (
-                    reconciliation_date, bank_statement_file, 
-                    reconciled_by, status, notes
-                ) VALUES (?, ?, ?, ?, ?)
-            ");
+            $reconciliationIds = [];
 
-            $stmt->execute([
-                $data['reconciliation_date'],
-                $data['bank_statement_file'],
-                $data['reconciled_by'] ?? null,
-                'pending',
-                $data['notes'] ?? null
-            ]);
-
-            $reconciliationId = $this->db->lastInsertId();
-
-            // Match payments to bank transactions
+            // payment_reconciliations schema: (id, transaction_id FK school_transactions,
+            //   reconciled_by, reconciled_at, bank_statement_ref, notes)
+            // Record one entry per matched payment via school_transactions.
             if (!empty($data['matches'])) {
-                foreach ($data['matches'] as $match) {
-                    $stmt = $this->db->prepare("
-                        UPDATE payment_transactions 
-                        SET reconciliation_id = ?,
-                            reconciliation_status = 'matched'
-                        WHERE id = ?
-                    ");
+                $insertStmt = $this->db->prepare("
+                    INSERT IGNORE INTO payment_reconciliations
+                        (transaction_id, reconciled_by, bank_statement_ref, notes)
+                    SELECT st.id, ?, ?, ?
+                    FROM school_transactions st
+                    WHERE st.reference = (
+                        SELECT reference_no FROM payment_transactions WHERE id = ? LIMIT 1
+                    )
+                    LIMIT 1
+                ");
 
-                    $stmt->execute([
-                        $reconciliationId,
+                foreach ($data['matches'] as $match) {
+                    $insertStmt->execute([
+                        $data['reconciled_by'] ?? null,
+                        $data['bank_statement_file'] ?? null,
+                        $data['notes'] ?? null,
                         $match['payment_id']
                     ]);
+                    if ($this->db->lastInsertId()) {
+                        $reconciliationIds[] = $this->db->lastInsertId();
+                    }
+
+                    // Mark payment as confirmed once reconciled
+                    $this->db->prepare(
+                        "UPDATE payment_transactions SET status = 'confirmed' WHERE id = ? AND status = 'pending'"
+                    )->execute([$match['payment_id']]);
                 }
             }
-
-            // Update reconciliation status
-            $stmt = $this->db->prepare("
-                UPDATE payment_reconciliations 
-                SET status = 'completed',
-                    completed_at = NOW()
-                WHERE id = ?
-            ");
-            $stmt->execute([$reconciliationId]);
 
             $this->db->commit();
 
             return formatResponse(true, [
-                'reconciliation_id' => $reconciliationId,
+                'reconciliation_ids' => $reconciliationIds,
                 'message' => 'Payments reconciled successfully'
             ]);
 

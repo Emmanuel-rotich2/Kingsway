@@ -34,7 +34,7 @@ const assessmentsController = (() => {
 
   async function init() {
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     await loadFilters();
@@ -335,11 +335,11 @@ const assessmentsController = (() => {
   }
 
   function enterMarksFor(id) {
-    window.location.href = `/Kingsway/home.php?route=enter_results&assessment_id=${id}`;
+    window.location.href = (window.APP_BASE || "") + `/home.php?route=enter_results&assessment_id=${id}`;
   }
 
   function showBulkMarksModal() {
-    window.location.href = "/Kingsway/home.php?route=enter_results";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=enter_results";
   }
 
   async function publishAssessment(id) {

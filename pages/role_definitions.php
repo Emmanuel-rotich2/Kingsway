@@ -228,4 +228,4 @@
 </style>
 
 <!-- Page Controller -->
-<script src="/Kingsway/js/pages/role_definitions.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/role_definitions.js?v=<?php echo time(); ?>"></script>

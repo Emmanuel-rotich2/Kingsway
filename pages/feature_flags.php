@@ -11,5 +11,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-flag me-2"></i>Feature Flags Settings</h6></div><div class="card-body" id="settingsContainer"><div class="text-center text-muted py-4">Loading settings...</div></div></div>
 </div>
-<script src="/Kingsway/js/pages/system/toggle_config_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/system/toggle_config_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._toggleCtrl = new ToggleConfigController({ title: 'Feature Flags', apiEndpoint: '/system/feature-flags' });</script>

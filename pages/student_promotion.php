@@ -204,4 +204,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/student_promotion.js"></script>
+<script src="<?= $appBase ?>js/pages/student_promotion.js"></script>

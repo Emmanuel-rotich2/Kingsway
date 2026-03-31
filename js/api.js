@@ -1,7 +1,9 @@
 // Only define API_BASE_URL if not already defined
 if (typeof API_BASE_URL === 'undefined') {
-    var API_BASE_URL = '/api';
-}
+  
+    var API_BASE_URL = (window.APP_BASE || '') + '/api';
+
+ 
 
 // Token refresh tracking to prevent duplicate refresh requests
 if (typeof isRefreshingToken === "undefined") {
@@ -803,7 +805,7 @@ async function refreshAccessToken() {
       if (!response.ok) {
         console.error("Token refresh failed:", response.status);
         AuthContext.clearUser();
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || '') + "/index.php";
         return false;
       }
 
@@ -820,13 +822,13 @@ async function refreshAccessToken() {
       } else {
         console.error("Token refresh returned error:", result.message);
         AuthContext.clearUser();
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || '') + "/index.php";
         return false;
       }
     } catch (error) {
       console.error("Error refreshing token:", error);
       AuthContext.clearUser();
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || '') + "/index.php";
       return false;
     } finally {
       isRefreshingToken = false;
@@ -900,7 +902,7 @@ async function apiCall(
         "⚠️ No JWT token found in localStorage - API call will fail with 401"
       );
       console.warn(
-        "Please log in through /Kingsway/index.php to obtain a JWT token"
+        "Please log in through " + (window.APP_BASE || '') + "/index.php to obtain a JWT token"
       );
     } else {
       console.log("✓ Token found, length:", token.length);
@@ -1071,10 +1073,10 @@ window.API = {
         let redirectUrl;
         if (dashboardInfo && dashboardInfo.key) {
           // Use the normalized key (route name)
-          redirectUrl = "/Kingsway/home.php?route=" + dashboardInfo.key;
+          redirectUrl = (window.APP_BASE || '') + "/home.php?route=" + dashboardInfo.key;
         } else {
           // Fallback to home page which will redirect to appropriate dashboard
-          redirectUrl = "/Kingsway/home.php";
+          redirectUrl = (window.APP_BASE || '') + "/home.php";
         }
 
         console.log("Redirecting to:", redirectUrl);
@@ -1105,7 +1107,7 @@ window.API = {
         // Clear local storage
         AuthContext.clearUser();
         // Redirect to login
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || '') + "/index.php";
       }
     },
     forgotPassword: async (email) =>
@@ -1904,6 +1906,8 @@ window.API = {
 
     // Teachers
     listTeachers: async (params = {}) =>
+      apiCall("/academic/teachers-list", "GET", null, params),
+    getTeachers: async (params = {}) =>
       apiCall("/academic/teachers-list", "GET", null, params),
     getTeacherClasses: async (teacherId) =>
       apiCall(`/academic/teachers-classes?teacher_id=${teacherId}`, "GET"),

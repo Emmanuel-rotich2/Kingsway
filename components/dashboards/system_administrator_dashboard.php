@@ -359,5 +359,5 @@ include_once __DIR__ . '/../cards/card_component.php';
 </style>
 
 <!-- Load the System Admin Dashboard helper -->
-<script src="/Kingsway/js/dashboards/system_administrator_dashboard.js"></script>
+<script src="<?= $appBase ?>js/dashboards/system_administrator_dashboard.js"></script>
 

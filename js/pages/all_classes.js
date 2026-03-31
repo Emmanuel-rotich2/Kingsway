@@ -12,7 +12,7 @@ const AllClassesController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.bindEvents();
@@ -205,11 +205,11 @@ const AllClassesController = {
   },
 
   viewStudents(classId) {
-    window.location.href = `/Kingsway/pages/class_details.php?class_id=${classId}`;
+    window.location.href = (window.APP_BASE || "") + `/pages/class_details.php?class_id=${classId}`;
   },
 
   viewTimetable(classId) {
-    window.location.href = `/Kingsway/home.php?route=timetable&class_id=${classId}`;
+    window.location.href = (window.APP_BASE || "") + `/home.php?route=timetable&class_id=${classId}`;
   },
 
   // Helper methods
