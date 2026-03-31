@@ -49,7 +49,7 @@ define('MAX_PAGE_SIZE', 100);
 // Session settings
 ini_set('session.cookie_httponly', 1);
 ini_set('session.use_only_cookies', 1);
-ini_set('session.cookie_secure', isset($_SERVER['HTTPS']));
+ini_set('session.cookie_secure', (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? '1' : '0');
 
 // Error reporting
 if (DEBUG) {
@@ -87,7 +87,7 @@ define('SYSTEM_VERSION', '1.0.0');
 // Email Configuration
 
 define('SMTP_HOST', 'mail.kingswaypreparatoryschool.sc.ke');
-define('SMTP_PORT',  587));
+define('SMTP_PORT',  587);
 define('SMTP_USERNAME', 'info@kingswaypreparatoryschool.sc.ke');
 define('SMTP_FROM_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
 define('SMTP_PASSWORD', '@Kingsway123'); 
@@ -161,7 +161,7 @@ define('KCB_PUBLIC_KEY_PATH', __DIR__ . '/kcb_public_key.pem'); // Path to KCB p
 define('BANK_API_KEY', 'your_bank_api_key'); // Used for bank webhook signature validation
 
 // Allowed origins
-$allowed_origins = [env('APP_URL')];
+$allowed_origins = [BASE_URL];
 // CBE Curriculum Config
 $CBE_GRADE_LEVELS = [
     'Play Group',
