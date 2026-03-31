@@ -14,34 +14,34 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/admin-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/admin-theme.css">
 
 <div class="admin-layout">
     <!-- Full Sidebar -->
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="logo-section">
-            <img src="/Kingsway/images/logo.png" alt="Kingsway Academy">
+            <img src="<?= $appBase ?>images/logo.png" alt="Kingsway Academy">
             <h3>Kingsway Academy</h3>
         </div>
 
         <nav class="sidebar-nav">
             <div class="nav-section">
                 <span class="nav-section-title">Main</span>
-                <a href="/Kingsway/home.php?route=dashboard" class="nav-item">🏠 Dashboard</a>
-                <a href="/Kingsway/home.php?route=manage_finance" class="nav-item active">💰 Finance</a>
-                <a href="/Kingsway/home.php?route=manage_fees" class="nav-item">🧾 Fees</a>
+                <a href="<?= $appBase ?>home.php?route=dashboard" class="nav-item">🏠 Dashboard</a>
+                <a href="<?= $appBase ?>home.php?route=manage_finance" class="nav-item active">💰 Finance</a>
+                <a href="<?= $appBase ?>home.php?route=manage_fees" class="nav-item">🧾 Fees</a>
             </div>
             <div class="nav-section">
                 <span class="nav-section-title">Reports</span>
-                <a href="/Kingsway/home.php?route=finance_reports" class="nav-item">📊 Finance Reports</a>
-                <a href="/Kingsway/home.php?route=budget_overview" class="nav-item">📈 Budget Overview</a>
-                <a href="/Kingsway/home.php?route=financial_reports" class="nav-item">📉 Financial Analysis</a>
+                <a href="<?= $appBase ?>home.php?route=finance_reports" class="nav-item">📊 Finance Reports</a>
+                <a href="<?= $appBase ?>home.php?route=budget_overview" class="nav-item">📈 Budget Overview</a>
+                <a href="<?= $appBase ?>home.php?route=financial_reports" class="nav-item">📉 Financial Analysis</a>
             </div>
             <div class="nav-section">
                 <span class="nav-section-title">Operations</span>
-                <a href="/Kingsway/home.php?route=fee_defaulters" class="nav-item">⚠️ Fee Defaulters</a>
-                <a href="/Kingsway/home.php?route=finance_approvals" class="nav-item">✅ Approvals</a>
+                <a href="<?= $appBase ?>home.php?route=fee_defaulters" class="nav-item">⚠️ Fee Defaulters</a>
+                <a href="<?= $appBase ?>home.php?route=finance_approvals" class="nav-item">✅ Approvals</a>
             </div>
         </nav>
 
@@ -312,8 +312,8 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
-<script src="/Kingsway/js/pages/finance.js"></script>
+<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();

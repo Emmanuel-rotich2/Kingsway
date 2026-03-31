@@ -16,7 +16,7 @@ const studentFeeTracker = {
 
   init: async function () {
     if (typeof AuthContext === "undefined" || !AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 

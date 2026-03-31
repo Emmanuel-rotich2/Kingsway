@@ -544,7 +544,7 @@ const SchemesOfWorkController = (() => {
 
   async function init() {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 

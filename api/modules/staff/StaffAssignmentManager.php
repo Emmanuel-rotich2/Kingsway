@@ -109,9 +109,9 @@ class StaffAssignmentManager extends BaseAPI
 
             // Create assignment
             $sql = "INSERT INTO staff_class_assignments (
-                staff_id, academic_year_id, class_stream_id, subject_id, role,
-                assigned_by, assignment_date, status, remarks
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)";
+                staff_id, academic_year_id, class_stream_id, class_id, subject_id, role,
+                created_by, start_date, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)";
 
             $currentUserId = $this->getCurrentUserId();
             $stmt = $this->db->prepare($sql);
@@ -119,11 +119,12 @@ class StaffAssignmentManager extends BaseAPI
                 $data['staff_id'],
                 $data['academic_year_id'],
                 $data['class_stream_id'],
+                $classStream['class_id'],
                 $data['subject_id'] ?? null,
                 $data['role'],
                 $currentUserId,
-                $data['assignment_date'] ?? date('Y-m-d'),
-                $data['remarks'] ?? null
+                $data['assignment_date'] ?? $data['start_date'] ?? date('Y-m-d'),
+                $data['remarks'] ?? $data['notes'] ?? null
             ]);
 
             $assignmentId = $this->db->lastInsertId();
@@ -379,10 +380,10 @@ class StaffAssignmentManager extends BaseAPI
             }
 
             // Complete old assignment
-            $sql = "UPDATE staff_class_assignments 
-                   SET status = 'transferred', 
-                       removed_date = ?,
-                       removal_reason = ?
+            $sql = "UPDATE staff_class_assignments
+                   SET status = 'transferred',
+                       end_date = ?,
+                       notes = ?
                    WHERE id = ?";
 
             $stmt = $this->db->prepare($sql);
@@ -392,33 +393,30 @@ class StaffAssignmentManager extends BaseAPI
                 $assignmentId
             ]);
 
-            // Create new assignment
-            $newAssignmentData = [
-                'staff_id' => $currentAssignment['staff_id'],
-                'academic_year_id' => $currentAssignment['academic_year_id'],
-                'class_stream_id' => $data['new_class_stream_id'],
-                'subject_id' => $currentAssignment['subject_id'],
-                'role' => $currentAssignment['role'],
-                'assignment_date' => date('Y-m-d'),
-                'remarks' => "Transferred from previous assignment. Reason: {$data['transfer_reason']}"
-            ];
+            // Get new class_id from the new class_stream
+            $stmt = $this->db->prepare("SELECT class_id FROM class_streams WHERE id = ?");
+            $stmt->execute([$data['new_class_stream_id']]);
+            $newStream = $stmt->fetch(PDO::FETCH_ASSOC);
+            $newClassId = $newStream['class_id'] ?? $currentAssignment['class_id'];
 
+            // Create new assignment
             $sql = "INSERT INTO staff_class_assignments (
-                staff_id, academic_year_id, class_stream_id, subject_id, role,
-                assigned_by, assignment_date, status, remarks
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)";
+                staff_id, academic_year_id, class_stream_id, class_id, subject_id, role,
+                created_by, start_date, status, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)";
 
             $currentUserId = $this->getCurrentUserId();
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $newAssignmentData['staff_id'],
-                $newAssignmentData['academic_year_id'],
-                $newAssignmentData['class_stream_id'],
-                $newAssignmentData['subject_id'],
-                $newAssignmentData['role'],
+                $currentAssignment['staff_id'],
+                $currentAssignment['academic_year_id'],
+                $data['new_class_stream_id'],
+                $newClassId,
+                $currentAssignment['subject_id'],
+                $currentAssignment['role'],
                 $currentUserId,
-                $newAssignmentData['assignment_date'],
-                $newAssignmentData['remarks']
+                date('Y-m-d'),
+                "Transferred from previous assignment. Reason: {$data['transfer_reason']}"
             ]);
 
             $newAssignmentId = $this->db->lastInsertId();

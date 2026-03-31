@@ -8,6 +8,6 @@ document.addEventListener("DOMContentLoaded", () => {
     return;
   }
   const script = document.createElement("script");
-  script.src = "/Kingsway/js/pages/finance_reports.js";
+  script.src = (window.APP_BASE || "") + "/js/pages/finance_reports.js";
   document.body.appendChild(script);
 });

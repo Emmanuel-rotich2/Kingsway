@@ -1027,15 +1027,15 @@ class StaffAPI extends BaseAPI {
                     staff_id,
                     date,
                     status,
-                    check_in,
-                    check_out,
-                    remarks
+                    check_in_time,
+                    check_out_time,
+                    notes
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     status = VALUES(status),
-                    check_in = VALUES(check_in),
-                    check_out = VALUES(check_out),
-                    remarks = VALUES(remarks)
+                    check_in_time = VALUES(check_in_time),
+                    check_out_time = VALUES(check_out_time),
+                    notes = VALUES(notes)
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1043,9 +1043,9 @@ class StaffAPI extends BaseAPI {
                 $data['staff_id'],
                 $data['date'],
                 $data['status'],
-                $data['check_in'] ?? null,
-                $data['check_out'] ?? null,
-                $data['remarks'] ?? null
+                $data['check_in_time'] ?? $data['check_in'] ?? null,
+                $data['check_out_time'] ?? $data['check_out'] ?? null,
+                $data['notes'] ?? $data['remarks'] ?? null
             ]);
 
             return $this->response([

@@ -3,5 +3,5 @@
  * This page redirects to enter_results. Use enter_results.js instead.
  */
 document.addEventListener("DOMContentLoaded", () => {
-  window.location.href = "/Kingsway/home.php?route=enter_results";
+  window.location.href = (window.APP_BASE || "") + "/home.php?route=enter_results";
 });

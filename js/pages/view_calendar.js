@@ -237,7 +237,7 @@ const ViewCalendarController = (() => {
             window._calSearchTimeout = setTimeout(() => loadData(), 300);
         });
         document.getElementById('exportCalendarBtn')?.addEventListener('click', () => {
-            window.open(`/Kingsway/api/?route=academic/calendar/export&format=csv&year=${currentYear}`, '_blank');
+            window.open((window.APP_BASE || "") + `/api/?route=academic/calendar/export&format=csv&year=${currentYear}`, '_blank');
         });
 
         // Set default month

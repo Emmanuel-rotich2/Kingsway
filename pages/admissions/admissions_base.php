@@ -376,7 +376,7 @@ $roleCategory = $roleCategory ?? 'viewer';
 </div>
 
 
-<script src="/Kingsway/js/pages/admissions.js"></script>
+<script src="<?= $appBase ?>js/pages/admissions.js"></script>
 <script>
 // Grade-specific document fields and interview note
 (function () {

@@ -257,10 +257,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize stock management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement stockManagementController in js/pages/stock.js
-        console.log('Stock Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_stock.js"></script>

@@ -153,12 +153,12 @@
                         }
 
                         if (route.startsWith("home.php") || route.startsWith("/")) {
-                          window.location.href = `/Kingsway/${route.replace(
+                          window.location.href = (window.APP_BASE || "") + `/${route.replace(
                             /^\/+/,
                             ""
                           )}`;
                         } else {
-                          window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(
+                          window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
                             normalizedRoute
                           )}`;
                         }
@@ -167,12 +167,12 @@
                         console.warn("Sidebar authorization failed:", error);
                       });
                   } else if (route.startsWith("home.php") || route.startsWith("/")) {
-                    window.location.href = `/Kingsway/${route.replace(
+                    window.location.href = (window.APP_BASE || "") + `/${route.replace(
                       /^\/+/,
                       ""
                     )}`;
                   } else {
-                    window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(
+                    window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
                       normalizedRoute
                     )}`;
                   }

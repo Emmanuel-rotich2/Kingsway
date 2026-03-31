@@ -2245,7 +2245,7 @@ const AdmissionsController = {
         if (viewStudent) {
           const studentId = encodeURIComponent(payload.student_id);
           const route = this.resolveStudentRecordRoute();
-          window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile`;
+          window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile`;
         }
       }
     } catch (error) {

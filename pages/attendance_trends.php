@@ -79,4 +79,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/attendance_trends.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/attendance_trends.js?v=<?php echo time(); ?>"></script>

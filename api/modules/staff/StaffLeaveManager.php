@@ -104,8 +104,8 @@ class StaffLeaveManager extends BaseAPI
             // Create leave request
             $sql = "INSERT INTO staff_leaves (
                 staff_id, leave_type, start_date, end_date, days_requested,
-                reason, relief_staff_id, status, applied_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NOW())";
+                reason, relief_staff_id, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
@@ -211,15 +211,15 @@ class StaffLeaveManager extends BaseAPI
             $sql = "UPDATE staff_leaves SET
                 status = ?,
                 approved_by = ?,
-                approval_date = NOW(),
-                approval_comments = ?
+                approved_at = NOW(),
+                rejection_reason = ?
             WHERE id = ?";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['status'],
                 $data['approved_by'],
-                $data['approval_comments'] ?? null,
+                $data['approval_comments'] ?? $data['rejection_reason'] ?? null,
                 $leaveId
             ]);
 
@@ -331,7 +331,7 @@ class StaffLeaveManager extends BaseAPI
                 $params[] = $filters['year'];
             }
 
-            $sql .= " ORDER BY sl.applied_date DESC, sl.start_date DESC";
+            $sql .= " ORDER BY sl.created_at DESC, sl.start_date DESC";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute($params);
@@ -419,8 +419,7 @@ class StaffLeaveManager extends BaseAPI
 
             $sql = "UPDATE staff_leaves SET
                 status = 'cancelled',
-                cancellation_reason = ?,
-                cancellation_date = NOW()
+                rejection_reason = ?
             WHERE id = ?";
 
             $stmt = $this->db->prepare($sql);

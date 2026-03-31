@@ -12,7 +12,7 @@ const FeeDefaultersController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.bindEvents();
@@ -241,7 +241,7 @@ const FeeDefaultersController = {
   },
 
   viewStudent(studentId) {
-    window.location.href = `/Kingsway/pages/student_fees.php?student_id=${studentId}`;
+    window.location.href = (window.APP_BASE || "") + `/pages/student_fees.php?student_id=${studentId}`;
   },
 
   exportToCSV() {

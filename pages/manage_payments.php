@@ -183,4 +183,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/manage_payments.js"></script>
+<script src="<?= $appBase ?>js/pages/manage_payments.js"></script>

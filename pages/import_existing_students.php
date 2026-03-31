@@ -20,7 +20,7 @@
     </div>
 
     <div class="mb-3">
-      <button type="button" class="btn btn-outline-primary" onclick="window.open('/Kingsway/templates/student_import_template.csv', '_blank')">
+      <button type="button" class="btn btn-outline-primary" onclick="window.open((window.APP_BASE || '') + '/templates/student_import_template.csv', '_blank')">
         Download Template
       </button>
     </div>
@@ -54,4 +54,4 @@
   </div>
 </div>
 
-<script src="/Kingsway/js/pages/import_existing_students.js"></script>
+<script src="<?= $appBase ?>js/pages/import_existing_students.js"></script>

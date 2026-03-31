@@ -436,12 +436,12 @@ const staffManagementController = {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
       const photo =
-        staff.profile_pic_url || "/Kingsway/images/default-avatar.png";
+        staff.profile_pic_url || (window.APP_BASE || "") + "/images/default-avatar.png";
 
       const html = `
                 <div class="row">
                     <div class="col-md-4 text-center">
-                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src='/Kingsway/images/default-avatar.png'">
+                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
                         <h5>${staff.first_name || ""} ${staff.last_name || ""}</h5>
                         <p class="text-muted">${staff.staff_no || ""}</p>
                     </div>
@@ -711,11 +711,11 @@ const staffManagementController = {
   },
 
   markAttendance: function () {
-    window.location.href = "/Kingsway/home.php?route=staff_attendance";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=staff_attendance";
   },
 
   showAttendanceReport: function () {
-    window.location.href = "/Kingsway/home.php?route=staff_attendance";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=staff_attendance";
   },
 
   loadPayrollSummary: async function () {
@@ -788,7 +788,7 @@ const staffManagementController = {
   },
 
   runPayroll: function () {
-    window.location.href = "/Kingsway/home.php?route=manage_payrolls";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=manage_payrolls";
   },
 
   exportPayroll: function () {
@@ -796,7 +796,7 @@ const staffManagementController = {
   },
 
   showPayslips: function () {
-    window.location.href = "/Kingsway/home.php?route=payroll";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=payroll";
   },
 
   approvePayroll: function () {
@@ -1312,11 +1312,11 @@ const staffManagementController = {
   },
 
   viewPerformanceDetail: function (reviewId) {
-    window.location.href = "/Kingsway/home.php?route=staff_performance";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=staff_performance";
   },
 
   goToPerformancePage: function () {
-    window.location.href = "/Kingsway/home.php?route=staff_performance_overview";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=staff_performance_overview";
   },
 
   exportPerformance: function () {
@@ -1430,7 +1430,7 @@ const staffManagementController = {
     try {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
-      const photo = staff.profile_pic_url || "/Kingsway/images/default-avatar.png";
+      const photo = staff.profile_pic_url || (window.APP_BASE || "") + "/images/default-avatar.png";
 
       // Load additional data in parallel
       let assignments = [];
@@ -1452,7 +1452,7 @@ const staffManagementController = {
       const html = `
         <div class="row">
           <div class="col-md-3 text-center border-end">
-            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src='/Kingsway/images/default-avatar.png'">
+            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
             <h5 class="mb-0">${staff.first_name || ""} ${staff.middle_name || ""} ${staff.last_name || ""}</h5>
             <p class="text-muted mb-1">${staff.staff_no || ""}</p>
             ${this.getStatusBadge(staff.status)}
@@ -1695,7 +1695,7 @@ const staffManagementController = {
 
 document.addEventListener("DOMContentLoaded", () => {
   if (!AuthContext.isAuthenticated()) {
-    window.location.href = "/Kingsway/index.php";
+    window.location.href = (window.APP_BASE || "") + "/index.php";
     return;
   }
 

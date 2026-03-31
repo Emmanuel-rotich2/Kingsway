@@ -1,9 +1,22 @@
 # Composer dependencies
 /vendor/
 ./vendor
+/config/config.php
+
+/.claude
+
+./htaccess
+.htaccess
+/.htaccess
+
+/tests/
+/logs/*.log
 
 # Node modules (if any in the future)
 /node_modules/
+
+./AGENTS.md
+./CLAUDE.md
 
 # IDE and editor files
 *.swp

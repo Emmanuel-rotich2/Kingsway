@@ -95,10 +95,10 @@ const viewResultsCtrl = (() => {
 
     function buildStudentProfile(student) {
         const fullName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-        const photoUrl = student.photo_url || '/Kingsway/images/students/default.png';
+        const photoUrl = student.photo_url || (window.APP_BASE || '') + '/images/students/default.png';
         return `<div class="student-profile-card">
             <div class="d-flex align-items-center gap-3 mb-3">
-                <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src='/Kingsway/images/students/default.png'"></div>
+                <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src=(window.APP_BASE || '') + '/images/students/default.png'"></div>
                 <div>
                     <h5 class="mb-0">${fullName}</h5>
                     <small class="text-muted">Adm: ${student.admission_no || '—'} &bull; ${student.class_name || '—'} / ${student.stream_name || '—'}</small>
@@ -202,7 +202,7 @@ const viewResultsCtrl = (() => {
 
     async function init() {
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
         await Promise.all([loadTerms(), loadClasses()]);

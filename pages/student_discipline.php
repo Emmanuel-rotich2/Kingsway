@@ -322,4 +322,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/student_discipline.js"></script>
+<script src="<?= $appBase ?>js/pages/student_discipline.js"></script>

@@ -170,4 +170,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/staff_performance_overview.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/staff_performance_overview.js?v=<?php echo time(); ?>"></script>

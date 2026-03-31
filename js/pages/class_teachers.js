@@ -291,7 +291,7 @@ const ClassTeachersController = (() => {
       .getElementById("exportClassTeachersBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=academic/class-teachers/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=academic/class-teachers/export&format=csv",
           "_blank",
         );
       });

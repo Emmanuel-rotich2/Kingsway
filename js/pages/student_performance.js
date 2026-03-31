@@ -22,7 +22,7 @@ const StudentPerformanceController = {
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
@@ -279,7 +279,7 @@ const StudentPerformanceController = {
 
   renderProfile: function () {
     const profile = this.state.profile || {};
-    const photo = profile.photo_url || "/Kingsway/images/default-avatar.png";
+    const photo = profile.photo_url || (window.APP_BASE || "") + "/images/default-avatar.png";
 
     this.ui.studentPhoto.src = photo;
     this.ui.studentName.textContent = `${profile.first_name || ""} ${profile.last_name || ""}`.trim();

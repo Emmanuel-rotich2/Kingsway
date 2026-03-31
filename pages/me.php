@@ -214,4 +214,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/me.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/me.js?v=<?php echo time(); ?>"></script>
