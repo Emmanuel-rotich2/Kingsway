@@ -261,7 +261,7 @@ ini_set('display_errors', 1);
         <div class="modal-header border-0 text-white py-4" style="background: linear-gradient(135deg, #198754 0%, #0d6efd 100%);">
           <div class="w-100 text-center">
             <img src="./images/logo.jpg" alt="Kingsway Logo" class="mb-3" style="width: 80px; height: 80px; object-fit: contain; border-radius: 50%; background: #fff; padding: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <h4 class="modal-title fw-bold mb-1" id="loginModalLabel">Welcome Back!</h4>
+            <h4 class="modal-title fw-bold mb-1" id="loginModalLabel">Welcome</h4>
             <p class="mb-0 opacity-75 small">Sign in to Kingsway Academy Portal</p>
           </div>
           <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" aria-label="Close"></button>
