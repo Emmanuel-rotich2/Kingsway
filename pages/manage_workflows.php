@@ -80,4 +80,4 @@ $actionOptions = ['View', 'Edit', 'Deactivate', 'Duplicate'];
     </div>
   </div>
 </div>
-<script src="/Kingsway/js/pages/manage_workflows.js"></script>
+<script src="<?= $appBase ?>js/pages/manage_workflows.js"></script>

@@ -263,4 +263,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/view_results.js"></script>
+<script src="<?= $appBase ?>js/pages/view_results.js"></script>

@@ -27,7 +27,7 @@
         }
 
         if (!AuthContext.isAuthenticated()) {
-            window.location.href = "/Kingsway/index.php";
+            window.location.href = window.APP_BASE + "/index.php";
             return;
         }
 
@@ -117,7 +117,7 @@
             templateFile = "operator_admissions.php";
         }
 
-        const templatePath = "/Kingsway/pages/admissions/" + templateFile;
+        const templatePath = window.APP_BASE + "/pages/admissions/" + templateFile;
 
         fetch(templatePath)
             .then(response => {

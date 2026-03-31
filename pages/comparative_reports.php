@@ -79,4 +79,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/comparative_reports.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/comparative_reports.js?v=<?php echo time(); ?>"></script>

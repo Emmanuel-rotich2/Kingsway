@@ -54,7 +54,7 @@
 
         init: async function () {
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-                window.location.href = "/Kingsway/index.php";
+                window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
             }
             this.bindEvents();
@@ -245,7 +245,7 @@
                 var statusColor = (t.status || "").toLowerCase() === "active" ? "success" : "secondary";
                 var statusLabel = t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1).toLowerCase() : "Unknown";
 
-                var profileUrl = "/Kingsway/home.php?route=staff_profile&id=" + (t.id || t.staff_id || "");
+                var profileUrl = (window.APP_BASE || "") + "/home.php?route=staff_profile&id=" + (t.id || t.staff_id || "");
 
                 return '<tr>' +
                     '<td><div class="fw-semibold">' + esc(name) + '</div>' +

@@ -249,4 +249,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/student_fees.js"></script>
+<script src="<?= $appBase ?>js/pages/student_fees.js"></script>

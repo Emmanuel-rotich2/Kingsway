@@ -35,7 +35,7 @@ const academicsController = {
                 console.log('Redirecting to login page...');
                 this.showToast('Please log in to access this page', 'error', 'Authentication Required');
                 setTimeout(() => {
-                    window.location.href = '/Kingsway/index.php';
+                    window.location.href = (window.APP_BASE || '') + '/index.php';
                 }, 2000);
                 return;
             }
@@ -109,7 +109,7 @@ const academicsController = {
                     if (!AuthContext.isAuthenticated()) {
                         this.showToast('Please log in to access this page', 'error', 'Authentication Required');
                         setTimeout(() => {
-                            window.location.href = '/Kingsway/index.php';
+                            window.location.href = (window.APP_BASE || '') + '/index.php';
                         }, 2000);
                     } else {
                         this.showToast(`Server error: ${apiError.message}`, 'error', 'Error');
@@ -192,7 +192,7 @@ const academicsController = {
                 if (!AuthContext.isAuthenticated()) {
                     console.warn('User is not authenticated - redirecting to login');
                     setTimeout(() => {
-                        window.location.href = '/Kingsway/index.php';
+                        window.location.href = (window.APP_BASE || '') + '/index.php';
                     }, 1000);
                 }
             }

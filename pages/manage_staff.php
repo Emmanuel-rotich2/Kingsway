@@ -95,8 +95,8 @@ if (file_exists($fullPath)) {
 ?>
 
 <!-- Load Staff Management Controllers -->
-<script src="/Kingsway/js/pages/staff.js"></script>
-<script src="/Kingsway/js/pages/staff_production_ui.js"></script>
+<script src="<?= $appBase ?>js/pages/staff.js"></script>
+<script src="<?= $appBase ?>js/pages/staff_production_ui.js"></script>
 <script>
     console.log('[Manage Staff Router] Loaded for role:', window.currentUserRole);
     console.log('[Manage Staff Router] Access level:', window.staffAccessLevel);

@@ -14,7 +14,7 @@ const ManagePayrollsController = {
     }
     // Fallback: redirect to the payroll management page
     console.warn("PayrollManagerController not found, redirecting...");
-    window.location.href = "/Kingsway/home.php?route=manage_payrolls";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=manage_payrolls";
   },
 };
 

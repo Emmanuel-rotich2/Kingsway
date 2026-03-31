@@ -123,4 +123,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/subject_teachers.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/subject_teachers.js?v=<?php echo time(); ?>"></script>

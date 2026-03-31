@@ -86,4 +86,4 @@
     <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="PTAManagementController.saveRecord()"><i class="fas fa-save me-1"></i> Save</button></div>
 </div></div></div>
 
-<script src="/Kingsway/js/pages/pta_management.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/pta_management.js?v=<?php echo time(); ?>"></script>

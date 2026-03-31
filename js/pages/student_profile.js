@@ -13,7 +13,7 @@ let studentData = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     if (!AuthContext.isAuthenticated()) {
-        window.location.href = '/Kingsway/index.php';
+        window.location.href = (window.APP_BASE || '') + '/index.php';
         return;
     }
 
@@ -60,7 +60,7 @@ function renderProfileHeader(student) {
     headerContainer.innerHTML = `
         <div class="row align-items-center mb-4">
             <div class="col-auto">
-                <img src="${student.photo_url || '/Kingsway/images/default-avatar.png'}" 
+                <img src="${student.photo_url || (window.APP_BASE || '') + '/images/default-avatar.png'}" 
                      class="rounded-circle" 
                      width="100" 
                      height="100"
@@ -659,7 +659,7 @@ async function openEditProfileModal(student) {
 }
 
 async function printIdCard(studentId) {
-    window.open(`/Kingsway/api/students/print-id-card?student_id=${studentId}`, '_blank');
+    window.open((window.APP_BASE || "") + `/api/students/print-id-card?student_id=${studentId}`, '_blank');
 }
 
 async function openMessageModal(student) {

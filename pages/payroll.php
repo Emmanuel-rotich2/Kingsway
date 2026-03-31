@@ -80,4 +80,4 @@
         </div>
     </div>
 </div>
-<script src="/Kingsway/js/pages/payroll.js"></script>
+<script src="<?= $appBase ?>js/pages/payroll.js"></script>

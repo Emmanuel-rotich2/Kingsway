@@ -25,7 +25,7 @@ const RoleDefinitionsController = {
         try {
             // Check authentication
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
@@ -327,7 +327,7 @@ const RoleDefinitionsController = {
         }
 
         // Navigate to role permissions page or open modal
-        window.location.href = `/Kingsway/home.php?route=role_permission_matrix&role_id=${id}`;
+        window.location.href = (window.APP_BASE || "") + `/home.php?route=role_permission_matrix&role_id=${id}`;
     },
 
     /**

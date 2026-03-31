@@ -277,4 +277,4 @@
         </div>
     </div>
 </div>
-<script src="/Kingsway/js/pages/system_settings.js"></script>
+<script src="<?= $appBase ?>js/pages/system_settings.js"></script>

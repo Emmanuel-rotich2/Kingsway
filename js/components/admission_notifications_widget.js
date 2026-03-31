@@ -128,7 +128,7 @@ const AdmissionNotificationsWidget = {
                     </div>
                 </div>
                 <div class="card-footer bg-transparent text-center">
-                    <a href="/Kingsway/home.php?route=manage_students_admissions" class="text-primary text-decoration-none small">
+                    <a href=(window.APP_BASE || "") + "/home.php?route=manage_students_admissions" class="text-primary text-decoration-none small">
                         View All Admissions <i class="bi bi-arrow-right"></i>
                     </a>
                 </div>

@@ -40,7 +40,7 @@
 
         init: async function () {
             if (!AuthContext.isAuthenticated()) {
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
             const user = AuthContext.getUser();
@@ -119,7 +119,7 @@
                     imgEl.src = v.image_url || v.photo_url;
                     imgEl.alt = v.registration || 'Vehicle';
                 } else {
-                    imgEl.src = '/Kingsway/assets/images/bus-placeholder.png';
+                    imgEl.src = (window.APP_BASE || '') + '/assets/images/bus-placeholder.png';
                     imgEl.alt = 'No image';
                     imgEl.onerror = () => { imgEl.style.display = 'none'; };
                 }

@@ -5,8 +5,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/manager-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/manager-theme.css">
 
 <div class="manager-layout" data-user-role="accountant">
     <!-- Compact Sidebar -->
@@ -103,4 +103,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/all_students_accountant.js"></script>
+<script src="<?= $appBase ?>js/pages/all_students_accountant.js"></script>

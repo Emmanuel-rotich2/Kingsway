@@ -267,4 +267,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/schemes_of_work.js"></script>
+<script src="<?= $appBase ?>js/pages/schemes_of_work.js"></script>

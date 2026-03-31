@@ -315,4 +315,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/manage_timetable.js"></script>
+<script src="<?= $appBase ?>js/pages/manage_timetable.js"></script>

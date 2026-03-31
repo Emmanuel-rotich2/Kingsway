@@ -911,7 +911,7 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/manage_teachers.js"></script>
+<script src="<?= $appBase ?>js/pages/manage_teachers.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof manageTeachersController !== 'undefined') {

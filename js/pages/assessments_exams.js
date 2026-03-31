@@ -678,7 +678,7 @@ const assessExamsCtrl = (() => {
       loadExamsList();
     } catch (error) {
       toast(`Workflow unavailable (${error.message}). Use Exam Schedule for direct setup.`, "primary");
-      window.location.href = "/Kingsway/home.php?route=exam_schedule";
+      window.location.href = (window.APP_BASE || "") + "/home.php?route=exam_schedule";
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -866,7 +866,7 @@ const assessExamsCtrl = (() => {
   }
 
   function goToReports() {
-    window.location.href = "/Kingsway/home.php?route=report_cards";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=report_cards";
   }
 
   function viewAssessment(id) {
@@ -1008,7 +1008,7 @@ const assessExamsCtrl = (() => {
   async function init() {
     try {
       if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || "") + "/index.php";
         return;
       }
 

@@ -105,7 +105,7 @@
 
         init: async function () {
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-                window.location.href = "/Kingsway/index.php";
+                window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
             }
             this.findStatCards();
@@ -218,7 +218,7 @@
                     '<td>' + esc(initiatedBy) + '</td>' +
                     '<td><small class="text-muted">' + esc(startedAt) + '</small></td>' +
                     '<td>' +
-                    (id ? '<a href="/Kingsway/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i>View</a>' : '<span class="text-muted">—</span>') +
+                    (id ? '<a href=(window.APP_BASE || "") + "/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i>View</a>' : '<span class="text-muted">—</span>') +
                     '</td>' +
                     '</tr>';
             }).join("");
@@ -267,7 +267,7 @@
                     '<td>' + esc(initiatedBy) + '</td>' +
                     '<td><small class="text-muted">' + esc(startedAt) + '</small></td>' +
                     '<td>' +
-                    (id ? '<a href="/Kingsway/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i>View</a>' : '—') +
+                    (id ? '<a href=(window.APP_BASE || "") + "/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-primary"><i class="bi bi-eye me-1"></i>View</a>' : '—') +
                     '</td>' +
                     '</tr>';
             }).join("");
@@ -316,7 +316,7 @@
                     '<td>' + esc(initiatedBy) + '</td>' +
                     '<td><small class="text-muted">' + esc(completedAt) + '</small></td>' +
                     '<td>' +
-                    (id ? '<a href="/Kingsway/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye me-1"></i>View</a>' : '—') +
+                    (id ? '<a href=(window.APP_BASE || "") + "/home.php?route=workflow_detail&id=' + esc(String(id)) + '" class="btn btn-sm btn-outline-secondary"><i class="bi bi-eye me-1"></i>View</a>' : '—') +
                     '</td>' +
                     '</tr>';
             }).join("");

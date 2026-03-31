@@ -38,7 +38,7 @@
         // Check authentication
         if (!AuthContext.isAuthenticated()) {
             console.warn('User not authenticated - redirecting to login');
-            window.location.href = '/Kingsway/index.php';
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
 
@@ -94,7 +94,7 @@
         }
 
         // Load the appropriate template
-        const templatePath = '/Kingsway/pages/fee_structure/' + templateFile;
+        const templatePath = (window.APP_BASE || '') + '/pages/fee_structure/' + templateFile;
 
         console.log('Loading template:', templatePath);
 

@@ -92,4 +92,4 @@
 </div>
 
 <!-- Link to controller -->
-<script src="/Kingsway/js/pages/api_explorer.js"></script>
+<script src="<?= $appBase ?>js/pages/api_explorer.js"></script>

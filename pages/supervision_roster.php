@@ -182,4 +182,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/supervision_roster.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/supervision_roster.js?v=<?php echo time(); ?>"></script>

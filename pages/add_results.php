@@ -13,7 +13,7 @@
             <h4 class="mb-1"><i class="fas fa-plus-circle me-2"></i>Add Student Result</h4>
             <p class="text-muted mb-0">Quick entry for individual student marks</p>
         </div>
-        <a href="/Kingsway/home.php?route=enter_results" class="btn btn-outline-primary">
+        <a href="<?= $appBase ?>home.php?route=enter_results" class="btn btn-outline-primary">
             <i class="fas fa-th me-1"></i>Bulk Entry
         </a>
     </div>

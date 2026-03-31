@@ -155,4 +155,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/class_teachers.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/class_teachers.js?v=<?php echo time(); ?>"></script>
