@@ -2,7 +2,6 @@
 namespace App\API\Modules\transport;
 
 use PDO;
-use Exception;
 
 class StudentTransportPaymentManager
 {
@@ -80,7 +79,6 @@ class StudentTransportPaymentManager
         $stmt->execute([$studentId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $totalPaid = floatval($row['total_paid'] ?? 0);
-        // $totalReversed is not used
 
         // Get total expected (from assignments)
         $sql2 = "SELECT SUM(expected_amount) AS total_expected FROM student_transport_assignments WHERE student_id = ? AND status = 'active'";
