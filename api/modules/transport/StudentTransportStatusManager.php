@@ -35,7 +35,7 @@ class StudentTransportStatusManager
             SELECT s.id AS student_id, s.first_name, s.last_name, s.admission_no,
                    a.route_id, r.name AS route_name, a.stop_id, st.name AS stop_name,
                    r.driver_id, d.first_name AS driver_first_name, d.last_name AS driver_last_name, d.phone AS driver_phone,
-                   r.vehicle_id, v.registration_no AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
+                   r.vehicle_id, v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
                    a.month, a.year, a.status AS assignment_status,
                    p.amount AS payment_amount, p.status AS payment_status
             FROM student_transport_assignments a
@@ -43,7 +43,7 @@ class StudentTransportStatusManager
             JOIN transport_routes r ON a.route_id = r.id
             JOIN transport_stops st ON a.stop_id = st.id
             LEFT JOIN drivers d ON r.driver_id = d.id
-            LEFT JOIN vehicles v ON r.vehicle_id = v.id
+            LEFT JOIN transport_vehicles v ON r.vehicle_id = v.id
             LEFT JOIN student_transport_payments p
                 ON a.student_id = p.student_id AND a.month = p.month AND a.year = p.year AND p.status = 'confirmed'
             WHERE a.student_id = ? AND a.month = ? AND a.year = ? AND a.status = 'active'

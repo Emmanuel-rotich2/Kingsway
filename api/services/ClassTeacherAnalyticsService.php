@@ -134,10 +134,10 @@ class ClassTeacherAnalyticsService
                         SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent,
                         SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late,
                         COUNT(*) as total
-                      FROM attendance a
+                      FROM student_attendance a
                       JOIN students s ON a.student_id = s.id
-                      WHERE s.stream_id = ? 
-                        AND a.attendance_date = CURDATE()
+                      WHERE s.stream_id = ?
+                        AND a.date = CURDATE()
                         AND s.status = 'active'";
             $stmt = $this->db->query($query, [$this->streamId]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -301,12 +301,12 @@ class ClassTeacherAnalyticsService
             }
 
             $query = "SELECT 
-                        DATE(a.attendance_date) as date,
+                        DATE(a.date) as date,
                         ROUND(AVG(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
-                      FROM attendance a
+                      FROM student_attendance a
                       JOIN students s ON a.student_id = s.id
                       WHERE s.stream_id = ?
-                        AND a.attendance_date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
+                        AND a.date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
                         AND s.status = 'active'
                       GROUP BY DATE(a.attendance_date)
                       ORDER BY date ASC";
@@ -456,7 +456,7 @@ class ClassTeacherAnalyticsService
                             ELSE 'Not Marked'
                         END as attendance_today
                       FROM students s
-                      LEFT JOIN attendance a ON s.id = a.student_id AND a.attendance_date = CURDATE()
+                      LEFT JOIN student_attendance a ON s.id = a.student_id AND a.date = CURDATE()
                       WHERE s.stream_id = ? AND s.status = 'active'
                       ORDER BY s.first_name, s.last_name";
             $stmt = $this->db->query($query, [$this->streamId]);

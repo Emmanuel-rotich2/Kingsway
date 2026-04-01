@@ -17,6 +17,7 @@
 
 ./AGENTS.md
 ./CLAUDE.md
+config/config-production.php
 
 # IDE and editor files
 *.swp
