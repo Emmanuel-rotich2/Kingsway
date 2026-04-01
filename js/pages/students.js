@@ -1,8 +1,7 @@
 const studentsManagementController = {
 
     loadStats() {
-        fetch('/Kingsway/api/students.php?action=stats')
-            .then(r => r.json())
+        API.students.getStatistics()
             .then(d => {
                 totalStudentsCount.innerText = d.total;
                 activeStudentsCount.innerText = d.active;
@@ -12,12 +11,13 @@ const studentsManagementController = {
     },
 
     loadStudents(search = '') {
-        fetch(`/Kingsway/api/students.php?action=list&search=${search}`)
-            .then(r => r.json())
-            .then(data => {
-                let html = '';
-                data.forEach((s, i) => {
-                    html += `
+        const request = search
+            ? apiCall(`/students/student?search=${encodeURIComponent(search)}`, 'GET')
+            : API.students.get();
+        request.then(data => {
+            let html = '';
+            data.forEach((s, i) => {
+                html += `
                     <tr>
                         <td>${i+1}</td>
                         <td>${s.admission_no}</td>
@@ -32,9 +32,9 @@ const studentsManagementController = {
                             </button>
                         </td>
                     </tr>`;
-                });
-                studentsTableBody.innerHTML = html;
             });
+            studentsTableBody.innerHTML = html;
+        });
     },
 
     searchStudents(val) {
@@ -59,19 +59,15 @@ const studentsManagementController = {
             status: studentStatus.value
         };
 
-        fetch('/Kingsway/api/students.php?action=save', {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        }).then(() => {
-            bootstrap.Modal.getInstance(studentModal).hide();
-            this.loadStudents();
-            this.loadStats();
-        });
+        API.students.create(payload)
+            .then(() => {
+                bootstrap.Modal.getInstance(studentModal).hide();
+                Promise.all([this.loadStudents(), this.loadStats()]);
+            });
     },
 
     viewStudent(id) {
-        fetch(`/Kingsway/api/students.php?action=view&id=${id}`)
-            .then(r => r.json())
+        API.students.get(id)
             .then(s => {
                 viewStudentContent.innerHTML = `
                     <p><strong>Name:</strong> ${s.first_name} ${s.last_name}</p>
