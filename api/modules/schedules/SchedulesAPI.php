@@ -835,7 +835,7 @@ class SchedulesAPI extends BaseAPI {
                     COUNT(DISTINCT ta.student_id) as student_count
                 FROM route_schedules rs
                 JOIN transport_routes r ON rs.route_id = r.id
-                LEFT JOIN vehicles v ON rs.vehicle_id = v.id
+                LEFT JOIN transport_vehicles v ON rs.vehicle_id = v.id
                 LEFT JOIN staff d ON rs.driver_id = d.id
                 LEFT JOIN transport_assignments ta ON r.id = ta.route_id
                 WHERE rs.status = 'active'
