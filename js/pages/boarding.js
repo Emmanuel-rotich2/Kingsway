@@ -18,7 +18,6 @@ const boardingController = {
             showNotification('Loading boarding data...', 'info');
             this.loadStaticData();
             this.renderHousesTable();
-            this.checkUserPermissions();
             showNotification('Boarding management loaded successfully', 'success');
         } catch (error) {
             console.error('Error initializing boarding controller:', error);

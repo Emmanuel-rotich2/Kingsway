@@ -14,7 +14,7 @@ const ManageRolesController = {
     },
     loadData: async function() {
         try {
-            const response = await window.API.apiCall('/api/manage_roles', 'GET');
+            const response = await API.users.getRoles();
             if (response) {
                 this.data = response;
                 this.render();
