@@ -113,10 +113,10 @@ class SchedulesManager
     // DRIVER: Get transport schedules for a driver
     public function getDriverSchedule($driverId, $termId = null)
     {
-        $sql = "SELECT ts.*, v.registration_number, r.route_name
+        $sql = "SELECT ts.*, v.registration_number, r.name as route_name
                 FROM transport_schedules ts
                 JOIN transport_vehicles v ON ts.vehicle_id = v.id
-                JOIN routes r ON ts.route_id = r.id
+                JOIN transport_routes r ON ts.route_id = r.id
                 WHERE ts.driver_id = :driver_id";
         $params = ['driver_id' => $driverId];
         if ($termId) {
