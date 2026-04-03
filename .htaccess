@@ -2,8 +2,12 @@ RewriteEngine On
 RewriteBase /
 
 # API requests - rewrite to api/index.php
+# Handle both /api/ (production) and /Kingsway/api/ (local development) paths
 RewriteCond %{REQUEST_URI} ^/api/
 RewriteRule ^api/(.*)$ api/index.php [L,QSA]
+
+RewriteCond %{REQUEST_URI} ^/Kingsway/api/
+RewriteRule ^Kingsway/api/(.*)$ Kingsway/api/index.php [L,QSA]
 
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
