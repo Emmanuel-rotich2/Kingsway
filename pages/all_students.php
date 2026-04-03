@@ -26,7 +26,7 @@
         }
 
         if (!AuthContext.isAuthenticated()) {
-            window.location.href = "/Kingsway/index.php";
+            window.location.href = window.APP_BASE + "/index.php";
             return;
         }
 
@@ -93,7 +93,7 @@
             templateFile = "viewer_students.php";
         }
 
-        const templatePath = "/Kingsway/pages/students/" + templateFile;
+        const templatePath = window.APP_BASE + "/pages/students/" + templateFile;
 
         fetch(templatePath)
             .then(response => {

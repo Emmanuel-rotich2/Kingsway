@@ -4,7 +4,7 @@ class MonitoringController {
         this.allData = {}; this.init();
     }
     async init() {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = '/Kingsway/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         await this.loadData();
         if (this.config.refreshInterval > 0) this.timer = setInterval(() => this.loadData(), this.config.refreshInterval);
     }

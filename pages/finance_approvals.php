@@ -173,4 +173,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/finance_approvals.js"></script>
+<script src="<?= $appBase ?>js/pages/finance_approvals.js"></script>

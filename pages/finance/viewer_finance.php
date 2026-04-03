@@ -11,13 +11,13 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/viewer-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/viewer-theme.css">
 
 <div class="viewer-layout">
     <!-- Header -->
     <header class="viewer-header">
-        <a href="/Kingsway/home.php?route=dashboard" class="back-link">← Dashboard</a>
+        <a href="<?= $appBase ?>home.php?route=dashboard" class="back-link">← Dashboard</a>
         <h1 class="page-title">💰 My Fees</h1>
     </header>
 
@@ -180,8 +180,8 @@
     }
 </style>
 
-<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
-<script src="/Kingsway/js/pages/finance.js"></script>
+<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();

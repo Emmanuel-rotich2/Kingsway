@@ -13,8 +13,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/admin-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/admin-theme.css">
 
 <div class="admin-layout">
     <!-- Full Sidebar -->
@@ -287,7 +287,7 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {

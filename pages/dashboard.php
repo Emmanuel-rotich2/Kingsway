@@ -42,7 +42,7 @@ $pageTitle = 'Dashboard';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="/Kingsway/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>king.css">
 
     <style>
         body {
@@ -111,7 +111,7 @@ $pageTitle = 'Dashboard';
     <!-- Navigation -->
     <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
         <div class="container-fluid">
-            <a class="navbar-brand" href="/Kingsway/home.php">
+            <a class="navbar-brand" href="<?= $appBase ?>home.php">
                 <i class="bi bi-speedometer2"></i> Kingsway Academy
             </a>
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
@@ -120,17 +120,17 @@ $pageTitle = 'Dashboard';
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/Kingsway/home.php">
+                        <a class="nav-link" href="<?= $appBase ?>home.php">
                             <i class="bi bi-house-door"></i> Home
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/Kingsway/me.php">
+                        <a class="nav-link" href="<?= $appBase ?>me.php">
                             <i class="bi bi-person-circle"></i> My Profile
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/Kingsway/api/index.php?action=logout">
+                        <a class="nav-link" href="<?= $appBase ?>api/index.php?action=logout">
                             <i class="bi bi-box-arrow-right"></i> Logout
                         </a>
                     </li>
@@ -164,16 +164,16 @@ $pageTitle = 'Dashboard';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
 
     <!-- Authentication utilities -->
-    <script src="/Kingsway/js/auth-utils.js"></script>
+    <script src="<?= $appBase ?>js/auth-utils.js"></script>
 
     <!-- API client -->
-    <script src="/Kingsway/js/api.js"></script>
+    <script src="<?= $appBase ?>js/api.js"></script>
 
     <!-- Dashboard Router (permission-aware routing) -->
-    <script src="/Kingsway/js/dashboards/dashboard_router.js"></script>
+    <script src="<?= $appBase ?>js/dashboards/dashboard_router.js"></script>
 
     <!-- System Administrator Dashboard (loaded dynamically via router) -->
-    <script src="/Kingsway/js/dashboards/system_administrator_dashboard.js"></script>
+    <script src="<?= $appBase ?>js/dashboards/system_administrator_dashboard.js"></script>
 
     <!-- Other dashboards loaded dynamically as needed -->
 

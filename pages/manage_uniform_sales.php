@@ -11,7 +11,7 @@ $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
     <title><?= $pageTitle ?> - Kingsway Academy</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="/Kingsway/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>king.css">
     <style>
         .uniform-card {
             transition: all 0.3s ease;
@@ -470,7 +470,7 @@ $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="/Kingsway/js/api.js"></script>
-    <script src="/Kingsway/js/pages/uniform_sales.js"></script>
+    <script src="<?= $appBase ?>js/api.js"></script>
+    <script src="<?= $appBase ?>js/pages/uniform_sales.js"></script>
 </body>
 </html>

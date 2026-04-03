@@ -312,7 +312,7 @@ async function redirectToAllowedRoute(disallowedRoute) {
     }
 
     window.location.replace(
-        `/Kingsway/home.php?route=${encodeURIComponent(fallbackRoute)}`
+        (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(fallbackRoute)}`
     );
     return fallbackRoute;
 }
@@ -335,7 +335,7 @@ window.addEventListener('click', async function(e) {
             }
 
             const normalizedRoute = getRouteFromUrl(route);
-            window.location.href = `/Kingsway/home.php?route=${encodeURIComponent(normalizedRoute)}`;
+            window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}`;
         }
     }
 });
@@ -352,10 +352,10 @@ async function navigateToRoute(route) {
 
     let html = '';
     try {
-        html = await fetchContent(`/Kingsway/components/dashboards/${normalizedRoute}.php`);
+        html = await fetchContent((window.APP_BASE || '') + `/components/dashboards/${normalizedRoute}.php`);
     } catch {
         try {
-            html = await fetchContent(`/Kingsway/pages/${normalizedRoute}.php`);
+            html = await fetchContent((window.APP_BASE || '') + `/pages/${normalizedRoute}.php`);
         } catch {
             html = "<div class='alert alert-warning'>Page not found.</div>";
         }

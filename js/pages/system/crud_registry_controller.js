@@ -4,7 +4,7 @@ class CrudRegistryController {
         this.allData = []; this.init();
     }
     async init() {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = '/Kingsway/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         this.setupEventListeners(); await this.loadData();
     }
     setupEventListeners() {

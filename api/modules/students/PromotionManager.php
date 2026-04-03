@@ -37,7 +37,8 @@ class PromotionManager
         int $fromYearId,
         int $toYearId,
         int $performedBy,
-        string $remarks = null
+        string $remarks = null,
+        int $batchId = 0
     ): array {
         $this->db->beginTransaction();
 
@@ -65,12 +66,24 @@ class PromotionManager
             // Verify target class exists
             $this->verifyClassStream($toClassId, $toStreamId);
 
-            // Update current enrollment status
+            // Create a single-student batch when no batch context provided
+            if ($batchId === 0) {
+                $batchId = $this->createPromotionBatch([
+                    'batch_scope' => 'Single student promotion',
+                    'academic_year_from' => $fromYearId,
+                    'academic_year_to' => $toYearId,
+                    'batch_type' => 'manual',
+                    'total_students_processed' => 1,
+                    'created_by' => $performedBy
+                ]);
+            }
+
+            // Update current enrollment status (set destination class/stream)
             $this->updateEnrollmentPromotionStatus(
                 $currentEnrollment['id'],
                 'promoted',
-                $performedBy,
-                $remarks
+                $toClassId,
+                $toStreamId
             );
 
             // Create new enrollment for next year
@@ -84,17 +97,19 @@ class PromotionManager
                 'promotion_status' => 'pending'
             ]);
 
-            // Record in student_promotions table (legacy compatibility)
+            // Record in student_promotions table
             $this->recordPromotion([
+                'batch_id' => $batchId,
                 'student_id' => $studentId,
-                'from_class' => $currentEnrollment['class_id'],
-                'to_class' => $toClassId,
+                'current_class_id' => $currentEnrollment['class_id'],
+                'current_stream_id' => $currentEnrollment['stream_id'],
+                'promoted_to_class_id' => $toClassId,
+                'promoted_to_stream_id' => $toStreamId,
                 'from_enrollment_id' => $currentEnrollment['id'],
                 'to_enrollment_id' => $newEnrollmentId,
-                'academic_year_id' => $toYearId,
-                'promotion_date' => date('Y-m-d'),
-                'promoted_by' => $performedBy,
-                'remarks' => $remarks
+                'from_academic_year_id' => $fromYearId,
+                'to_academic_year_id' => $toYearId,
+                'promotion_reason' => $remarks
             ]);
 
             $this->db->commit();
@@ -134,12 +149,12 @@ class PromotionManager
 
         // Create batch record
         $batchId = $this->createPromotionBatch([
-            'batch_name' => "Manual Promotion - " . date('Y-m-d H:i:s'),
+            'batch_scope' => "Manual Promotion - " . date('Y-m-d H:i:s'),
             'academic_year_from' => $fromYearId,
             'academic_year_to' => $toYearId,
-            'promotion_type' => 'multiple_students',
-            'total_students' => count($studentIds),
-            'initiated_by' => $performedBy
+            'batch_type' => 'manual',
+            'total_students_processed' => count($studentIds),
+            'created_by' => $performedBy
         ]);
 
         foreach ($studentIds as $studentId) {
@@ -151,7 +166,8 @@ class PromotionManager
                     $fromYearId,
                     $toYearId,
                     $performedBy,
-                    $remarks
+                    $remarks,
+                    $batchId
                 );
                 $results['promoted']++;
             } catch (Exception $e) {
@@ -165,9 +181,8 @@ class PromotionManager
 
         // Update batch statistics
         $this->updatePromotionBatch($batchId, [
-            'students_promoted' => $results['promoted'],
-            'students_retained' => 0,
-            'students_graduated' => 0,
+            'total_promoted' => $results['promoted'],
+            'total_rejected' => $results['failed'],
             'status' => 'completed',
             'completed_at' => date('Y-m-d H:i:s')
         ]);
@@ -214,12 +229,12 @@ class PromotionManager
 
             // Create batch record
             $batchId = $this->createPromotionBatch([
-                'batch_name' => "Class Promotion - " . $this->getClassName($fromClassId, $fromStreamId),
+                'batch_scope' => "Class Promotion - " . $this->getClassName($fromClassId, $fromStreamId),
                 'academic_year_from' => $fromYearId,
                 'academic_year_to' => $toYearId,
-                'promotion_type' => 'entire_class',
-                'total_students' => count($students),
-                'initiated_by' => $performedBy
+                'batch_type' => 'single_class',
+                'total_students_processed' => count($students),
+                'created_by' => $performedBy
             ]);
 
             $results = [
@@ -239,7 +254,8 @@ class PromotionManager
                         $fromYearId,
                         $toYearId,
                         $performedBy,
-                        $remarks
+                        $remarks,
+                        $batchId
                     );
                     $results['promoted']++;
                 } catch (Exception $e) {
@@ -253,7 +269,8 @@ class PromotionManager
 
             // Update batch
             $this->updatePromotionBatch($batchId, [
-                'students_promoted' => $results['promoted'],
+                'total_promoted' => $results['promoted'],
+                'total_rejected' => $results['failed'],
                 'status' => 'completed',
                 'completed_at' => date('Y-m-d H:i:s')
             ]);
@@ -300,12 +317,12 @@ class PromotionManager
 
             // Create master batch
             $batchId = $this->createPromotionBatch([
-                'batch_name' => "Bulk School Promotion {$fromYearId} -> {$toYearId}",
+                'batch_scope' => "Bulk School Promotion {$fromYearId} -> {$toYearId}",
                 'academic_year_from' => $fromYearId,
                 'academic_year_to' => $toYearId,
-                'promotion_type' => 'bulk_school',
-                'total_students' => 0, // Will update later
-                'initiated_by' => $performedBy
+                'batch_type' => 'bulk_grade',
+                'total_students_processed' => 0, // Will update later
+                'created_by' => $performedBy
             ]);
 
             foreach ($classMap as $mapping) {
@@ -334,8 +351,9 @@ class PromotionManager
 
             // Update master batch
             $this->updatePromotionBatch($batchId, [
-                'total_students' => $overallResults['total_students'],
-                'students_promoted' => $overallResults['promoted'],
+                'total_students_processed' => $overallResults['total_students'],
+                'total_promoted' => $overallResults['promoted'],
+                'total_rejected' => $overallResults['failed'],
                 'status' => 'completed',
                 'completed_at' => date('Y-m-d H:i:s')
             ]);
@@ -383,13 +401,14 @@ class PromotionManager
             ];
 
             // Create batch
+            $yearCode = $this->yearManager->getAcademicYear($academicYearId)['year_code'] ?? $academicYearId;
             $batchId = $this->createPromotionBatch([
-                'batch_name' => "Grade 9 Graduation - " . $this->yearManager->getAcademicYear($academicYearId)['year_code'],
+                'batch_scope' => "Grade 9 Graduation - {$yearCode}",
                 'academic_year_from' => $academicYearId,
-                'academic_year_to' => null,
-                'promotion_type' => 'graduation',
-                'total_students' => count($students),
-                'initiated_by' => $performedBy
+                'academic_year_to' => $academicYearId,
+                'batch_type' => 'bulk_grade',
+                'total_students_processed' => count($students),
+                'created_by' => $performedBy
             ]);
 
             foreach ($students as $student) {
@@ -400,9 +419,7 @@ class PromotionManager
                     // Update enrollment to graduated
                     $this->updateEnrollmentPromotionStatus(
                         $enrollment['id'],
-                        'graduated',
-                        $performedBy,
-                        'Completed Grade 9'
+                        'graduated'
                     );
 
                     // Move to alumni table
@@ -431,7 +448,8 @@ class PromotionManager
 
             // Update batch
             $this->updatePromotionBatch($batchId, [
-                'students_graduated' => $results['graduated'],
+                'total_promoted' => $results['graduated'],
+                'total_rejected' => $results['failed'],
                 'status' => 'completed',
                 'completed_at' => date('Y-m-d H:i:s')
             ]);
@@ -507,39 +525,53 @@ class PromotionManager
     private function updateEnrollmentPromotionStatus(
         int $enrollmentId,
         string $status,
-        int $performedBy,
-        string $remarks = null
+        int $toClassId = 0,
+        int $toStreamId = 0
     ): bool {
-        $sql = "UPDATE class_enrollments 
+        $sql = "UPDATE class_enrollments
                 SET promotion_status = ?,
-                    promoted_by = ?,
-                    promotion_remarks = ?,
-                    promoted_at = NOW()
+                    promoted_to_class_id = NULLIF(?, 0),
+                    promoted_to_stream_id = NULLIF(?, 0),
+                    promotion_date = CURDATE()
                 WHERE id = ?";
 
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute([$status, $performedBy, $remarks, $enrollmentId]);
+        return $stmt->execute([$status, $toClassId, $toStreamId, $enrollmentId]);
     }
 
     private function recordPromotion(array $data): int
     {
+        // Resolve YEAR(4) values from academic_year IDs
+        $fromYear = $this->getYearValueFromId($data['from_academic_year_id'] ?? 0);
+        $toYear   = $this->getYearValueFromId($data['to_academic_year_id'] ?? 0);
+        $termId   = $this->getCurrentTermId($fromYear ?: (int)date('Y'));
+
         $sql = "INSERT INTO student_promotions (
-            student_id, from_class, to_class, from_enrollment_id,
-            to_enrollment_id, academic_year_id, promotion_date,
-            promoted_by, remarks
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            batch_id, student_id,
+            current_class_id, current_stream_id,
+            promoted_to_class_id, promoted_to_stream_id,
+            from_enrollment_id, to_enrollment_id,
+            from_academic_year_id, to_academic_year_id,
+            from_academic_year, to_academic_year,
+            from_term_id, promotion_status, promotion_reason
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?)";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
+            $data['batch_id'],
             $data['student_id'],
-            $data['from_class'],
-            $data['to_class'],
-            $data['from_enrollment_id'],
-            $data['to_enrollment_id'],
-            $data['academic_year_id'],
-            $data['promotion_date'],
-            $data['promoted_by'],
-            $data['remarks']
+            $data['current_class_id'],
+            $data['current_stream_id'],
+            $data['promoted_to_class_id'] ?? null,
+            $data['promoted_to_stream_id'] ?? null,
+            $data['from_enrollment_id'] ?? null,
+            $data['to_enrollment_id'] ?? null,
+            $data['from_academic_year_id'] ?? null,
+            $data['to_academic_year_id'] ?? null,
+            $fromYear,
+            $toYear,
+            $termId,
+            $data['promotion_reason'] ?? null
         ]);
 
         return $this->db->lastInsertId();
@@ -616,22 +648,51 @@ class PromotionManager
 
     private function createPromotionBatch(array $data): int
     {
+        $fromYear = $this->getYearValueFromId($data['academic_year_from'] ?? 0);
+        $toYear   = $this->getYearValueFromId($data['academic_year_to'] ?? 0);
+
         $sql = "INSERT INTO promotion_batches (
-            batch_name, academic_year_from, academic_year_to,
-            promotion_type, total_students, initiated_by, status
+            batch_scope, from_academic_year, to_academic_year,
+            batch_type, total_students_processed, created_by, status
         ) VALUES (?, ?, ?, ?, ?, ?, 'in_progress')";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
-            $data['batch_name'],
-            $data['academic_year_from'],
-            $data['academic_year_to'] ?? null,
-            $data['promotion_type'],
-            $data['total_students'],
-            $data['initiated_by']
+            $data['batch_scope'] ?? null,
+            $fromYear ?: $data['academic_year_from'],
+            $toYear   ?: $data['academic_year_to'] ?? $fromYear,
+            $data['batch_type'],
+            $data['total_students_processed'] ?? 0,
+            $data['created_by']
         ]);
 
         return $this->db->lastInsertId();
+    }
+
+    /** Resolve a 4-digit YEAR value from an academic_years.id */
+    private function getYearValueFromId(int $yearId): ?int
+    {
+        if ($yearId <= 0) return null;
+        $stmt = $this->db->prepare(
+            "SELECT CAST(SUBSTRING(year_code, 1, 4) AS UNSIGNED) AS yr FROM academic_years WHERE id = ?"
+        );
+        $stmt->execute([$yearId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? (int)$row['yr'] : null;
+    }
+
+    /** Get the current/last-completed term id for a given calendar year */
+    private function getCurrentTermId(int $calYear): int
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id FROM academic_terms
+             WHERE year = ?
+             ORDER BY FIELD(status,'current','completed','upcoming'), term_number DESC
+             LIMIT 1"
+        );
+        $stmt->execute([$calYear]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ? (int)$row['id'] : 1; // fallback to 1 if none found
     }
 
     private function updatePromotionBatch(int $batchId, array $data): bool

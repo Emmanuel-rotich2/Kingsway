@@ -144,7 +144,7 @@ const SubjectTeachersController = (() => {
       .getElementById("exportSubjectTeachersBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=academic/subject-teachers/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=academic/subject-teachers/export&format=csv",
           "_blank",
         );
       });

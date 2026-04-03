@@ -286,7 +286,7 @@ const LessonPlanApprovalController = (() => {
       .getElementById("exportApprovalBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=academic/lesson-plans/approval/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=academic/lesson-plans/approval/export&format=csv",
           "_blank",
         );
       });

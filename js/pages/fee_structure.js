@@ -192,7 +192,7 @@ class FeeStructureController {
                     <input type="checkbox" class="form-check-input structure-checkbox" value="${structure.id}">
                 </td>
                 <td>
-                    <strong>${structure.class_name || "N/A"}</strong>
+                    <strong>${structure.level_name || "N/A"}</strong>
                 </td>
                 <td>${structure.level_name || "N/A"}</td>
                 <td>${structure.academic_year || "N/A"}</td>
@@ -320,8 +320,8 @@ class FeeStructureController {
                 <div class="structure-details">
                     <div class="row mb-3">
                         <div class="col-md-6">
-                            <label class="form-label text-muted">Class</label>
-                            <p class="form-control-plaintext">${structure.class_name}</p>
+                            <label class="form-label text-muted">Level</label>
+                            <p class="form-control-plaintext">${structure.level_name}</p>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label text-muted">Academic Year</label>
@@ -356,7 +356,7 @@ class FeeStructureController {
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label">Class</label>
-                            <input type="text" class="form-control" value="${structure.class_name}" disabled>
+                            <input type="text" class="form-control" value="${structure.level_name}" disabled>
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Academic Year</label>

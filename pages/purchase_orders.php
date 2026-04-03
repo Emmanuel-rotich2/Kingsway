@@ -11,7 +11,7 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
 
 <div>
     <!-- Page Header -->
@@ -254,7 +254,7 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/purchase_orders.js"></script>
+<script src="<?= $appBase ?>js/pages/purchase_orders.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof PurchaseOrdersController !== 'undefined') {

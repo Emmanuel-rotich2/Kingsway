@@ -195,4 +195,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/vendors.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/vendors.js?v=<?php echo time(); ?>"></script>

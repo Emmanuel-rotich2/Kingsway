@@ -69,22 +69,27 @@ class StudentPromotionWorkflow extends WorkflowHandler {
             // Create promotion batch record
             $this->db->beginTransaction();
             
+            // promotion_batches schema: batch_scope, from_academic_year YEAR(4),
+            //   to_academic_year YEAR(4), batch_type, status, created_by.
+            // No batch_name, from_grade_id, to_grade_id columns.
+            // Store grade info and label in batch_scope and notes.
+            $batchScope = $criteria['batch_name']
+                . " | Grade {$criteria['from_grade_id']} → {$criteria['to_grade_id']}";
             $batchStmt = $this->db->prepare(
                 "INSERT INTO promotion_batches (
-                    batch_name, from_academic_year, to_academic_year,
-                    from_grade_id, to_grade_id, status, created_by
+                    batch_scope, from_academic_year, to_academic_year,
+                    batch_type, status, created_by, notes
                 ) VALUES (
-                    :name, :from_year, :to_year,
-                    :from_grade, :to_grade, 'draft', :user_id
+                    :scope, :from_year, :to_year,
+                    'bulk_grade', 'in_progress', :user_id, :notes
                 )"
             );
             $batchStmt->execute([
-                'name' => $criteria['batch_name'],
+                'scope'     => $batchScope,
                 'from_year' => (int)$criteria['from_academic_year'],
-                'to_year' => (int)$criteria['to_academic_year'],
-                'from_grade' => (int)$criteria['from_grade_id'],
-                'to_grade' => (int)$criteria['to_grade_id'],
-                'user_id' => $this->user_id,
+                'to_year'   => (int)$criteria['to_academic_year'],
+                'user_id'   => $this->user_id,
+                'notes'     => $criteria['notes'] ?? null,
             ]);
             $batchId = (int)$this->db->lastInsertId();
 
@@ -166,16 +171,16 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
             // Retrieve identified candidates
             $candidatesStmt = $this->db->prepare(
-                "SELECT sp.*, 
-                    s.first_name, s.last_name, s.admission_number,
-                    c_from.class_name as current_class, cs_from.stream_name as current_stream,
-                    c_to.class_name as promoted_class, cs_to.stream_name as promoted_stream
+                "SELECT sp.*,
+                    s.first_name, s.last_name, s.admission_no,
+                    c_from.name  AS current_class,  cs_from.stream_name AS current_stream,
+                    c_to.name    AS promoted_class,  cs_to.stream_name   AS promoted_stream
                 FROM student_promotions sp
-                INNER JOIN students s ON sp.student_id = s.id
-                INNER JOIN classes c_from ON sp.current_class_id = c_from.id
-                INNER JOIN class_streams cs_from ON sp.current_stream_id = cs_from.id
-                LEFT JOIN classes c_to ON sp.promoted_to_class_id = c_to.id
-                LEFT JOIN class_streams cs_to ON sp.promoted_to_stream_id = cs_to.id
+                INNER JOIN students      s       ON sp.student_id          = s.id
+                INNER JOIN classes       c_from  ON sp.current_class_id    = c_from.id
+                INNER JOIN class_streams cs_from ON sp.current_stream_id   = cs_from.id
+                LEFT  JOIN classes       c_to    ON sp.promoted_to_class_id  = c_to.id
+                LEFT  JOIN class_streams cs_to   ON sp.promoted_to_stream_id = cs_to.id
                 WHERE sp.batch_id = :batch_id"
             );
             $candidatesStmt->execute(['batch_id' => $batchId]);
@@ -287,11 +292,11 @@ class StudentPromotionWorkflow extends WorkflowHandler {
 
                 // Get attendance percentage
                 $attendanceStmt = $this->db->prepare(
-                    "SELECT 
+                    "SELECT
                         COUNT(*) as total_days,
                         SUM(CASE WHEN status IN ('present', 'late') THEN 1 ELSE 0 END) as attended_days
-                    FROM attendance 
-                    WHERE student_id = :student_id 
+                    FROM student_attendance
+                    WHERE student_id = :student_id
                     AND YEAR(date) = :year"
                 );
                 $attendanceStmt->execute([
@@ -344,14 +349,18 @@ class StudentPromotionWorkflow extends WorkflowHandler {
                 ]);
             }
 
-            // Update batch statistics
+            // Update batch statistics using actual column names:
+            // total_promoted (approved), total_pending_approval (retained/pending),
+            // status must be one of: pending, in_progress, completed, cancelled.
             $this->db->prepare(
-                "UPDATE promotion_batches 
-                SET total_approved = :approved,
-                    total_retained = :retained,
-                    status = 'validated'
+                "UPDATE promotion_batches
+                SET total_students_processed = :total,
+                    total_promoted = :approved,
+                    total_pending_approval = :retained,
+                    status = 'in_progress'
                 WHERE id = :batch_id"
             )->execute([
+                'total'    => count($candidates),
                 'approved' => $approvedCount,
                 'retained' => $retainedCount,
                 'batch_id' => $batchId,

@@ -4,7 +4,7 @@ class ToggleConfigController {
         this.allData = []; this.init();
     }
     async init() {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = '/Kingsway/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         await this.loadData();
     }
     async loadData() {

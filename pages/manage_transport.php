@@ -288,4 +288,4 @@ exit;
 </div>
 
 <!-- Link Controller Script -->
-<script src="/Kingsway/js/pages/transport.js"></script>
+<script src="<?= $appBase ?>js/pages/transport.js"></script>

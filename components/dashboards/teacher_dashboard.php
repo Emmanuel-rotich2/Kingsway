@@ -23,4 +23,4 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
     <div id="teacher-dashboard-fragment"></div>
 </div>
 
-<script src="/Kingsway/js/dashboards/teacher_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/dashboards/teacher_dashboard.js?v=<?php echo time(); ?>"></script>

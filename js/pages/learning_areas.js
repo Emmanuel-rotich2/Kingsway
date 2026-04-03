@@ -14,7 +14,7 @@ const LearningAreasController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.bindEvents();
@@ -414,7 +414,7 @@ const LearningAreasController = {
   },
 
   viewSow(id) {
-    window.location.href = `/Kingsway/pages/schemes_of_work.php?id=${id}`;
+    window.location.href = (window.APP_BASE || "") + `/pages/schemes_of_work.php?id=${id}`;
   },
 
   populateFilters() {

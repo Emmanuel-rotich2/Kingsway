@@ -360,4 +360,4 @@
 </div>
 
 <!-- Link to Controller -->
-<script src="/Kingsway/js/pages/academics.js"></script>
+<script src="<?= $appBase ?>js/pages/academics.js"></script>

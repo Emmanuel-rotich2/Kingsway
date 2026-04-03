@@ -36,7 +36,7 @@ const StudentIdCardsController = {
 
   init: async function () {
     if (!window.AuthContext?.isAuthenticated?.()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
@@ -744,7 +744,7 @@ const StudentIdCardsController = {
     // Open generated HTML card (server output) when available; otherwise open preview route.
     const url =
       this.state.currentCard?.view_url ||
-      `/Kingsway/api/students/id-card-get/${encodeURIComponent(studentId)}`;
+      (window.APP_BASE || "") + `/api/students/id-card-get/${encodeURIComponent(studentId)}`;
     window.open(url, "_blank");
   },
 
@@ -958,7 +958,7 @@ const StudentIdCardsController = {
     if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:")) return value;
     if (value.startsWith("/Kingsway/")) return value;
     if (value.startsWith("/")) return `/Kingsway${value}`;
-    return `/Kingsway/${value.replace(/^\/+/, "")}`;
+    return (window.APP_BASE || "") + `/${value.replace(/^\/+/, "")}`;
   },
 
   getAvatarUrl: function (student) {

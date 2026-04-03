@@ -351,7 +351,7 @@ const AllLessonPlansController = (() => {
       .getElementById("exportLessonPlansBtn")
       ?.addEventListener("click", () => {
         window.open(
-          "/Kingsway/api/?route=academic/lesson-plans/export&format=csv",
+          (window.APP_BASE || "") + "/api/?route=academic/lesson-plans/export&format=csv",
           "_blank",
         );
       });

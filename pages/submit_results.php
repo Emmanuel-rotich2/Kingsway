@@ -8,7 +8,8 @@
 
 // This page no longer processes direct form submissions
 // All result submission is now done via REST API from enter_results.php
-header('Location: /Kingsway/home.php?route=enter_results');
+$base = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+header('Location: ' . $base . '/home.php?route=enter_results');
 exit;
 ?>
 

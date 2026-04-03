@@ -15,7 +15,7 @@
             <button class="btn btn-outline-primary me-2" onclick="myclassesController.printSchedule()">
                 <i class="bi bi-printer me-1"></i>Print
             </button>
-            <a href="/Kingsway/home.php?route=manage_timetable" class="btn btn-outline-info">
+            <a href="<?= $appBase ?>home.php?route=manage_timetable" class="btn btn-outline-info">
                 <i class="bi bi-calendar3 me-1"></i>My Timetable
             </a>
         </div>

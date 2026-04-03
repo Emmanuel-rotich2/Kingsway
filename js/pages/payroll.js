@@ -24,7 +24,7 @@ const payrollController = {
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     await Promise.all([this.loadStaffList(), this.populatePayPeriods()]);

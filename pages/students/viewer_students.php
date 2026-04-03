@@ -12,13 +12,13 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/viewer-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/viewer-theme.css">
 
 <div class="viewer-layout">
     <!-- Header -->
     <header class="viewer-header">
-        <a href="/Kingsway/home.php" class="back-link">← Dashboard</a>
+        <a href="<?= $appBase ?>home.php" class="back-link">← Dashboard</a>
         <h1 class="page-title">Student Profile</h1>
     </header>
 
@@ -31,7 +31,7 @@
     </main>
 </div>
 
-<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (window.RoleBasedUI?.applyLayout) {
@@ -99,7 +99,7 @@
             effectiveStudentType.includes('board') ? 'Boarder' :
             effectiveStudentType.includes('weekly') ? 'Weekly Boarder' :
             'Day Scholar';
-        const photo = student.photo_url || student.photo || '/Kingsway/images/default-avatar.png';
+        const photo = student.photo_url || student.photo || (window.APP_BASE || '') + '/images/default-avatar.png';
 
         return `
         <div class="viewer-profile-card">

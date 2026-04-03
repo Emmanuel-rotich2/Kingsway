@@ -358,7 +358,7 @@
 </div>
 
 <!-- Page-specific JavaScript -->
-<script src="/Kingsway/js/pages/family_groups.js"></script>
+<script src="<?= $appBase ?>js/pages/family_groups.js"></script>
 <script>
     // Initialize controller when page loads
     document.addEventListener('DOMContentLoaded', function() {

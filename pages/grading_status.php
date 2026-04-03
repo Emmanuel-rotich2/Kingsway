@@ -224,4 +224,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="/Kingsway/js/pages/grading_status.js"></script>
+<script src="<?= $appBase ?>js/pages/grading_status.js"></script>

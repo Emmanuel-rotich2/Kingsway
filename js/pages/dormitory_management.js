@@ -11,7 +11,7 @@ const DormitoryManagementController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.bindEvents();
@@ -165,7 +165,7 @@ const DormitoryManagementController = {
           ?.getCustom({ action: "dorm-occupants", dorm_id: dormId })
           .catch(() => null)) ||
         (await fetch(
-          `/Kingsway/api/?route=boarding&action=occupants&dorm_id=${dormId}`,
+          (window.APP_BASE || "") + `/api/?route=boarding&action=occupants&dorm_id=${dormId}`,
         )
           .then((r) => r.json())
           .catch(() => null));
