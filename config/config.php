@@ -1,5 +1,9 @@
 <?php
-namespace App\Config;
+/**
+ * Kingsway Academy Management System Configuration
+ * 
+ * Central configuration file for database, API, authentication, and services.
+ */
 
 // Debug mode
 define('DEBUG', true);
@@ -50,10 +54,10 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database
-define('DB_HOST', 'localhost');
+define('DB_HOST', '127.0.0.1');
 define('DB_PORT', '3306');
-define('DB_NAME', 'kingswa4_kingswayacademy');
-define('DB_USER', 'kingswa4_root');
+define('DB_NAME', 'KingsWayAcademy');
+define('DB_USER', 'root');
 define('DB_PASS', 'admin123');
 
 // JWT
