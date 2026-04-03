@@ -2423,6 +2423,15 @@ window.API = {
       apiCall("/finance/department-budgets-summary", "GET", null, {
         department_id: departmentId,
       }),
+    // Aliases used by budget_overview.js
+    getDepartmentBudgetsSummary: async (params) =>
+      apiCall("/finance/department-budgets-summary", "GET", null, params),
+    getDepartmentBudgetsProposals: async (params) =>
+      apiCall("/finance/department-budgets-proposals", "GET", null, params),
+    proposeDepartmentBudget: async (data) =>
+      apiCall("/finance/department-budgets-propose", "POST", data),
+    approveDepartmentBudget: async (data) =>
+      apiCall("/finance/department-budgets-approve", "POST", data),
 
     // Payrolls
     listPayrolls: async (params) =>

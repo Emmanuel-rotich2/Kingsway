@@ -109,8 +109,14 @@ const academicReportsCtrl = (() => {
     }
 
     async function loadLearningAreas() {
-        const areas = await apiGet('academic');
-        state.learningAreas = Array.isArray(areas) ? areas : [];
+        try {
+            const res = await window.API.academic.listLearningAreas().catch(() => null)
+                || await apiGet('academic/learning-areas/list').catch(() => null);
+            const areas = res?.data ?? res ?? [];
+            state.learningAreas = Array.isArray(areas) ? areas : [];
+        } catch {
+            state.learningAreas = [];
+        }
     }
 
     async function fetchStudentsByClass(classId) {
@@ -406,6 +412,14 @@ const academicReportsCtrl = (() => {
     }
 
     async function init() {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
+            return;
+        }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
+            toast('Access denied: insufficient permissions to view academic reports.', 'danger');
+            return;
+        }
         try {
             await Promise.all([loadYears(), loadTerms(), loadClasses(), loadLearningAreas()]);
             await generateReport();

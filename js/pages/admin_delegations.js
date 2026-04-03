@@ -9,7 +9,7 @@ const delegationsController = (function () {
       active: state.active,
     });
     const res = await window.API.apiCall(
-      "/api/delegations?" + qs.toString(),
+      "/delegations?" + qs.toString(),
       "GET"
     );
     if (!res || res.status !== "success") {
@@ -89,7 +89,7 @@ const delegationsController = (function () {
       menu_item_id: menuItem,
       expires_at: expiresAt,
     };
-    const res = await window.API.apiCall("/api/delegations", "POST", payload);
+    const res = await window.API.apiCall("/delegations", "POST", payload);
     if (!res || res.status !== "success") {
       alert("Failed to create delegation: " + (res?.message || "unknown"));
       return;
@@ -101,7 +101,7 @@ const delegationsController = (function () {
   }
 
   async function edit(id) {
-    const res = await window.API.apiCall("/api/delegations/" + id, "GET");
+    const res = await window.API.apiCall("/delegations/" + id, "GET");
     if (!res || res.status !== "success") {
       alert("Failed to load");
       return;
@@ -127,7 +127,7 @@ const delegationsController = (function () {
           expires_at: document.getElementById("expiresAt").value || null,
         };
         const upd = await window.API.apiCall(
-          "/api/delegations/" + id,
+          "/delegations/" + id,
           "PUT",
           payload
         );
@@ -149,7 +149,7 @@ const delegationsController = (function () {
       )
     )
       return;
-    const res = await window.API.apiCall("/api/delegations/" + id, "DELETE");
+    const res = await window.API.apiCall("/delegations/" + id, "DELETE");
     if (res === "") {
       // 204 No Content returns empty
       load();

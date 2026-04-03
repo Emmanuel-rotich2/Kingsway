@@ -398,12 +398,13 @@ const examSetupController = (() => {
                             <button class="btn btn-outline-success btn-sm" onclick="examSetupController.viewExam(${exam.id})" title="View Details">
                                 <i class="bi bi-eye"></i>
                             </button>
+                            ${_canCreate() ? `
                             <button class="btn btn-outline-warning btn-sm" onclick="examSetupController.editExam(${exam.id})" title="Edit">
                                 <i class="bi bi-pencil"></i>
                             </button>
                             <button class="btn btn-outline-danger btn-sm" onclick="examSetupController.confirmDelete(${exam.id}, '${escHtml(name).replace(/'/g, "\\'")}')" title="Delete">
                                 <i class="bi bi-trash"></i>
-                            </button>
+                            </button>` : ''}
                         </div>
                     </td>
                 </tr>`;
@@ -1313,10 +1314,34 @@ const examSetupController = (() => {
        INITIALISATION
     ================================================================= */
   async function init() {
+    if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || '') + '/index.php';
+      return;
+    }
+
+    const canCreate = typeof AuthContext !== 'undefined'
+      ? AuthContext.hasPermission('assessments_create')
+      : false;
+
+    // Hide write-action buttons for users without assessments_create
+    if (!canCreate) {
+      ['btnCreateExam', 'btnImportConfig', 'btnSaveExam', 'btnAddSubjectRow',
+       'btnSelectAllClasses', 'btnDeselectAllClasses', 'viewEditBtn',
+       'viewDuplicateBtn', 'btnConfirmDelete'].forEach(id => {
+        const el = $(id);
+        if (el) el.classList.add('d-none');
+      });
+    }
+
     _attachListeners();
     await loadReferenceData();
     await loadExams();
   }
+
+  /* Helper: render table with create/edit/delete gated */
+  const _canCreate = () => typeof AuthContext !== 'undefined'
+    ? AuthContext.hasPermission('assessments_create')
+    : false;
 
   /* =================================================================
        PUBLIC API

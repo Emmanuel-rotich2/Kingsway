@@ -3,6 +3,11 @@ const ComparativeReportsController = (() => {
     let charts = {};
     async function init() {
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('finance_view') && !AuthContext.hasPermission('academics_view')) {
+            const main = document.querySelector('.main-content') || document.body;
+            main.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: finance_view or academics_view permission required</div>');
+            return;
+        }
         await loadData(); setupEventListeners();
     }
     function setupEventListeners() {
@@ -14,12 +19,10 @@ const ComparativeReportsController = (() => {
     }
     async function loadData() {
         try {
+            // Try finance yearly collections first (director view), then academic comparison
             const r =
-              (await window.API.apiCall(
-                "/academic/comparative-reports",
-                "GET",
-              ).catch(() => null)) ||
-              (await window.API.academic?.compileData?.().catch(() => null));
+              (await window.API.finance?.compareYearlyCollections?.({}).catch(() => null)) ||
+              (await window.API.reports?.getAcademicYearReports?.({}).catch(() => null));
             allData = r?.data || r || [];
             renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);
             renderCharts(allData);

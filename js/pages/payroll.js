@@ -29,6 +29,10 @@ const payrollController = {
     }
     await Promise.all([this.loadStaffList(), this.populatePayPeriods()]);
     this.bindEvents();
+    // Director / finance managers: load all payroll records immediately
+    if (AuthContext.hasPermission('finance_view') || AuthContext.hasPermission('finance_approve')) {
+      await this.loadReport();
+    }
   },
 
   bindEvents: function () {
@@ -144,10 +148,13 @@ const payrollController = {
     container.innerHTML =
       '<div class="text-center py-3"><div class="spinner-border"></div> Loading report...</div>';
 
+    const canApprove = typeof AuthContext !== 'undefined' && AuthContext.hasPermission('finance_approve');
+
     try {
-      const response = await window.API.staff.listPayroll();
+      // Use finance.getPayrollList for director/finance views (all staff), fall back to staff.listPayroll
+      const response = await (window.API.finance?.getPayrollList?.({}) || window.API.staff.listPayroll());
       const payroll =
-        response?.data?.payroll || response?.payroll || response?.data || [];
+        response?.data?.payrolls || response?.data?.payroll || response?.payrolls || response?.payroll || response?.data || [];
       const list = Array.isArray(payroll) ? payroll : [];
 
       if (!list.length) {
@@ -166,7 +173,7 @@ const payrollController = {
             <thead class="table-light">
               <tr>
                 <th>Staff No.</th><th>Name</th><th>Basic</th><th>Allowances</th>
-                <th>Deductions</th><th>Net Pay</th><th>Period</th><th>Actions</th>
+                <th>Deductions</th><th>Net Pay</th><th>Period</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -175,16 +182,21 @@ const payrollController = {
                   (r) => `
                 <tr>
                   <td>${r.staff_no || "-"}</td>
-                  <td>${r.first_name || ""} ${r.last_name || ""}</td>
+                  <td>${r.first_name || r.staff_name || ""} ${r.last_name || ""}</td>
                   <td>${fmt(r.basic_salary)}</td>
-                  <td>${fmt(r.allowances)}</td>
+                  <td>${fmt(r.allowances || r.total_allowances)}</td>
                   <td>${fmt(r.total_deductions || r.deductions)}</td>
                   <td><strong>${fmt(r.net_salary || r.net_pay)}</strong></td>
-                  <td>${r.month || "-"}/${r.year || "-"}</td>
-                  <td>
-                    <button class="btn btn-sm btn-outline-info" onclick="payrollController.viewPayslip(${r.staff_id || r.id}, ${r.month || 0}, ${r.year || 0})">
+                  <td>${r.month || r.payroll_period || "-"}${r.year ? "/" + r.year : ""}</td>
+                  <td><span class="badge bg-${r.status === 'approved' || r.status === 'paid' ? 'success' : r.status === 'pending' ? 'warning' : 'secondary'}">${r.status || 'draft'}</span></td>
+                  <td class="text-nowrap">
+                    <button class="btn btn-sm btn-outline-info me-1" onclick="payrollController.viewPayslip(${r.staff_id || r.id}, ${r.month || 0}, ${r.year || 0})">
                       <i class="bi bi-receipt"></i> Payslip
                     </button>
+                    ${canApprove && (r.status === 'pending' || r.status === 'draft') ? `
+                    <button class="btn btn-sm btn-outline-success" onclick="payrollController.approvePayroll(${r.id})">
+                      <i class="bi bi-check-circle"></i> Approve
+                    </button>` : ''}
                   </td>
                 </tr>
               `,
@@ -198,6 +210,18 @@ const payrollController = {
       console.error("Error loading report:", error);
       container.innerHTML =
         '<p class="text-danger">Failed to load payroll report.</p>';
+    }
+  },
+
+  approvePayroll: async function (payrollId) {
+    if (!confirm('Approve this payroll entry?')) return;
+    try {
+      await window.API.finance.approvePayroll({ payroll_id: payrollId });
+      this.notify('Payroll approved successfully!', 'success');
+      await this.loadReport();
+    } catch (error) {
+      console.error('Approve payroll error:', error);
+      this.notify('Failed to approve payroll: ' + (error.message || 'Unknown error'), 'error');
     }
   },
 
