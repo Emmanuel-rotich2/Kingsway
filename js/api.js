@@ -1,7 +1,9 @@
 // Only define API_BASE_URL if not already defined
 if (typeof API_BASE_URL === 'undefined') {
+  
     var API_BASE_URL = (window.APP_BASE || '') + '/api';
-}
+
+ 
 
 // Token refresh tracking to prevent duplicate refresh requests
 if (typeof isRefreshingToken === "undefined") {

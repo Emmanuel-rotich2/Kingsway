@@ -10,11 +10,11 @@ define('DEBUG', true);
 // Detect if local or production
 $isLocal = ($_SERVER['HTTP_HOST'] ?? 'localhost') === 'localhost' || strpos($_SERVER['HTTP_HOST'] ?? '', '127.0.0.1') !== false;
 $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$baseUrl = $isLocal ? 'http://localhost/Kingsway' : 'https://kingsway.ac.ke';
+$baseUrl = $isLocal ? 'http://localhost/Kingsway' : 'https://kingswaypreparatoryschool.sc.ke';
 define('BASE_URL', $baseUrl);
 
 // File upload paths
-define('UPLOAD_PATH', __DIR__ . '/../uploads');
+define('UPLOAD_PATH', '/home/kingswa4/uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
@@ -68,12 +68,11 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database Configuration
-define('DB_HOST', '127.0.0.1');
-define('DB_USER', 'root');
-define('DB_PASS', 'admin123');
-define('DB_NAME', 'KingsWayAcademy');
-define('DB_PORT', '3306');
-define('DB_CHARSET', 'utf8mb4');
+define('DB_HOST', 'DB_HOST', 'da28.host-ww.net');
+define('DB_USER', 'DB_USER', 'kingswa4_root');
+define('DB_NAME', 'DB_NAME', 'kingswa4_kingswayacademy');
+define('DB_PORT', 'DB_PORT', 3306);
+define('DB_PASS', 'DB_PASS', 'admin123');
 
 // JWT Configuration
 define('JWT_SECRET', '51c47afc73a6f2cf1a052309d1f8a8bb4839d7bc7aaddb32cd8f26b2898aed23');
@@ -86,11 +85,12 @@ define('JWT_AUDIENCE', 'kingsway-staff');
 define('SYSTEM_VERSION', '1.0.0');
 
 // Email Configuration
-define('SMTP_HOST', 'smtp.gmail.com');
-define('SMTP_PORT', 587);
-define('SMTP_USERNAME', 'angisofttechnologies@gmail.com');
-define('SMTP_PASSWORD', 'snhtcunelqtkujnp');
-define('SMTP_FROM_EMAIL', 'angisofttechnologies@gmail.com'); // Must match authenticated account
+
+define('SMTP_HOST', 'SMTP_HOST', 'mail.kingswaypreparatoryschool.sc.ke');
+define('SMTP_PORT', 'SMTP_PORT', 587));
+define('SMTP_USERNAME', 'SMTP_USERNAME', 'info@kingswaypreparatoryschool.sc.ke');
+define('SMTP_FROM_EMAIL', 'SMTP_FROM_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
+define('SMTP_PASSWORD', 'SMTP_PASSWORD', '@Kingsway123'); 
 define('SMTP_FROM_NAME', 'Kingsway Preparatory School');
 
 // SMS Configuration
@@ -160,14 +160,8 @@ define('KCB_PUBLIC_KEY_PATH', __DIR__ . '/kcb_public_key.pem'); // Path to KCB p
 // Generic Bank Configuration (For other bank integrations)
 define('BANK_API_KEY', 'your_bank_api_key'); // Used for bank webhook signature validation
 
-define('ALLOWED_ORIGINS', [
-    'http://localhost',
-    'http://127.0.0.1',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://localhost:8081',
-    'http://127.0.0.1:8081'
-]);
+// Allowed origins
+$allowed_origins = [env('APP_URL')];
 // CBE Curriculum Config
 $CBE_GRADE_LEVELS = [
     'Play Group',
