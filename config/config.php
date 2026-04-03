@@ -54,11 +54,11 @@ define('API_VERSION', '1.0');
 define('API_BASE_URL', '/api/v1');
 
 // Database
-define('DB_HOST', '127.0.0.1');
+define('DB_HOST', 'localhost');
 define('DB_PORT', '3306');
 define('DB_NAME', 'KingsWayAcademy');
 define('DB_USER', 'root');
-define('DB_PASS', 'admin123');
+define('DB_PASS', '');
 
 // JWT
 define('JWT_SECRET', 'change_this_secret');
