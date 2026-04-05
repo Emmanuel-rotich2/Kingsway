@@ -249,7 +249,7 @@ class ReportGenerationWorkflow extends WorkflowHandler {
                             SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as days_present,
                             SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as days_absent,
                             SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as days_late
-                        FROM attendance
+                        FROM student_attendance
                         WHERE student_id = :student_id
                         AND term_id = :term_id"
                     );

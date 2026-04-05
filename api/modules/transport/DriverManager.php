@@ -14,34 +14,34 @@ class DriverManager
     // CRUD for drivers
     public function createDriver($data)
     {
-        $sql = "INSERT INTO drivers (first_name, last_name, license_no, phone, employment_status) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO drivers (first_name, last_name, license_number, phone, status) VALUES (?, ?, ?, ?, ?)";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['first_name'],
             $data['last_name'],
-            $data['license_no'],
+            $data['license_number'],
             $data['phone'],
-            $data['employment_status'] ?? 'active'
+            $data['status'] ?? 'active'
         ]);
         return $this->db->lastInsertId();
     }
     public function updateDriver($id, $data)
     {
-        $sql = "UPDATE drivers SET first_name=?, last_name=?, license_no=?, phone=?, employment_status=? WHERE id=?";
+        $sql = "UPDATE drivers SET first_name=?, last_name=?, license_number=?, phone=?, status=? WHERE id=?";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             $data['first_name'],
             $data['last_name'],
-            $data['license_no'],
+            $data['license_number'],
             $data['phone'],
-            $data['employment_status'],
+            $data['status'],
             $id
         ]);
         return $stmt->rowCount() > 0;
     }
     public function deactivateDriver($id)
     {
-        $stmt = $this->db->prepare("UPDATE drivers SET employment_status='inactive' WHERE id=?");
+        $stmt = $this->db->prepare("UPDATE drivers SET status='inactive' WHERE id=?");
         $stmt->execute([$id]);
         return $stmt->rowCount() > 0;
     }

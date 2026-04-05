@@ -327,6 +327,48 @@ class MenuBuilderService
         }
     }
 
+    /**
+     * Deduplicate role_sidebar_menus rows.
+     *
+     * Removes duplicate (role_id, menu_item_id) pairs, keeping the row with
+     * the lowest id for each pair. Useful as an admin maintenance helper after
+     * bulk seeding operations that bypass the ON DUPLICATE KEY guard.
+     *
+     * @param int|null $role_id Scope to a single role; null deduplicates all roles.
+     * @return int Number of duplicate rows deleted.
+     */
+    public function deduplicateRoleSidebarMenus(?int $role_id = null): int
+    {
+        if ($role_id !== null) {
+            $stmt = $this->db->query(
+                "DELETE FROM role_sidebar_menus
+                 WHERE role_id = ?
+                   AND id NOT IN (
+                       SELECT keep_id FROM (
+                           SELECT MIN(id) AS keep_id
+                           FROM role_sidebar_menus
+                           WHERE role_id = ?
+                           GROUP BY menu_item_id
+                       ) AS _keep
+                   )",
+                [$role_id, $role_id]
+            );
+        } else {
+            $stmt = $this->db->query(
+                "DELETE FROM role_sidebar_menus
+                 WHERE id NOT IN (
+                     SELECT keep_id FROM (
+                         SELECT MIN(id) AS keep_id
+                         FROM role_sidebar_menus
+                         GROUP BY role_id, menu_item_id
+                     ) AS _keep
+                 )"
+            );
+        }
+
+        return (int) $stmt->rowCount();
+    }
+
     // =========================================================================
     // USER MENU OVERRIDES
     // =========================================================================

@@ -19,6 +19,23 @@ const StudentPromotionController = {
       return;
     }
 
+    if (!AuthContext.hasPermission('students_view')) {
+      const main = document.querySelector('.main-content, main, body');
+      if (main) main.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: you do not have permission to view student data.</div>');
+      return;
+    }
+
+    const canPromote = AuthContext.hasPermission('students_promote');
+    this._canPromote = canPromote;
+
+    // Hide promotion action buttons for users without promote permission
+    if (!canPromote) {
+      ['processPromotion', 'promoteAll', 'retainSelected'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('d-none');
+      });
+    }
+
     this.attachEventListeners();
     await this.loadReferenceData();
   },
@@ -206,9 +223,7 @@ const StudentPromotionController = {
               </select>
             </td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="StudentPromotionController.promoteSingle(${student.id})">
-                Promote
-              </button>
+              ${StudentPromotionController._canPromote ? `<button class="btn btn-sm btn-outline-primary" onclick="StudentPromotionController.promoteSingle(${student.id})">Promote</button>` : ''}
             </td>
           </tr>
         `;
