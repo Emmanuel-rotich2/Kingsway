@@ -1,8 +1,8 @@
 // Only define API_BASE_URL if not already defined
 if (typeof API_BASE_URL === 'undefined') {
-  
     var API_BASE_URL = (window.APP_BASE || '') + '/api';
-
+}
+  
  
 
 // Token refresh tracking to prevent duplicate refresh requests
@@ -764,9 +764,26 @@ function validatePermission(endpoint, method) {
   }
 }
 
+function _showSessionExpiredAndRedirect() {
+  // Guard against multiple calls within the same tab (e.g. concurrent 401 responses)
+  if (sessionStorage.getItem('_session_expired_redirect')) return;
+  sessionStorage.setItem('_session_expired_redirect', '1');
+
+  if (typeof showNotification === 'function') {
+    showNotification('Your session has expired. Redirecting to login...', NOTIFICATION_TYPES.WARNING);
+  } else {
+    console.warn('Session expired — redirecting to login');
+  }
+
+  setTimeout(function () {
+    sessionStorage.removeItem('_session_expired_redirect');
+    window.location.href = (window.APP_BASE || '') + "/index.php";
+  }, 2000);
+}
+
 /**
- * Refresh access token using stored refresh token
- * Implements token rotation strategy with automatic retry
+ * Refresh access token using stored refresh token.
+ * Implements token rotation with mutex to prevent concurrent refresh races.
  * @returns {Promise<boolean>} True if token was refreshed successfully
  */
 async function refreshAccessToken() {
@@ -779,6 +796,12 @@ async function refreshAccessToken() {
   refreshTokenPromise = (async () => {
     try {
       const refreshToken = localStorage.getItem("refresh_token");
+      if (!refreshToken) {
+        console.warn("No refresh token available, redirecting to login");
+        AuthContext.clearUser();
+        _showSessionExpiredAndRedirect();
+        return false;
+      }
 
       console.log("Attempting to refresh access token...");
 
@@ -805,7 +828,7 @@ async function refreshAccessToken() {
       if (!response.ok) {
         console.error("Token refresh failed:", response.status);
         AuthContext.clearUser();
-        window.location.href = (window.APP_BASE || '') + "/index.php";
+        _showSessionExpiredAndRedirect();
         return false;
       }
 
@@ -822,13 +845,13 @@ async function refreshAccessToken() {
       } else {
         console.error("Token refresh returned error:", result.message);
         AuthContext.clearUser();
-        window.location.href = (window.APP_BASE || '') + "/index.php";
+        _showSessionExpiredAndRedirect();
         return false;
       }
     } catch (error) {
       console.error("Error refreshing token:", error);
       AuthContext.clearUser();
-      window.location.href = (window.APP_BASE || '') + "/index.php";
+      _showSessionExpiredAndRedirect();
       return false;
     } finally {
       isRefreshingToken = false;
