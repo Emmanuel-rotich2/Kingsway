@@ -2,12 +2,15 @@
 /vendor/
 ./vendor
 /config/config.php
+/uploads/
+/*.lock
 
 /.claude
+/uploads/
 
-./htaccess
 .htaccess
 /.htaccess
+
 
 /tests/
 /logs/*.log
