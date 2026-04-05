@@ -19,9 +19,24 @@ const timetableController = (() => {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+    // Gate edit controls — only users with schedules_create can modify the timetable
+    const canEdit = typeof AuthContext !== "undefined" && AuthContext.hasPermission('schedules_create');
+    if (!canEdit) {
+      // Hide all create/edit/delete buttons and the edit mode toggle
+      ['editModeBtn', 'generateTimetableBtn', 'saveBtn'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('d-none');
+      });
+      // Also hide any button with onclick containing enterEditMode or generateTimetable
+      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"],[onclick*="saveCell"],[onclick*="removeCell"]').forEach((el) => el.classList.add('d-none'));
+    }
     await Promise.all([loadFilters(), loadTimeSlots()]);
     bindEvents();
     await loadTimetable();
+    // After load, re-hide edit controls in case they are rendered dynamically
+    if (!canEdit) {
+      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
+    }
   }
 
   async function loadTimeSlots() {
@@ -290,6 +305,11 @@ const timetableController = (() => {
   }
 
   function enterEditMode() {
+    const canEdit = typeof AuthContext !== "undefined" && AuthContext.hasPermission('schedules_create');
+    if (!canEdit) {
+      showNotification("You do not have permission to edit the timetable.", "danger");
+      return;
+    }
     editMode = !editMode;
     renderTimetable();
     const btn = document.querySelector('[onclick*="enterEditMode"]');

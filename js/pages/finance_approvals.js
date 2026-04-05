@@ -61,11 +61,11 @@ const FinanceApprovalsController = (() => {
   }
 
   function showNotice(message, type = "info") {
-    if (window.API?.showNotification) {
-      window.API.showNotification(message, type);
-      return;
+    if (typeof showNotification === "function") {
+      showNotification(message, type);
+    } else {
+      window.alert(type === "error" ? `Error: ${message}` : message);
     }
-    window.alert(type === "error" ? `Error: ${message}` : message);
   }
 
   function normalizeStatus(status) {
@@ -110,7 +110,7 @@ const FinanceApprovalsController = (() => {
       if (filters.date_from) params.date_from = filters.date_from;
       if (filters.date_to) params.date_to = filters.date_to;
 
-      const payload = await window.API.apiCall("/finance", "GET", null, params);
+      const payload = await window.API.finance.getTransactions(params);
       const rows = Array.isArray(payload?.expenses)
         ? payload.expenses
         : Array.isArray(payload?.data?.expenses)
@@ -140,15 +140,12 @@ const FinanceApprovalsController = (() => {
       const params = {};
       if (filters.status) params.status = filters.status;
 
-      const payload = await window.API.apiCall(
-        "/finance/department-budgets/proposals",
-        "GET",
-        null,
-        params
-      );
+      const payload = await window.API.finance.getDepartmentBudgetsProposals(params);
 
       const rows = Array.isArray(payload)
         ? payload
+        : Array.isArray(payload?.data)
+        ? payload.data
         : Array.isArray(payload?.proposals)
         ? payload.proposals
         : [];
@@ -173,10 +170,7 @@ const FinanceApprovalsController = (() => {
 
   async function fetchPayrollApprovals() {
     try {
-      const payload = await window.API.apiCall("/finance/payrolls/list", "GET", null, {
-        page: 1,
-        limit: 500,
-      });
+      const payload = await window.API.finance.listPayrolls({ page: 1, limit: 500 });
 
       const rows = Array.isArray(payload?.payrolls)
         ? payload.payrolls
@@ -438,18 +432,12 @@ const FinanceApprovalsController = (() => {
     try {
       if (record.type === "expense") {
         if (decision === "approve") {
-          await window.API.apiCall("/finance/expenses/approve", "POST", {
-            expense_id: record.id,
-            notes: comments,
-          });
+          await window.API.finance.approveExpense(record.id, comments);
         } else {
-          await window.API.apiCall("/finance/expenses/reject", "POST", {
-            expense_id: record.id,
-            reason: comments,
-          });
+          await window.API.finance.rejectExpense(record.id, comments);
         }
       } else if (record.type === "budget") {
-        await window.API.apiCall("/finance/department-budgets/approve", "POST", {
+        await window.API.finance.approveDepartmentBudget({
           proposal_id: record.id,
           status: decision === "approve" ? "approved" : "rejected",
           reviewed_by: userId,
@@ -459,17 +447,9 @@ const FinanceApprovalsController = (() => {
           throw new Error("Unable to resolve current user ID for payroll approval.");
         }
         if (decision === "approve") {
-          await window.API.apiCall("/finance/payrolls/approve", "POST", {
-            payroll_id: record.id,
-            user_id: userId,
-            comments,
-          });
+          await window.API.finance.approvePayroll({ payroll_id: record.id, user_id: userId, comments });
         } else {
-          await window.API.apiCall("/finance/payrolls/reject", "POST", {
-            payroll_id: record.id,
-            user_id: userId,
-            reason: comments,
-          });
+          await window.API.finance.rejectPayroll({ payroll_id: record.id, user_id: userId, reason: comments });
         }
       } else {
         throw new Error("Unsupported approval type.");

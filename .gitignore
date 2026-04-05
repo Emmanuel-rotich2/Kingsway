@@ -17,6 +17,7 @@
 
 ./AGENTS.md
 ./CLAUDE.md
+config/config-production.php
 
 # IDE and editor files
 *.swp
@@ -46,8 +47,8 @@ config/db_connection.php
 # Cache
 cache/
 
-# Database dumps
-database/migrations/*.sql
+# Database dumps (large dump files only — migrations are tracked)
+!database/migrations/*.sql
 
 # Misc
 *.zip

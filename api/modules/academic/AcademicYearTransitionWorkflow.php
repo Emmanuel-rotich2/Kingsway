@@ -210,7 +210,7 @@ class AcademicYearTransitionWorkflow extends WorkflowHandler
 
             if ($archiveAttendance) {
                 $attendStmt = $this->db->prepare(
-                    "SELECT COUNT(*) as count FROM attendance
+                    "SELECT COUNT(*) as count FROM student_attendance
                     WHERE YEAR(date) = :year"
                 );
                 $attendStmt->execute(['year' => $fromYear]);
