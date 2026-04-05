@@ -302,14 +302,24 @@ class AuthAPI extends BaseAPI
         if (empty($userData['permissions'])) {
             $permsRes = $this->userPermissionManager->getEffectivePermissions($userId);
             $userData['permissions'] = $permsRes['data'] ?? [];
+            error_log("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
+            error_log("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
         }
 
-        $userPermissions = array_column($userData['permissions'] ?? [], 'code');
-
-        // Add default role permissions for well-known roles (e.g., Accountant role id 10)
-        if (in_array(10, $roleIds, true)) {
-            $userPermissions = array_values(array_unique(array_merge($userPermissions, $this->getDefaultRolePermissions(10))));
+        // Extract permission codes - handle both 'code' and 'permission_code' field names
+        $userPermissions = [];
+        foreach ($userData['permissions'] ?? [] as $perm) {
+            if (is_array($perm)) {
+                $code = $perm['code'] ?? $perm['permission_code'] ?? null;
+                if ($code) {
+                    $userPermissions[] = $code;
+                }
+            } else {
+                $userPermissions[] = $perm;
+            }
         }
+        $userPermissions = array_values(array_filter(array_unique($userPermissions)));
+        error_log("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
 
         // NOTE: We no longer add Headteacher (role 5) wholesale to a Deputy's
         // effective roles when delegation exists. Delegation is performed at
@@ -442,11 +452,6 @@ class AuthAPI extends BaseAPI
             // Normalize user permissions to codes and merge delegated permissions
             $userData = $this->normalizeUserPermissions($userData);
             $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
-
-            // Add default role permissions for known roles (e.g., Accountant role id 10)
-            if (in_array(10, $roleIds, true)) {
-                $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'], $this->getDefaultRolePermissions(10))));
-            }
 
             // Generate refresh token and set it as HttpOnly secure cookie (do not return in body)
             $refreshToken = $this->generateRefreshToken($userId);
@@ -702,11 +707,8 @@ class AuthAPI extends BaseAPI
             }
         }
 
-        // Normalize user permissions and merge any role-specific defaults
+        // Normalize user permissions (effective permissions come from DB / stored procedure only)
         $userData = $this->normalizeUserPermissions($userData);
-        if ($primaryRoleId === 10) {
-            $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $this->getDefaultRolePermissions(10))));
-        }
 
         // Generate refresh token and set as HttpOnly cookie (do not return in body)
         $refreshToken = $this->generateRefreshToken($userData['id']);
@@ -816,7 +818,7 @@ class AuthAPI extends BaseAPI
     // Validate and exchange refresh token for new access token
     public function exchangeRefreshToken($data)
     {
-        $refreshToken = $data['refresh_token'] ?? null;
+        $refreshToken = $data['refresh_token'] ?? ($_COOKIE['refresh_token'] ?? null);
 
         if (!$refreshToken) {
             return [
@@ -897,7 +899,7 @@ class AuthAPI extends BaseAPI
     // Revoke refresh token (logout)
     public function revokeRefreshToken($data)
     {
-        $refreshToken = $data['refresh_token'] ?? null;
+        $refreshToken = $data['refresh_token'] ?? ($_COOKIE['refresh_token'] ?? null);
 
         if (!$refreshToken) {
             return [
@@ -913,6 +915,10 @@ class AuthAPI extends BaseAPI
                 WHERE token = ? AND revoked_at IS NULL
             ');
             $stmt->execute([$refreshToken]);
+
+            $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+            setcookie('refresh_token', '', time() - 3600, '/', '', $secure, true);
+            header("Set-Cookie: refresh_token=deleted; Path=/; Max-Age=0; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
 
             return [
                 'success' => true,
@@ -975,31 +981,6 @@ class AuthAPI extends BaseAPI
         $codes = array_values(array_filter(array_unique($codes)));
         $userData['permissions'] = $codes;
         return $userData;
-    }
-
-    /**
-     * Return default role permissions for well-known roles
-     */
-    private function getDefaultRolePermissions(int $roleId): array
-    {
-        switch ($roleId) {
-            case 10: // Accountant
-                return [
-                    'finance_view',
-                    'manage_payments',
-                    'bank_accounts_view',
-                    'bank_transactions_view',
-                    'mpesa_view',
-                    'payroll_view',
-                    'payslips_view',
-                    'vendors_manage',
-                    'purchase_orders_manage',
-                    'finance_reports_view',
-                    'fee_structure_manage'
-                ];
-            default:
-                return [];
-        }
     }
 
     /**

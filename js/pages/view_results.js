@@ -1,245 +1,217 @@
 /**
- * View Results Controller
- * Class/student selectors → fetch results → render table + stats + print
- * Targets: view_results.php (#classSelect, #studentSelect, #resultsContainer)
+ * view_results.js — Student Result Viewer
+ * Controller: viewResultsCtrl
+ * Page: pages/view_results.php
+ *
+ * API:
+ *   GET /academic/terms-list   → terms
+ *   GET /academic/classes-list → classes
+ *   GET /students/student?class_id=X → students (double-wrapped: data.data.students[])
  */
-const viewResultsController = (() => {
-  let allResults = [];
-
-  async function init() {
-    if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
-      return;
-    }
-    await loadClasses();
-  }
-
-  async function loadClasses() {
-    try {
-      const r = await API.academic.listClasses().catch(() => null);
-      const items = r?.data || r || [];
-      const sel = document.getElementById("classSelect");
-      if (!sel) return;
-      sel.innerHTML =
-        '<option value="">-- Select Class --</option>' +
-        items
-          .map(
-            (c) =>
-              `<option value="${c.id}">${esc(c.name || c.class_name)}</option>`,
-          )
-          .join("");
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function loadStudents() {
-    const classId = document.getElementById("classSelect")?.value;
-    const sel = document.getElementById("studentSelect");
-    if (!sel) return;
-    sel.innerHTML = '<option value="">-- Loading... --</option>';
-    if (!classId) {
-      sel.innerHTML = '<option value="">-- Select Student --</option>';
-      return;
-    }
-    try {
-      let r = await API.academic
-        .getCustom({ action: "class-students", class_id: classId })
-        .catch(() => null);
-      let students = r?.data || r || [];
-      if (!students.length) {
-        r = await API.students.get().catch(() => null);
-        students = (r?.data || r || []).filter(
-          (s) => String(s.class_id || s.stream_id) === String(classId),
-        );
-      }
-      sel.innerHTML =
-        '<option value="">-- Select Student --</option>' +
-        students
-          .map(
-            (s) =>
-              `<option value="${s.id}">${esc(s.name || s.student_name || ((s.first_name || "") + " " + (s.last_name || "")).trim())} (${s.admission_no || s.reg_no || ""})</option>`,
-          )
-          .join("");
-    } catch (e) {
-      sel.innerHTML = '<option value="">Error loading students</option>';
-    }
-  }
-
-  async function loadResults() {
-    const studentId = document.getElementById("studentSelect")?.value;
-    const box = document.getElementById("resultsContainer");
-    if (!box) return;
-    if (!studentId) {
-      box.innerHTML =
-        '<p class="text-muted">Select a student to view their results</p>';
-      return;
-    }
-    box.innerHTML =
-      '<div class="text-center py-4"><div class="spinner-border text-info"></div><p class="mt-2">Loading results...</p></div>';
-    try {
-      let r = await API.academic
-        .getCustom({ action: "student-results", student_id: studentId })
-        .catch(() => null);
-      allResults = r?.data || r || [];
-      if (!allResults.length) {
-        r = await API.academic.get(studentId).catch(() => null);
-        allResults = r?.data?.results || r?.results || [];
-      }
-      renderResults(box);
-    } catch (e) {
-      box.innerHTML =
-        '<div class="alert alert-danger">Failed to load results.</div>';
-    }
-  }
-
-  function grade(m) {
-    if (m >= 80) return { g: "A", c: "success" };
-    if (m >= 75) return { g: "A-", c: "success" };
-    if (m >= 70) return { g: "B+", c: "primary" };
-    if (m >= 65) return { g: "B", c: "primary" };
-    if (m >= 60) return { g: "B-", c: "info" };
-    if (m >= 55) return { g: "C+", c: "info" };
-    if (m >= 50) return { g: "C", c: "warning" };
-    if (m >= 45) return { g: "C-", c: "warning" };
-    if (m >= 40) return { g: "D+", c: "danger" };
-    if (m >= 35) return { g: "D", c: "danger" };
-    if (m >= 30) return { g: "D-", c: "danger" };
-    return { g: "E", c: "dark" };
-  }
-
-  function renderResults(box) {
-    if (!allResults.length) {
-      box.innerHTML =
-        '<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>No results found for this student.</div>';
-      return;
+const viewResultsCtrl = (() => {
+    function toast(msg, type = 'info') {
+        const el = document.getElementById('vrToast');
+        if (!el) return;
+        const body = document.getElementById('vrToastBody');
+        el.className = `toast align-items-center text-bg-${type} border-0`;
+        body.textContent = msg;
+        bootstrap.Toast.getOrCreateInstance(el, { delay: 3500 }).show();
     }
 
-    // Group by term
-    const terms = {};
-    allResults.forEach((r) => {
-      const t = r.term || r.term_name || "Unknown";
-      if (!terms[t]) terms[t] = [];
-      terms[t].push(r);
-    });
+    async function apiGet(route, params = {}) {
+        const endpoint = `/${String(route).replace(/^\/+/, '')}`;
+        return window.API.apiCall(endpoint, 'GET', null, params);
+    }
 
-    // Overall stats
-    const marks = allResults
-      .map((r) => parseFloat(r.marks || r.score) || 0)
-      .filter((v) => v > 0);
-    const avg = marks.length
-      ? (marks.reduce((a, b) => a + b, 0) / marks.length).toFixed(1)
-      : "--";
-    const best = marks.length ? Math.max(...marks) : "--";
-    const worst = marks.length ? Math.min(...marks) : "--";
+    function cbcGrade(pct) {
+        const n = parseFloat(pct);
+        if (n >= 80) return { label: 'EE', cls: 'grade-EE' };
+        if (n >= 50) return { label: 'ME', cls: 'grade-ME' };
+        if (n >= 25) return { label: 'AE', cls: 'grade-AE' };
+        return { label: 'BE', cls: 'grade-BE' };
+    }
 
-    let html = `
-        <div class="row mb-3 g-2">
-            <div class="col-md-3"><div class="card bg-primary text-white p-2 text-center"><small>Total Subjects</small><h4 class="mb-0">${allResults.length}</h4></div></div>
-            <div class="col-md-3"><div class="card bg-success text-white p-2 text-center"><small>Mean Score</small><h4 class="mb-0">${avg}%</h4></div></div>
-            <div class="col-md-3"><div class="card bg-info text-white p-2 text-center"><small>Highest</small><h4 class="mb-0">${best}</h4></div></div>
-            <div class="col-md-3"><div class="card bg-warning text-white p-2 text-center"><small>Lowest</small><h4 class="mb-0">${worst}</h4></div></div>
-        </div>
-        <div class="d-flex justify-content-end mb-2">
-            <button class="btn btn-sm btn-outline-primary me-2" onclick="viewResultsController.printResults()"><i class="fas fa-print me-1"></i>Print</button>
-            <button class="btn btn-sm btn-outline-success" onclick="viewResultsController.exportCSV()"><i class="fas fa-download me-1"></i>Export CSV</button>
-        </div>`;
+    async function loadTerms() {
+        try {
+            const terms = await apiGet('academic/terms-list');
+            const sel = document.getElementById('vrTermSelect');
+            sel.innerHTML = '<option value="">— Select Term —</option>';
+            (Array.isArray(terms) ? terms : []).forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `${t.name} (${t.year_code || ''})`;
+                if (t.status === 'current') opt.selected = true;
+                sel.appendChild(opt);
+            });
+        } catch (e) { toast('Failed to load terms: ' + e.message, 'danger'); }
+    }
 
-    for (const [termName, items] of Object.entries(terms)) {
-      const termMarks = items
-        .map((r) => parseFloat(r.marks || r.score) || 0)
-        .filter((v) => v > 0);
-      const termAvg = termMarks.length
-        ? (termMarks.reduce((a, b) => a + b, 0) / termMarks.length).toFixed(1)
-        : "--";
-      html += `
-            <div class="card mb-3">
-                <div class="card-header d-flex justify-content-between"><strong>${esc(termName)}</strong><span class="badge bg-primary">Mean: ${termAvg}%</span></div>
-                <div class="card-body p-0">
-                    <div class="table-responsive"><table class="table table-bordered table-hover mb-0">
-                        <thead class="table-light"><tr><th>#</th><th>Subject</th><th>Marks</th><th>Grade</th><th>Assessment</th><th>Remarks</th></tr></thead>
-                        <tbody>${items
-                          .map((r, i) => {
-                            const m = parseFloat(r.marks || r.score) || 0;
-                            const { g, c } = grade(m);
-                            return `<tr>
-                                <td>${i + 1}</td>
-                                <td>${esc(r.subject || r.subject_name || r.learning_area || "--")}</td>
-                                <td><strong>${m}</strong>/100</td>
-                                <td><span class="badge bg-${c}">${g}</span></td>
-                                <td>${esc(r.assessment_type || r.type || "--")}</td>
-                                <td>${esc(r.remarks || r.comment || "--")}</td>
-                            </tr>`;
-                          })
-                          .join("")}</tbody>
-                    </table></div>
+    async function loadClasses() {
+        try {
+            const classes = await apiGet('academic/classes-list');
+            const sel = document.getElementById('vrClassSelect');
+            sel.innerHTML = '<option value="">— Select Class —</option>';
+            (Array.isArray(classes) ? classes : []).forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c.id;
+                opt.textContent = `${c.name} (${c.level_code || ''})`;
+                sel.appendChild(opt);
+            });
+        } catch (e) { toast('Failed to load classes: ' + e.message, 'danger'); }
+    }
+
+    async function loadStudents() {
+        const classId  = document.getElementById('vrClassSelect')?.value;
+        const studentSel = document.getElementById('vrStudentSelect');
+        if (!studentSel) return;
+        studentSel.innerHTML = '<option value="">Loading…</option>';
+        studentSel.disabled = true;
+        try {
+            const params = { limit: 200 };
+            if (classId) params.class_id = classId;
+            const raw = await apiGet('students/student', params);
+            /* Handle double-wrap: data.data.students[] */
+            let list = [];
+            if (raw && Array.isArray(raw.students)) {
+                list = raw.students;
+            } else if (raw && raw.data && Array.isArray(raw.data.students)) {
+                list = raw.data.students;
+            } else if (Array.isArray(raw)) {
+                list = raw;
+            }
+            studentSel.innerHTML = '<option value="">— Select Student —</option>';
+            list.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = `${s.first_name} ${s.last_name} (${s.admission_no || '—'})`;
+                studentSel.appendChild(opt);
+            });
+            studentSel.disabled = false;
+        } catch (e) {
+            studentSel.innerHTML = '<option value="">Error loading students</option>';
+            toast('Failed to load students: ' + e.message, 'danger');
+        }
+    }
+
+    function buildStudentProfile(student) {
+        const fullName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
+        const photoUrl = student.photo_url || (window.APP_BASE || '') + '/images/students/default.png';
+        return `<div class="student-profile-card">
+            <div class="d-flex align-items-center gap-3 mb-3">
+                <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src=(window.APP_BASE || '') + '/images/students/default.png'"></div>
+                <div>
+                    <h5 class="mb-0">${fullName}</h5>
+                    <small class="text-muted">Adm: ${student.admission_no || '—'} &bull; ${student.class_name || '—'} / ${student.stream_name || '—'}</small>
                 </div>
-            </div>`;
+            </div>
+        </div>`;
     }
-    box.innerHTML = html;
-  }
 
-  function printResults() {
-    const box = document.getElementById("resultsContainer");
-    if (!box) return;
-    const studentName =
-      document.getElementById("studentSelect")?.selectedOptions[0]?.text ||
-      "Student";
-    const className =
-      document.getElementById("classSelect")?.selectedOptions[0]?.text ||
-      "Class";
-    const w = window.open("", "_blank");
-    w.document.write(`<html><head><title>Results - ${esc(studentName)}</title>
-            <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-            <style>@media print { .no-print { display: none; } }</style></head>
-            <body class="p-4"><h3>Academic Results</h3><p><strong>Student:</strong> ${esc(studentName)} | <strong>Class:</strong> ${esc(className)}</p>
-            ${box.innerHTML}<script>setTimeout(() => window.print(), 500);</script></body></html>`);
-    w.document.close();
-  }
+    function buildSubjectRow(subject) {
+        const pct  = subject.percentage || subject.score || 0;
+        const g    = cbcGrade(pct);
+        const bar  = Math.min(parseFloat(pct), 100);
+        return `<div class="subject-row">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="fw-semibold">${subject.subject_name || subject.name || '—'}</span>
+                <div class="d-flex gap-2 align-items-center">
+                    <span>${parseFloat(pct).toFixed(1)}%</span>
+                    <span class="${g.cls}">${g.label}</span>
+                </div>
+            </div>
+            <div class="perf-bar"><div class="perf-bar-fill" style="width:${bar}%"></div></div>
+        </div>`;
+    }
 
-  function exportCSV() {
-    if (!allResults.length) return;
-    const headers = [
-      "#",
-      "Subject",
-      "Marks",
-      "Grade",
-      "Term",
-      "Assessment Type",
-      "Remarks",
-    ];
-    const rows = allResults.map((r, i) => {
-      const m = parseFloat(r.marks || r.score) || 0;
-      return [
-        i + 1,
-        r.subject || r.subject_name,
-        m,
-        grade(m).g,
-        r.term || r.term_name,
-        r.assessment_type || r.type,
-        r.remarks || "",
-      ];
-    });
-    let csv =
-      headers.join(",") +
-      "\n" +
-      rows.map((r) => r.map((v) => '"' + (v || "") + '"').join(",")).join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = "student_results.csv";
-    a.click();
-  }
+    async function loadResults() {
+        const termId    = document.getElementById('vrTermSelect')?.value;
+        const studentId = document.getElementById('vrStudentSelect')?.value;
+        const container = document.getElementById('resultsContainer');
+        if (!container) return;
+        if (!studentId) { toast('Please select a student', 'warning'); return; }
+        container.innerHTML = `<div class="vr-loading"><div class="spinner-border" role="status"></div></div>`;
+        try {
+            const params = {};
+            if (termId)    params.term_id  = termId;
+            if (studentId) params.student_id = studentId;
+            const data = await apiGet('academic/student-results', params);
+            const student  = data.student  || {};
+            const subjects = data.subjects || data.results || [];
+            const summary  = data.summary  || {};
+            if (!subjects.length) {
+                container.innerHTML = `<div class="vr-empty"><i class="bi bi-inbox"></i>No results found for this student in the selected term.</div>`;
+                return;
+            }
+            const overall = summary.percentage || (subjects.reduce((a, s) => a + parseFloat(s.percentage || s.score || 0), 0) / subjects.length);
+            const grade   = cbcGrade(overall);
+            container.innerHTML = `
+                ${buildStudentProfile(student)}
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h6 class="mb-0">Results by Subject</h6>
+                    <div class="d-flex align-items-center gap-2">
+                        <span>Overall: <strong>${parseFloat(overall).toFixed(1)}%</strong></span>
+                        <span class="${grade.cls}">${grade.label}</span>
+                    </div>
+                </div>
+                <div>${subjects.map(buildSubjectRow).join('')}</div>
+                <div class="mt-3 d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="viewResultsCtrl.printResults()"><i class="bi bi-printer me-1"></i>Print</button>
+                    <button class="btn btn-sm btn-outline-success" onclick="viewResultsCtrl.exportCSV()"><i class="bi bi-download me-1"></i>Export</button>
+                </div>`;
+        } catch (e) {
+            toast('Failed to load results: ' + e.message, 'danger');
+            container.innerHTML = `<div class="vr-empty"><i class="bi bi-exclamation-triangle"></i>Error loading results</div>`;
+        }
+    }
 
-  function esc(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
+    function printResults() { window.print(); }
 
-  return { init, loadStudents, loadResults, printResults, exportCSV };
+    function exportCSV() {
+        const container = document.getElementById('resultsContainer');
+        if (!container || container.querySelector('.vr-empty')) { toast('No results to export', 'warning'); return; }
+
+        const subjectRows = [...container.querySelectorAll('.subject-row')];
+        if (!subjectRows.length) {
+            toast('No subject rows available for export', 'warning');
+            return;
+        }
+
+        const csvRows = [['Subject', 'Percentage', 'Grade']];
+        subjectRows.forEach((row) => {
+            const subject = row.querySelector('.fw-semibold')?.textContent?.trim() || '';
+            const metricEls = row.querySelectorAll('.d-flex.gap-2.align-items-center span');
+            const pct = metricEls[0]?.textContent?.trim() || '';
+            const grade = metricEls[1]?.textContent?.trim() || '';
+            csvRows.push([subject, pct, grade]);
+        });
+
+        const csv = csvRows
+            .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+            .join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `student_results_${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast('Results exported to CSV', 'success');
+    }
+
+    async function init() {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
+            return;
+        }
+        await Promise.all([loadTerms(), loadClasses()]);
+        const classEl = document.getElementById('vrClassSelect');
+        if (classEl) classEl.addEventListener('change', loadStudents);
+        toast('Select a term and class to view student results', 'info');
+    }
+
+    return { init, loadStudents, loadResults, printResults, exportCSV };
 })();
-document.addEventListener("DOMContentLoaded", () =>
-  viewResultsController.init(),
-);
+
+document.addEventListener('DOMContentLoaded', viewResultsCtrl.init);

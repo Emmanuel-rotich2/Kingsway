@@ -19,15 +19,15 @@
             <div class="d-flex justify-content-between align-items-center">
                 <div>
                     <h4 class="mb-1"><i class="fas fa-door-open me-2"></i>Permissions & Exeats</h4>
-                    <p class="text-muted mb-0">Manage student permission and exeat requests for boarding students</p>
+                    <p class="text-muted mb-0">Manage learner permission and exeat requests using the live attendance workflow</p>
                 </div>
                 <div class="btn-group">
                     <button class="btn btn-primary btn-sm" id="newRequestBtn"
-                            data-role="boarding_master,headteacher,admin">
+                            data-permission="attendance_boarding_create,attendance_boarding_submit,attendance_boarding_edit">
                         <i class="bi bi-plus-circle me-1"></i> New Request
                     </button>
                     <button class="btn btn-outline-primary btn-sm" id="exportRequestsBtn"
-                            data-role="director,headteacher,admin">
+                            data-permission="attendance_boarding_export">
                         <i class="bi bi-download me-1"></i> Export
                     </button>
                 </div>
@@ -64,7 +64,7 @@
         <div class="col-md-3">
             <div class="card border-danger">
                 <div class="card-body text-center">
-                    <h6 class="text-muted mb-2">Denied</h6>
+                    <h6 class="text-muted mb-2">Rejected</h6>
                     <h3 class="text-danger mb-0" id="deniedRequests">0</h3>
                 </div>
             </div>
@@ -75,15 +75,21 @@
     <div class="card mb-4">
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">Status</label>
                     <select class="form-select" id="statusFilter">
                         <option value="">All Status</option>
                         <option value="pending">Pending</option>
                         <option value="approved">Approved</option>
-                        <option value="denied">Denied</option>
-                        <option value="returned">Returned</option>
-                        <option value="overdue">Overdue</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Permission Type</label>
+                    <select class="form-select" id="typeFilter">
+                        <option value="">All Types</option>
                     </select>
                 </div>
                 <div class="col-md-3">
@@ -91,11 +97,11 @@
                     <input type="text" class="form-control" id="searchBox"
                            placeholder="Search by name or admission no...">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">Date From</label>
                     <input type="date" class="form-control" id="dateFrom">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-2">
                     <label class="form-label">Date To</label>
                     <input type="date" class="form-control" id="dateTo">
                 </div>
@@ -112,10 +118,10 @@
                         <tr>
                             <th>Student</th>
                             <th>Class</th>
-                            <th>Type</th>
+                            <th>Permission Type</th>
+                            <th>Dates</th>
                             <th>Reason</th>
-                            <th>Requested Date</th>
-                            <th>Return Date</th>
+                            <th>Requested</th>
                             <th>Status</th>
                             <th>Actions</th>
                         </tr>
@@ -155,40 +161,50 @@
                             </select>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Request Type*</label>
-                            <select class="form-select" id="requestType" required>
-                                <option value="">Select Type</option>
-                                <option value="permission">Permission</option>
-                                <option value="exeat">Exeat</option>
+                            <label class="form-label">Permission Type*</label>
+                            <select class="form-select" id="requestPermissionType" required>
+                                <option value="">Select Permission Type</option>
                             </select>
                         </div>
                     </div>
                     <div class="row">
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Departure Date*</label>
-                            <input type="date" class="form-control" id="departureDate" required>
+                            <label class="form-label">Start Date*</label>
+                            <input type="date" class="form-control" id="startDate" required>
                         </div>
                         <div class="col-md-6 mb-3">
-                            <label class="form-label">Expected Return Date*</label>
-                            <input type="date" class="form-control" id="returnDate" required>
+                            <label class="form-label">End Date*</label>
+                            <input type="date" class="form-control" id="endDate" required>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Start Time</label>
+                            <input type="time" class="form-control" id="startTime">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">End Time</label>
+                            <input type="time" class="form-control" id="endTime">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Expected Return</label>
+                            <input type="datetime-local" class="form-control" id="expectedReturn">
+                        </div>
+                        <div class="col-md-6 mb-3 d-flex align-items-end">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="requestedByParent">
+                                <label class="form-check-label" for="requestedByParent">
+                                    Requested by parent / guardian
+                                </label>
+                            </div>
                         </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Reason*</label>
                         <textarea class="form-control" id="requestReason" rows="3" required
                                   placeholder="Provide the reason for this request..."></textarea>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Guardian / Parent Contact</label>
-                            <input type="text" class="form-control" id="guardianContact"
-                                   placeholder="Phone number or email">
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Destination</label>
-                            <input type="text" class="form-control" id="destination"
-                                   placeholder="Where the student is going">
-                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Additional Notes</label>
@@ -216,7 +232,7 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <p><strong>Student:</strong> <span id="approvalStudent"></span></p>
-                    <p><strong>Type:</strong> <span id="approvalType"></span></p>
+                    <p><strong>Permission Type:</strong> <span id="approvalType"></span></p>
                     <p><strong>Reason:</strong> <span id="approvalReason"></span></p>
                     <p><strong>Dates:</strong> <span id="approvalDates"></span></p>
                 </div>
@@ -226,7 +242,7 @@
                     <select class="form-select" id="approvalDecision" required>
                         <option value="">Select Decision</option>
                         <option value="approved">Approve</option>
-                        <option value="denied">Deny</option>
+                        <option value="rejected">Reject</option>
                     </select>
                 </div>
                 <div class="mb-3">
@@ -243,4 +259,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/permissions_exeats.js"></script>
+<script src="<?= $appBase ?>js/pages/permissions_exeats.js"></script>

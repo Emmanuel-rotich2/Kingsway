@@ -1564,7 +1564,7 @@ class FeeStructureAccountantController {
   }
 
   viewDefaulters() {
-    window.location.href = "/Kingsway/home.php?route=fee_defaulters";
+    window.location.href = (window.APP_BASE || "") + "/home.php?route=fee_defaulters";
   }
 
   generateInvoices() {

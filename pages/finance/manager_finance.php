@@ -12,8 +12,8 @@
  */
 ?>
 
-<link rel="stylesheet" href="/Kingsway/css/school-theme.css">
-<link rel="stylesheet" href="/Kingsway/css/roles/manager-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
+<link rel="stylesheet" href="<?= $appBase ?>css/roles/manager-theme.css">
 
 <div class="manager-layout">
     <!-- Collapsible Sidebar -->
@@ -21,19 +21,19 @@
         <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
         
         <nav class="sidebar-nav">
-            <a href="/Kingsway/home.php?route=dashboard" class="nav-item" title="Dashboard">
+            <a href="<?= $appBase ?>home.php?route=dashboard" class="nav-item" title="Dashboard">
                 <span class="nav-icon">🏠</span>
                 <span class="nav-text">Dashboard</span>
             </a>
-            <a href="/Kingsway/home.php?route=manage_finance" class="nav-item active" title="Finance">
+            <a href="<?= $appBase ?>home.php?route=manage_finance" class="nav-item active" title="Finance">
                 <span class="nav-icon">💰</span>
                 <span class="nav-text">Finance</span>
             </a>
-            <a href="/Kingsway/home.php?route=manage_fees" class="nav-item" title="Fees">
+            <a href="<?= $appBase ?>home.php?route=manage_fees" class="nav-item" title="Fees">
                 <span class="nav-icon">🧾</span>
                 <span class="nav-text">Fees</span>
             </a>
-            <a href="/Kingsway/home.php?route=finance_reports" class="nav-item" title="Reports">
+            <a href="<?= $appBase ?>home.php?route=finance_reports" class="nav-item" title="Reports">
                 <span class="nav-icon">📊</span>
                 <span class="nav-text">Reports</span>
             </a>
@@ -199,8 +199,8 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/components/RoleBasedUI.js"></script>
-<script src="/Kingsway/js/pages/finance.js"></script>
+<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         RoleBasedUI.applyLayout();

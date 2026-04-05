@@ -32,12 +32,12 @@ class StudentTransportAssignmentManager
     {
         $sql = "
             SELECT a.*, r.name AS route_name, r.vehicle_id, r.driver_id, s.name AS stop_name,
-                   v.registration_no AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
+                   v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
                    d.first_name AS driver_first_name, d.last_name AS driver_last_name, d.phone AS driver_phone
             FROM student_transport_assignments a
             JOIN transport_routes r ON a.route_id = r.id
             JOIN transport_stops s ON a.stop_id = s.id
-            LEFT JOIN vehicles v ON r.vehicle_id = v.id
+            LEFT JOIN transport_vehicles v ON r.vehicle_id = v.id
             LEFT JOIN drivers d ON r.driver_id = d.id
             WHERE a.student_id = ?
             ORDER BY a.year DESC, a.month DESC
@@ -68,10 +68,10 @@ class StudentTransportAssignmentManager
     public function getAllRoutes()
     {
         $sql = "
-            SELECT r.*, v.registration_no AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
+            SELECT r.*, v.registration_number AS vehicle_registration, v.model AS vehicle_model, v.capacity AS vehicle_capacity,
                    d.first_name AS driver_first_name, d.last_name AS driver_last_name, d.phone AS driver_phone
             FROM transport_routes r
-            LEFT JOIN vehicles v ON r.vehicle_id = v.id
+            LEFT JOIN transport_vehicles v ON r.vehicle_id = v.id
             LEFT JOIN drivers d ON r.driver_id = d.id
             ORDER BY r.name
         ";
@@ -131,7 +131,7 @@ class StudentTransportAssignmentManager
     // Get all vehicles
     public function getAllVehicles()
     {
-        $sql = "SELECT * FROM vehicles ORDER BY registration_no";
+        $sql = "SELECT * FROM transport_vehicles ORDER BY registration_number";
         $stmt = $this->db->prepare($sql);
         $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);

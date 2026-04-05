@@ -26,59 +26,74 @@
         }
 
         if (!AuthContext.isAuthenticated()) {
-            window.location.href = "/Kingsway/index.php";
+            window.location.href = window.APP_BASE + "/index.php";
             return;
         }
 
         const user = AuthContext.getUser();
-        let userRoleName = null;
-        if (user && user.roles && user.roles.length > 0) {
-            const firstRole = user.roles[0];
-            const roleName = typeof firstRole === "string" ? firstRole : (firstRole.name || firstRole);
-            userRoleName = String(roleName).toLowerCase().replace(/\s+/g, "_").replace(/\//g, "_");
-        }
+        const normalizeRoleName = (roleName) => String(roleName || "")
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "_")
+            .replace(/^_+|_+$/g, "");
 
-        if (!userRoleName) {
+        const roleNames = (AuthContext.getRoles() || []).map(normalizeRoleName);
+        const hasPermission = (permission) =>
+            typeof AuthContext.hasPermission === "function" &&
+            AuthContext.hasPermission(permission);
+        const hasAnyPermissionAlias = (permissionGroups) => {
+            if (!Array.isArray(permissionGroups)) return false;
+            return permissionGroups.some((group) => {
+                if (Array.isArray(group)) {
+                    return group.some((perm) => hasPermission(perm));
+                }
+                return hasPermission(group);
+            });
+        };
+        const hasAnyRole = (names) => names.some((name) => roleNames.includes(name));
+        const canView = hasAnyPermissionAlias([
+            ["students_view", "students_view_all", "students_view_own"],
+        ]);
+        const canCreate = hasAnyPermissionAlias([["students_create"]]);
+        const canEdit = hasAnyPermissionAlias([["students_edit", "students_update", "students_edit_own"]]);
+        const canDelete = hasAnyPermissionAlias([["students_delete"]]);
+        const canPromote = hasAnyPermissionAlias([["students_promote", "students_approve", "students_approve_final"]]);
+        const canFinanceView = hasAnyPermissionAlias([["fees_view", "finance_view"]]);
+        const hasStudentsAccess =
+            canView || canCreate || canEdit || canDelete || canPromote || canFinanceView ||
+            hasAnyRole(["parent", "student"]);
+
+        if (roleNames.length === 0 && !user) {
             document.getElementById("all-students-loading").innerHTML =
                 '<div class="alert alert-danger">User role not found. Please log in again.</div>';
             return;
         }
 
-        const roleTemplateMap = {
-            // Admin roles
-            "director": "admin_students.php",
-            "director_owner": "admin_students.php",
-            "school_administrator": "admin_students.php",
-            "system_administrator": "admin_students.php",
-            "admin": "admin_students.php",
+        if (!hasStudentsAccess) {
+            document.getElementById("all-students-loading").innerHTML =
+                '<div class="alert alert-warning">' +
+                '<i class="bi bi-shield-lock me-2"></i>' +
+                "You do not have permission to access the Students module." +
+                "</div>";
+            return;
+        }
 
-            // Manager roles
-            "headteacher": "manager_students.php",
-            "deputy_headteacher": "manager_students.php",
-            "deputy_head_academic": "manager_students.php",
-            "registrar": "manager_students.php",
-            "school_admin": "manager_students.php",
+        let templateFile = "manage_students_viewer.php";
+        const isPortalViewerRole = hasAnyRole(["parent", "student"]);
+        const canViewOwnOnly = hasAnyPermissionAlias([["students_view_own"]]) && !canCreate && !canEdit && !canDelete && !canPromote;
 
-            // Accountant roles
-            "accountant": "accountant_students.php",
-            "school_accountant": "accountant_students.php",
-            "bursar": "accountant_students.php",
+        if (isPortalViewerRole || canViewOwnOnly) {
+            templateFile = "viewer_students.php";
+        } else if (canDelete || hasAnyPermissionAlias([["students_view_all"]])) {
+            templateFile = "manage_students_admin.php";
+        } else if (canPromote) {
+            templateFile = "manage_students_manager.php";
+        } else if (canCreate || canEdit) {
+            templateFile = "manage_students_operator.php";
+        } else if (!canView && !canFinanceView) {
+            templateFile = "viewer_students.php";
+        }
 
-            // Operator roles
-            "secretary": "operator_students.php",
-            "class_teacher": "operator_students.php",
-            "subject_teacher": "operator_students.php",
-            "intern_student_teacher": "operator_students.php",
-            "teacher": "operator_students.php",
-            "intern": "operator_students.php",
-
-            // Viewer roles
-            "parent": "viewer_students.php",
-            "student": "viewer_students.php"
-        };
-
-        const templateFile = roleTemplateMap[userRoleName] || "viewer_students.php";
-        const templatePath = "/Kingsway/pages/students/" + templateFile;
+        const templatePath = window.APP_BASE + "/pages/students/" + templateFile;
 
         fetch(templatePath)
             .then(response => {
@@ -92,6 +107,12 @@
                 const container = document.getElementById("all-students-content");
                 container.innerHTML = html;
                 container.style.display = "block";
+
+                if (window.RoleBasedUI?.applyTo) {
+                    window.RoleBasedUI.applyTo(container);
+                } else if (window.RoleBasedUI?.apply) {
+                    window.RoleBasedUI.apply(container);
+                }
 
                 const tempDiv = document.createElement("div");
                 tempDiv.innerHTML = html;

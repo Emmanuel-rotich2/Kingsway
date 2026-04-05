@@ -190,4 +190,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/unmatched_payments.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/unmatched_payments.js?v=<?php echo time(); ?>"></script>

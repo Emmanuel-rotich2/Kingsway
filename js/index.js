@@ -151,36 +151,217 @@ window.toggleSidebar = toggleSidebar;
 
 function getRouteFromUrl(url) {
     if (!url) return '';
-    const match = url.match(/route=([a-zA-Z0-9_]+)/);
-    return match ? match[1] : '';
+    const value = String(url).trim();
+    const match = value.match(/[?&]route=([^&#]+)/);
+    if (match && match[1]) {
+        try {
+            return decodeURIComponent(match[1]);
+        } catch (e) {
+            return match[1];
+        }
+    }
+    return value;
+}
+
+function getCurrentUserRoleIds() {
+    const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
+    if (!user) {
+        return [];
+    }
+
+    if (Array.isArray(user.role_ids) && user.role_ids.length > 0) {
+        return [...new Set(user.role_ids.map((roleId) => Number(roleId)).filter(Boolean))];
+    }
+
+    const resolved = [];
+    const roles = Array.isArray(user.roles) ? user.roles : [];
+    roles.forEach((role) => {
+        if (role && typeof role === "object") {
+            const roleId = role.id || role.role_id;
+            if (roleId) {
+                resolved.push(Number(roleId));
+            }
+        } else if (role) {
+            const numericRole = Number(role);
+            if (numericRole) {
+                resolved.push(numericRole);
+            }
+        }
+    });
+
+    return [...new Set(resolved)];
+}
+
+function collectAllowedRoutes(items, allowed = new Set()) {
+    if (!Array.isArray(items)) {
+        return allowed;
+    }
+
+    items.forEach((item) => {
+        if (!item) {
+            return;
+        }
+
+        const route = getRouteFromUrl(item.url || item.route || item.data_route || "");
+        if (route && route !== "#" && route !== "loading") {
+            allowed.add(route);
+        }
+
+        if (Array.isArray(item.subitems)) {
+            collectAllowedRoutes(item.subitems, allowed);
+        }
+    });
+
+    return allowed;
+}
+
+function getAllowedRoutes() {
+    const allowed = collectAllowedRoutes(
+        typeof AuthContext !== "undefined" ? AuthContext.getSidebarItems() : []
+    );
+    const dashboardInfo =
+        typeof AuthContext !== "undefined" ? AuthContext.getDashboardInfo() : null;
+    const dashboardRoute = getRouteFromUrl(dashboardInfo?.key || "");
+    if (dashboardRoute) {
+        allowed.add(dashboardRoute);
+    }
+    return allowed;
+}
+
+function getBestAllowedRoute(excludedRoute = "") {
+    const allowed = [...getAllowedRoutes()].filter(
+        (route) => route && route !== excludedRoute
+    );
+
+    const dashboardInfo =
+        typeof AuthContext !== "undefined" ? AuthContext.getDashboardInfo() : null;
+    const dashboardRoute = getRouteFromUrl(dashboardInfo?.key || "");
+    if (dashboardRoute && dashboardRoute !== excludedRoute && allowed.includes(dashboardRoute)) {
+        return dashboardRoute;
+    }
+
+    return allowed[0] || dashboardRoute || "";
+}
+
+async function authorizeRouteAccess(route) {
+    const normalizedRoute = getRouteFromUrl(route);
+    if (!normalizedRoute || normalizedRoute === "loading") {
+        return { authorized: true, route: normalizedRoute, source: "shell" };
+    }
+
+    if (typeof AuthContext === "undefined" || !AuthContext.isAuthenticated()) {
+        return { authorized: false, route: normalizedRoute, reason: "unauthenticated" };
+    }
+
+    const user = AuthContext.getUser() || {};
+    const userId = user.id || user.user_id || null;
+    const roleIds = getCurrentUserRoleIds();
+
+    try {
+        const response = await API.systemconfig.authorizeRoute(normalizedRoute, {
+            userId,
+            roleIds,
+        });
+        if (response && response.success === false) {
+            throw new Error(response.message || "Route authorization failed");
+        }
+
+        const authorization = {
+            route: normalizedRoute,
+            ...(response || { authorized: false }),
+        };
+        return authorization;
+    } catch (error) {
+        console.warn("Route authorization API failed, denying route:", normalizedRoute, error);
+        return {
+            authorized: false,
+            route: normalizedRoute,
+            source: "api_error",
+            reason: "authorization_check_failed",
+        };
+    }
+}
+
+function setRouteGuardPending(isPending, message = "Loading page...") {
+    const root = document.documentElement;
+    const loading = document.getElementById("route-guard-loading");
+    if (loading) {
+        const messageNode = loading.querySelector("[data-route-guard-message]");
+        if (messageNode) {
+            messageNode.textContent = message;
+        }
+    }
+
+    if (isPending) {
+        root.classList.add("route-guard-pending");
+    } else {
+        root.classList.remove("route-guard-pending");
+    }
+}
+
+function revealProtectedContent() {
+    setRouteGuardPending(false);
+}
+
+async function redirectToAllowedRoute(disallowedRoute) {
+    const normalizedRoute = getRouteFromUrl(disallowedRoute);
+    const fallbackRoute = getBestAllowedRoute(normalizedRoute);
+    if (!fallbackRoute || fallbackRoute === normalizedRoute) {
+        revealProtectedContent();
+        return null;
+    }
+
+    window.location.replace(
+        (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(fallbackRoute)}`
+    );
+    return fallbackRoute;
 }
 
 // Navigation handler for sidebar links
-window.addEventListener('click', function(e) {
-    if (e.target.classList && e.target.classList.contains('sidebar-link')) {
+window.addEventListener('click', async function(e) {
+    if (e.defaultPrevented) {
+        return;
+    }
+    const link = e.target.closest ? e.target.closest('.sidebar-link') : null;
+    if (link) {
         e.preventDefault();
-        const route = e.target.getAttribute('data-route');
+        const route = link.getAttribute('data-route');
         if (route) {
-            navigateToRoute(route);
-            // Update URL
-            window.history.pushState({}, '', '?route=' + route);
+            const authorization = await authorizeRouteAccess(route);
+            if (!authorization.authorized) {
+                showNotification("You are not allowed to open that page.", NOTIFICATION_TYPES.WARNING);
+                await redirectToAllowedRoute(getRouteFromUrl(route));
+                return;
+            }
+
+            const normalizedRoute = getRouteFromUrl(route);
+            window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}`;
         }
     }
 });
 
 // Navigation function for loading dashboard/pages
 async function navigateToRoute(route) {
+    const normalizedRoute = getRouteFromUrl(route);
+    const authorization = await authorizeRouteAccess(normalizedRoute);
+    if (!authorization.authorized) {
+        showNotification("You are not allowed to open that page.", NOTIFICATION_TYPES.WARNING);
+        await redirectToAllowedRoute(normalizedRoute);
+        return false;
+    }
+
     let html = '';
     try {
-        html = await fetchContent(`/Kingsway/components/dashboards/${route}.php`);
+        html = await fetchContent((window.APP_BASE || '') + `/components/dashboards/${normalizedRoute}.php`);
     } catch {
         try {
-            html = await fetchContent(`/Kingsway/pages/${route}.php`);
+            html = await fetchContent((window.APP_BASE || '') + `/pages/${normalizedRoute}.php`);
         } catch {
             html = "<div class='alert alert-warning'>Page not found.</div>";
         }
     }
     document.getElementById('main-content-segment').innerHTML = html;
+    return true;
 }
 
 async function fetchContent(path) {
@@ -193,3 +374,15 @@ async function fetchContent(path) {
 if (typeof loadSidebarAndDefault === 'function') {
     document.addEventListener('DOMContentLoaded', loadSidebarAndDefault);
 }
+
+window.AppRouteAccess = {
+    authorizeRoute: authorizeRouteAccess,
+    getAllowedRoutes,
+    getBestAllowedRoute,
+    redirectToAllowedRoute,
+    revealProtectedContent,
+    setPending: setRouteGuardPending,
+    getCurrentUserRoleIds,
+    normalizeRoute: getRouteFromUrl,
+};
+window.navigateToRoute = navigateToRoute;

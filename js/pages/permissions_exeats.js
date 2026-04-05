@@ -1,19 +1,19 @@
-/**
- * Permissions & Exeats Page Controller
- * Manages permission/exeat request workflow using api.js
- */
-
 const PermissionsExeatsController = (() => {
-  // Private state
   const state = {
     requests: [],
+    allRequests: [],
     students: [],
-    pagination: { page: 1, limit: 10, total: 0 },
-    summary: { total: 0, pending: 0, approved: 0, denied: 0 },
+    permissionTypes: [],
+    pagination: {
+      page: 1,
+      limit: 10,
+      total: 0,
+    },
   };
 
   const filters = {
     status: "",
+    permission_type_id: "",
     search: "",
     date_from: "",
     date_to: "",
@@ -21,46 +21,41 @@ const PermissionsExeatsController = (() => {
 
   let searchTimeout = null;
 
-  // ---- Helpers ----
-
-  function unwrapPayload(response) {
-    if (!response) return response;
-    if (response.status && response.data !== undefined) return response.data;
-    if (response.data && response.data.data !== undefined)
-      return response.data.data;
-    return response;
+  function notify(message, type = "info") {
+    if (window.API?.showNotification) {
+      window.API.showNotification(message, type);
+      return;
+    }
+    console[type === "error" ? "error" : "log"](message);
   }
 
   function escapeHtml(value) {
-    return String(value)
+    return String(value ?? "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
   }
 
-  function showSuccess(message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "success");
-    } else {
-      alert(message);
+  function escapeAttribute(value) {
+    return escapeHtml(value).replace(/`/g, "&#96;");
+  }
+
+  function hasAnyPermission(permissions = []) {
+    if (!window.AuthContext) {
+      return false;
     }
+    return window.AuthContext.hasAnyPermission(permissions);
   }
 
-  function showError(message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "error");
-    } else {
-      alert("Error: " + message);
-    }
-  }
-
-  function statusBadge(status) {
+  function statusBadgeClass(status) {
     const map = {
       pending: "warning",
       approved: "success",
-      denied: "danger",
-      returned: "info",
-      overdue: "danger",
+      rejected: "danger",
+      cancelled: "secondary",
+      completed: "primary",
     };
     return map[status] || "secondary";
   }
@@ -69,366 +64,493 @@ const PermissionsExeatsController = (() => {
     const map = {
       pending: "Pending",
       approved: "Approved",
-      denied: "Denied",
-      returned: "Returned",
-      overdue: "Overdue",
+      rejected: "Rejected",
+      cancelled: "Cancelled",
+      completed: "Completed",
     };
     return map[status] || status || "-";
   }
 
-  function typeBadge(type) {
-    return type === "exeat" ? "primary" : "info";
-  }
-
-  function formatType(type) {
-    const map = {
-      permission: "Permission",
-      exeat: "Exeat",
-    };
-    return map[type] || type || "-";
-  }
-
-  // ---- Data Loading ----
-
-  async function loadReferenceData() {
-    try {
-      const studentResp = await window.API.apiCall(
-        "/students?limit=500",
-        "GET",
-      );
-      const payload = unwrapPayload(studentResp);
-      const students = payload?.students || payload || [];
-      state.students = Array.isArray(students) ? students : [];
-      populateStudentDropdown();
-    } catch (error) {
-      console.warn("Failed to load students", error);
+  function formatDate(value) {
+    if (!value) {
+      return "-";
     }
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return String(value);
+    }
+    return date.toLocaleDateString("en-KE", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function toDateInputValue(date) {
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .split("T")[0];
+  }
+
+  function computeSummary(rows) {
+    return {
+      total: rows.length,
+      pending: rows.filter((row) => row.status === "pending").length,
+      approved: rows.filter((row) => row.status === "approved").length,
+      rejected: rows.filter((row) => row.status === "rejected").length,
+    };
+  }
+
+  function getStudentById(studentId) {
+    return state.students.find((student) => String(student.id) === String(studentId));
+  }
+
+  function isBoarderStudent(student) {
+    const code = String(student?.student_type_code || "").toUpperCase();
+    const label = String(student?.student_type || "").toUpperCase();
+    return code.includes("BOARD") || label.includes("BOARD");
+  }
+
+  function getFilteredPermissionTypes(studentId = null) {
+    const student = studentId ? getStudentById(studentId) : null;
+    const boarder = student ? isBoarderStudent(student) : null;
+
+    return state.permissionTypes.filter((type) => {
+      if (!student) {
+        return true;
+      }
+      if (type.applies_to === "boarders_only") {
+        return boarder === true;
+      }
+      if (type.applies_to === "day_only") {
+        return boarder === false;
+      }
+      return true;
+    });
+  }
+
+  function renderSummary() {
+    const summary = computeSummary(state.allRequests || []);
+    const setText = (id, value) => {
+      const element = document.getElementById(id);
+      if (element) {
+        element.textContent = value;
+      }
+    };
+    setText("totalRequests", summary.total);
+    setText("pendingRequests", summary.pending);
+    setText("approvedRequests", summary.approved);
+    setText("deniedRequests", summary.rejected);
+  }
+
+  function renderPagination() {
+    const container = document.getElementById("pagination");
+    if (!container) {
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(state.pagination.total / state.pagination.limit));
+    const currentPage = state.pagination.page;
+    let html = "";
+
+    for (let page = 1; page <= totalPages; page++) {
+      html += `
+        <li class="page-item ${page === currentPage ? "active" : ""}">
+          <a class="page-link" href="#" data-page="${page}">${page}</a>
+        </li>
+      `;
+    }
+
+    container.innerHTML = html;
+    container.querySelectorAll("[data-page]").forEach((link) => {
+      link.addEventListener("click", (event) => {
+        event.preventDefault();
+        loadData(Number(link.dataset.page));
+      });
+    });
+  }
+
+  function renderTable() {
+    const tbody = document.querySelector("#requestsTable tbody");
+    if (!tbody) {
+      return;
+    }
+
+    if (!state.requests.length) {
+      tbody.innerHTML =
+        '<tr><td colspan="8" class="text-center text-muted py-4">No permission requests found for the selected filters.</td></tr>';
+      return;
+    }
+
+    const canReview = hasAnyPermission([
+      "attendance_boarding_approve",
+      "attendance_boarding_approve_final",
+    ]);
+    const canEdit = hasAnyPermission([
+      "attendance_boarding_edit",
+      "attendance_boarding_create",
+      "attendance_boarding_submit",
+    ]);
+
+    tbody.innerHTML = state.requests
+      .map((request) => {
+        const classDisplay = [request.class_name, request.stream_name]
+          .filter(Boolean)
+          .join(" - ");
+        const dates = `${formatDate(request.start_date)} to ${formatDate(request.end_date)}`;
+        const requestedMeta = [
+          request.requested_at ? formatDate(request.requested_at.split(" ")[0]) : null,
+          Number(request.requested_by_parent || 0) === 1 ? "Parent request" : "School request",
+        ]
+          .filter(Boolean)
+          .join(" • ");
+
+        const actions = [];
+        if (canReview && request.status === "pending") {
+          actions.push(`
+            <button class="btn btn-outline-success btn-sm review-request-btn"
+                    data-request-id="${request.id}"
+                    title="Review request">
+              <i class="bi bi-check2-circle"></i>
+            </button>
+          `);
+        }
+        if (canEdit && request.status === "pending") {
+          actions.push(`
+            <button class="btn btn-outline-primary btn-sm edit-request-btn"
+                    data-request-id="${request.id}"
+                    title="Edit request">
+              <i class="bi bi-pencil"></i>
+            </button>
+          `);
+          actions.push(`
+            <button class="btn btn-outline-danger btn-sm cancel-request-btn"
+                    data-request-id="${request.id}"
+                    title="Cancel request">
+              <i class="bi bi-x-circle"></i>
+            </button>
+          `);
+        }
+
+        return `
+          <tr>
+            <td>
+              <div class="fw-semibold">${escapeHtml(request.student_name || "-")}</div>
+              <div class="text-muted small">${escapeHtml(request.admission_no || "-")}</div>
+            </td>
+            <td>${escapeHtml(classDisplay || "-")}</td>
+            <td>
+              <span class="badge bg-info text-dark">${escapeHtml(request.permission_type_name || request.permission_type_code || "-")}</span>
+            </td>
+            <td>${escapeHtml(dates)}</td>
+            <td>${escapeHtml(request.reason || "-")}</td>
+            <td>${escapeHtml(requestedMeta || "-")}</td>
+            <td><span class="badge bg-${statusBadgeClass(request.status)}">${formatStatus(request.status)}</span></td>
+            <td>
+              <div class="btn-group btn-group-sm">
+                ${actions.length ? actions.join("") : '<span class="text-muted small">No actions</span>'}
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    tbody.querySelectorAll(".edit-request-btn").forEach((button) => {
+      button.addEventListener("click", () => openRequestModal(button.dataset.requestId));
+    });
+    tbody.querySelectorAll(".review-request-btn").forEach((button) => {
+      button.addEventListener("click", () => reviewRequest(button.dataset.requestId));
+    });
+    tbody.querySelectorAll(".cancel-request-btn").forEach((button) => {
+      button.addEventListener("click", () => cancelRequest(button.dataset.requestId));
+    });
   }
 
   function populateStudentDropdown() {
     const select = document.getElementById("requestStudent");
-    if (!select) return;
+    if (!select) {
+      return;
+    }
 
+    const previousValue = select.value;
+    select.innerHTML = '<option value="">Select Student</option>';
     state.students.forEach((student) => {
-      const opt = document.createElement("option");
-      opt.value = student.id;
-      opt.textContent =
-        `${student.admission_no || ""} - ${student.first_name || ""} ${student.last_name || ""}`.trim();
-      select.appendChild(opt);
+      const option = document.createElement("option");
+      option.value = student.id;
+      option.textContent = `${student.admission_no || ""} - ${student.first_name || ""} ${student.last_name || ""}`.trim();
+      select.appendChild(option);
     });
+    select.value = previousValue;
+  }
+
+  function populatePermissionTypeFilters() {
+    const filter = document.getElementById("typeFilter");
+    if (!filter) {
+      return;
+    }
+
+    const previousValue = filter.value;
+    filter.innerHTML = '<option value="">All Types</option>';
+    state.permissionTypes.forEach((type) => {
+      const option = document.createElement("option");
+      option.value = type.id;
+      option.textContent = type.name;
+      filter.appendChild(option);
+    });
+    filter.value = previousValue;
+  }
+
+  function populateRequestTypeDropdown(studentId = null, selectedTypeId = "") {
+    const select = document.getElementById("requestPermissionType");
+    if (!select) {
+      return;
+    }
+
+    select.innerHTML = '<option value="">Select Permission Type</option>';
+    getFilteredPermissionTypes(studentId).forEach((type) => {
+      const option = document.createElement("option");
+      option.value = type.id;
+      option.textContent = type.name;
+      option.dataset.code = type.code;
+      option.dataset.appliesTo = type.applies_to;
+      select.appendChild(option);
+    });
+
+    if (selectedTypeId) {
+      select.value = String(selectedTypeId);
+    }
+  }
+
+  async function loadReferenceData() {
+    try {
+      const [studentsResponse, permissionTypesResponse] = await Promise.all([
+        window.API.students.getAll({ limit: 500, status: "active" }),
+        window.API.attendance.getPermissionTypes(),
+      ]);
+
+      state.students = Array.isArray(studentsResponse?.data)
+        ? studentsResponse.data
+        : [];
+      state.permissionTypes = Array.isArray(permissionTypesResponse)
+        ? permissionTypesResponse
+        : [];
+
+      populateStudentDropdown();
+      populatePermissionTypeFilters();
+      populateRequestTypeDropdown();
+    } catch (error) {
+      notify(error.message || "Failed to load permission workflow reference data", "error");
+    }
   }
 
   async function loadData(page = 1) {
     try {
-      state.pagination.page = page;
-
-      const params = new URLSearchParams({
-        page,
-        limit: state.pagination.limit,
+      const response = await window.API.attendance.getPermissions({
+        status: filters.status || undefined,
+        permission_type_id: filters.permission_type_id || undefined,
+        search: filters.search || undefined,
+        date_from: filters.date_from || undefined,
+        date_to: filters.date_to || undefined,
       });
 
-      if (filters.status) params.append("status", filters.status);
-      if (filters.search) params.append("search", filters.search);
-      if (filters.date_from) params.append("date_from", filters.date_from);
-      if (filters.date_to) params.append("date_to", filters.date_to);
+      const requests = Array.isArray(response) ? response : [];
+      state.pagination.total = requests.length;
+      const totalPages = Math.max(1, Math.ceil(requests.length / state.pagination.limit));
+      state.pagination.page = Math.min(page, totalPages);
+      state.allRequests = requests;
 
-      const resp = await window.API.apiCall(
-        `/students/permissions-exeats?${params.toString()}`,
-        "GET",
-      );
-
-      const payload = unwrapPayload(resp) || {};
-      state.requests = payload.requests || payload.data || [];
-      if (!Array.isArray(state.requests)) state.requests = [];
-
-      state.pagination = payload.pagination || state.pagination;
-      state.summary = payload.summary || computeSummary(state.requests);
+      const start = (state.pagination.page - 1) * state.pagination.limit;
+      const end = start + state.pagination.limit;
+      state.requests = requests.slice(start, end);
 
       renderSummary();
       renderTable();
       renderPagination();
     } catch (error) {
-      console.error("Error loading permissions/exeats:", error);
-      showError("Failed to load permission/exeat requests");
+      notify(error.message || "Failed to load permission requests", "error");
+      state.requests = [];
+      state.allRequests = [];
+      state.pagination.total = 0;
+      renderSummary();
+      renderTable();
+      renderPagination();
     }
   }
 
-  function computeSummary(requests) {
-    return {
-      total: requests.length,
-      pending: requests.filter((r) => r.status === "pending").length,
-      approved: requests.filter((r) => r.status === "approved").length,
-      denied: requests.filter((r) => r.status === "denied").length,
-    };
-  }
-
-  // ---- Rendering ----
-
-  function renderSummary() {
-    const el = (id, val) => {
-      const e = document.getElementById(id);
-      if (e) e.textContent = val;
-    };
-    el("totalRequests", state.summary.total || 0);
-    el("pendingRequests", state.summary.pending || 0);
-    el("approvedRequests", state.summary.approved || 0);
-    el("deniedRequests", state.summary.denied || 0);
-  }
-
-  function renderTable() {
-    const tbody = document.querySelector("#requestsTable tbody");
-    if (!tbody) return;
-
-    if (!state.requests.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="text-center text-muted py-4">No permission/exeat requests found</td>
-        </tr>`;
-      return;
+  function resetRequestForm() {
+    const form = document.getElementById("requestForm");
+    if (form) {
+      form.reset();
     }
-
-    tbody.innerHTML = state.requests
-      .map((r) => {
-        const studentName =
-          `${r.first_name || ""} ${r.last_name || ""}`.trim() ||
-          r.student_name ||
-          "-";
-        const className = r.class_name || "-";
-        const type = r.request_type || r.type || "-";
-        const reason = r.reason || "-";
-        const requestedDate = r.departure_date || r.requested_date || "-";
-        const returnDate = r.return_date || r.expected_return_date || "-";
-        const status = r.status || "pending";
-
-        return `
-          <tr>
-            <td>${escapeHtml(studentName)}</td>
-            <td>${escapeHtml(className)}</td>
-            <td><span class="badge bg-${typeBadge(type)}">${formatType(type)}</span></td>
-            <td>${escapeHtml(reason.length > 50 ? reason.substring(0, 50) + "..." : reason)}</td>
-            <td>${escapeHtml(requestedDate)}</td>
-            <td>${escapeHtml(returnDate)}</td>
-            <td><span class="badge bg-${statusBadge(status)}">${formatStatus(status)}</span></td>
-            <td>
-              <div class="btn-group btn-group-sm">
-                ${
-                  status === "pending"
-                    ? `
-                  <button class="btn btn-outline-success" onclick="PermissionsExeatsController.reviewRequest(${r.id})" title="Review">
-                    <i class="bi bi-check-circle"></i>
-                  </button>
-                `
-                    : ""
-                }
-                <button class="btn btn-outline-primary" onclick="PermissionsExeatsController.editRequest(${r.id})" title="Edit">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-outline-danger" onclick="PermissionsExeatsController.deleteRequest(${r.id})" title="Delete">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
-            </td>
-          </tr>`;
-      })
-      .join("");
+    document.getElementById("requestId").value = "";
+    document.getElementById("requestModalTitle").textContent = "New Permission / Exeat Request";
+    populateRequestTypeDropdown();
   }
-
-  function renderPagination() {
-    const container = document.getElementById("pagination");
-    if (!container) return;
-
-    const { page, total, limit } = state.pagination;
-    const totalPages = Math.ceil(total / limit) || 1;
-
-    let html = "";
-    for (let i = 1; i <= totalPages; i++) {
-      html += `
-        <li class="page-item ${i === page ? "active" : ""}">
-          <a class="page-link" href="#" onclick="PermissionsExeatsController.loadPage(${i}); return false;">${i}</a>
-        </li>`;
-    }
-    container.innerHTML = html;
-  }
-
-  // ---- CRUD Actions ----
 
   function openRequestModal(requestId = null) {
     const modalEl = document.getElementById("requestModal");
-    const form = document.getElementById("requestForm");
-    if (!modalEl || !form) return;
+    if (!modalEl) {
+      return;
+    }
 
-    form.reset();
-    document.getElementById("requestId").value = "";
-    document.getElementById("requestModalTitle").textContent =
-      "New Permission / Exeat Request";
+    resetRequestForm();
 
     if (requestId) {
-      const record = state.requests.find((r) => r.id == requestId);
+      const record = (state.allRequests || []).find((request) => String(request.id) === String(requestId));
       if (record) {
         document.getElementById("requestId").value = record.id;
-        document.getElementById("requestModalTitle").textContent =
-          "Edit Request";
-        document.getElementById("requestStudent").value =
-          record.student_id || "";
-        document.getElementById("requestType").value =
-          record.request_type || record.type || "";
-        document.getElementById("departureDate").value =
-          record.departure_date || record.requested_date || "";
-        document.getElementById("returnDate").value =
-          record.return_date || record.expected_return_date || "";
+        document.getElementById("requestModalTitle").textContent = "Edit Permission Request";
+        document.getElementById("requestStudent").value = record.student_id || "";
+        populateRequestTypeDropdown(record.student_id, record.permission_type_id);
+        document.getElementById("requestPermissionType").value = String(record.permission_type_id || "");
+        document.getElementById("startDate").value = record.start_date || "";
+        document.getElementById("endDate").value = record.end_date || "";
+        document.getElementById("startTime").value = record.start_time || "";
+        document.getElementById("endTime").value = record.end_time || "";
+        document.getElementById("expectedReturn").value = record.expected_return
+          ? String(record.expected_return).replace(" ", "T").slice(0, 16)
+          : "";
+        document.getElementById("requestedByParent").checked = Number(record.requested_by_parent || 0) === 1;
         document.getElementById("requestReason").value = record.reason || "";
-        document.getElementById("guardianContact").value =
-          record.guardian_contact || "";
-        document.getElementById("destination").value = record.destination || "";
         document.getElementById("requestNotes").value = record.notes || "";
       }
     }
 
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
+    window.bootstrap?.Modal.getOrCreateInstance(modalEl).show();
   }
 
   async function saveRequest() {
     const requestId = document.getElementById("requestId").value;
-
     const payload = {
       student_id: document.getElementById("requestStudent").value,
-      request_type: document.getElementById("requestType").value,
-      departure_date: document.getElementById("departureDate").value,
-      return_date: document.getElementById("returnDate").value,
-      reason: document.getElementById("requestReason").value,
-      guardian_contact: document.getElementById("guardianContact").value,
-      destination: document.getElementById("destination").value,
-      notes: document.getElementById("requestNotes").value,
+      permission_type_id: document.getElementById("requestPermissionType").value,
+      start_date: document.getElementById("startDate").value,
+      start_time: document.getElementById("startTime").value || null,
+      end_date: document.getElementById("endDate").value,
+      end_time: document.getElementById("endTime").value || null,
+      expected_return: document.getElementById("expectedReturn").value || null,
+      requested_by_parent: document.getElementById("requestedByParent").checked,
+      reason: document.getElementById("requestReason").value.trim(),
+      notes: document.getElementById("requestNotes").value.trim() || null,
     };
 
-    if (
-      !payload.student_id ||
-      !payload.request_type ||
-      !payload.departure_date ||
-      !payload.reason
-    ) {
-      showError("Please fill in all required fields");
+    if (!payload.student_id || !payload.permission_type_id || !payload.start_date || !payload.end_date || !payload.reason) {
+      notify("Please fill in all required fields.", "warning");
       return;
     }
 
     try {
       if (requestId) {
-        await window.API.apiCall(
-          `/students/permissions-exeats/${requestId}`,
-          "PUT",
-          payload,
-        );
-        showSuccess("Request updated successfully");
+        await window.API.attendance.updatePermission(requestId, payload);
+        notify("Permission request updated successfully.", "success");
       } else {
-        await window.API.apiCall(
-          "/students/permissions-exeats",
-          "POST",
-          payload,
-        );
-        showSuccess("Request submitted successfully");
+        await window.API.attendance.createPermission(payload);
+        notify("Permission request submitted successfully.", "success");
       }
 
-      bootstrap.Modal.getInstance(
-        document.getElementById("requestModal"),
-      ).hide();
+      window.bootstrap?.Modal.getInstance(document.getElementById("requestModal"))?.hide();
       await loadData(state.pagination.page);
     } catch (error) {
-      console.error("Error saving request:", error);
-      showError(error.message || "Failed to save request");
+      notify(error.message || "Failed to save permission request.", "error");
     }
   }
 
   function reviewRequest(requestId) {
-    const record = state.requests.find((r) => r.id == requestId);
-    if (!record) return;
-
-    const modalEl = document.getElementById("approvalModal");
-    if (!modalEl) return;
-
-    const studentName =
-      `${record.first_name || ""} ${record.last_name || ""}`.trim() ||
-      record.student_name ||
-      "-";
+    const record = (state.allRequests || []).find((request) => String(request.id) === String(requestId));
+    if (!record) {
+      return;
+    }
 
     document.getElementById("approvalRequestId").value = record.id;
-    document.getElementById("approvalStudent").textContent = studentName;
-    document.getElementById("approvalType").textContent = formatType(
-      record.request_type || record.type,
-    );
-    document.getElementById("approvalReason").textContent =
-      record.reason || "-";
-    document.getElementById("approvalDates").textContent =
-      `${record.departure_date || "-"} to ${record.return_date || "-"}`;
+    document.getElementById("approvalStudent").textContent = record.student_name || "-";
+    document.getElementById("approvalType").textContent = record.permission_type_name || record.permission_type_code || "-";
+    document.getElementById("approvalReason").textContent = record.reason || "-";
+    document.getElementById("approvalDates").textContent = `${formatDate(record.start_date)} to ${formatDate(record.end_date)}`;
     document.getElementById("approvalDecision").value = "";
     document.getElementById("approvalComments").value = "";
 
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
+    window.bootstrap?.Modal.getOrCreateInstance(document.getElementById("approvalModal")).show();
   }
 
   async function submitApproval() {
     const requestId = document.getElementById("approvalRequestId").value;
     const decision = document.getElementById("approvalDecision").value;
-    const comments = document.getElementById("approvalComments").value;
+    const comments = document.getElementById("approvalComments").value.trim();
 
-    if (!decision) {
-      showError("Please select a decision");
+    if (!requestId || !decision) {
+      notify("Please select a decision before submitting.", "warning");
       return;
     }
 
     try {
-      await window.API.apiCall(
-        `/students/permissions-exeats/${requestId}/review`,
-        "PUT",
-        { status: decision, comments },
-      );
-      showSuccess(`Request ${decision} successfully`);
-      bootstrap.Modal.getInstance(
-        document.getElementById("approvalModal"),
-      ).hide();
+      await window.API.attendance.updatePermission(requestId, {
+        status: decision,
+        rejection_reason: decision === "rejected" ? comments : null,
+        notes: comments || null,
+      });
+
+      notify(`Request ${formatStatus(decision).toLowerCase()} successfully.`, "success");
+      window.bootstrap?.Modal.getInstance(document.getElementById("approvalModal"))?.hide();
       await loadData(state.pagination.page);
     } catch (error) {
-      console.error("Error submitting approval:", error);
-      showError(error.message || "Failed to submit decision");
+      notify(error.message || "Failed to submit decision.", "error");
     }
   }
 
-  async function deleteRequest(requestId) {
-    if (!confirm("Are you sure you want to delete this request?")) return;
+  async function cancelRequest(requestId) {
+    if (!window.confirm("Cancel this permission request?")) {
+      return;
+    }
 
     try {
-      await window.API.apiCall(
-        `/students/permissions-exeats/${requestId}`,
-        "DELETE",
-      );
-      showSuccess("Request deleted successfully");
+      await window.API.attendance.updatePermission(requestId, { status: "cancelled" });
+      notify("Permission request cancelled.", "success");
       await loadData(state.pagination.page);
     } catch (error) {
-      showError(error.message || "Failed to delete request");
+      notify(error.message || "Failed to cancel request.", "error");
     }
   }
 
   function exportRequests() {
-    if (!state.requests.length) {
-      showError("No data to export");
+    const rows = state.allRequests || [];
+    if (!rows.length) {
+      notify("There is no data to export.", "warning");
       return;
     }
 
-    const rows = [
-      "Student,Class,Type,Reason,Departure Date,Return Date,Status",
+    const header = [
+      "Student",
+      "Admission No",
+      "Class",
+      "Permission Type",
+      "Start Date",
+      "End Date",
+      "Requested At",
+      "Requested By Parent",
+      "Status",
+      "Reason",
     ];
-    state.requests.forEach((r) => {
-      const name =
-        `${r.first_name || ""} ${r.last_name || ""}`.trim() ||
-        r.student_name ||
-        "";
-      rows.push(
-        `"${name}","${r.class_name || ""}","${r.request_type || r.type || ""}","${r.reason || ""}","${r.departure_date || ""}","${r.return_date || ""}","${r.status || ""}"`,
-      );
+
+    const csvRows = [header.join(",")];
+    rows.forEach((request) => {
+      const values = [
+        request.student_name || "",
+        request.admission_no || "",
+        [request.class_name, request.stream_name].filter(Boolean).join(" - "),
+        request.permission_type_name || request.permission_type_code || "",
+        request.start_date || "",
+        request.end_date || "",
+        request.requested_at || "",
+        Number(request.requested_by_parent || 0) === 1 ? "Yes" : "No",
+        request.status || "",
+        request.reason || "",
+      ].map((value) => `"${String(value).replace(/"/g, '""')}"`);
+
+      csvRows.push(values.join(","));
     });
 
-    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -439,76 +561,79 @@ const PermissionsExeatsController = (() => {
     URL.revokeObjectURL(url);
   }
 
-  // ---- Event Listeners ----
-
   function attachEventListeners() {
-    document
-      .getElementById("newRequestBtn")
-      ?.addEventListener("click", () => openRequestModal());
+    document.getElementById("newRequestBtn")?.addEventListener("click", () => openRequestModal());
+    document.getElementById("saveRequestBtn")?.addEventListener("click", () => saveRequest());
+    document.getElementById("submitApprovalBtn")?.addEventListener("click", () => submitApproval());
+    document.getElementById("exportRequestsBtn")?.addEventListener("click", () => exportRequests());
 
-    document
-      .getElementById("saveRequestBtn")
-      ?.addEventListener("click", () => saveRequest());
-
-    document
-      .getElementById("submitApprovalBtn")
-      ?.addEventListener("click", () => submitApproval());
-
-    document
-      .getElementById("exportRequestsBtn")
-      ?.addEventListener("click", () => exportRequests());
-
-    // Filters
-    document.getElementById("statusFilter")?.addEventListener("change", (e) => {
-      filters.status = e.target.value;
+    document.getElementById("statusFilter")?.addEventListener("change", (event) => {
+      filters.status = event.target.value;
       loadData(1);
     });
 
-    document.getElementById("searchBox")?.addEventListener("keyup", (e) => {
+    document.getElementById("typeFilter")?.addEventListener("change", (event) => {
+      filters.permission_type_id = event.target.value;
+      loadData(1);
+    });
+
+    document.getElementById("searchBox")?.addEventListener("input", (event) => {
       clearTimeout(searchTimeout);
       searchTimeout = setTimeout(() => {
-        filters.search = e.target.value.trim();
+        filters.search = event.target.value.trim();
         loadData(1);
-      }, 300);
+      }, 250);
     });
 
-    document.getElementById("dateFrom")?.addEventListener("change", (e) => {
-      filters.date_from = e.target.value;
+    document.getElementById("dateFrom")?.addEventListener("change", (event) => {
+      filters.date_from = event.target.value;
       loadData(1);
     });
 
-    document.getElementById("dateTo")?.addEventListener("change", (e) => {
-      filters.date_to = e.target.value;
+    document.getElementById("dateTo")?.addEventListener("change", (event) => {
+      filters.date_to = event.target.value;
       loadData(1);
+    });
+
+    document.getElementById("requestStudent")?.addEventListener("change", (event) => {
+      const selectedTypeId = document.getElementById("requestPermissionType")?.value || "";
+      populateRequestTypeDropdown(event.target.value, selectedTypeId);
     });
   }
 
-  // ---- Initialization ----
-
   async function init() {
-    if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+    if (!window.AuthContext?.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+
+    const today = new Date();
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    if (dateFrom) {
+      dateFrom.value = toDateInputValue(firstOfMonth);
+      filters.date_from = dateFrom.value;
+    }
+    if (dateTo) {
+      dateTo.value = toDateInputValue(today);
+      filters.date_to = dateTo.value;
     }
 
     attachEventListeners();
     await loadReferenceData();
-    await loadData();
+    await loadData(1);
   }
 
-  // ---- Public API ----
   return {
     init,
-    refresh: loadData,
+    refresh: () => loadData(state.pagination.page),
     loadPage: loadData,
     editRequest: openRequestModal,
     reviewRequest,
-    deleteRequest,
+    cancelRequest,
   };
 })();
 
-document.addEventListener("DOMContentLoaded", () =>
-  PermissionsExeatsController.init(),
-);
-
+document.addEventListener("DOMContentLoaded", () => PermissionsExeatsController.init());
 window.PermissionsExeatsController = PermissionsExeatsController;

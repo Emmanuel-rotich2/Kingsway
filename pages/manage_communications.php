@@ -446,4 +446,4 @@ exit;
 </div>
 
 <!-- Link Controller Script -->
-<script src="/Kingsway/js/pages/communications.js"></script>
+<script src="<?= $appBase ?>js/pages/communications.js"></script>

@@ -232,15 +232,46 @@ function getStatusInfo($code)
  * @param int $code HTTP status code (400, 401, 403, 404, 422, 500, etc)
  * @return array Raw error array with status, message, type, code, and data
  */
-function errorResponse($data = null, $code = 400)
+function errorResponse($dataOrMessage = null, $messageOrCode = 400, $code = 400)
 {
-    $statusInfo = getStatusInfo($code);
+    $data = null;
+    $message = null;
+    $resolvedCode = 400;
+
+    if (is_string($dataOrMessage)) {
+        // Legacy style: errorResponse('message', 404)
+        $message = trim($dataOrMessage);
+        if (is_numeric($messageOrCode)) {
+            $resolvedCode = (int) $messageOrCode;
+        } elseif (is_numeric($code)) {
+            $resolvedCode = (int) $code;
+        }
+    } else {
+        // Current style: errorResponse($data, 400)
+        // Also supports: errorResponse($data, 'Message', 400)
+        $data = $dataOrMessage;
+        if (is_string($messageOrCode) && $messageOrCode !== '') {
+            $message = $messageOrCode;
+            if (is_numeric($code)) {
+                $resolvedCode = (int) $code;
+            }
+        } elseif (is_numeric($messageOrCode)) {
+            $resolvedCode = (int) $messageOrCode;
+        } elseif (is_numeric($code)) {
+            $resolvedCode = (int) $code;
+        }
+    }
+
+    $statusInfo = getStatusInfo($resolvedCode);
+    if ($message === null && is_array($data) && isset($data['message']) && is_string($data['message'])) {
+        $message = $data['message'];
+    }
 
     return [
         'status' => $statusInfo['status'],
-        'message' => $statusInfo['message'],
+        'message' => $message !== null && $message !== '' ? $message : $statusInfo['message'],
         'type' => $statusInfo['type'],
-        'code' => $code,
+        'code' => $resolvedCode,
         'data' => $data
     ];
 }
@@ -268,15 +299,31 @@ function errorResponse($data = null, $code = 400)
  * @param int $code HTTP status code (200, 201, 202, 204, etc) - default 200
  * @return array Raw success array with status, message, type, code, and data
  */
-function successResponse($data = null, $code = 200)
+function successResponse($data = null, $messageOrCode = 200, $code = 200)
 {
-    $statusInfo = getStatusInfo($code);
+    $message = null;
+    $resolvedCode = 200;
+
+    if (is_numeric($messageOrCode)) {
+        // Current style: successResponse($data, 201)
+        $resolvedCode = (int) $messageOrCode;
+    } elseif (is_string($messageOrCode) && $messageOrCode !== '') {
+        // Legacy style: successResponse($data, 'Created', 201)
+        $message = $messageOrCode;
+        if (is_numeric($code)) {
+            $resolvedCode = (int) $code;
+        }
+    } elseif (is_numeric($code)) {
+        $resolvedCode = (int) $code;
+    }
+
+    $statusInfo = getStatusInfo($resolvedCode);
 
     return [
         'status' => $statusInfo['status'],
-        'message' => $statusInfo['message'],
+        'message' => $message !== null && $message !== '' ? $message : $statusInfo['message'],
         'type' => $statusInfo['type'],
-        'code' => $code,
+        'code' => $resolvedCode,
         'data' => $data
     ];
 }

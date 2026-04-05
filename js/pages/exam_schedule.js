@@ -272,12 +272,13 @@ const ExamScheduleController = (() => {
             <td><span class="badge bg-${statusBadge(status)}">${formatStatus(status)}</span></td>
             <td>
               <div class="btn-group btn-group-sm">
+                ${AuthContext.hasPermission('assessments_create') ? `
                 <button class="btn btn-outline-primary" onclick="ExamScheduleController.editExam(${exam.id})" title="Edit">
                   <i class="bi bi-pencil"></i>
                 </button>
                 <button class="btn btn-outline-danger" onclick="ExamScheduleController.deleteExam(${exam.id})" title="Delete">
                   <i class="bi bi-trash"></i>
-                </button>
+                </button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -428,10 +429,12 @@ const ExamScheduleController = (() => {
 
   // ---- Event Listeners ----
 
-  function attachEventListeners() {
-    document
-      .getElementById("addExamBtn")
-      ?.addEventListener("click", () => openExamModal());
+  function attachEventListeners(canCreate = true) {
+    if (canCreate) {
+      document
+        .getElementById("addExamBtn")
+        ?.addEventListener("click", () => openExamModal());
+    }
 
     document
       .getElementById("saveExamBtn")
@@ -473,11 +476,19 @@ const ExamScheduleController = (() => {
 
   async function init() {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
-    attachEventListeners();
+    const canCreate = AuthContext.hasPermission('assessments_create');
+
+    // Hide write-action buttons if no permission
+    if (!canCreate) {
+      const addBtn = document.getElementById("addExamBtn");
+      if (addBtn) addBtn.classList.add("d-none");
+    }
+
+    attachEventListeners(canCreate);
     await loadReferenceData();
     await loadData();
   }

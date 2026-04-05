@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Payments Page
- * HTML structure only - logic will be in js/pages/payments.js
+ * Logic handled in js/pages/manage_payments.js
  * Embedded in app_layout.php
  */
 ?>
@@ -11,10 +11,10 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="fas fa-money-bill-wave"></i> Payment Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="payments_create">
+                <button class="btn btn-light btn-sm" id="recordPaymentBtn" data-permission="finance_view">
                     <i class="bi bi-plus-circle"></i> Record Payment
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="exportPaymentsBtn">
+                <button class="btn btn-outline-light btn-sm" id="exportPaymentsBtn" data-permission="finance_view">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -66,8 +66,9 @@
             <div class="col-md-2">
                 <select class="form-select" id="paymentStatusFilter">
                     <option value="">All Status</option>
-                    <option value="completed">Completed</option>
+                    <option value="confirmed">Confirmed</option>
                     <option value="pending">Pending</option>
+                    <option value="reversed">Reversed</option>
                     <option value="failed">Failed</option>
                 </select>
             </div>
@@ -158,6 +159,7 @@
                                 <option value="mpesa">M-Pesa</option>
                                 <option value="bank_transfer">Bank Transfer</option>
                                 <option value="cheque">Cheque</option>
+                                <option value="other">Other</option>
                             </select>
                         </div>
                     </div>
@@ -175,16 +177,10 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="savePaymentBtn">Save Payment</button>
+                <button type="button" class="btn btn-primary" id="savePaymentBtn" data-permission="finance_view">Save Payment</button>
             </div>
         </div>
     </div>
 </div>
 
-<script>
-    // Initialize payments management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement paymentsManagementController in js/pages/payments.js
-        console.log('Payment Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_payments.js"></script>

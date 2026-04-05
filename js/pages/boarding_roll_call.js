@@ -1,442 +1,530 @@
-/**
- * Boarding Roll Call JavaScript Controller
- *
- * Handles dormitory attendance marking for house parents/boarding masters
- * - Morning roll call
- * - Night roll call
- * - Weekend roll calls
- * - Permission status display
- */
+const BoardingRollCall = {
+  students: [],
+  dormitories: [],
+  sessions: [],
+  selectedDormitory: "",
+  selectedSession: "",
+  selectedDate: "",
+  attendanceMarked: {},
+  loadedRegister: null,
+  elements: {},
 
-class BoardingRollCallController {
-  constructor() {
-    this.students = [];
-    this.dormitories = [];
-    this.sessions = [];
-    this.selectedDormitory = null;
-    this.selectedSession = null;
-    this.selectedDate = null;
-    this.attendanceMarked = {};
-
-    this.init();
-  }
-
-  async init() {
-    // Set today's date
-    const today = new Date().toISOString().split("T")[0];
-    document.getElementById("rollCallDate").value = today;
-    this.selectedDate = today;
-
-    // Load initial data
-    await this.loadDormitories();
-    await this.loadSessions();
-
-    // Bind events
+  init: async function () {
+    this.cacheElements();
     this.bindEvents();
-  }
 
-  bindEvents() {
-    // Dormitory selection
-    document
-      .getElementById("dormitorySelect")
-      .addEventListener("change", (e) => {
-        this.selectedDormitory = e.target.value;
-        this.updateUI();
-      });
+    const today = this.toDateInputValue(new Date());
+    if (this.elements.rollCallDate) {
+      this.elements.rollCallDate.value = today;
+    }
+    this.selectedDate = today;
+    this.updateHeader();
 
-    // Session selection
-    document.getElementById("sessionSelect").addEventListener("change", (e) => {
-      this.selectedSession = e.target.value;
-      this.updateUI();
+    await Promise.all([
+      this.configureSharedActions(),
+      this.loadDormitories(),
+      this.loadSessions(),
+    ]);
+
+    await this.loadBoardingSummary();
+  },
+
+  cacheElements: function () {
+    this.elements = {
+      dormitorySelect: document.getElementById("dormitorySelect"),
+      sessionSelect: document.getElementById("sessionSelect"),
+      rollCallDate: document.getElementById("rollCallDate"),
+      loadStudentsBtn: document.getElementById("loadStudentsBtn"),
+      refreshBtn: document.getElementById("refreshBtn"),
+      markAllPresent: document.getElementById("markAllPresent"),
+      markAllAbsent: document.getElementById("markAllAbsent"),
+      submitRollCall: document.getElementById("submitRollCall"),
+      studentsTableBody: document.getElementById("studentsTableBody"),
+      dormitoryTitle: document.getElementById("dormitoryTitle"),
+      sessionBadge: document.getElementById("sessionBadge"),
+      dateDisplay: document.getElementById("dateDisplay"),
+      loadingState: document.getElementById("loadingState"),
+      emptyState: document.getElementById("emptyState"),
+      rollCallCard: document.getElementById("rollCallCard"),
+      quickStats: document.getElementById("quickStats"),
+      statTotal: document.getElementById("statTotal"),
+      statPresent: document.getElementById("statPresent"),
+      statAbsent: document.getElementById("statAbsent"),
+      statPermission: document.getElementById("statPermission"),
+      statSickBay: document.getElementById("statSickBay"),
+      summaryCard: document.getElementById("summaryCard"),
+      summaryContent: document.getElementById("summaryContent"),
+      historyLink: document.getElementById("viewAttendanceHistoryLink"),
+    };
+  },
+
+  bindEvents: function () {
+    this.elements.dormitorySelect?.addEventListener("change", async (event) => {
+      this.selectedDormitory = event.target.value;
+      this.resetRegisterView();
+      this.updateHeader();
+      await this.loadBoardingSummary();
     });
 
-    // Date selection
-    document.getElementById("rollCallDate").addEventListener("change", (e) => {
-      this.selectedDate = e.target.value;
+    this.elements.sessionSelect?.addEventListener("change", async (event) => {
+      this.selectedSession = event.target.value;
+      this.resetRegisterView();
+      this.updateHeader();
+      await this.loadBoardingSummary();
     });
 
-    // Load students button
-    document.getElementById("loadStudentsBtn").addEventListener("click", () => {
+    this.elements.rollCallDate?.addEventListener("change", async (event) => {
+      this.selectedDate = event.target.value;
+      this.resetRegisterView();
+      this.updateHeader();
+      await this.loadSessions();
+      await this.loadBoardingSummary();
+    });
+
+    this.elements.loadStudentsBtn?.addEventListener("click", () => {
       this.loadStudents();
     });
 
-    // Refresh button
-    document.getElementById("refreshBtn").addEventListener("click", () => {
+    this.elements.refreshBtn?.addEventListener("click", () => {
       this.refresh();
     });
 
-    // Bulk actions
-    document.getElementById("markAllPresent").addEventListener("click", () => {
+    this.elements.markAllPresent?.addEventListener("click", () => {
       this.markAll("present");
     });
 
-    document.getElementById("markAllAbsent").addEventListener("click", () => {
+    this.elements.markAllAbsent?.addEventListener("click", () => {
       this.markAll("absent");
     });
 
-    // Submit roll call
-    document.getElementById("submitRollCall").addEventListener("click", () => {
+    this.elements.submitRollCall?.addEventListener("click", () => {
       this.submitRollCall();
     });
-  }
+  },
 
-  async loadDormitories() {
+  configureSharedActions: async function () {
+    if (!this.elements.historyLink || !window.API?.systemconfig?.authorizeRoute) {
+      return;
+    }
+
     try {
-      const response = await API.get(
-        "/api/?route=attendance&action=dormitories"
+      const access = await window.API.systemconfig.authorizeRoute(
+        "view_attendance",
       );
-      if (response.success && response.data) {
-        this.dormitories = response.data;
-        this.renderDormitorySelect();
+      if (access?.authorized === false) {
+        this.elements.historyLink.classList.add("d-none");
       } else {
-        console.error("Failed to load dormitories:", response.message);
+        this.elements.historyLink.classList.remove("d-none");
       }
     } catch (error) {
-      console.error("Error loading dormitories:", error);
-      this.showToast("Failed to load dormitories", "error");
+      console.warn("Could not resolve view attendance route access:", error);
     }
-  }
+  },
 
-  async loadSessions() {
+  loadDormitories: async function () {
     try {
-      const response = await API.get("/api/?route=attendance&action=sessions");
-      if (response.success && response.data) {
-        // Filter to boarding-related sessions only
-        this.sessions = response.data.filter((s) =>
-          [
-            "MORNING_ROLL_CALL",
-            "NIGHT_ROLL_CALL",
-            "WEEKEND_ROLL_CALL",
-            "MORNING_PREP",
-            "EVENING_PREP",
-          ].includes(s.session_code)
-        );
-        this.renderSessionSelect();
-      } else {
-        console.error("Failed to load sessions:", response.message);
-      }
+      const dormitories = await window.API.attendance.getDormitories();
+      this.dormitories = Array.isArray(dormitories) ? dormitories : [];
+      this.renderDormitorySelect();
     } catch (error) {
-      console.error("Error loading sessions:", error);
-      this.showToast("Failed to load sessions", "error");
+      console.error("Failed to load dormitories:", error);
+      this.notify(error.message || "Failed to load dormitories", "error");
     }
-  }
+  },
 
-  renderDormitorySelect() {
-    const select = document.getElementById("dormitorySelect");
-    select.innerHTML = '<option value="">-- Select Dormitory --</option>';
+  loadSessions: async function () {
+    try {
+      const sessions = await window.API.attendance.getSessions({
+        type: "boarding",
+        day: this.getDayName(this.selectedDate),
+      });
 
-    this.dormitories.forEach((dorm) => {
+      this.sessions = Array.isArray(sessions) ? sessions : [];
+      if (
+        this.selectedSession &&
+        !this.sessions.some(
+          (session) => String(session.id) === String(this.selectedSession),
+        )
+      ) {
+        this.selectedSession = "";
+      }
+
+      this.renderSessionSelect();
+      this.updateHeader();
+    } catch (error) {
+      console.error("Failed to load boarding sessions:", error);
+      this.notify(error.message || "Failed to load sessions", "error");
+    }
+  },
+
+  renderDormitorySelect: function () {
+    if (!this.elements.dormitorySelect) {
+      return;
+    }
+
+    this.elements.dormitorySelect.innerHTML =
+      '<option value="">-- Select Dormitory --</option>';
+
+    this.dormitories.forEach((dormitory) => {
       const option = document.createElement("option");
-      option.value = dorm.id;
-      option.textContent = `${dorm.name} (${dorm.student_count || 0} students)`;
-      select.appendChild(option);
+      option.value = dormitory.id;
+      option.textContent = `${dormitory.name} (${Number(dormitory.student_count || 0)} students)`;
+      if (String(this.selectedDormitory) === String(dormitory.id)) {
+        option.selected = true;
+      }
+      this.elements.dormitorySelect.appendChild(option);
     });
-  }
 
-  renderSessionSelect() {
-    const select = document.getElementById("sessionSelect");
-    select.innerHTML = '<option value="">-- Select Session --</option>';
+    if (!this.selectedDormitory && this.dormitories.length === 1) {
+      this.selectedDormitory = String(this.dormitories[0].id);
+      this.elements.dormitorySelect.value = this.selectedDormitory;
+    }
+
+    this.updateHeader();
+  },
+
+  renderSessionSelect: function () {
+    if (!this.elements.sessionSelect) {
+      return;
+    }
+
+    this.elements.sessionSelect.innerHTML =
+      '<option value="">-- Select Session --</option>';
 
     this.sessions.forEach((session) => {
       const option = document.createElement("option");
       option.value = session.id;
-      option.textContent = `${session.session_name} (${session.start_time} - ${session.end_time})`;
-      option.dataset.code = session.session_code;
-      select.appendChild(option);
+      option.textContent = `${session.name} (${session.start_time} - ${session.end_time})`;
+      option.dataset.code = session.code || "";
+      if (String(this.selectedSession) === String(session.id)) {
+        option.selected = true;
+      }
+      this.elements.sessionSelect.appendChild(option);
     });
-  }
 
-  updateUI() {
-    const dormName =
-      this.dormitories.find((d) => d.id == this.selectedDormitory)?.name || "";
-    const sessionName =
-      this.sessions.find((s) => s.id == this.selectedSession)?.session_name ||
-      "";
-
-    if (dormName) {
-      document.getElementById("dormitoryTitle").textContent = dormName;
+    if (!this.selectedSession && this.sessions.length === 1) {
+      this.selectedSession = String(this.sessions[0].id);
+      this.elements.sessionSelect.value = this.selectedSession;
     }
-    if (sessionName) {
-      document.getElementById("sessionBadge").textContent = sessionName;
-    }
-  }
 
-  async loadStudents() {
+    this.updateHeader();
+  },
+
+  updateHeader: function (dormitoryOverride = null) {
+    const selectedDormitory =
+      dormitoryOverride ||
+      this.dormitories.find(
+        (dormitory) => String(dormitory.id) === String(this.selectedDormitory),
+      );
+    const selectedSession = this.sessions.find(
+      (session) => String(session.id) === String(this.selectedSession),
+    );
+
+    if (this.elements.dormitoryTitle) {
+      this.elements.dormitoryTitle.textContent =
+        selectedDormitory?.name || "Boarding Roll Call";
+    }
+
+    if (this.elements.sessionBadge) {
+      this.elements.sessionBadge.textContent =
+        selectedSession?.name || "Select Session";
+    }
+
+    if (this.elements.dateDisplay) {
+      this.elements.dateDisplay.textContent = this.selectedDate
+        ? this.formatDate(this.selectedDate)
+        : "Select Date";
+    }
+  },
+
+  loadStudents: async function (options = {}) {
     if (!this.selectedDormitory) {
-      this.showToast("Please select a dormitory", "warning");
+      this.notify("Please select a dormitory", "warning");
       return;
     }
     if (!this.selectedSession) {
-      this.showToast("Please select a session", "warning");
+      this.notify("Please select a session", "warning");
       return;
     }
     if (!this.selectedDate) {
-      this.showToast("Please select a date", "warning");
+      this.notify("Please select a date", "warning");
       return;
     }
 
-    // Check if it's a school day (for weekday sessions)
-    const sessionCode = this.sessions.find(
-      (s) => s.id == this.selectedSession
-    )?.session_code;
-    if (!["WEEKEND_ROLL_CALL"].includes(sessionCode)) {
-      await this.checkSchoolDay();
+    const skipSchoolDayCheck = options.skipSchoolDayCheck === true;
+    const selectedSession = this.sessions.find(
+      (session) => String(session.id) === String(this.selectedSession),
+    );
+
+    if (!skipSchoolDayCheck && selectedSession?.code !== "WEEKEND_ROLL_CALL") {
+      const proceed = await this.checkSchoolDay();
+      if (!proceed) {
+        return;
+      }
     }
 
     this.showLoading(true);
 
     try {
-      const response = await API.get(
-        `/api/?route=attendance&action=dormitory-students&dormitory_id=${this.selectedDormitory}&date=${this.selectedDate}&session_id=${this.selectedSession}`
-      );
+      const response = await window.API.attendance.getDormitoryStudents({
+        dormitory_id: this.selectedDormitory,
+        session_id: this.selectedSession,
+        date: this.selectedDate,
+      });
 
-      if (response.success && response.data) {
-        this.students = response.data;
-        this.attendanceMarked = {};
+      this.students = Array.isArray(response?.students)
+        ? response.students.map((student) => this.normalizeStudent(student))
+        : [];
+      this.attendanceMarked = {};
 
-        // Pre-populate attendance status from existing records
-        this.students.forEach((student) => {
-          if (student.existing_status) {
-            this.attendanceMarked[student.student_id] = {
-              status: student.existing_status,
-              notes: student.existing_notes || "",
-            };
-          }
-        });
+      this.students.forEach((student) => {
+        if (student.current_status) {
+          this.attendanceMarked[student.id] = {
+            status: student.current_status,
+            notes: student.notes || "",
+          };
+        }
+      });
 
-        this.renderStudentsTable();
-        this.updateStats();
-        this.showRollCallCard(true);
-      } else {
-        this.showToast(response.message || "Failed to load students", "error");
-      }
+      this.loadedRegister = {
+        dormitoryId: this.selectedDormitory,
+        sessionId: this.selectedSession,
+        date: this.selectedDate,
+      };
+
+      this.updateHeader(response?.dormitory || null);
+      this.renderStudentsTable();
+      this.updateStats();
+      this.showRollCallCard(true);
+      await this.loadBoardingSummary();
     } catch (error) {
-      console.error("Error loading students:", error);
-      this.showToast("Failed to load students", "error");
+      console.error("Failed to load dormitory students:", error);
+      this.notify(error.message || "Failed to load students", "error");
+      this.resetRegisterView();
     } finally {
       this.showLoading(false);
     }
-  }
+  },
 
-  async checkSchoolDay() {
+  normalizeStudent: function (student) {
+    return {
+      ...student,
+      id: Number(student.id),
+      permission_id: student.permission_id ? Number(student.permission_id) : null,
+    };
+  },
+
+  checkSchoolDay: async function () {
     try {
-      const response = await API.get(
-        `/api/?route=attendance&action=is-school-day&date=${this.selectedDate}`
-      );
-      if (response.success && response.data && !response.data.is_school_day) {
-        const proceed = confirm(
-          `${this.selectedDate} is marked as "${
-            response.data.calendar_event?.event_type || "non-school day"
-          }". Continue anyway?`
+      const schoolDay = await window.API.attendance.isSchoolDay({
+        date: this.selectedDate,
+      });
+
+      if (schoolDay?.is_school_day === false) {
+        const reason =
+          schoolDay.reason ||
+          schoolDay.calendar_event?.event_name ||
+          "non-school day";
+        return window.confirm(
+          `${this.formatDate(this.selectedDate)} is marked as "${reason}". Continue with roll call anyway?`,
         );
-        if (!proceed) {
-          throw new Error("User cancelled");
-        }
       }
     } catch (error) {
-      if (error.message === "User cancelled") {
-        throw error;
-      }
-      // Continue even if check fails
-      console.warn("Could not check if school day:", error);
+      console.warn("Failed to validate school day:", error);
     }
-  }
 
-  renderStudentsTable() {
-    const tbody = document.getElementById("studentsTableBody");
-    tbody.innerHTML = "";
+    return true;
+  },
 
-    if (this.students.length === 0) {
-      tbody.innerHTML = `
-                <tr>
-                    <td colspan="7" class="text-center py-4 text-muted">
-                        <i class="bi bi-inbox display-4"></i>
-                        <p class="mt-2">No students found in this dormitory</p>
-                    </td>
-                </tr>
-            `;
+  renderStudentsTable: function () {
+    if (!this.elements.studentsTableBody) {
       return;
     }
 
-    this.students.forEach((student, index) => {
-      const currentStatus =
-        this.attendanceMarked[student.student_id]?.status || "";
-      const hasPermission = student.has_permission;
-      const permissionInfo = student.permission_info;
+    if (!this.students.length) {
+      this.elements.studentsTableBody.innerHTML = `
+        <tr>
+          <td colspan="7" class="text-center py-4 text-muted">
+            <i class="bi bi-inbox display-6 d-block mb-2"></i>
+            No active students were found in this dormitory.
+          </td>
+        </tr>
+      `;
+      return;
+    }
 
-      const row = document.createElement("tr");
-      row.className = `student-row ${hasPermission ? "has-permission" : ""} ${
-        currentStatus ? "status-" + currentStatus : ""
-      }`;
-      row.dataset.studentId = student.student_id;
+    this.elements.studentsTableBody.innerHTML = this.students
+      .map((student, index) => {
+        const currentStatus = this.attendanceMarked[student.id]?.status || "";
+        const hasPermission =
+          !!student.permission_id || currentStatus === "permission";
 
-      row.innerHTML = `
-                <td>${index + 1}</td>
-                <td><strong>${student.admission_no || "N/A"}</strong></td>
-                <td>
-                    <div class="d-flex align-items-center">
-                        <div class="avatar bg-secondary text-white rounded-circle me-2 d-flex align-items-center justify-content-center" 
-                             style="width: 35px; height: 35px; font-size: 0.8rem;">
-                            ${this.getInitials(
-                              student.first_name,
-                              student.last_name
-                            )}
-                        </div>
-                        <div>
-                            <div class="fw-semibold">${student.first_name} ${
-        student.last_name
-      }</div>
-                            <small class="text-muted">${
-                              student.student_type || "Boarder"
-                            }</small>
-                        </div>
-                    </div>
-                </td>
-                <td>${student.class_name || "N/A"}</td>
-                <td>${student.bed_number || "-"}</td>
-                <td>
-                    ${
-                      hasPermission
-                        ? `
-                        <span class="badge bg-warning text-dark" title="${
-                          permissionInfo?.type_name || "Permission"
-                        }">
-                            <i class="bi bi-exclamation-triangle me-1"></i>${
-                              permissionInfo?.type_code || "PERM"
-                            }
-                        </span>
-                        <br><small class="text-muted">${
-                          permissionInfo?.end_date || ""
-                        }</small>
-                    `
-                        : '<span class="text-muted">-</span>'
-                    }
-                </td>
-                <td>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <input type="radio" class="btn-check" name="status_${
-                          student.student_id
-                        }" 
-                               id="present_${
-                                 student.student_id
-                               }" value="present"
-                               ${currentStatus === "present" ? "checked" : ""}>
-                        <label class="btn btn-outline-success" for="present_${
-                          student.student_id
-                        }" title="Present">
-                            <i class="bi bi-check-lg"></i>
-                        </label>
+        return `
+          <tr class="student-row ${hasPermission ? "has-permission" : ""} ${this.getStatusRowClass(currentStatus)}" data-student-id="${student.id}">
+            <td>${index + 1}</td>
+            <td><strong>${this.escapeHtml(student.admission_no || "N/A")}</strong></td>
+            <td>
+              <div class="d-flex align-items-center">
+                <div class="avatar bg-secondary text-white rounded-circle me-2 d-flex align-items-center justify-content-center"
+                     style="width: 35px; height: 35px; font-size: 0.8rem;">
+                  ${this.escapeHtml(this.getInitials(student.first_name, student.last_name))}
+                </div>
+                <div>
+                  <div class="fw-semibold">${this.escapeHtml(`${student.first_name || ""} ${student.last_name || ""}`.trim() || "Unnamed student")}</div>
+                  <small class="text-muted">${this.escapeHtml(student.check_time ? `Last marked ${student.check_time}` : "Awaiting roll call")}</small>
+                </div>
+              </div>
+            </td>
+            <td>${this.escapeHtml(student.class_name || "-")}</td>
+            <td>${this.escapeHtml(student.bed_number || "-")}</td>
+            <td>${this.renderPermissionCell(student)}</td>
+            <td>
+              <div class="btn-group btn-group-sm flex-wrap" role="group" aria-label="Attendance status">
+                ${this.renderStatusOption(student.id, "present", "btn-outline-success", "bi-check-lg", "Present", currentStatus === "present")}
+                ${this.renderStatusOption(student.id, "absent", "btn-outline-danger", "bi-x-lg", "Absent", currentStatus === "absent")}
+                ${
+                  hasPermission
+                    ? this.renderStatusOption(
+                        student.id,
+                        "permission",
+                        "btn-outline-warning",
+                        "bi-door-open",
+                        "On Permission",
+                        currentStatus === "permission",
+                      )
+                    : ""
+                }
+                ${this.renderStatusOption(student.id, "sick_bay", "btn-outline-info", "bi-hospital", "Sick Bay", currentStatus === "sick_bay", "sick")}
+              </div>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
 
-                        <input type="radio" class="btn-check" name="status_${
-                          student.student_id
-                        }" 
-                               id="absent_${student.student_id}" value="absent"
-                               ${currentStatus === "absent" ? "checked" : ""}>
-                        <label class="btn btn-outline-danger" for="absent_${
-                          student.student_id
-                        }" title="Absent">
-                            <i class="bi bi-x-lg"></i>
-                        </label>
+    this.elements.studentsTableBody
+      .querySelectorAll('input[type="radio"]')
+      .forEach((radio) => {
+        radio.addEventListener("change", (event) => {
+          const studentId = Number(event.target.dataset.studentId);
+          const status = event.target.value;
+          const student = this.students.find((row) => row.id === studentId);
+          if (!student) {
+            return;
+          }
 
-                        ${
-                          hasPermission
-                            ? `
-                            <input type="radio" class="btn-check" name="status_${
-                              student.student_id
-                            }" 
-                                   id="permission_${
-                                     student.student_id
-                                   }" value="permission"
-                                   ${
-                                     currentStatus === "permission"
-                                       ? "checked"
-                                       : ""
-                                   }>
-                            <label class="btn btn-outline-warning" for="permission_${
-                              student.student_id
-                            }" title="On Permission">
-                                <i class="bi bi-door-open"></i>
-                            </label>
-                        `
-                            : ""
-                        }
+          this.attendanceMarked[studentId] = {
+            status,
+            notes: this.attendanceMarked[studentId]?.notes || student.notes || "",
+          };
 
-                        <input type="radio" class="btn-check" name="status_${
-                          student.student_id
-                        }" 
-                               id="sick_${student.student_id}" value="sick_bay"
-                               ${currentStatus === "sick_bay" ? "checked" : ""}>
-                        <label class="btn btn-outline-info" for="sick_${
-                          student.student_id
-                        }" title="Sick Bay">
-                            <i class="bi bi-hospital"></i>
-                        </label>
-                    </div>
-                </td>
-            `;
-
-      tbody.appendChild(row);
-
-      // Bind status change events
-      row.querySelectorAll('input[type="radio"]').forEach((radio) => {
-        radio.addEventListener("change", (e) => {
-          this.setStudentStatus(student.student_id, e.target.value);
-          this.updateRowAppearance(row, e.target.value);
+          const row = event.target.closest("tr");
+          if (row) {
+            this.updateRowAppearance(row, status);
+          }
           this.updateStats();
         });
       });
+  },
+
+  renderPermissionCell: function (student) {
+    if (!student.permission_id) {
+      return '<span class="text-muted">-</span>';
+    }
+
+    const permissionType = this.escapeHtml(student.permission_type || "Approved");
+    const permissionUntil = student.permission_until
+      ? this.escapeHtml(this.formatDate(student.permission_until))
+      : "Active";
+
+    return `
+      <span class="badge bg-warning text-dark">
+        <i class="bi bi-door-open me-1"></i>${permissionType}
+      </span>
+      <div class="small text-muted mt-1">Until ${permissionUntil}</div>
+    `;
+  },
+
+  renderStatusOption: function (
+    studentId,
+    status,
+    buttonClass,
+    iconClass,
+    label,
+    checked,
+    idPrefix = null,
+  ) {
+    const inputId = `${idPrefix || status}_${studentId}`;
+    return `
+      <input
+        type="radio"
+        class="btn-check"
+        name="status_${studentId}"
+        id="${inputId}"
+        value="${status}"
+        data-student-id="${studentId}"
+        ${checked ? "checked" : ""}
+      >
+      <label class="btn ${buttonClass}" for="${inputId}" title="${label}">
+        <i class="bi ${iconClass}"></i>
+      </label>
+    `;
+  },
+
+  markAll: function (status) {
+    if (!this.students.length) {
+      this.notify("Load students before using bulk actions", "warning");
+      return;
+    }
+
+    this.students.forEach((student) => {
+      const nextStatus =
+        status === "absent" && student.permission_id ? "permission" : status;
+      this.attendanceMarked[student.id] = {
+        status: nextStatus,
+        notes: this.attendanceMarked[student.id]?.notes || student.notes || "",
+      };
+      this.applyStudentSelection(student.id, nextStatus);
     });
-  }
 
-  getInitials(firstName, lastName) {
-    return `${(firstName || "")[0] || ""}${
-      (lastName || "")[0] || ""
-    }`.toUpperCase();
-  }
+    this.updateStats();
+  },
 
-  setStudentStatus(studentId, status) {
-    this.attendanceMarked[studentId] = { status, notes: "" };
-  }
+  applyStudentSelection: function (studentId, status) {
+    const inputId =
+      status === "sick_bay" ? `sick_${studentId}` : `${status}_${studentId}`;
+    const radio = document.getElementById(inputId);
+    if (radio) {
+      radio.checked = true;
+    }
 
-  updateRowAppearance(row, status) {
+    const row = this.elements.studentsTableBody?.querySelector(
+      `tr[data-student-id="${studentId}"]`,
+    );
+    if (row) {
+      this.updateRowAppearance(row, status);
+    }
+  },
+
+  updateRowAppearance: function (row, status) {
     row.classList.remove(
       "status-present",
       "status-absent",
       "status-permission",
-      "status-sick-bay"
+      "status-sick-bay",
     );
-    if (status) {
-      row.classList.add("status-" + status.replace("_", "-"));
+
+    const statusClass = this.getStatusRowClass(status);
+    if (statusClass) {
+      row.classList.add(statusClass);
     }
-  }
+  },
 
-  markAll(status) {
-    this.students.forEach((student) => {
-      // Skip students with permission if marking absent
-      if (status === "absent" && student.has_permission) {
-        this.setStudentStatus(student.student_id, "permission");
-        document.getElementById(`permission_${student.student_id}`)?.click();
-      } else {
-        this.setStudentStatus(student.student_id, status);
-        const radio = document.getElementById(
-          `${status}_${student.student_id}`
-        );
-        if (radio) radio.checked = true;
-      }
+  getStatusRowClass: function (status) {
+    return status ? `status-${status.replace("_", "-")}` : "";
+  },
 
-      const row = document.querySelector(
-        `tr[data-student-id="${student.student_id}"]`
-      );
-      if (row) {
-        const actualStatus =
-          student.has_permission && status === "absent" ? "permission" : status;
-        this.updateRowAppearance(row, actualStatus);
-      }
-    });
-    this.updateStats();
-  }
-
-  updateStats() {
+  updateStats: function () {
     const stats = {
       total: this.students.length,
       present: 0,
@@ -446,162 +534,300 @@ class BoardingRollCallController {
     };
 
     Object.values(this.attendanceMarked).forEach((record) => {
-      if (stats.hasOwnProperty(record.status)) {
-        stats[record.status]++;
+      if (
+        record?.status &&
+        Object.prototype.hasOwnProperty.call(stats, record.status)
+      ) {
+        stats[record.status] += 1;
       }
     });
 
-    document.getElementById("statTotal").textContent = stats.total;
-    document.getElementById("statPresent").textContent = stats.present;
-    document.getElementById("statAbsent").textContent = stats.absent;
-    document.getElementById("statPermission").textContent = stats.permission;
-    document.getElementById("statSickBay").textContent = stats.sick_bay;
+    if (this.elements.statTotal) {
+      this.elements.statTotal.textContent = stats.total;
+    }
+    if (this.elements.statPresent) {
+      this.elements.statPresent.textContent = stats.present;
+    }
+    if (this.elements.statAbsent) {
+      this.elements.statAbsent.textContent = stats.absent;
+    }
+    if (this.elements.statPermission) {
+      this.elements.statPermission.textContent = stats.permission;
+    }
+    if (this.elements.statSickBay) {
+      this.elements.statSickBay.textContent = stats.sick_bay;
+    }
+    if (this.elements.quickStats) {
+      this.elements.quickStats.style.display = stats.total ? "block" : "none";
+    }
+  },
 
-    document.getElementById("quickStats").style.display = "block";
-  }
-
-  async submitRollCall() {
-    // Check if all students have been marked
-    const unmarkedStudents = this.students.filter(
-      (s) => !this.attendanceMarked[s.student_id]
-    );
-
-    if (unmarkedStudents.length > 0) {
-      const proceed = confirm(
-        `${unmarkedStudents.length} students have not been marked. Continue anyway? (Unmarked students will be counted as absent)`
-      );
-      if (!proceed) return;
-
-      // Mark unmarked as absent
-      unmarkedStudents.forEach((s) => {
-        this.attendanceMarked[s.student_id] = {
-          status: "absent",
-          notes: "Not marked during roll call",
-        };
-      });
+  submitRollCall: async function () {
+    if (!this.students.length) {
+      this.notify("Load a dormitory register before submitting roll call", "warning");
+      return;
     }
 
-    const attendanceData = Object.entries(this.attendanceMarked).map(
-      ([studentId, record]) => ({
-        student_id: parseInt(studentId),
-        status: record.status,
-        notes: record.notes,
-      })
+    const unmarkedStudents = this.students.filter(
+      (student) => !this.attendanceMarked[student.id]?.status,
     );
 
-    try {
-      const response = await API.post(
-        "/api/?route=attendance&action=mark-boarding",
-        {
-          dormitory_id: parseInt(this.selectedDormitory),
-          session_id: parseInt(this.selectedSession),
-          date: this.selectedDate,
-          attendance: attendanceData,
-        }
+    if (unmarkedStudents.length) {
+      const proceed = window.confirm(
+        `${unmarkedStudents.length} students have not been marked. Continue and auto-mark them as absent or permission where applicable?`,
       );
+      if (!proceed) {
+        return;
+      }
 
-      if (response.success) {
-        this.showToast("Roll call submitted successfully!", "success");
-        await this.loadBoardingSummary();
-      } else {
-        this.showToast(
-          response.message || "Failed to submit roll call",
-          "error"
+      unmarkedStudents.forEach((student) => {
+        const fallbackStatus = student.permission_id ? "permission" : "absent";
+        this.attendanceMarked[student.id] = {
+          status: fallbackStatus,
+          notes: student.permission_id
+            ? "Auto-marked from approved permission"
+            : "Not marked during roll call",
+        };
+        this.applyStudentSelection(student.id, fallbackStatus);
+      });
+      this.updateStats();
+    }
+
+    const attendance = this.students.map((student) => ({
+      student_id: student.id,
+      status: this.attendanceMarked[student.id]?.status || "absent",
+      notes: this.attendanceMarked[student.id]?.notes || null,
+    }));
+
+    this.setSubmitting(true);
+
+    try {
+      const response = await window.API.attendance.markBoarding({
+        dormitory_id: Number(this.selectedDormitory),
+        session_id: Number(this.selectedSession),
+        date: this.selectedDate,
+        attendance,
+      });
+
+      const total = Number(response?.total || attendance.length);
+      this.notify(`Saved boarding roll call for ${total} students.`, "success");
+      await this.loadStudents({ skipSchoolDayCheck: true });
+    } catch (error) {
+      console.error("Failed to submit boarding roll call:", error);
+      this.notify(error.message || "Failed to submit roll call", "error");
+    } finally {
+      this.setSubmitting(false);
+    }
+  },
+
+  loadBoardingSummary: async function () {
+    if (!this.selectedDate || !this.elements.summaryContent) {
+      return;
+    }
+
+    try {
+      const response = await window.API.attendance.getBoardingSummary({
+        date: this.selectedDate,
+      });
+
+      let rows = Array.isArray(response?.summary) ? response.summary : [];
+
+      if (this.selectedDormitory) {
+        rows = rows.filter(
+          (row) => String(row.dormitory_id) === String(this.selectedDormitory),
         );
       }
-    } catch (error) {
-      console.error("Error submitting roll call:", error);
-      this.showToast("Failed to submit roll call", "error");
-    }
-  }
 
-  async loadBoardingSummary() {
-    try {
-      const response = await API.get(
-        `/api/?route=attendance&action=boarding-summary&date=${this.selectedDate}`
-      );
-      if (response.success && response.data) {
-        this.renderSummary(response.data);
+      if (this.selectedSession) {
+        rows = rows.filter(
+          (row) => String(row.session_id) === String(this.selectedSession),
+        );
       }
+
+      this.renderSummary(rows);
     } catch (error) {
-      console.error("Error loading summary:", error);
+      console.error("Failed to load boarding summary:", error);
+      this.renderSummary([]);
     }
-  }
+  },
 
-  renderSummary(data) {
-    const summaryCard = document.getElementById("summaryCard");
-    const summaryContent = document.getElementById("summaryContent");
+  renderSummary: function (rows) {
+    if (!this.elements.summaryCard || !this.elements.summaryContent) {
+      return;
+    }
 
-    let html = '<div class="row">';
+    this.elements.summaryCard.style.display = "block";
 
-    data.forEach((dorm) => {
-      html += `
-                <div class="col-md-4 mb-3">
-                    <div class="card h-100">
-                        <div class="card-header bg-light">
-                            <strong>${dorm.dormitory_name}</strong>
-                        </div>
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span>Total:</span>
-                                <strong>${dorm.total_students}</strong>
-                            </div>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-success">Present:</span>
-                                <strong>${dorm.present_count}</strong>
-                            </div>
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="text-danger">Absent:</span>
-                                <strong>${dorm.absent_count}</strong>
-                            </div>
-                            <div class="d-flex justify-content-between">
-                                <span class="text-warning">On Permission:</span>
-                                <strong>${dorm.permission_count}</strong>
-                            </div>
-                        </div>
+    if (!Array.isArray(rows) || !rows.length) {
+      this.elements.summaryContent.innerHTML = `
+        <div class="alert alert-light border text-muted mb-0">
+          No boarding summary records were found for ${this.escapeHtml(this.formatDate(this.selectedDate))}.
+        </div>
+      `;
+      return;
+    }
+
+    this.elements.summaryContent.innerHTML = `
+      <div class="row g-3">
+        ${rows
+          .map((row) => {
+            const total = Number(row.total_students || 0);
+            const present = Number(row.present || 0);
+            const absent = Number(row.absent || 0);
+            const permission = Number(row.on_permission || 0);
+            const sickBay = Number(row.sick_bay || 0);
+            const rate = total ? ((present / total) * 100).toFixed(1) : "0.0";
+
+            return `
+              <div class="col-md-6 col-xl-4">
+                <div class="card h-100 border-0 shadow-sm">
+                  <div class="card-header bg-white">
+                    <div class="fw-semibold">${this.escapeHtml(row.dormitory_name || "-")}</div>
+                    <div class="small text-muted">${this.escapeHtml(row.session_name || "-")}</div>
+                  </div>
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2">
+                      <span>Total Students</span>
+                      <strong>${total}</strong>
                     </div>
+                    <div class="d-flex justify-content-between mb-2 text-success">
+                      <span>Present</span>
+                      <strong>${present}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 text-danger">
+                      <span>Absent</span>
+                      <strong>${absent}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-2 text-warning">
+                      <span>Permission</span>
+                      <strong>${permission}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between text-info">
+                      <span>Sick Bay</span>
+                      <strong>${sickBay}</strong>
+                    </div>
+                  </div>
+                  <div class="card-footer bg-white d-flex justify-content-between small">
+                    <span class="text-muted">${this.escapeHtml(row.code || "")}</span>
+                    <span class="fw-semibold">${rate}% present</span>
+                  </div>
                 </div>
+              </div>
             `;
-    });
+          })
+          .join("")}
+      </div>
+    `;
+  },
 
-    html += "</div>";
-    summaryContent.innerHTML = html;
-    summaryCard.style.display = "block";
-  }
-
-  showLoading(show) {
-    document.getElementById("loadingState").style.display = show
-      ? "block"
-      : "none";
-    document.getElementById("emptyState").style.display = "none";
-  }
-
-  showRollCallCard(show) {
-    document.getElementById("rollCallCard").style.display = show
-      ? "block"
-      : "none";
-    document.getElementById("emptyState").style.display = show
-      ? "none"
-      : "block";
-
-    // Update date display
-    const date = new Date(this.selectedDate);
-    document.getElementById("dateDisplay").textContent =
-      date.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      });
-  }
-
-  async refresh() {
-    if (this.selectedDormitory && this.selectedSession) {
-      await this.loadStudents();
+  showLoading: function (show) {
+    if (this.elements.loadingState) {
+      this.elements.loadingState.style.display = show ? "block" : "none";
     }
-  }
+    if (this.elements.loadStudentsBtn) {
+      this.elements.loadStudentsBtn.disabled = show;
+    }
+    if (this.elements.refreshBtn) {
+      this.elements.refreshBtn.disabled = show;
+    }
+    if (show && this.elements.emptyState) {
+      this.elements.emptyState.style.display = "none";
+    }
+  },
 
-  showToast(message, type = "info") {
-    // Create toast container if not exists
+  showRollCallCard: function (show) {
+    if (this.elements.rollCallCard) {
+      this.elements.rollCallCard.style.display = show ? "block" : "none";
+    }
+    if (this.elements.emptyState) {
+      this.elements.emptyState.style.display = show ? "none" : "block";
+    }
+  },
+
+  resetRegisterView: function () {
+    this.students = [];
+    this.attendanceMarked = {};
+    this.loadedRegister = null;
+
+    if (this.elements.studentsTableBody) {
+      this.elements.studentsTableBody.innerHTML = "";
+    }
+    if (this.elements.quickStats) {
+      this.elements.quickStats.style.display = "none";
+    }
+
+    this.showRollCallCard(false);
+  },
+
+  refresh: async function () {
+    await this.loadSessions();
+
+    if (this.selectedDormitory && this.selectedSession) {
+      await this.loadStudents({ skipSchoolDayCheck: true });
+      return;
+    }
+
+    await this.loadBoardingSummary();
+  },
+
+  setSubmitting: function (submitting) {
+    if (!this.elements.submitRollCall) {
+      return;
+    }
+
+    if (!this.elements.submitRollCall.dataset.defaultLabel) {
+      this.elements.submitRollCall.dataset.defaultLabel =
+        this.elements.submitRollCall.innerHTML;
+    }
+
+    this.elements.submitRollCall.disabled = submitting;
+    this.elements.submitRollCall.innerHTML = submitting
+      ? '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Saving...'
+      : this.elements.submitRollCall.dataset.defaultLabel;
+  },
+
+  getInitials: function (firstName, lastName) {
+    return `${(firstName || "")[0] || ""}${(lastName || "")[0] || ""}`.toUpperCase();
+  },
+
+  getDayName: function (dateString) {
+    const date = dateString ? new Date(`${dateString}T00:00:00`) : new Date();
+    return date.toLocaleDateString("en-US", { weekday: "long" });
+  },
+
+  toDateInputValue: function (date) {
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .split("T")[0];
+  },
+
+  formatDate: function (dateString) {
+    if (!dateString) {
+      return "-";
+    }
+
+    const date = new Date(`${dateString}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return dateString;
+    }
+
+    return date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  },
+
+  escapeHtml: function (value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  },
+
+  notify: function (message, type = "info") {
     let toastContainer = document.getElementById("toastContainer");
     if (!toastContainer) {
       toastContainer = document.createElement("div");
@@ -611,36 +837,38 @@ class BoardingRollCallController {
       document.body.appendChild(toastContainer);
     }
 
-    const toastId = "toast_" + Date.now();
+    const toastId = `toast_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const bgClass =
       type === "success"
         ? "bg-success"
         : type === "error"
-        ? "bg-danger"
-        : type === "warning"
-        ? "bg-warning"
-        : "bg-info";
+          ? "bg-danger"
+          : type === "warning"
+            ? "bg-warning"
+            : "bg-info";
 
-    const toastHtml = `
-            <div id="${toastId}" class="toast ${bgClass} text-white" role="alert">
-                <div class="toast-body d-flex justify-content-between align-items-center">
-                    <span>${message}</span>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-                </div>
-            </div>
-        `;
+    toastContainer.insertAdjacentHTML(
+      "beforeend",
+      `
+        <div id="${toastId}" class="toast ${bgClass} text-white" role="alert" aria-live="assertive" aria-atomic="true">
+          <div class="toast-body d-flex justify-content-between align-items-center gap-3">
+            <span>${this.escapeHtml(message)}</span>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      `,
+    );
 
-    toastContainer.insertAdjacentHTML("beforeend", toastHtml);
-
-    const toastEl = document.getElementById(toastId);
-    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    const toastElement = document.getElementById(toastId);
+    const toast = new bootstrap.Toast(toastElement, { delay: 3500 });
     toast.show();
+    toastElement.addEventListener("hidden.bs.toast", () => {
+      toastElement.remove();
+    });
+  },
+};
 
-    toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
-  }
-}
-
-// Initialize when DOM is ready
 document.addEventListener("DOMContentLoaded", () => {
-  window.boardingRollCall = new BoardingRollCallController();
+  window.boardingRollCall = BoardingRollCall;
+  BoardingRollCall.init();
 });

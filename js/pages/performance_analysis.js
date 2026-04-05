@@ -2,7 +2,12 @@ const PerformanceAnalysisController = (() => {
     let allData = [];
     let charts = {};
     async function init() {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = '/Kingsway/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
+            const el = document.querySelector('.main-content, main, body');
+            if (el) el.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: insufficient permissions to view performance analysis.</div>');
+            return;
+        }
         await loadData(); setupEventListeners();
     }
     function setupEventListeners() {
@@ -14,13 +19,19 @@ const PerformanceAnalysisController = (() => {
     }
     async function loadData() {
         try {
-            const r =
-              (await window.API.apiCall(
-                "/academic/performance-analysis",
-                "GET",
-              ).catch(() => null)) ||
-              (await window.API.academic?.compileData?.().catch(() => null));
-            allData = r?.data || r || [];
+            const dateFilter = document.getElementById('dateFilter')?.value || '';
+            let r = null;
+            // Try dedicated academic performance-analysis endpoint first
+            if (window.API?.academic?.analyzeResults) {
+                r = await window.API.academic.analyzeResults({ date: dateFilter }).catch(() => null);
+            }
+            if (!r && window.API?.academic?.compileData) {
+                r = await window.API.academic.compileData({ date: dateFilter }).catch(() => null);
+            }
+            if (!r && window.API?.apiCall) {
+                r = await window.API.apiCall('/academic/performance-analysis', 'GET', null, { date: dateFilter }, { checkPermission: false }).catch(() => null);
+            }
+            allData = r?.data ?? r ?? [];
             renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);
             renderCharts(allData);
         } catch (e) { console.error('Load failed:', e); renderTable([]); }

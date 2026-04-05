@@ -12,5 +12,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-desktop me-2"></i>Active Sessions Details</h6></div><div class="card-body"><div id="monitorContent" class="text-center text-muted py-4">Loading monitoring data...</div></div></div>
 </div>
-<script src="/Kingsway/js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._monCtrl = new MonitoringController({ title: 'Active Sessions', apiEndpoint: '/system/active-sessions', refreshInterval: 30000 });</script>

@@ -13,8 +13,19 @@ const ParentMeetingsController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+    if (!window.AuthContext?.hasPermission('communications_view') && !window.AuthContext?.hasPermission('academic_view')) {
+      const el = document.querySelector('.main-content, main, body');
+      if (el) el.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: insufficient permissions to view parent meetings.</div>');
+      return;
+    }
+    const canSchedule = window.AuthContext?.hasPermission('communications_create');
+    this._canSchedule = canSchedule;
+    if (!canSchedule) {
+      const btn = document.getElementById('scheduleMeeting');
+      if (btn) btn.classList.add('d-none');
     }
     this.bindEvents();
     await this.loadData();
@@ -245,8 +256,18 @@ const ParentMeetingsController = {
     this.showNotification("Edit meeting feature - use schedule form", "info");
   },
 
-  cancelMeeting(id) {
+  async cancelMeeting(id) {
     if (!confirm("Cancel this meeting?")) return;
+    try {
+      // Try to update via communications API
+      if (window.API?.communications?.updateCommunication) {
+        await window.API.communications.updateCommunication(id, { status: 'cancelled' }).catch(() => null);
+      } else if (window.API?.academic?.postCustom) {
+        await window.API.academic.postCustom({ action: 'cancel-meeting', meeting_id: id }).catch(() => null);
+      }
+    } catch (e) {
+      console.warn('Could not persist meeting cancellation:', e);
+    }
     const m = this.state.allMeetings.find((x) => x.id == id);
     if (m) m.status = "cancelled";
     this.state.upcoming = this.state.allMeetings.filter(
@@ -291,9 +312,8 @@ const ParentMeetingsController = {
       () => {
         document
           .getElementById("scheduleMeetingFormModal")
-          ?.addEventListener("submit", (e) => {
-            e.preventDefault();
-            this.showNotification("Meeting scheduled successfully", "success");
+          ?.addEventListener("submit", async (e) => {
+            await this.handleScheduleMeeting(e);
             bootstrap.Modal.getInstance(
               document.getElementById("dynamicModal"),
             )?.hide();
@@ -302,9 +322,29 @@ const ParentMeetingsController = {
     );
   },
 
-  handleScheduleMeeting(e) {
+  async handleScheduleMeeting(e) {
     e.preventDefault();
-    this.showNotification("Meeting scheduled successfully", "success");
+    const form = e.target;
+    const data = {
+      title: form.querySelector('[name="title"], #meetingTitle')?.value || '',
+      meeting_date: form.querySelector('[name="date"], #meetingDate')?.value || '',
+      start_time: form.querySelector('[name="time"], #meetingTime')?.value || '',
+      venue: form.querySelector('[name="venue"], #meetingVenue')?.value || '',
+      class_id: form.querySelector('[name="class_id"], #meetingClass')?.value || null,
+      description: form.querySelector('[name="description"], #meetingDescription')?.value || '',
+      type: 'parent_meeting',
+    };
+    try {
+      if (window.API?.communications?.createCommunication) {
+        await window.API.communications.createCommunication(data);
+      } else if (window.API?.academic?.postCustom) {
+        await window.API.academic.postCustom({ action: 'schedule-meeting', ...data });
+      }
+      this.showNotification("Meeting scheduled successfully", "success");
+      await this.loadData();
+    } catch (err) {
+      this.showNotification("Failed to schedule meeting: " + (err.message || "unknown error"), "error");
+    }
   },
 
   formatDate(dateStr) {

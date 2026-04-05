@@ -13,6 +13,7 @@ namespace App\API\Services;
 
 use App\Database\Database;
 use Exception;
+use PDO;
 
 class SystemConfigService
 {
@@ -24,6 +25,7 @@ class SystemConfigService
     private array $menuCache = [];
     private array $dashboardCache = [];
     private array $policyCache = [];
+    private array $roleRoutePresenceCache = [];
     private bool $cacheLoaded = false;
 
     private function __construct()
@@ -403,21 +405,408 @@ class SystemConfigService
 
         // 3. Check role-level authorization (deny-by-default)
         if ($this->isRoleAllowedRoute($roleId, $routeName)) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
             $result['authorized'] = true;
             $result['source'] = 'role';
             $result['reason'] = 'allowed_by_role';
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
             return $result;
         }
 
         // 4. If user had an override granting access, honor it
         if ($userOverride !== null && $userOverride['is_allowed']) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
             $result['authorized'] = true;
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
+            return $result;
+        }
+
+        // 5. Fallback to route-permission mapping only for legacy roles that
+        // have no role route whitelist configured.
+        if (!$this->hasRoleRouteWhitelistConfigured($roleId)) {
+            $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
+            if ($permissionAuth['authorized']) {
+                $result['authorized'] = true;
+                $result['source'] = 'permission';
+                $result['reason'] = 'allowed_by_route_permission_legacy';
+                $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+                return $result;
+            }
+
+            $result['reason'] = 'not_authorized_by_route_permissions';
             return $result;
         }
 
         // Deny by default
         $result['reason'] = 'not_in_role_whitelist';
         return $result;
+    }
+
+    /**
+     * Check if a user is authorized for a route through any assigned role.
+     * This is used by the frontend shell, which may need to verify access for
+     * multi-role users before opening a page.
+     */
+    public function isUserAuthorizedForAnyRole(int $userId, array $roleIds, string $routeName): array
+    {
+        $roleIds = array_values(array_unique(array_filter(array_map('intval', $roleIds))));
+
+        $result = [
+            'authorized' => false,
+            'reason' => 'denied',
+            'source' => 'default',
+            'role_ids' => $roleIds
+        ];
+
+        if (empty($roleIds)) {
+            $result['reason'] = 'no_roles_assigned';
+            return $result;
+        }
+
+        // 1. Check user-level override first (highest priority)
+        $userOverride = $this->getUserRouteOverride($userId, $routeName);
+        if ($userOverride !== null) {
+            $result['authorized'] = (bool) $userOverride['is_allowed'];
+            $result['source'] = 'user_override';
+            $result['reason'] = $userOverride['is_allowed'] ? 'granted_by_override' : 'denied_by_override';
+
+            if (!$userOverride['is_allowed']) {
+                return $result;
+            }
+        }
+
+        // 2. Ensure the route exists before evaluating policies/roles
+        $route = $this->getRouteByName($routeName);
+        if (!$route) {
+            $result['reason'] = 'route_not_found';
+            return $result;
+        }
+
+        // 3. Allow any assigned role to authorize the route, while still
+        // respecting per-role policies where they apply.
+        $policyDenials = [];
+        foreach ($roleIds as $roleId) {
+            $policyResult = $this->evaluatePolicies($userId, $roleId, $route);
+            if ($policyResult['denied']) {
+                $policyDenials[] = [
+                    'role_id' => $roleId,
+                    'policy_name' => $policyResult['policy_name'] ?? null,
+                    'policy_id' => $policyResult['policy_id'] ?? null,
+                ];
+                continue;
+            }
+
+            if ($this->isRoleAllowedRoute($roleId, $routeName)) {
+                $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+                if (!$requiredPermissionAuth['authorized']) {
+                    $result['authorized'] = false;
+                    $result['source'] = 'permission';
+                    $result['reason'] = 'missing_required_route_permissions';
+                    $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                    $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                    return $result;
+                }
+
+                $result['authorized'] = true;
+                $result['source'] = 'role';
+                $result['reason'] = 'allowed_by_role';
+                $result['role_id'] = $roleId;
+                if (!empty($policyDenials)) {
+                    $result['policy_matches'] = $policyDenials;
+                }
+                if ($requiredPermissionAuth['enforced']) {
+                    $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                    $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                }
+                return $result;
+            }
+        }
+
+        if (!empty($policyDenials)) {
+            $result['policy_matches'] = $policyDenials;
+        }
+
+        $allRolesDeniedByPolicy = count($policyDenials) === count($roleIds);
+        if ($allRolesDeniedByPolicy) {
+            $result['source'] = 'policy';
+            $result['reason'] = 'denied_by_policy';
+            $result['policy'] = $policyDenials[0]['policy_name'] ?? null;
+            return $result;
+        }
+
+        // 4. Honor an explicit allow override.
+        if ($userOverride !== null && $userOverride['is_allowed']) {
+            $requiredPermissionAuth = $this->isUserAuthorizedByRequiredRoutePermissions($userId, $routeName);
+            if (!$requiredPermissionAuth['authorized']) {
+                $result['authorized'] = false;
+                $result['source'] = 'permission';
+                $result['reason'] = 'missing_required_route_permissions';
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+                return $result;
+            }
+
+            $result['authorized'] = true;
+            $result['source'] = 'user_override';
+            $result['reason'] = 'granted_by_override';
+            if ($requiredPermissionAuth['enforced']) {
+                $result['required_permissions'] = $requiredPermissionAuth['required_permissions'];
+                $result['matched_permissions'] = $requiredPermissionAuth['matched_permissions'];
+            }
+            return $result;
+        }
+
+        // 5. Fallback to route-permission mapping only when none of the
+        // assigned roles have role route whitelist rows configured.
+        if (!$this->anyRoleHasRouteWhitelistConfigured($roleIds)) {
+            $permissionAuth = $this->isUserAuthorizedByRoutePermissions($userId, $routeName);
+            if ($permissionAuth['authorized']) {
+                $result['authorized'] = true;
+                $result['source'] = 'permission';
+                $result['reason'] = 'allowed_by_route_permission_legacy';
+                $result['matched_permissions'] = $permissionAuth['matched_permissions'];
+                return $result;
+            }
+
+            $result['reason'] = 'not_authorized_by_route_permissions';
+            return $result;
+        }
+
+        $result['reason'] = 'not_in_role_whitelist';
+        return $result;
+    }
+
+    private function hasRoleRouteWhitelistConfigured(int $roleId): bool
+    {
+        if (!isset($this->roleRoutePresenceCache[$roleId])) {
+            $stmt = $this->db->query(
+                "SELECT 1 FROM role_routes WHERE role_id = ? LIMIT 1",
+                [$roleId]
+            );
+            $this->roleRoutePresenceCache[$roleId] = (bool) $stmt->fetchColumn();
+        }
+
+        return $this->roleRoutePresenceCache[$roleId];
+    }
+
+    private function anyRoleHasRouteWhitelistConfigured(array $roleIds): bool
+    {
+        foreach ($roleIds as $roleId) {
+            if ($this->hasRoleRouteWhitelistConfigured((int) $roleId)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Enforce required route permissions for a user.
+     * This is applied even when a route is explicitly allowed in role_routes.
+     */
+    private function isUserAuthorizedByRequiredRoutePermissions(int $userId, string $routeName): array
+    {
+        $result = [
+            'authorized' => true,
+            'enforced' => false,
+            'required_permissions' => [],
+            'matched_permissions' => []
+        ];
+
+        $routePermissions = $this->getPermissionsForRouteName($routeName);
+        if (empty($routePermissions)) {
+            return $result;
+        }
+
+        $requiredPermissions = array_values(array_filter(
+            $routePermissions,
+            static fn(array $permission): bool => (int) ($permission['is_required'] ?? 0) === 1
+        ));
+
+        if (empty($requiredPermissions)) {
+            return $result;
+        }
+
+        $requiredCodes = array_values(array_unique(array_filter(array_map(
+            static fn(array $permission): ?string => $permission['name'] ?? null,
+            $requiredPermissions
+        ))));
+
+        if (empty($requiredCodes)) {
+            return $result;
+        }
+
+        $result['enforced'] = true;
+        $result['required_permissions'] = $requiredCodes;
+
+        $effectivePermissions = $this->resolveEffectivePermissions($userId);
+        if (empty($effectivePermissions)) {
+            $result['authorized'] = false;
+            return $result;
+        }
+
+        $effectiveLookup = array_fill_keys($effectivePermissions, true);
+        $matched = [];
+        foreach ($requiredCodes as $permissionCode) {
+            if (isset($effectiveLookup[$permissionCode])) {
+                $matched[] = $permissionCode;
+            }
+        }
+
+        $result['matched_permissions'] = $matched;
+        $result['authorized'] = count($matched) === count($requiredCodes);
+        return $result;
+    }
+
+    /**
+     * Resolve route-permission-based access for a user.
+     * Used as a fallback when role_routes whitelist is incomplete.
+     */
+    private function isUserAuthorizedByRoutePermissions(int $userId, string $routeName): array
+    {
+        $result = [
+            'authorized' => false,
+            'matched_permissions' => []
+        ];
+
+        $routePermissions = $this->getPermissionsForRouteName($routeName);
+        if (empty($routePermissions)) {
+            return $result;
+        }
+
+        $effectivePermissions = $this->resolveEffectivePermissions($userId);
+        if (empty($effectivePermissions)) {
+            return $result;
+        }
+
+        $effectiveLookup = array_fill_keys($effectivePermissions, true);
+        $requiredPermissions = array_values(array_filter(
+            $routePermissions,
+            static fn(array $permission): bool => (int) ($permission['is_required'] ?? 0) === 1
+        ));
+
+        $candidates = !empty($requiredPermissions) ? $requiredPermissions : $routePermissions;
+        $matched = [];
+
+        foreach ($candidates as $candidate) {
+            $permissionCode = $candidate['name'] ?? '';
+            if ($permissionCode !== '' && isset($effectiveLookup[$permissionCode])) {
+                $matched[] = $permissionCode;
+            }
+        }
+
+        if (!empty($requiredPermissions)) {
+            // When route permissions are marked as required, all required permissions
+            // must be available for access to be granted.
+            $result['authorized'] = count($matched) === count($requiredPermissions);
+        } else {
+            // If no required marker is set, allow route access when any mapped permission matches.
+            $result['authorized'] = !empty($matched);
+        }
+
+        $result['matched_permissions'] = array_values(array_unique($matched));
+        return $result;
+    }
+
+    /**
+     * Resolve effective permission codes for a user.
+     * Preference order:
+     * 1) Stored procedure from SQL seed
+     * 2) Table-based fallback
+     */
+    private function resolveEffectivePermissions(int $userId): array
+    {
+        $codes = $this->resolvePermissionsFromProcedure($userId);
+        if ($codes !== null) {
+            return $codes;
+        }
+
+        return $this->resolvePermissionsFromTables($userId);
+    }
+
+    private function resolvePermissionsFromProcedure(int $userId): ?array
+    {
+        try {
+            $stmt = $this->db->query('CALL sp_user_get_effective_permissions(?)', [$userId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            while ($stmt->nextRowset()) {
+                // Drain remaining result sets so the connection remains reusable.
+            }
+
+            return array_values(array_unique(array_filter(array_map(
+                static fn(array $row): ?string => $row['permission_code'] ?? null,
+                $rows
+            ))));
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    private function resolvePermissionsFromTables(int $userId): array
+    {
+        $grantedStmt = $this->db->query(
+            "SELECT DISTINCT p.code
+             FROM user_roles ur
+             JOIN role_permissions rp ON rp.role_id = ur.role_id
+             JOIN permissions p ON p.id = rp.permission_id
+             WHERE ur.user_id = ?
+
+             UNION DISTINCT
+
+             SELECT DISTINCT p.code
+             FROM user_permissions up
+             JOIN permissions p ON p.id = up.permission_id
+             WHERE up.user_id = ?
+               AND up.permission_type IN ('grant', 'override')
+               AND (up.expires_at IS NULL OR up.expires_at > NOW())",
+            [$userId, $userId]
+        );
+
+        $deniedStmt = $this->db->query(
+            "SELECT DISTINCT p.code
+             FROM user_permissions up
+             JOIN permissions p ON p.id = up.permission_id
+             WHERE up.user_id = ?
+               AND up.permission_type = 'deny'
+               AND (up.expires_at IS NULL OR up.expires_at > NOW())",
+            [$userId]
+        );
+
+        $granted = array_values(array_unique(array_filter($grantedStmt->fetchAll(PDO::FETCH_COLUMN))));
+        $denied = array_fill_keys(
+            array_values(array_unique(array_filter($deniedStmt->fetchAll(PDO::FETCH_COLUMN)))),
+            true
+        );
+
+        return array_values(array_filter(
+            $granted,
+            static fn(string $code): bool => !isset($denied[$code])
+        ));
     }
 
     // =========================================================================

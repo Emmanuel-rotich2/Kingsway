@@ -29,7 +29,7 @@ const StudentFeesController = {
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
@@ -99,7 +99,13 @@ const StudentFeesController = {
     if (this.ui.statusFilter) {
       this.ui.statusFilter.addEventListener("change", (event) => {
         const value = event.target.value;
-        this.filters.status = value ? value : "";
+        const statusMap = {
+          paid: "paid",
+          partial: "partial",
+          unpaid: "pending",
+          overpaid: "paid",
+        };
+        this.filters.status = value ? statusMap[value] || value : "";
         this.filters.page = 1;
         this.loadPaymentStatus();
       });
@@ -176,8 +182,26 @@ const StudentFeesController = {
       const currentYear = years.find(
         (year) => year.is_current == 1 || year.is_current === "1",
       );
+      let activeAcademicYear = "";
       if (currentYear) {
-        this.filters.academic_year = currentYear.year || currentYear.name || "";
+        activeAcademicYear = this.normalizeAcademicYearValue(
+          currentYear.year_code || currentYear.year || currentYear.name || "",
+        );
+        this.filters.academic_year = activeAcademicYear;
+      }
+
+      try {
+        const termParams = {};
+        if (activeAcademicYear) {
+          termParams.academic_year = activeAcademicYear;
+          termParams.year = activeAcademicYear;
+        }
+        const termsResp = await window.API.academic.listTerms(termParams);
+        const terms = this.unwrapList(termsResp);
+        this.populateTermFilter(terms);
+      } catch (termError) {
+        console.warn("Failed to load terms:", termError);
+        this.populateTermFilter([]);
       }
     } catch (error) {
       console.error("Failed to load initial data:", error);
@@ -336,6 +360,7 @@ const StudentFeesController = {
       );
       const payload = statementResp?.data ?? statementResp;
       const student = payload?.student || {};
+      const summary = payload?.summary || {};
       const obligations = payload?.obligations || [];
       const payments = payload?.payments || [];
       const balance = payload?.balance || {};
@@ -343,13 +368,13 @@ const StudentFeesController = {
       this.ui.studentName.textContent = student.student_name || "-";
       this.ui.admNo.textContent = student.admission_no || "-";
       this.ui.modalTotalFee.textContent = this.formatCurrency(
-        balance.total_fee || 0,
+        summary.total_due ?? balance.total_fee ?? 0,
       );
       this.ui.modalTotalPaid.textContent = this.formatCurrency(
-        balance.amount_paid || 0,
+        summary.total_paid ?? balance.amount_paid ?? 0,
       );
       this.ui.modalBalance.textContent = this.formatCurrency(
-        balance.balance || 0,
+        summary.balance ?? balance.balance ?? 0,
       );
 
       this.ui.feeBreakdownBody.innerHTML = obligations
@@ -415,6 +440,54 @@ const StudentFeesController = {
       option.textContent = cls.name || cls.class_name || "";
       this.ui.classFilter.appendChild(option);
     });
+  },
+
+  populateTermFilter: function (terms) {
+    if (!this.ui.termFilter) {
+      return;
+    }
+
+    this.ui.termFilter.innerHTML = '<option value="">Current Term</option>';
+
+    if (!Array.isArray(terms) || terms.length === 0) {
+      return;
+    }
+
+    const unique = new Map();
+    terms.forEach((term) => {
+      const termNumber = term.term_number ?? null;
+      if (!termNumber) {
+        return;
+      }
+      const key = `${termNumber}-${term.year || ""}`;
+      if (!unique.has(key)) {
+        unique.set(key, term);
+      }
+    });
+
+    const sorted = Array.from(unique.values()).sort((a, b) =>
+      Number(a.term_number || 0) - Number(b.term_number || 0),
+    );
+
+    sorted.forEach((term) => {
+      const option = document.createElement("option");
+      option.value = term.term_number;
+      const yearLabel = term.year ? ` (${term.year})` : "";
+      option.textContent = `Term ${term.term_number}${yearLabel}`;
+      this.ui.termFilter.appendChild(option);
+    });
+
+    const currentTerm = sorted.find(
+      (term) =>
+        term.status === "current" ||
+        term.status === "active" ||
+        term.is_current == 1 ||
+        term.is_current === "1",
+    );
+    if (currentTerm && currentTerm.term_number) {
+      this.ui.termFilter.value = String(currentTerm.term_number);
+      this.filters.term_number = String(currentTerm.term_number);
+    }
   },
 
   populatePaymentStudents: function () {
@@ -495,7 +568,7 @@ const StudentFeesController = {
       type: "payment",
       student_id: studentId,
       amount: amount,
-      payment_method: paymentMethod,
+      payment_method: paymentMethod === "bank" ? "bank_transfer" : paymentMethod,
       reference_no: this.ui.paymentReference.value || null,
       payment_date: paymentDate,
       notes: this.ui.paymentNotes.value || null,
@@ -578,6 +651,12 @@ const StudentFeesController = {
     if (normalized === "overpaid") {
       return { label: "Overpaid", badge: "bg-info" };
     }
+    if (normalized === "arrears") {
+      return { label: "Arrears", badge: "bg-danger" };
+    }
+    if (normalized === "waived") {
+      return { label: "Waived", badge: "bg-primary" };
+    }
     return { label: "Pending", badge: "bg-secondary" };
   },
 
@@ -611,6 +690,20 @@ const StudentFeesController = {
       }
       timer = setTimeout(() => fn.apply(this, args), delay);
     };
+  },
+
+  normalizeAcademicYearValue: function (value) {
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    const text = String(value).trim();
+    if (!text) {
+      return "";
+    }
+
+    const match = text.match(/(\d{4})/);
+    return match ? match[1] : text;
   },
 };
 

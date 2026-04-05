@@ -167,7 +167,7 @@
                         <th>Name</th>
                         <th>Class/Stream</th>
                         <th>Gender</th>
-                        <th>Contact</th>
+                        <th>Guardian Contact</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
@@ -218,9 +218,9 @@
                             <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB. Optional for now.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="/Kingsway/images/default-avatar.png" 
+                            <img id="studentPhotoPreview" src="<?= $appBase ?>images/default-avatar.png" 
                                 class="rounded-circle" width="80" height="80" 
-                                onerror="this.src='/Kingsway/images/default-avatar.png'"
+                                onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
                         </div>
                     </div>
@@ -421,7 +421,7 @@ $admissionNumber = generateAdmissionNumber();
                                 <option value="">-- Select Method --</option>
                                 <option value="cash">Cash</option>
                                 <option value="mpesa">M-Pesa</option>
-                                <option value="bank">Bank Transfer</option>
+                                <option value="bank_transfer">Bank Transfer</option>
                                 <option value="cheque">Cheque</option>
                             </select>
                         </div>
@@ -612,4 +612,5 @@ $admissionNumber = generateAdmissionNumber();
 </div>
 
 <!-- Link Controller Script -->
-<script src="/Kingsway/js/pages/manage_students.js"></script>
+<script src="<?= $appBase ?>js/pages/manage_students.js"></script>
+<script src="<?= $appBase ?>js/pages/student_schedule_extension.js"></script>

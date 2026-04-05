@@ -1,290 +1,434 @@
 /**
- * Academic Reports Controller
- * Page: academic_reports.php
- * Generates performance reports, trends, class analysis
+ * academic_reports.js — Academic Analytics Controller
+ * Uses live classes/students data and avoids synthetic placeholder scores.
  */
-const AcademicReportsController = {
-  state: {
-    years: [],
-    terms: [],
-    classes: [],
-    reportData: null,
-    charts: {},
-  },
+const academicReportsCtrl = (() => {
+    let perfChart = null;
+    let trendsChart = null;
+    let gradeChart = null;
 
-  async init() {
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
-      return;
-    }
-    this.bindEvents();
-    await this.loadFilters();
-  },
+    const state = {
+        years: [],
+        terms: [],
+        classes: [],
+        learningAreas: [],
+        classMetrics: []
+    };
 
-  bindEvents() {
-    const yearSelect = document.getElementById("selectYear");
-    if (yearSelect) {
-      yearSelect.addEventListener("change", (e) =>
-        this.loadTermsForYear(e.target.value),
-      );
+    function toast(msg, type = 'info') {
+        const el = document.getElementById('arToast');
+        if (!el) return;
+        el.className = `toast align-items-center text-bg-${type} border-0`;
+        const body = document.getElementById('arToastBody');
+        if (body) body.textContent = msg;
+        bootstrap.Toast.getOrCreateInstance(el, { delay: 3200 }).show();
     }
 
-    const generateBtn = document.getElementById("generateReport");
-    if (generateBtn) {
-      generateBtn.addEventListener("click", () => this.generateReport());
+    function toNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
     }
 
-    // Tab switching
-    document.querySelectorAll('[data-bs-toggle="tab"]').forEach((tab) => {
-      tab.addEventListener("shown.bs.tab", () => this.resizeCharts());
-    });
-  },
-
-  async loadFilters() {
-    try {
-      const [yearsRes, classesRes] = await Promise.all([
-        window.API.academic.getAllAcademicYears(),
-        window.API.academic.listClasses(),
-      ]);
-
-      if (yearsRes?.success) {
-        this.state.years = yearsRes.data || [];
-        this.populateSelect("#selectYear", this.state.years, "id", "name");
-      }
-
-      if (classesRes?.success) {
-        this.state.classes = classesRes.data || [];
-        this.populateSelect("#selectClass", this.state.classes, "id", "name");
-      }
-
-      // Load current year terms
-      const currentRes = await window.API.academic.getCurrentAcademicYear();
-      if (currentRes?.success && currentRes.data) {
-        const yearSelect = document.getElementById("selectYear");
-        if (yearSelect) yearSelect.value = currentRes.data.id;
-        await this.loadTermsForYear(currentRes.data.id);
-      }
-    } catch (error) {
-      console.error("Error loading filters:", error);
-    }
-  },
-
-  async loadTermsForYear(yearId) {
-    if (!yearId) return;
-    try {
-      const res = await window.API.academic.listTerms({
-        academic_year_id: yearId,
-      });
-      if (res?.success) {
-        this.state.terms = res.data || [];
-        this.populateSelect("#selectTerm", this.state.terms, "id", "name");
-      }
-    } catch (error) {
-      console.error("Error loading terms:", error);
-    }
-  },
-
-  async generateReport() {
-    const yearId = document.getElementById("selectYear")?.value;
-    const termId = document.getElementById("selectTerm")?.value;
-    const reportType =
-      document.getElementById("reportType")?.value || "overview";
-    const classId = document.getElementById("selectClass")?.value;
-
-    if (!yearId || !termId) {
-      this.showNotification("Please select academic year and term", "warning");
-      return;
+    function cbcBand(score) {
+        const n = Number(score);
+        if (!Number.isFinite(n)) return null;
+        if (n >= 80) return 'EE';
+        if (n >= 50) return 'ME';
+        if (n >= 25) return 'AE';
+        return 'BE';
     }
 
-    try {
-      const btn = document.getElementById("generateReport");
-      if (btn) {
-        btn.disabled = true;
-        btn.innerHTML =
-          '<span class="spinner-border spinner-border-sm me-1"></span>Generating...';
-      }
+    async function apiGet(route, params = {}) {
+        return window.API.apiCall(`/${route}`, 'GET', null, params, { checkPermission: false });
+    }
 
-      const params = {
-        academic_year_id: yearId,
-        term_id: termId,
-        type: reportType,
-      };
-      if (classId) params.class_id = classId;
+    function renderNoData(canvasId, message) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const parent = canvas.parentElement;
+        if (!parent) return;
 
-      const res = await window.API.academic.compileData(params);
+        const existing = parent.querySelector('.ar-chart-empty');
+        if (existing) existing.remove();
 
-      if (res?.success) {
-        this.state.reportData = res.data;
-        this.renderOverview();
-        this.renderDetailedTable();
-        this.renderTrends();
-        this.showNotification("Report generated successfully", "success");
-      } else {
-        this.showNotification(
-          res?.message || "Failed to generate report",
-          "error",
+        const msg = document.createElement('div');
+        msg.className = 'ar-chart-empty text-muted text-center py-4';
+        msg.textContent = message;
+        parent.appendChild(msg);
+    }
+
+    function clearNoData(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas || !canvas.parentElement) return;
+        const existing = canvas.parentElement.querySelector('.ar-chart-empty');
+        if (existing) existing.remove();
+    }
+
+    async function loadYears() {
+        const years = await apiGet('academic/years-list');
+        state.years = Array.isArray(years) ? years : [];
+        const sel = document.getElementById('selectYear');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Years</option>';
+        state.years.forEach((y) => {
+            const opt = document.createElement('option');
+            opt.value = y.id;
+            opt.textContent = y.year_name;
+            if (y.is_current) opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadTerms() {
+        const terms = await apiGet('academic/terms-list');
+        state.terms = Array.isArray(terms) ? terms : [];
+        const sel = document.getElementById('selectTerm');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Terms</option>';
+        state.terms.forEach((t) => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = `${t.name} (${t.year_code || ''})`;
+            if (t.status === 'current') opt.selected = true;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadClasses() {
+        const classes = await apiGet('academic/classes-list');
+        state.classes = Array.isArray(classes) ? classes : [];
+        const sel = document.getElementById('selectClass');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">All Classes</option>';
+        state.classes.forEach((c) => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.textContent = `${c.name} (${c.level_code || ''})`;
+            sel.appendChild(opt);
+        });
+    }
+
+    async function loadLearningAreas() {
+        try {
+            const res = await window.API.academic.listLearningAreas().catch(() => null)
+                || await apiGet('academic/learning-areas/list').catch(() => null);
+            const areas = res?.data ?? res ?? [];
+            state.learningAreas = Array.isArray(areas) ? areas : [];
+        } catch {
+            state.learningAreas = [];
+        }
+    }
+
+    async function fetchStudentsByClass(classId) {
+        try {
+            const rows = await apiGet(`students/by-class-get/${classId}`);
+            return Array.isArray(rows) ? rows : [];
+        } catch {
+            return [];
+        }
+    }
+
+    function computeClassMetric(classInfo, students) {
+        const scores = students
+            .map((s) => (s.year_average != null ? Number(s.year_average) : null))
+            .filter((v) => v !== null && Number.isFinite(v));
+
+        const term1 = students
+            .map((s) => (s.term1_average != null ? Number(s.term1_average) : null))
+            .filter((v) => v !== null && Number.isFinite(v));
+        const term2 = students
+            .map((s) => (s.term2_average != null ? Number(s.term2_average) : null))
+            .filter((v) => v !== null && Number.isFinite(v));
+        const term3 = students
+            .map((s) => (s.term3_average != null ? Number(s.term3_average) : null))
+            .filter((v) => v !== null && Number.isFinite(v));
+
+        const avg = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null;
+        const passRate = scores.length ? (scores.filter((v) => v >= 50).length / scores.length) * 100 : null;
+        const top = scores.length ? Math.max(...scores) : null;
+
+        return {
+            class_id: classInfo.id,
+            class_name: classInfo.name,
+            level_name: classInfo.level_name || classInfo.level_code || '—',
+            student_count: students.length,
+            stream_count: toNumber(classInfo.stream_count),
+            scored_count: scores.length,
+            average_score: avg,
+            pass_rate: passRate,
+            top_score: top,
+            term1_avg: term1.length ? term1.reduce((a, b) => a + b, 0) / term1.length : null,
+            term2_avg: term2.length ? term2.reduce((a, b) => a + b, 0) / term2.length : null,
+            term3_avg: term3.length ? term3.reduce((a, b) => a + b, 0) / term3.length : null,
+            grade_counts: {
+                EE: scores.filter((v) => cbcBand(v) === 'EE').length,
+                ME: scores.filter((v) => cbcBand(v) === 'ME').length,
+                AE: scores.filter((v) => cbcBand(v) === 'AE').length,
+                BE: scores.filter((v) => cbcBand(v) === 'BE').length,
+            }
+        };
+    }
+
+    async function buildClassMetrics(selectedClassId = '') {
+        const classes = selectedClassId
+            ? state.classes.filter((c) => Number(c.id) === Number(selectedClassId))
+            : state.classes;
+
+        const metrics = await Promise.all(
+            classes.map(async (cls) => {
+                const students = await fetchStudentsByClass(cls.id);
+                return computeClassMetric(cls, students);
+            })
         );
-      }
 
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Generate Report';
-      }
-    } catch (error) {
-      console.error("Error generating report:", error);
-      this.showNotification("Error generating report", "error");
-      const btn = document.getElementById("generateReport");
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Generate Report';
-      }
+        state.classMetrics = metrics;
+        return metrics;
     }
-  },
 
-  renderOverview() {
-    const data = this.state.reportData;
-    if (!data) return;
+    function updateKpis(metrics) {
+        const totalClasses = metrics.length;
+        const totalStudents = metrics.reduce((sum, m) => sum + m.student_count, 0);
+        const allScored = metrics.flatMap((m) => {
+            const count = m.scored_count;
+            if (!count || m.average_score == null) return [];
+            return Array(count).fill(m.average_score);
+        });
 
-    // Performance chart
-    const perfCanvas = document.getElementById("performanceChart");
-    if (perfCanvas && typeof Chart !== "undefined") {
-      if (this.state.charts.performance)
-        this.state.charts.performance.destroy();
+        const avg = allScored.length ? allScored.reduce((a, b) => a + b, 0) / allScored.length : null;
+        const pass = metrics
+            .filter((m) => m.pass_rate != null)
+            .map((m) => m.pass_rate);
+        const passRate = pass.length ? pass.reduce((a, b) => a + b, 0) / pass.length : null;
 
-      const subjects = data.subjects || data.subject_performance || [];
-      this.state.charts.performance = new Chart(perfCanvas.getContext("2d"), {
-        type: "bar",
-        data: {
-          labels: subjects.map((s) => s.name || s.subject_name || ""),
-          datasets: [
-            {
-              label: "Average Score",
-              data: subjects.map((s) =>
-                parseFloat(s.average || s.avg_score || 0),
-              ),
-              backgroundColor: "rgba(54, 162, 235, 0.7)",
-              borderColor: "rgba(54, 162, 235, 1)",
-              borderWidth: 1,
+        document.getElementById('arKpiClasses').textContent = totalClasses;
+        document.getElementById('arKpiStudents').textContent = totalStudents;
+        document.getElementById('arKpiAvg').textContent = avg != null ? `${avg.toFixed(1)}%` : 'No scores';
+        document.getElementById('arKpiPassRate').textContent = passRate != null ? `${passRate.toFixed(1)}%` : 'No scores';
+
+        document.getElementById('qs_classes').textContent = totalClasses;
+        document.getElementById('qs_students').textContent = totalStudents;
+        document.getElementById('qs_subjects').textContent = state.learningAreas.length || 0;
+        document.getElementById('avgScore').textContent = avg != null ? `${avg.toFixed(1)}%` : 'No scores';
+        document.getElementById('passRate').textContent = passRate != null ? `${passRate.toFixed(1)}%` : 'No scores';
+
+        const topClass = metrics
+            .filter((m) => m.average_score != null)
+            .sort((a, b) => b.average_score - a.average_score)[0];
+        document.getElementById('topPerformers').textContent = topClass ? topClass.class_name : 'No scores';
+    }
+
+    function renderDetailedTable(metrics) {
+        const tbody = document.getElementById('detailedTbody');
+        if (!tbody) return;
+        if (!metrics.length) {
+            tbody.innerHTML = '<tr><td colspan="10" class="ar-empty"><i class="bi bi-table"></i>No class data available</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = metrics.map((m) => {
+            const avg = m.average_score != null ? `${m.average_score.toFixed(1)}%` : '—';
+            const pass = m.pass_rate != null ? `${m.pass_rate.toFixed(1)}%` : '—';
+            const top = m.top_score != null ? `${m.top_score.toFixed(1)}%` : '—';
+            const scoreHealth = m.scored_count > 0 ? `${m.scored_count}/${m.student_count}` : '0';
+            return `
+                <tr>
+                    <td><strong>${m.class_name}</strong></td>
+                    <td>${m.level_name}</td>
+                    <td>${m.student_count}</td>
+                    <td>${m.stream_count}</td>
+                    <td>${avg}</td>
+                    <td>${pass}</td>
+                    <td>${top}</td>
+                    <td>${scoreHealth}</td>
+                    <td>${m.term1_avg != null ? `${m.term1_avg.toFixed(1)}%` : '—'}</td>
+                    <td>${m.term3_avg != null ? `${m.term3_avg.toFixed(1)}%` : '—'}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function drawPerformanceChart(metrics) {
+        const canvas = document.getElementById('performanceChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+        if (perfChart) perfChart.destroy();
+        clearNoData('performanceChart');
+
+        const withScores = metrics.filter((m) => m.average_score != null);
+        if (!withScores.length) {
+            renderNoData('performanceChart', 'No class score records available yet.');
+            return;
+        }
+
+        perfChart = new Chart(canvas, {
+            type: 'bar',
+            data: {
+                labels: withScores.map((m) => m.class_name),
+                datasets: [
+                    {
+                        label: 'Average Score (%)',
+                        data: withScores.map((m) => Number(m.average_score.toFixed(2))),
+                        backgroundColor: '#1b5e20',
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Pass Rate (%)',
+                        data: withScores.map((m) => Number((m.pass_rate || 0).toFixed(2))),
+                        backgroundColor: '#66bb6a',
+                        borderRadius: 6
+                    }
+                ]
             },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: { y: { beginAtZero: true, max: 100 } },
-          plugins: { legend: { display: false } },
-        },
-      });
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, max: 100 } }
+            }
+        });
     }
-  },
 
-  renderTrends() {
-    const data = this.state.reportData;
-    if (!data) return;
+    function drawTrendsChart(metrics) {
+        const canvas = document.getElementById('trendsChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+        if (trendsChart) trendsChart.destroy();
+        clearNoData('trendsChart');
 
-    const trendsCanvas = document.getElementById("trendsChart");
-    if (trendsCanvas && typeof Chart !== "undefined") {
-      if (this.state.charts.trends) this.state.charts.trends.destroy();
+        const termAverages = [1, 2, 3].map((termNo) => {
+            const values = metrics
+                .map((m) => m[`term${termNo}_avg`])
+                .filter((v) => v != null && Number.isFinite(v));
+            if (!values.length) return null;
+            return values.reduce((a, b) => a + b, 0) / values.length;
+        });
 
-      const trends = data.trends || data.term_trends || [];
-      this.state.charts.trends = new Chart(trendsCanvas.getContext("2d"), {
-        type: "line",
-        data: {
-          labels: trends.map((t) => t.term || t.term_name || ""),
-          datasets: [
-            {
-              label: "Mean Score",
-              data: trends.map((t) => parseFloat(t.mean || t.average || 0)),
-              borderColor: "rgba(75, 192, 192, 1)",
-              backgroundColor: "rgba(75, 192, 192, 0.2)",
-              fill: true,
-              tension: 0.3,
+        if (termAverages.every((v) => v == null)) {
+            renderNoData('trendsChart', 'No term-average records captured for trend analysis.');
+            return;
+        }
+
+        trendsChart = new Chart(canvas, {
+            type: 'line',
+            data: {
+                labels: ['Term 1', 'Term 2', 'Term 3'],
+                datasets: [
+                    {
+                        label: 'Average by Term (%)',
+                        data: termAverages.map((v) => (v == null ? null : Number(v.toFixed(2)))),
+                        borderColor: '#0d6efd',
+                        backgroundColor: 'rgba(13,110,253,0.15)',
+                        fill: true,
+                        tension: 0.25,
+                        spanGaps: true,
+                    }
+                ]
             },
-          ],
-        },
-        options: {
-          responsive: true,
-          scales: { y: { beginAtZero: true, max: 100 } },
-        },
-      });
-    }
-  },
-
-  renderDetailedTable() {
-    const data = this.state.reportData;
-    const tbody = document.querySelector("#detailedTable tbody");
-    if (!tbody || !data) return;
-
-    const students = data.students || data.student_results || [];
-    if (students.length === 0) {
-      tbody.innerHTML =
-        '<tr><td colspan="7" class="text-center text-muted">No data available</td></tr>';
-      return;
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: { y: { beginAtZero: true, max: 100 } }
+            }
+        });
     }
 
-    tbody.innerHTML = students
-      .map(
-        (s, i) => `
-            <tr>
-                <td>${i + 1}</td>
-                <td>${this.escapeHtml(s.name || s.student_name || "")}</td>
-                <td>${this.escapeHtml(s.class_name || s.class || "")}</td>
-                <td><strong>${parseFloat(s.total || s.total_marks || 0).toFixed(1)}</strong></td>
-                <td>${parseFloat(s.average || s.mean || 0).toFixed(1)}</td>
-                <td>${s.rank || s.position || "--"}</td>
-                <td><span class="badge bg-${this.getGradeColor(s.grade || s.mean_grade)}">${s.grade || s.mean_grade || "--"}</span></td>
-            </tr>`,
-      )
-      .join("");
-  },
+    function drawGradeChart(metrics) {
+        const canvas = document.getElementById('gradeDistChart');
+        if (!canvas || typeof Chart === 'undefined') return;
+        if (gradeChart) gradeChart.destroy();
+        clearNoData('gradeDistChart');
 
-  resizeCharts() {
-    Object.values(this.state.charts).forEach((chart) => {
-      if (chart && typeof chart.resize === "function") chart.resize();
-    });
-  },
+        const totals = { EE: 0, ME: 0, AE: 0, BE: 0 };
+        metrics.forEach((m) => {
+            totals.EE += m.grade_counts.EE;
+            totals.ME += m.grade_counts.ME;
+            totals.AE += m.grade_counts.AE;
+            totals.BE += m.grade_counts.BE;
+        });
 
-  getGradeColor(grade) {
-    if (!grade) return "secondary";
-    const g = grade.toUpperCase();
-    if (g.startsWith("A")) return "success";
-    if (g.startsWith("B")) return "primary";
-    if (g.startsWith("C")) return "info";
-    if (g.startsWith("D")) return "warning";
-    return "danger";
-  },
+        const totalScored = totals.EE + totals.ME + totals.AE + totals.BE;
+        if (!totalScored) {
+            renderNoData('gradeDistChart', 'No graded records available for CBC distribution.');
+            return;
+        }
 
-  populateSelect(selector, items, valueKey, labelKey) {
-    const select = document.querySelector(selector);
-    if (!select) return;
-    const defaultOption =
-      select.querySelector("option") || document.createElement("option");
-    select.innerHTML = "";
-    select.appendChild(defaultOption);
-    items.forEach((item) => {
-      const opt = document.createElement("option");
-      opt.value = item[valueKey];
-      opt.textContent = item[labelKey] || item.name || "";
-      select.appendChild(opt);
-    });
-  },
+        gradeChart = new Chart(canvas, {
+            type: 'doughnut',
+            data: {
+                labels: ['EE (≥80%)', 'ME (50-79%)', 'AE (25-49%)', 'BE (<25%)'],
+                datasets: [{
+                    data: [totals.EE, totals.ME, totals.AE, totals.BE],
+                    backgroundColor: ['#1b5e20', '#2e7d32', '#f57c00', '#b71c1c'],
+                    borderWidth: 0
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        });
+    }
 
-  escapeHtml(str) {
-    if (!str) return "";
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-  },
+    async function generateReport() {
+        try {
+            const classId = document.getElementById('selectClass')?.value || '';
+            const metrics = await buildClassMetrics(classId);
+            updateKpis(metrics);
+            renderDetailedTable(metrics);
+            drawPerformanceChart(metrics);
+            drawTrendsChart(metrics);
+            drawGradeChart(metrics);
+            toast('Academic report refreshed', 'success');
+        } catch (error) {
+            toast(error.message || 'Failed to generate report', 'danger');
+        }
+    }
 
-  showNotification(message, type = "info") {
-    const alert = document.createElement("div");
-    alert.className = `alert alert-${type === "error" ? "danger" : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
-    alert.style.zIndex = "9999";
-    alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(alert);
-    setTimeout(() => alert.remove(), 4000);
-  },
-};
+    function exportReport() {
+        const rows = state.classMetrics;
+        if (!rows.length) {
+            toast('No class analytics available to export', 'warning');
+            return;
+        }
 
-document.addEventListener("DOMContentLoaded", () =>
-  AcademicReportsController.init(),
-);
+        const header = ['Class', 'Level', 'Students', 'Scored Students', 'Average Score', 'Pass Rate', 'Top Score'];
+        const data = rows.map((m) => [
+            m.class_name,
+            m.level_name,
+            m.student_count,
+            m.scored_count,
+            m.average_score != null ? m.average_score.toFixed(2) : '',
+            m.pass_rate != null ? m.pass_rate.toFixed(2) : '',
+            m.top_score != null ? m.top_score.toFixed(2) : '',
+        ]);
+
+        const csv = [header, ...data]
+            .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
+            .join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `academic_report_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }
+
+    async function init() {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
+            return;
+        }
+        if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
+            toast('Access denied: insufficient permissions to view academic reports.', 'danger');
+            return;
+        }
+        try {
+            await Promise.all([loadYears(), loadTerms(), loadClasses(), loadLearningAreas()]);
+            await generateReport();
+        } catch (error) {
+            toast(`Failed to initialise: ${error.message}`, 'danger');
+        }
+    }
+
+    return { init, generateReport, exportReport };
+})();
+
+document.addEventListener('DOMContentLoaded', academicReportsCtrl.init);

@@ -919,15 +919,54 @@ class SystemConfigAPI
     public function checkAuthorization(array $data): array
     {
         try {
-            if (empty($data['user_id']) || empty($data['role_id']) || empty($data['route'])) {
-                return $this->errorResponse('user_id, role_id, and route are required');
+            if (empty($data['user_id']) || empty($data['route'])) {
+                return $this->errorResponse('user_id and route are required');
             }
 
-            $result = $this->configService->isUserAuthorizedForRoute(
-                (int) $data['user_id'],
-                (int) $data['role_id'],
-                $data['route']
-            );
+            $routeName = trim((string) ($data['route'] ?? ''));
+            if (strpos($routeName, 'route=') !== false) {
+                $queryString = parse_url($routeName, PHP_URL_QUERY);
+                if (is_string($queryString) && $queryString !== '') {
+                    parse_str($queryString, $params);
+                    if (!empty($params['route'])) {
+                        $routeName = trim((string) $params['route']);
+                    }
+                }
+            }
+
+            if ($routeName === '' || $routeName === '#') {
+                return $this->errorResponse('route is invalid');
+            }
+
+            $roleIds = $data['role_ids'] ?? [];
+            if (!is_array($roleIds)) {
+                $roleIds = [$roleIds];
+            }
+            $roleIds = array_values(array_unique(array_filter(array_map('intval', $roleIds))));
+
+            if (empty($roleIds) && !empty($data['role_id'])) {
+                $roleIds = [(int) $data['role_id']];
+            }
+
+            if (empty($roleIds)) {
+                return $this->errorResponse('role_id or role_ids is required');
+            }
+
+            if (count($roleIds) > 1) {
+                $result = $this->configService->isUserAuthorizedForAnyRole(
+                    (int) $data['user_id'],
+                    $roleIds,
+                    $routeName
+                );
+            } else {
+                $result = $this->configService->isUserAuthorizedForRoute(
+                    (int) $data['user_id'],
+                    $roleIds[0],
+                    $routeName
+                );
+                $result['role_ids'] = $roleIds;
+                $result['role_id'] = $roleIds[0];
+            }
 
             return [
                 'success' => true,

@@ -428,7 +428,7 @@ const StaffController = (() => {
 
   async function editStaff(id) {
     // Redirect to manage_staff with edit context
-    window.location.href = `/Kingsway/home.php?route=manage_staff&edit=${id}`;
+    window.location.href = (window.APP_BASE || "") + `/home.php?route=manage_staff&edit=${id}`;
   }
 
   async function removeStaff(id) {

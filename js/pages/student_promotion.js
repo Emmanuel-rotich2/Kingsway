@@ -10,12 +10,30 @@ const StudentPromotionController = {
     streams: [],
     streamMap: {},
     retainedIds: new Set(),
+    selectedClassName: "--",
   },
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+
+    if (!AuthContext.hasPermission('students_view')) {
+      const main = document.querySelector('.main-content, main, body');
+      if (main) main.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: you do not have permission to view student data.</div>');
+      return;
+    }
+
+    const canPromote = AuthContext.hasPermission('students_promote');
+    this._canPromote = canPromote;
+
+    // Hide promotion action buttons for users without promote permission
+    if (!canPromote) {
+      ['processPromotion', 'promoteAll', 'retainSelected'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('d-none');
+      });
     }
 
     this.attachEventListeners();
@@ -47,6 +65,23 @@ const StudentPromotionController = {
           .forEach((checkbox) => {
             checkbox.checked = e.target.checked;
           });
+        this.updateStats();
+      });
+
+    document
+      .getElementById("selectClass")
+      ?.addEventListener("change", () => this.updateStats());
+
+    document
+      .querySelector("#studentsTable tbody")
+      ?.addEventListener("change", (event) => {
+        const target = event.target;
+        if (
+          target.classList.contains("student-select")
+          || target.classList.contains("promote-stream")
+        ) {
+          this.updateStats();
+        }
       });
   },
 
@@ -60,7 +95,7 @@ const StudentPromotionController = {
 
   loadAcademicYears: async function () {
     try {
-      const resp = await window.API.students.getAllAcademicYears();
+      const resp = await window.API.academic.getAllAcademicYears();
       const years = this.unwrapPayload(resp) || [];
       const fromSelect = document.getElementById("fromYear");
       const toSelect = document.getElementById("toYear");
@@ -118,7 +153,8 @@ const StudentPromotionController = {
   },
 
   loadStudents: async function () {
-    const classId = document.getElementById("selectClass").value;
+    const classSelect = document.getElementById("selectClass");
+    const classId = classSelect?.value;
     if (!classId) {
       this.showError("Please select a class");
       return;
@@ -129,6 +165,7 @@ const StudentPromotionController = {
       const resp = await window.API.students.getByClass(classId);
       const payload = this.unwrapPayload(resp) || [];
       this.data.students = Array.isArray(payload) ? payload : payload.data || [];
+      this.data.selectedClassName = classSelect?.selectedOptions?.[0]?.textContent || "--";
       this.renderStudents();
     } catch (error) {
       console.error("Failed to load students", error);
@@ -165,13 +202,20 @@ const StudentPromotionController = {
         const fullName = `${student.first_name || ""} ${
           student.last_name || ""
         }`.trim();
+        const currentClassLabel = student.class_name
+          ? `${student.class_name} ${student.stream_name ? `- ${student.stream_name}` : ""}`
+          : (student.stream_name || "-");
+        const avgScore = student.year_average !== null && student.year_average !== undefined
+          ? Number(student.year_average).toFixed(2)
+          : "-";
+
         return `
           <tr data-student-id="${student.id}">
             <td><input type="checkbox" class="student-select" data-id="${student.id}"></td>
             <td>${student.admission_no || "-"}</td>
             <td>${fullName || "-"}</td>
-            <td>${student.stream_name || "-"}</td>
-            <td>-</td>
+            <td>${currentClassLabel}</td>
+            <td>${avgScore}</td>
             <td>
               <select class="form-select form-select-sm promote-stream">
                 <option value="">Select Target Stream</option>
@@ -179,14 +223,14 @@ const StudentPromotionController = {
               </select>
             </td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" onclick="StudentPromotionController.promoteSingle(${student.id})">
-                Promote
-              </button>
+              ${StudentPromotionController._canPromote ? `<button class="btn btn-sm btn-outline-primary" onclick="StudentPromotionController.promoteSingle(${student.id})">Promote</button>` : ''}
             </td>
           </tr>
         `;
       })
       .join("");
+
+    this.updateStats();
   },
 
   getSelectedStudentIds: function () {
@@ -251,6 +295,7 @@ const StudentPromotionController = {
     }
 
     await this.loadStudents();
+    this.updateStats();
   },
 
   promoteSingle: async function (studentId) {
@@ -279,6 +324,7 @@ const StudentPromotionController = {
       });
       this.showSuccess("Student promoted successfully");
       await this.loadStudents();
+      this.updateStats();
     } catch (error) {
       this.showError(error.message || "Failed to promote student");
     }
@@ -288,6 +334,7 @@ const StudentPromotionController = {
     document.querySelectorAll(".student-select").forEach((checkbox) => {
       checkbox.checked = true;
     });
+    this.updateStats();
     this.processPromotion();
   },
 
@@ -309,6 +356,24 @@ const StudentPromotionController = {
     });
 
     this.showSuccess("Selected students marked for retention");
+    this.updateStats();
+  },
+
+  updateStats: function () {
+    const total = this.data.students.length;
+    const selected = this.getSelectedStudentIds();
+    const retained = selected.filter((id) => this.data.retainedIds.has(id)).length;
+    const selectedToPromote = selected.filter((id) => !this.data.retainedIds.has(id)).length;
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(value);
+    };
+
+    setText("spStudentCount", total);
+    setText("spPromoteCount", selectedToPromote);
+    setText("spRetainCount", retained);
+    setText("spCurrentClass", this.data.selectedClassName || "--");
   },
 
   unwrapPayload: function (response) {

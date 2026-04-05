@@ -14,58 +14,14 @@
  *   - Detailed report table + Daily breakdown
  *   - Bulk mark attendance modal
  *   - Export CSV / Print
- *
- * Role-based permissions (PHP session):
- *   canMarkAttendance, canViewAll, canExport, canDelete
- *
  * API routes consumed:
- *   GET  /api/?route=attendance&action=staff-today
- *   GET  /api/?route=attendance&action=staff-report
- *   GET  /api/?route=attendance&action=duty-types
- *   POST /api/?route=attendance&action=mark-staff
- *   GET  /api/?route=staff&action=departments
+ *   GET  /api/attendance/staff-today
+ *   GET  /api/attendance/staff-report
+ *   GET  /api/attendance/duty-types
+ *   POST /api/attendance/mark-staff
+ *   GET  /api/staff/departments/get
  */
-
-// ── Role-based permissions ──────────────────────────────────
-$userId = $_SESSION['user_id'] ?? null;
-$userRole = $_SESSION['role'] ?? 'guest';
-
-$canMarkAttendance = in_array($userRole, [
-    'School Administrator',
-    'Headteacher',
-    'Deputy Headteacher',
-    'Human Resources Officer'
-]);
-$canViewAll = in_array($userRole, [
-    'School Administrator',
-    'Headteacher',
-    'Deputy Headteacher',
-    'Director/Owner',
-    'Human Resources Officer',
-    'Class Teacher'
-]);
-$canExport = in_array($userRole, [
-    'School Administrator',
-    'Headteacher',
-    'Deputy Headteacher',
-    'Director/Owner',
-    'Human Resources Officer'
-]);
-$canDelete = in_array($userRole, [
-    'School Administrator',
-    'Human Resources Officer'
-]);
 ?>
-
-<!-- ── Expose permissions to JS ─────────────────────────────── -->
-<script>
-    window.currentUserRole   = <?= json_encode($userRole) ?>;
-    window.currentUserId = <?= json_encode($userId) ?>;
-    window.canMarkAttendance = <?= json_encode($canMarkAttendance) ?>;
-    window.canViewAll = <?= json_encode($canViewAll) ?>;
-    window.canExport = <?= json_encode($canExport) ?>;
-    window.canDelete = <?= json_encode($canDelete) ?>;
-</script>
 
 <!-- =========================================================
      SCOPED STYLES
@@ -181,21 +137,25 @@ $canDelete = in_array($userRole, [
         <small class="opacity-75" id="todayDate">Loading date...</small>
     </div>
     <div class="btn-group">
-        <?php if ($canMarkAttendance): ?>
-            <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#markStaffModal">
-                <i class="bi bi-check2-square me-1"></i>Mark Today
-            </button>
-        <?php endif; ?>
-        <?php if ($canExport): ?>
-        <button class="btn btn-outline-light btn-sm" id="exportBtn">
+        <button class="btn btn-light btn-sm"
+                id="markTodayBtn"
+                data-bs-toggle="modal"
+                data-bs-target="#markStaffModal"
+                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
+            <i class="bi bi-check2-square me-1"></i>Mark Today
+        </button>
+        <button class="btn btn-outline-light btn-sm"
+                id="exportBtn"
+                data-permission="attendance_staff_export">
             <i class="bi bi-download me-1"></i>Export
         </button>
-        <button class="btn btn-outline-light btn-sm" id="printBtn">
+        <button class="btn btn-outline-light btn-sm"
+                id="printBtn"
+                data-permission="attendance_staff_print,attendance_staff_view,attendance_staff_view_all,attendance_staff_view_own">
             <i class="bi bi-printer me-1"></i>Print
         </button>
-        <?php endif; ?>
-        </div>
-        </div>
+    </div>
+</div>
         
         <!-- =========================================================
                      TODAY'S STAFF OVERVIEW
@@ -420,7 +380,8 @@ $canDelete = in_array($userRole, [
                     </div>
                     <div class="col-md-4">
                         <label class="form-label small fw-semibold">&nbsp;</label>
-                        <button class="btn btn-sa w-100" id="loadStaffForMarkingBtn">
+                        <button class="btn btn-sa w-100" id="loadStaffForMarkingBtn"
+                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                             <i class="bi bi-arrow-clockwise me-1"></i>Load Staff
                         </button>
                     </div>
@@ -429,10 +390,12 @@ $canDelete = in_array($userRole, [
                 <!-- Quick actions -->
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-success" id="markAllPresentBtn">
+                        <button class="btn btn-outline-success" id="markAllPresentBtn"
+                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                             <i class="bi bi-check-all me-1"></i>All Present
                         </button>
-                        <button class="btn btn-outline-danger" id="markAllAbsentBtn">
+                        <button class="btn btn-outline-danger" id="markAllAbsentBtn"
+                                data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                             <i class="bi bi-x-lg me-1"></i>All Absent
                         </button>
                     </div>
@@ -463,9 +426,65 @@ $canDelete = in_array($userRole, [
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-sa" id="submitStaffAttendanceBtn">
+                <button type="button" class="btn btn-sa" id="submitStaffAttendanceBtn"
+                        data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                     <i class="bi bi-check-circle me-1"></i>Submit Attendance
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="staffDetailsModal" tabindex="-1" aria-labelledby="staffDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header bg-light">
+                <div>
+                    <h5 class="modal-title" id="staffDetailsModalLabel">Staff Attendance Details</h5>
+                    <div class="text-muted small" id="staffDetailsMeta">Loading…</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="stat-mini">
+                            <div class="num text-success" id="staffDetailsPresent">0</div>
+                            <div class="lbl">Present</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-mini" style="background:#f8d7da;">
+                            <div class="num text-danger" id="staffDetailsAbsent">0</div>
+                            <div class="lbl">Absent</div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="stat-mini" style="background:#fff3cd;">
+                            <div class="num text-warning" id="staffDetailsRate">0%</div>
+                            <div class="lbl">Attendance Rate</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Check In</th>
+                                <th>Check Out</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="staffDetailsBody">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-3">Loading staff attendance history…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -475,4 +494,4 @@ $canDelete = in_array($userRole, [
      SCRIPTS
 ========================================================= -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="/Kingsway/js/pages/staff_attendance.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>js/pages/staff_attendance.js?v=<?= time() ?>"></script>

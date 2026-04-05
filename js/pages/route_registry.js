@@ -26,7 +26,7 @@ const RouteRegistryController = {
         try {
             // Check authentication
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
@@ -97,7 +97,7 @@ const RouteRegistryController = {
         try {
             this.showLoading();
             
-            const response = await API.system.getRoutes();
+            const response = await window.API.system.getRoutes();
             
             if (response.success) {
                 this.routes = response.data || [];
@@ -347,9 +347,9 @@ const RouteRegistryController = {
         try {
             let response;
             if (routeId) {
-                response = await API.system.updateRoute(routeId, data);
+                response = await window.API.system.updateRoute(routeId, data);
             } else {
-                response = await API.system.createRoute(data);
+                response = await window.API.system.createRoute(data);
             }
 
             if (response.success) {
@@ -374,7 +374,7 @@ const RouteRegistryController = {
     toggleStatus: async function(id, currentStatus) {
         try {
             const newStatus = currentStatus == 1 ? 0 : 1;
-            const response = await API.system.toggleRouteStatus(id, newStatus);
+            const response = await window.API.system.toggleRouteStatus(id, newStatus);
 
             if (response.success) {
                 this.showSuccess('Route status updated');
@@ -400,7 +400,7 @@ const RouteRegistryController = {
         }
 
         try {
-            const response = await API.system.deleteRoute(id);
+            const response = await window.API.system.deleteRoute(id);
 
             if (response.success) {
                 this.showSuccess('Route deleted successfully');

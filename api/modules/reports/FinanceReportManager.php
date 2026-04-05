@@ -22,7 +22,7 @@ class FinanceReportManager extends BaseAPI
         // Example: Sum payments per month
         $amountExpr = \App\API\Includes\sql_coalesce_existing_columns('payments', ['amount_paid', 'amount'], '0', 300, true);
         $sql = "SELECT YEAR(payment_date) as year, MONTH(payment_date) as month, SUM($amountExpr) as total_paid
-                FROM payments
+                FROM payment_transactions
                 WHERE status = 'confirmed'
                 GROUP BY year, month
                 ORDER BY year DESC, month DESC";

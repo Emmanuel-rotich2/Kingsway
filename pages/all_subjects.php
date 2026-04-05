@@ -178,4 +178,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/all_subjects.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/all_subjects.js?v=<?php echo time(); ?>"></script>

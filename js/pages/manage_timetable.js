@@ -11,16 +11,32 @@ const timetableController = (() => {
   let classes = [],
     teachers = [],
     subjects = [],
-    rooms = [];
+    rooms = [],
+    terms = [];
 
   async function init() {
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+    // Gate edit controls — only users with schedules_create can modify the timetable
+    const canEdit = typeof AuthContext !== "undefined" && AuthContext.hasPermission('schedules_create');
+    if (!canEdit) {
+      // Hide all create/edit/delete buttons and the edit mode toggle
+      ['editModeBtn', 'generateTimetableBtn', 'saveBtn'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('d-none');
+      });
+      // Also hide any button with onclick containing enterEditMode or generateTimetable
+      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"],[onclick*="saveCell"],[onclick*="removeCell"]').forEach((el) => el.classList.add('d-none'));
     }
     await Promise.all([loadFilters(), loadTimeSlots()]);
     bindEvents();
     await loadTimetable();
+    // After load, re-hide edit controls in case they are rendered dynamically
+    if (!canEdit) {
+      document.querySelectorAll('[onclick*="enterEditMode"],[onclick*="generateTimetable"]').forEach((el) => el.classList.add('d-none'));
+    }
   }
 
   async function loadTimeSlots() {
@@ -37,47 +53,24 @@ const timetableController = (() => {
           isBreak: s.slot_type !== "lesson",
         }));
       } else {
-        // Fallback time slots
-        timeSlots = [
-          { period: 1, start: "08:00", end: "08:40", type: "lesson", label: "Period 1", isBreak: false },
-          { period: 2, start: "08:40", end: "09:20", type: "lesson", label: "Period 2", isBreak: false },
-          { period: 3, start: "09:20", end: "10:00", type: "lesson", label: "Period 3", isBreak: false },
-          { period: 4, start: "10:00", end: "10:30", type: "break", label: "Morning Break", isBreak: true },
-          { period: 5, start: "10:30", end: "11:10", type: "lesson", label: "Period 4", isBreak: false },
-          { period: 6, start: "11:10", end: "11:50", type: "lesson", label: "Period 5", isBreak: false },
-          { period: 7, start: "11:50", end: "12:30", type: "lesson", label: "Period 6", isBreak: false },
-          { period: 8, start: "12:30", end: "13:30", type: "lunch", label: "Lunch Break", isBreak: true },
-          { period: 9, start: "13:30", end: "14:10", type: "lesson", label: "Period 7", isBreak: false },
-          { period: 10, start: "14:10", end: "14:50", type: "lesson", label: "Period 8", isBreak: false },
-          { period: 11, start: "14:50", end: "15:30", type: "games", label: "Games / Sports", isBreak: true },
-        ];
+        timeSlots = [];
       }
     } catch (e) {
-      console.warn("Could not load time slots from DB, using defaults:", e);
-      timeSlots = [
-        { period: 1, start: "08:00", end: "08:40", type: "lesson", label: "Period 1", isBreak: false },
-        { period: 2, start: "08:40", end: "09:20", type: "lesson", label: "Period 2", isBreak: false },
-        { period: 3, start: "09:20", end: "10:00", type: "lesson", label: "Period 3", isBreak: false },
-        { period: 4, start: "10:00", end: "10:30", type: "break", label: "Morning Break", isBreak: true },
-        { period: 5, start: "10:30", end: "11:10", type: "lesson", label: "Period 4", isBreak: false },
-        { period: 6, start: "11:10", end: "11:50", type: "lesson", label: "Period 5", isBreak: false },
-        { period: 7, start: "11:50", end: "12:30", type: "lesson", label: "Period 6", isBreak: false },
-        { period: 8, start: "12:30", end: "13:30", type: "lunch", label: "Lunch Break", isBreak: true },
-        { period: 9, start: "13:30", end: "14:10", type: "lesson", label: "Period 7", isBreak: false },
-        { period: 10, start: "14:10", end: "14:50", type: "lesson", label: "Period 8", isBreak: false },
-        { period: 11, start: "14:50", end: "15:30", type: "games", label: "Games / Sports", isBreak: true },
-      ];
+      console.warn("Could not load time slots from DB:", e);
+      timeSlots = [];
     }
   }
 
   async function loadFilters() {
     try {
-      const [clsRes, subRes] = await Promise.all([
+      const [clsRes, subRes, termsRes] = await Promise.all([
         API.academic.listClasses(),
         API.academic.listLearningAreas(),
+        API.academic.listTerms(),
       ]);
       classes = clsRes?.data || clsRes || [];
       subjects = subRes?.data || subRes || [];
+      terms = termsRes?.data || termsRes || [];
       const cf = document.getElementById("classFilter");
       if (cf) {
         classes.forEach((c) => {
@@ -85,6 +78,16 @@ const timetableController = (() => {
           o.value = c.id || c.class_id;
           o.textContent = c.class_name || c.name;
           cf.appendChild(o);
+        });
+      }
+      const gc = document.getElementById("generateClass");
+      if (gc) {
+        gc.innerHTML = '<option value="">All Classes</option>';
+        classes.forEach((c) => {
+          const o = document.createElement("option");
+          o.value = c.id || c.class_id;
+          o.textContent = c.class_name || c.name;
+          gc.appendChild(o);
         });
       }
       const sf = document.getElementById("subjectFilter");
@@ -96,10 +99,45 @@ const timetableController = (() => {
           sf.appendChild(o);
         });
       }
+      const gt = document.getElementById("generateTerm");
+      if (gt) {
+        gt.innerHTML = '<option value="">Current Term</option>';
+        terms.forEach((term) => {
+          const opt = document.createElement("option");
+          opt.value = term.id;
+          const termNumber = term.term_number ? `Term ${term.term_number}` : term.name;
+          const termYear = term.year || term.year_code || "";
+          opt.textContent = `${termNumber}${termYear ? ` (${termYear})` : ""}`;
+          gt.appendChild(opt);
+        });
+      }
       // Load teachers
       try {
-        const tRes = await API.academic.getTeachers();
-        teachers = tRes?.data || tRes || [];
+        const tRes = await API.apiCall(
+          "/staff/staff",
+          "GET",
+          null,
+          { limit: 500 },
+          { checkPermission: false },
+        );
+        const rawTeachers =
+          tRes?.staff ||
+          tRes?.data?.staff ||
+          tRes?.data ||
+          (Array.isArray(tRes) ? tRes : []);
+        teachers = rawTeachers.filter((teacher) => {
+          const role = String(teacher.role_name || "").toLowerCase();
+          const staffType = String(
+            teacher.staff_type || teacher.staff_type_name || "",
+          ).toLowerCase();
+          const position = String(teacher.position || "").toLowerCase();
+
+          return (
+            role.includes("teacher") ||
+            staffType.includes("teach") ||
+            position.includes("teacher")
+          );
+        });
         const tf = document.getElementById("teacherFilter");
         if (tf) {
           teachers.forEach((t) => {
@@ -142,10 +180,12 @@ const timetableController = (() => {
       const res = await API.schedules.getTimetable(params);
       timetableData = res?.data || res || [];
       renderTimetable();
+      await refreshStats();
     } catch (e) {
       console.error("Load timetable:", e);
       timetableData = [];
       renderTimetable();
+      await refreshStats();
     }
   }
 
@@ -178,6 +218,18 @@ const timetableController = (() => {
 
     const tbody = card.querySelector("tbody");
     if (!tbody) return;
+    if (!timeSlots.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">
+            <i class="bi bi-clock-history me-1"></i>
+            No active periods configured in <code>time_slots</code>. Create periods first, then add timetable entries.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
     let html = "";
     timeSlots.forEach((slot) => {
       if (slot.isBreak) {
@@ -216,7 +268,48 @@ const timetableController = (() => {
     tbody.innerHTML = html;
   }
 
+  async function refreshStats() {
+    const lessons = Array.isArray(timetableData) ? timetableData : [];
+    const teacherIds = new Set();
+    const roomIds = new Set();
+
+    lessons.forEach((entry) => {
+      if (entry.teacher_id) teacherIds.add(String(entry.teacher_id));
+      if (entry.room_id) roomIds.add(String(entry.room_id));
+    });
+
+    const setText = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(value);
+    };
+
+    setText("ttTotalLessons", lessons.length);
+    setText("ttTeachingStaff", teacherIds.size);
+    setText("ttRoomsUsed", roomIds.size);
+
+    try {
+      const conflictsRes = await API.schedules.checkTimetableConflicts();
+      const payload = conflictsRes?.data || conflictsRes || {};
+      const total = Number(payload.total || (payload.conflicts || []).length || 0);
+
+      setText("ttConflicts", total);
+      const badge = document.getElementById("pendingConflictsCount");
+      if (badge) {
+        badge.style.display = total > 0 ? "inline-flex" : "none";
+        const span = badge.querySelector("span");
+        if (span) span.textContent = String(total);
+      }
+    } catch (error) {
+      setText("ttConflicts", 0);
+    }
+  }
+
   function enterEditMode() {
+    const canEdit = typeof AuthContext !== "undefined" && AuthContext.hasPermission('schedules_create');
+    if (!canEdit) {
+      showNotification("You do not have permission to edit the timetable.", "danger");
+      return;
+    }
     editMode = !editMode;
     renderTimetable();
     const btn = document.querySelector('[onclick*="enterEditMode"]');
@@ -515,6 +608,45 @@ const timetableController = (() => {
     setTimeout(() => alert.remove(), 4000);
   }
 
+  async function generateTimetable() {
+    const classId = document.getElementById("generateClass")?.value || "";
+    const termId = document.getElementById("generateTerm")?.value || "";
+    const algorithm = document.getElementById("generateAlgorithm")?.value || "auto";
+
+    try {
+      await API.schedules.startSchedulingWorkflow({
+        reference_type: "timetable",
+        reference_id: classId ? Number(classId) : 0,
+        initial_data: {
+          term_id: termId ? Number(termId) : null,
+          algorithm,
+        },
+      });
+    } catch (error) {
+      // Workflow creation is optional; continue with guided mode.
+    }
+
+    if (classId) {
+      const classFilter = document.getElementById("classFilter");
+      if (classFilter) {
+        classFilter.value = classId;
+      }
+    }
+
+    const modalEl = document.getElementById("generateTimetableModal");
+    bootstrap.Modal.getInstance(modalEl)?.hide();
+
+    if (!editMode) {
+      enterEditMode();
+    }
+    await loadTimetable();
+
+    showNotification(
+      "Guided generation mode enabled. Click timetable cells to add lessons for the selected class/term.",
+      "success",
+    );
+  }
+
   return {
     init,
     loadTimetable,
@@ -529,6 +661,7 @@ const timetableController = (() => {
     checkConflicts,
     showTeacherWorkload,
     showRoomUtilization,
+    generateTimetable,
   };
 })();
 

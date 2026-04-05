@@ -102,7 +102,7 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
             <div class="card shadow-sm">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">Today's Schedule</h5>
-                    <a href="/Kingsway/home.php?route=manage_timetable" class="btn btn-sm btn-outline-primary">View Full</a>
+                    <a href="<?= $appBase ?>home.php?route=manage_timetable" class="btn btn-sm btn-outline-primary">View Full</a>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -127,7 +127,7 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
             <div class="card shadow-sm">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0">Student Assessment Status</h5>
-                    <a href="/Kingsway/home.php?route=manage_assessments" class="btn btn-sm btn-outline-success">View All</a>
+                    <a href="<?= $appBase ?>home.php?route=manage_assessments" class="btn btn-sm btn-outline-success">View All</a>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -157,7 +157,7 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
             <div class="card shadow-sm">
                 <div class="card-header bg-white d-flex justify-content-between align-items-center">
                     <h5 class="card-title mb-0"><i class="bi bi-people me-2"></i>Class Roster</h5>
-                    <a href="/Kingsway/home.php?route=manage_students" class="btn btn-sm btn-outline-primary">View All Students</a>
+                    <a href="<?= $appBase ?>home.php?route=manage_students" class="btn btn-sm btn-outline-primary">View All Students</a>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -185,7 +185,7 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
 </div>
 
 <!-- Dashboard JS Controller -->
-<script src="/Kingsway/js/dashboards/class_teacher_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/dashboards/class_teacher_dashboard.js?v=<?php echo time(); ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         console.log('👨‍🏫 Class Teacher Dashboard PHP loaded');

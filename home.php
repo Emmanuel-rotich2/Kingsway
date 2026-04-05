@@ -4,6 +4,11 @@
 
 require_once __DIR__ . '/config/DashboardRouter.php';
 
+// Auto-detect the application subfolder path so JS can build correct URLs.
+// Produces '' when deployed at domain root (production) and '/Kingsway' on localhost/XAMPP.
+$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($appBase === '.') $appBase = '';
+
 // Note: Authentication is handled via JWT token in localStorage
 // PHP session is NOT used to maintain stateless REST API architecture
 // This allows the application to work with round-robin load balancing
@@ -40,7 +45,36 @@ $roles = [$main_role];
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link rel="stylesheet" href="/Kingsway/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>/king.css">
+    <style>
+        #route-guard-loading {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(248, 249, 250, 0.92);
+            z-index: 2000;
+            padding: 1.5rem;
+        }
+
+        #route-guard-loading .route-guard-card {
+            width: min(420px, 100%);
+            border-radius: 18px;
+            background: #ffffff;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        html.route-guard-pending #route-guard-loading {
+            display: flex;
+        }
+
+        html.route-guard-pending #main-content-segment {
+            visibility: hidden;
+        }
+    </style>
     
     <!-- JavaScript Dependencies -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -48,11 +82,19 @@ $roles = [$main_role];
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <script>
+        // App base path — auto-detected by PHP, used by all JS for URL construction.
+        // Empty string when deployed at domain root (production), '/Kingsway' on localhost/XAMPP.
+        window.APP_BASE = <?php echo json_encode($appBase); ?>;
         // User data is managed by AuthContext in api.js (JWT-based, stateless)
         // AuthContext loads from localStorage on page load
         // No PHP session needed - this maintains stateless architecture
         window.USER_ROLES = <?php echo json_encode($roles); ?>;
         window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
+        window.REQUESTED_ROUTE = <?php echo json_encode($route); ?>;
+
+            if (window.REQUESTED_ROUTE && window.REQUESTED_ROUTE !== "loading") {
+                document.documentElement.classList.add("route-guard-pending");
+            }
     </script>
 </head>
 
@@ -67,20 +109,29 @@ $roles = [$main_role];
             </div>
         </div>
     </div>
+    <div id="route-guard-loading" aria-live="polite" aria-busy="true">
+        <div class="route-guard-card">
+            <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>
+            <div class="fw-semibold mb-1">Checking page access</div>
+            <div class="text-muted" data-route-guard-message>Loading page...</div>
+        </div>
+    </div>
 
     <!-- Application Scripts -->
-    <script src="/Kingsway/js/api.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/ActionButtons.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/RoleBasedUI.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/components/DataTable.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/sidebar.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/main.js?v=<?php echo time(); ?>"></script>
-    <script src="/Kingsway/js/index.js?v=<?php echo time(); ?>"></script>
+    <?php $v = time(); ?>
+    <script src="<?= $appBase ?>/js/api.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/ActionButtons.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/EnhancedRoleBasedUI.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/components/DataTable.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/sidebar.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/main.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/index.js?v=<?= $v ?>"></script>
 
     <?php include __DIR__ . '/layouts/app_layout.php'; ?>
     <script>
         // JWT-based authentication check (stateless)
-        document.addEventListener('DOMContentLoaded', function () {
+        document.addEventListener('DOMContentLoaded', async function () {
             // DEVELOPMENT BYPASS: If no token but we detect user info, redirect to login
             // This handles cases where user accessed page directly without JWT
             if (!AuthContext.isAuthenticated()) {
@@ -95,13 +146,14 @@ $roles = [$main_role];
                 }
                 
                 console.warn('Redirecting to login to obtain JWT token');
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
 
             // Get current route
             const urlParams = new URLSearchParams(window.location.search);
             const route = urlParams.get('route');
+            const routeAccess = window.AppRouteAccess;
 
             // Route is required - if missing, PHP already redirected
             if (route) {
@@ -109,59 +161,29 @@ $roles = [$main_role];
                 console.log(`Authenticated as: ${user.username}`);
                 console.log(`Current route: ${route}`);
 
-                // Server-validated sidebar/route guard: ensure current route is allowed
-                // Uses backend UsersAPI::getSidebarItems which filters by effective permissions
-                API.users.getSidebarItems(user.id)
-                    .then(items => {
-                        try {
-                            const allowed = new Set();
-                            const stack = Array.isArray(items) ? items.slice() : (items?.data || []);
-                            while (stack.length) {
-                                const it = stack.pop();
-                                if (it?.url) {
-                                    // Extract route from url like "home.php?route=manage_fee_structure"
-                                    const url = String(it.url);
-                                    const routeMatch = url.match(/[?&]route=([^&]*)/);
-                                    if (routeMatch) {
-                                        allowed.add(decodeURIComponent(routeMatch[1]));
-                                    } else {
-                                        allowed.add(url);
-                                    }
-                                }
-                                if (Array.isArray(it?.subitems)) {
-                                    for (const sub of it.subitems) stack.push(sub);
-                                }
+                if (route !== 'loading' && routeAccess && typeof routeAccess.authorizeRoute === 'function') {
+                    try {
+                        routeAccess.setPending(true, 'Checking page access...');
+                        const authorization = await routeAccess.authorizeRoute(route);
+
+                        if (!authorization.authorized) {
+                            console.warn('Route not permitted for current user. Redirecting.', authorization);
+                            showNotification('You are not allowed to open that page.', NOTIFICATION_TYPES.WARNING);
+                            const redirected = await routeAccess.redirectToAllowedRoute(route);
+                            if (!redirected) {
+                                routeAccess.revealProtectedContent();
                             }
-                            // Also allow the user's assigned dashboard route
-                            const dashboardInfo = AuthContext.getDashboardInfo();
-                            if (dashboardInfo?.key) {
-                                allowed.add(dashboardInfo.key);
-                            }
-                            if (route && !allowed.has(route)) {
-                                console.warn('Route not permitted by server-filtered sidebar. Redirecting.');
-                                // Choose first allowed route that is non-empty; fall back to dashboard or 'home'
-                                const firstCandidate = [...allowed].find(r => !!r && r.length > 0);
-                                const first = firstCandidate || (dashboardInfo?.key) || 'home';
-                                // Avoid redirecting to the same route or to an empty route to prevent loop
-                                if (first && first !== route) {
-                                    // window.location.replace(`/Kingsway/home.php?route=${first}`);
-                                    console.warn('Redirect disabled for debugging');
-                                } else {
-                                    console.warn('No valid redirect route found; staying on current page to avoid redirect loop.');
-                                }
-                            }
-                        } catch (e) {
-                            console.warn('Sidebar route guard failed:', e);
+                            return;
                         }
-                    })
-                    .catch(err => {
-                        console.warn('Failed to fetch sidebar items for guard:', err);
-                    });
+                    } catch (e) {
+                        console.warn('Route authorization guard failed:', e);
+                    }
+                }
             } else {
                 // This shouldn't happen because PHP redirects, but handle it anyway
                 const dashboardInfo = AuthContext.getDashboardInfo();
                 if (dashboardInfo && dashboardInfo.key) {
-                    window.location.href = '/Kingsway/home.php?route=' + dashboardInfo.key;
+                    window.location.href = (window.APP_BASE || '') + '/home.php?route=' + dashboardInfo.key;
                 } else {
                     // Fallback: use role to determine dashboard
                     const user = AuthContext.getUser();
@@ -170,6 +192,12 @@ $roles = [$main_role];
                     console.log('No dashboard info, using role:', role);
                     // Let the page load and show a default view
                 }
+            }
+
+            if (routeAccess && typeof routeAccess.revealProtectedContent === 'function') {
+                routeAccess.revealProtectedContent();
+            } else {
+                document.documentElement.classList.remove('route-guard-pending');
             }
 
             console.log('Authenticated as:', AuthContext.getUser().username);

@@ -16,7 +16,7 @@ const studentsManagementController = {
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     await this.loadInitialData();
@@ -516,7 +516,7 @@ const studentsManagementController = {
 
     // Reset photo preview
     document.getElementById("studentPhotoPreview").src =
-      "/Kingsway/images/default-avatar.png";
+      (window.APP_BASE || "") + "/images/default-avatar.png";
   },
 
   populateForm: function (student) {
@@ -755,6 +755,7 @@ const studentsManagementController = {
       ]);
 
       const student = this.unwrapPayload(studentResp.value) || {};
+      content.dataset.studentId = (student.id || student.student_id || '').toString();
       const parents = this.unwrapPayload(parentsResp.value) || [];
       const fees = this.unwrapPayload(feesResp.value) || {};
       const attendance = this.unwrapPayload(attendanceResp.value) || {};
@@ -771,9 +772,9 @@ const studentsManagementController = {
       content.innerHTML = `
         <div class="row mb-3">
           <div class="col-md-2 text-center">
-            <img src="${student.photo_url || "/Kingsway/images/default-avatar.png"}"
+            <img src="${student.photo_url || (window.APP_BASE || "") + "/images/default-avatar.png"}"
                  class="img-thumbnail rounded-circle" width="100" height="100" style="object-fit:cover;"
-                 onerror="this.src='/Kingsway/images/default-avatar.png'">
+                 onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
             <h6 class="mt-2 mb-0">${student.first_name || ""} ${student.middle_name || ""} ${student.last_name || ""}</h6>
             <small class="text-muted">${student.admission_no || ""}</small><br>
             <span class="badge bg-${student.status === "active" ? "success" : student.status === "suspended" ? "danger" : "secondary"} mt-1">

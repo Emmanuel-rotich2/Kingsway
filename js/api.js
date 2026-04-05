@@ -2,6 +2,8 @@
 if (typeof API_BASE_URL === 'undefined') {
     var API_BASE_URL = (window.APP_BASE || '') + '/api';
 }
+  
+ 
 
 // Token refresh tracking to prevent duplicate refresh requests
 if (typeof isRefreshingToken === "undefined") {
@@ -473,13 +475,59 @@ const ENDPOINT_PERMISSIONS = {
   "/students/student": {
     GET: "students_view",
     POST: "students_create",
-    PUT: "students_update",
+    PUT: "students_edit",
     DELETE: "students_delete",
   },
   "/students/bulk-create": "students_create",
-  "/students/bulk-update": "students_update",
+  "/students/bulk-update": "students_edit",
   "/students/bulk-delete": "students_delete",
-  "/students/bulk-promote": "students_update",
+  "/students/bulk-promote": "students_edit",
+  "/students/photo-upload": "students_edit",
+  "/students/profile-get": "students_view",
+  "/students/attendance-get": "students_view",
+  "/students/performance-get": "students_view",
+  "/students/fees-get": "fees_view",
+  "/students/qr-info-get": "students_view",
+  "/students/statistics-get": "students_view",
+  "/students/by-class-get": "students_view",
+  "/students/by-stream-get": "students_view",
+  "/students/roster-get": "students_view",
+  "/students/discipline-get": "students_view",
+  "/students/discipline-record": "students_discipline_create",
+  "/students/discipline-update": "students_discipline_edit",
+  "/students/discipline-resolve": "students_discipline_approve",
+  "/students/qr-code-generate": "students_qr_generate",
+  "/students/qr-code-generate-enhanced": "students_qr_generate",
+  "/students/id-card-generate": "students_qr_generate",
+  "/students/id-card-generate-class": "students_qr_generate",
+  "/students/id-card-get": "students_view",
+  "/students/id-card-statistics-get": "students_view",
+  "/students/transfer-verify-eligibility": "students_edit",
+  "/students/transfer-approve": "students_edit",
+  "/students/transfer-execute": "students_edit",
+  "/students/transfer-workflow-status": "students_view",
+  "/students/transfer-history": "students_view",
+  "/students/transfer-start-workflow": "students_edit",
+  "/students/promotion-single": "students_promote",
+  "/students/promotion-multiple": "students_promote",
+  "/students/promotion-entire-class": "students_promote",
+  "/students/promotion-multiple-classes": "students_promote",
+  "/students/promotion-graduate-grade9": "students_promote",
+  "/students/promotion-batches": "students_view",
+  "/students/promotion-history": "students_view",
+  "/students/enrollment-history": "students_view",
+  "/students/alumni-get": "students_view",
+  "/students/enrollment-current": "students_view",
+  "/students/academic-year-current": "students_view",
+  "/students/academic-year-get": "students_view",
+  "/students/academic-year-all": "students_view",
+  "/students/academic-year-terms": "students_view",
+  "/students/academic-year-current-term": "students_view",
+  "/students/academic-year-create": "students_promote",
+  "/students/academic-year-create-next": "students_promote",
+  "/students/academic-year-set-current": "students_promote",
+  "/students/academic-year-update-status": "students_promote",
+  "/students/academic-year-archive": "students_promote",
 
   // Academic
   "/academic/index": "academic_view",
@@ -541,10 +589,22 @@ const ENDPOINT_PERMISSIONS = {
 
   // Admission
   "/admission/index": "admission_view",
+  "/admission/queues": "admission_view",
+  "/admission/stats": "admission_view",
+  "/admission/notifications": "admission_view",
+  "/admission/placement-classes": "admission_view",
+  "/admission/submit-application": "admission_applications_create",
+  "/admission/upload-document": "admission_documents_upload",
+  "/admission/verify-document": "admission_documents_verify",
+  "/admission/schedule-interview": "admission_interviews_schedule",
+  "/admission/record-interview-results": "admission_interviews_create",
+  "/admission/generate-placement-offer": "admission_applications_generate",
+  "/admission/record-fee-payment": "admission_applications_edit",
+  "/admission/complete-enrollment": "admission_applications_approve_final",
   "/admission/application": {
     GET: "admission_view",
-    POST: "admission_create",
-    PUT: "admission_update",
+    POST: "admission_applications_create",
+    PUT: "admission_applications_edit",
   },
 
   // Communications
@@ -597,8 +657,23 @@ function getRequiredPermission(endpoint, method = "GET") {
   // Normalize endpoint (remove leading slash, remove query strings)
   const normalizedEndpoint = "/" + endpoint.replace(/^\/+/, "").split("?")[0];
 
-  // Check direct endpoint match
-  const requirement = ENDPOINT_PERMISSIONS[normalizedEndpoint];
+  // Check direct endpoint match first.
+  let requirement = ENDPOINT_PERMISSIONS[normalizedEndpoint];
+
+  // Fallback for endpoints with path params, e.g. /students/student/123.
+  if (!requirement) {
+    const fallbackKey = Object.keys(ENDPOINT_PERMISSIONS)
+      .filter(
+        (key) =>
+          normalizedEndpoint === key ||
+          normalizedEndpoint.startsWith(key + "/")
+      )
+      .sort((a, b) => b.length - a.length)[0];
+
+    if (fallbackKey) {
+      requirement = ENDPOINT_PERMISSIONS[fallbackKey];
+    }
+  }
 
   if (!requirement) {
     // No specific permission defined for this endpoint
@@ -619,6 +694,12 @@ function getRequiredPermission(endpoint, method = "GET") {
   return null;
 }
 
+function hasAdmissionsRouteAccessFallback() {
+  // Admission API fallback should only trust a prior API-backed route check,
+  // never local sidebar data.
+  return Boolean(window.__admissionsRouteAuthorized);
+}
+
 /**
  * Validate user has required permission before making API call
  * Throws error if user lacks permission
@@ -627,6 +708,8 @@ function getRequiredPermission(endpoint, method = "GET") {
  * @throws {Error} If user is not authenticated or lacks permission
  */
 function validatePermission(endpoint, method) {
+  const normalizedEndpoint = "/" + String(endpoint || "").replace(/^\/+/, "").split("?")[0];
+
   // Skip permission check if user is not authenticated (will fail at backend)
   if (!AuthContext.isAuthenticated()) {
     console.warn("API call attempted without authentication");
@@ -640,8 +723,38 @@ function validatePermission(endpoint, method) {
     return;
   }
 
-  // Check if user has the required permission
-  if (!AuthContext.hasPermission(requiredPermission)) {
+  // Check exact permission and common edit/update aliases for backward compatibility.
+  const aliases = new Set([requiredPermission]);
+  if (requiredPermission.endsWith("_edit")) {
+    aliases.add(requiredPermission.replace(/_edit$/, "_update"));
+  }
+  if (requiredPermission.endsWith("_update")) {
+    aliases.add(requiredPermission.replace(/_update$/, "_edit"));
+  }
+  if (requiredPermission.endsWith(".edit")) {
+    aliases.add(requiredPermission.replace(/\.edit$/, ".update"));
+  }
+  if (requiredPermission.endsWith(".update")) {
+    aliases.add(requiredPermission.replace(/\.update$/, ".edit"));
+  }
+
+  const hasPermission = [...aliases].some((permissionCode) =>
+    AuthContext.hasPermission(permissionCode)
+  );
+
+  if (!hasPermission) {
+    const isAdmissionEndpoint =
+      normalizedEndpoint.startsWith("/admission/") ||
+      normalizedEndpoint.startsWith("/admissions/");
+
+    // Admission workflows also allow route-based/stage-based access in backend.
+    // Avoid false client-side denials and defer fine-grained authorization to API.
+    if (isAdmissionEndpoint && hasAdmissionsRouteAccessFallback()) {
+      return;
+    }
+  }
+
+  if (!hasPermission) {
     const error = new Error(
       `Access Denied: You do not have permission "${requiredPermission}" to ${method} ${endpoint}`
     );
@@ -692,19 +805,24 @@ async function refreshAccessToken() {
 
       console.log("Attempting to refresh access token...");
 
-      // Call refresh endpoint without checking permissions (to avoid recursion)
+      // Prefer the HttpOnly refresh cookie set at login; keep the body token as
+      // a backward-compatible fallback for older sessions.
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin
       );
       const response = await fetch(url, {
         method: "POST",
-        credentials: "omit",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer " + localStorage.getItem("token"),
+          ...(localStorage.getItem("token")
+            ? { Authorization: "Bearer " + localStorage.getItem("token") }
+            : {}),
         },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        body: JSON.stringify(
+          refreshToken ? { refresh_token: refreshToken } : {}
+        ),
       });
 
       if (!response.ok) {
@@ -807,7 +925,7 @@ async function apiCall(
         "⚠️ No JWT token found in localStorage - API call will fail with 401"
       );
       console.warn(
-        "Please log in through /Kingsway/index.php to obtain a JWT token"
+        "Please log in through " + (window.APP_BASE || '') + "/index.php to obtain a JWT token"
       );
     } else {
       console.log("✓ Token found, length:", token.length);
@@ -978,10 +1096,10 @@ window.API = {
         let redirectUrl;
         if (dashboardInfo && dashboardInfo.key) {
           // Use the normalized key (route name)
-          redirectUrl = "/Kingsway/home.php?route=" + dashboardInfo.key;
+          redirectUrl = (window.APP_BASE || '') + "/home.php?route=" + dashboardInfo.key;
         } else {
           // Fallback to home page which will redirect to appropriate dashboard
-          redirectUrl = "/Kingsway/home.php";
+          redirectUrl = (window.APP_BASE || '') + "/home.php";
         }
 
         console.log("Redirecting to:", redirectUrl);
@@ -991,19 +1109,20 @@ window.API = {
     },
     logout: async () => {
       try {
-        // Revoke the refresh token on the server
+        // Revoke the refresh token on the server. Cookie-backed sessions still
+        // work even when nothing was stored in localStorage.
         const refreshToken = localStorage.getItem("refresh_token");
-        if (refreshToken) {
-          await apiCall(
-            "/auth/logout",
-            "POST",
-            { refresh_token: refreshToken },
-            {},
-            {
-              isRefreshAttempt: true, // Skip token refresh on logout
-            },
-          );
-        }
+        await apiCall(
+          "/auth/logout-refresh",
+          "POST",
+          refreshToken ? { refresh_token: refreshToken } : {},
+          {},
+          {
+            checkPermission: false,
+            isRefreshAttempt: true,
+            credentials: "include",
+          },
+        );
       } catch (error) {
         console.warn("Error revoking refresh token on server:", error);
         // Continue with logout even if revoke fails
@@ -1011,7 +1130,7 @@ window.API = {
         // Clear local storage
         AuthContext.clearUser();
         // Redirect to login
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || '') + "/index.php";
       }
     },
     forgotPassword: async (email) =>
@@ -1020,15 +1139,14 @@ window.API = {
       apiCall("/auth/reset-password", "POST", { token, password }),
     refreshToken: async () => {
       const refreshToken = localStorage.getItem("refresh_token");
-      if (!refreshToken) {
-        throw new Error("No refresh token available");
-      }
       const response = await apiCall(
         "/auth/refresh-token",
         "POST",
-        { refresh_token: refreshToken },
+        refreshToken ? { refresh_token: refreshToken } : {},
         {},
         {
+          checkPermission: false,
+          credentials: "include",
           isRefreshAttempt: true, // Skip token refresh check to avoid recursion
         },
       );
@@ -1230,18 +1348,13 @@ window.API = {
     update: async (id, data) => apiCall(`/students/student/${id}`, "PUT", data),
     delete: async (id) => apiCall(`/students/student/${id}`, "DELETE"),
 
-    // Media
-    uploadMedia: async (formData) =>
-      apiCall("/students/media-upload", "POST", formData, {}, { isFile: true }),
-    getMedia: async (id) => apiCall(`/students/media?student_id=${id}`, "GET"),
-    deleteMedia: async (mediaId) =>
-      apiCall("/students/media-delete", "POST", { media_id: mediaId }),
-
     // Profile & Info
     getProfile: async (id = null) =>
       id
         ? apiCall(`/students/profile-get/${id}`, "GET")
         : apiCall("/students/profile-get", "GET"),
+    getMyProfile: async () => apiCall("/students/my-profile", "GET"),
+    getMyChildren: async () => apiCall("/students/my-children", "GET"),
     getAttendance: async (id = null) =>
       id
         ? apiCall(`/students/attendance-get/${id}`, "GET")
@@ -1303,39 +1416,14 @@ window.API = {
       apiCall("/students/id-card-generate-class", "POST", {
         class_id: classId,
       }),
+    getIdCard: async (studentId) =>
+      apiCall(`/students/id-card-get/${studentId}`, "GET"),
+    getIdCardStatistics: async (params = {}) =>
+      apiCall("/students/id-card-statistics-get", "GET", null, params),
 
     // Photo
     uploadPhoto: async (formData) =>
       apiCall("/students/photo-upload", "POST", formData, {}, { isFile: true }),
-
-    // Admission workflow
-    startAdmissionWorkflow: async (data) =>
-      apiCall("/students/admission-start-workflow", "POST", data),
-    verifyDocuments: async (studentId, data) =>
-      apiCall("/students/admission-verify-documents", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    conductInterview: async (studentId, data) =>
-      apiCall("/students/admission-conduct-interview", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    approveAdmission: async (studentId, data) =>
-      apiCall("/students/admission-approve", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    completeRegistration: async (studentId, data) =>
-      apiCall("/students/admission-complete-registration", "POST", {
-        student_id: studentId,
-        ...data,
-      }),
-    getAdmissionWorkflowStatus: async (studentId) =>
-      apiCall(
-        `/students/admission-workflow-status?student_id=${studentId}`,
-        "GET",
-      ),
 
     // Transfer workflow
     startTransferWorkflow: async (data) =>
@@ -1840,6 +1928,10 @@ window.API = {
         : apiCall("/academic/scheme-of-work-get", "GET"),
 
     // Teachers
+    listTeachers: async (params = {}) =>
+      apiCall("/academic/teachers-list", "GET", null, params),
+    getTeachers: async (params = {}) =>
+      apiCall("/academic/teachers-list", "GET", null, params),
     getTeacherClasses: async (teacherId) =>
       apiCall(`/academic/teachers-classes?teacher_id=${teacherId}`, "GET"),
     getTeacherSubjects: async (teacherId) =>
@@ -1864,6 +1956,37 @@ window.API = {
   // Attendance endpoints
   attendance: {
     index: async () => apiCall("/attendance/index", "GET"),
+    getSessions: async (params = {}) =>
+      apiCall("/attendance/sessions", "GET", null, params),
+    getAcademicSummary: async (params = {}) =>
+      apiCall("/attendance/academic-summary", "GET", null, params),
+    getDailyRegister: async (params = {}) =>
+      apiCall("/attendance/daily-register", "GET", null, params),
+    getBoardingSummary: async (params = {}) =>
+      apiCall("/attendance/boarding-summary", "GET", null, params),
+    getDormitories: async (params = {}) =>
+      apiCall("/attendance/dormitories", "GET", null, params),
+    getDormitoryStudents: async (params = {}) =>
+      apiCall("/attendance/dormitory-students", "GET", null, params),
+    markBoarding: async (data) =>
+      apiCall("/attendance/mark-boarding", "POST", data),
+    isSchoolDay: async (params = {}) =>
+      apiCall("/attendance/is-school-day", "GET", null, params),
+    getPermissions: async (params = {}) =>
+      apiCall("/attendance/permissions", "GET", null, params),
+    getPermissionTypes: async (params = {}) =>
+      apiCall("/attendance/permission-types", "GET", null, params),
+    createPermission: async (data) =>
+      apiCall("/attendance/permissions", "POST", data),
+    updatePermission: async (id, data) =>
+      apiCall(`/attendance/permissions/${id}`, "PUT", data),
+    getStaffToday: async (params = {}) =>
+      apiCall("/attendance/staff-today", "GET", null, params),
+    markStaff: async (data) => apiCall("/attendance/mark-staff", "POST", data),
+    getDutyTypes: async (params = {}) =>
+      apiCall("/attendance/duty-types", "GET", null, params),
+    getStaffReport: async (params = {}) =>
+      apiCall("/attendance/staff-report", "GET", null, params),
 
     // Student attendance
     getStudentHistory: async (studentId, params) =>
@@ -2062,6 +2185,8 @@ window.API = {
     getStats: async () => apiCall("/admission/stats", "GET"),
     // Get role-based notifications for dashboards
     getNotifications: async () => apiCall("/admission/notifications", "GET"),
+    // Get classes for placement offer assignment
+    getPlacementClasses: async () => apiCall("/admission/placement-classes", "GET"),
     // Workflow stage methods
     submitApplication: async (data) =>
       apiCall("/admission/submit-application", "POST", data),
@@ -2323,6 +2448,15 @@ window.API = {
       apiCall("/finance/department-budgets-summary", "GET", null, {
         department_id: departmentId,
       }),
+    // Aliases used by budget_overview.js
+    getDepartmentBudgetsSummary: async (params) =>
+      apiCall("/finance/department-budgets-summary", "GET", null, params),
+    getDepartmentBudgetsProposals: async (params) =>
+      apiCall("/finance/department-budgets-proposals", "GET", null, params),
+    proposeDepartmentBudget: async (data) =>
+      apiCall("/finance/department-budgets-propose", "POST", data),
+    approveDepartmentBudget: async (data) =>
+      apiCall("/finance/department-budgets-approve", "POST", data),
 
     // Payrolls
     listPayrolls: async (params) =>
@@ -3676,6 +3810,51 @@ window.API = {
   },
 
   // School Config endpoints (match SchoolConfigController)
+  systemconfig: {
+    authorizeRoute: async (route, options = {}) => {
+      let normalizedRoute = String(route || "").trim();
+      if (normalizedRoute.includes("route=")) {
+        try {
+          const parsedUrl = new URL(
+            normalizedRoute,
+            window.location?.origin || "http://localhost"
+          );
+          const routeParam = parsedUrl.searchParams.get("route");
+          if (routeParam) {
+            normalizedRoute = routeParam.trim();
+          }
+        } catch (error) {
+          const queryString = normalizedRoute.split("?")[1] || "";
+          const params = new URLSearchParams(queryString);
+          const routeParam = params.get("route");
+          if (routeParam) {
+            normalizedRoute = routeParam.trim();
+          }
+        }
+      }
+
+      const payload = {
+        route: normalizedRoute,
+      };
+
+      if (options.userId) {
+        payload.user_id = options.userId;
+      }
+
+      if (Array.isArray(options.roleIds) && options.roleIds.length > 0) {
+        payload.role_ids = options.roleIds;
+      } else if (options.roleId) {
+        payload.role_id = options.roleId;
+      }
+
+      const response = await apiCall("/systemconfig/authorize", "POST", payload, {}, {
+        checkPermission: false,
+      });
+      return response?.data ?? response;
+    },
+  },
+
+  // School Config endpoints (match SchoolConfigController)
   schoolconfig: {
     index: async () => apiCall("/school-config/index", "GET"),
 
@@ -3710,22 +3889,6 @@ window.API = {
     getConfig: async (params) =>
       apiCall("/maintenance/config", "GET", null, params),
     updateConfig: async (data) => apiCall("/maintenance/config", "POST", data),
-  },
-
-  // Legacy endpoints (for backward compatibility)
-  admissions: {
-    list: async (params = {}) =>
-      apiCall("/students/admission-workflow-status", "GET", null, params),
-    get: async (id) =>
-      apiCall(`/students/admission-workflow-status?student_id=${id}`, "GET"),
-    create: async (data, files = {}) =>
-      apiCall("/students/admission-start-workflow", "POST", data),
-    approve: async (id, data) =>
-      apiCall("/students/admission-approve", "POST", {
-        student_id: id,
-        ...data,
-      }),
-    getStats: async () => apiCall("/reports/admission-stats", "GET"),
   },
 
   sms: {

@@ -21,11 +21,14 @@ const AdmissionsController = {
   // State management
   state: {
     currentTab: "documents_pending",
+    requestedTab: null,
     queues: {},
     summary: {},
+    allowedTabs: {},
     selectedApplication: null,
     userRole: null,
     isLoading: false,
+    isInitialized: false,
     referenceData: {
       parents: [],
       academicYears: [],
@@ -38,71 +41,142 @@ const AdmissionsController = {
       label: "Documents",
       icon: "bi-file-earmark-text",
       color: "warning",
-      roles: [
-        "system_administrator",
-        "director",
-        "headteacher",
-        "deputy_head_academic",
-        "deputy_head_discipline",
-        "school_administrator",
+      permissions: [
+        "admission_documents_verify",
+        "admission_documents_approve",
+        "admission_documents_validate",
+        "admission_applications_verify",
       ],
     },
     interview_pending: {
       label: "Interview",
       icon: "bi-calendar-event",
       color: "info",
-      roles: [
-        "system_administrator",
-        "headteacher",
-        "deputy_head_academic",
-        "deputy_head_discipline",
-        "school_administrator",
+      permissions: [
+        "admission_interviews_schedule",
+        "admission_interviews_create",
+        "admission_interviews_edit",
+        "admission_applications_schedule",
       ],
     },
     placement_pending: {
       label: "Placement",
       icon: "bi-check-circle",
       color: "primary",
-      roles: [
-        "system_administrator",
-        "director",
-        "headteacher",
-        "school_administrator",
+      permissions: [
+        "admission_applications_generate",
+        "admission_applications_approve",
+        "admission_applications_assign",
       ],
     },
     payment_pending: {
       label: "Payment",
       icon: "bi-cash-stack",
       color: "success",
-      roles: ["system_administrator", "accountant", "bursar", "director"],
+      permissions: [
+        "admission_applications_approve",
+        "admission_applications_validate",
+        "admission_applications_edit",
+      ],
     },
     enrollment_pending: {
       label: "Enrollment",
       icon: "bi-person-check",
       color: "dark",
-      roles: ["system_administrator", "headteacher", "school_administrator"],
+      permissions: [
+        "admission_applications_approve_final",
+        "admission_applications_approve",
+        "admission_applications_validate",
+      ],
     },
   },
 
-  // Grades that skip interview (ECD and transitional grades)
+  // Grades that skip interview — must match DB enum values exactly.
+  // Playground = ECD/pre-school level. Grade7-9 = direct entry / CBC transition.
   noInterviewGrades: [
-    "ECD",
+    "Playground", // DB enum value for ECD/pre-school
+    "ECD",        // legacy alias kept for compatibility
     "PP1",
     "PP2",
-    "Grade 1",
     "Grade1",
-    "Grade 7",
+    "Grade 1",    // space variant
     "Grade7",
+    "Grade 7",    // space variant
+    "Grade8",
+    "Grade 8",
+    "Grade9",
+    "Grade 9",
   ],
+
+  transferDocumentGrades: [
+    "Grade2",
+    "Grade 2",
+    "Grade3",
+    "Grade 3",
+    "Grade4",
+    "Grade 4",
+    "Grade5",
+    "Grade 5",
+    "Grade6",
+    "Grade 6",
+  ],
+
+  actionPermissions: {
+    "upload-documents": [
+      "admission_documents_upload",
+      "admission_documents_create",
+      "admission_applications_upload",
+    ],
+    "verify-documents": [
+      "admission_documents_verify",
+      "admission_documents_approve",
+      "admission_documents_validate",
+      "admission_applications_verify",
+    ],
+    "schedule-interview": [
+      "admission_interviews_schedule",
+      "admission_applications_schedule",
+    ],
+    "record-interview": [
+      "admission_interviews_create",
+      "admission_interviews_edit",
+      "admission_interviews_approve",
+      "admission_interviews_verify",
+    ],
+    "generate-placement": [
+      "admission_applications_generate",
+      "admission_applications_approve",
+      "admission_applications_assign",
+    ],
+    "record-payment": [
+      "admission_applications_approve",
+      "admission_applications_validate",
+      "admission_applications_edit",
+    ],
+    "complete-enrollment": [
+      "admission_applications_approve_final",
+      "admission_applications_approve",
+      "admission_applications_validate",
+    ],
+    "new-application": [
+      "admission_applications_create",
+      "admission_applications_submit",
+    ],
+  },
 
   /**
    * Initialize the controller
    */
   async init() {
+    if (this.state.isInitialized) {
+      return;
+    }
+
     console.log("[AdmissionsController] Initializing...");
 
     // Get user role from session
     this.state.userRole = this.resolveUserRole();
+    this.state.requestedTab = this.resolveRequestedTab();
 
     // Setup event listeners
     this.setupEventListeners();
@@ -117,6 +191,8 @@ const AdmissionsController = {
     this.renderTabs();
     this.switchTab(this.getDefaultTab());
 
+    this.state.isInitialized = true;
+
     console.log("[AdmissionsController] Initialized");
   },
 
@@ -129,69 +205,121 @@ const AdmissionsController = {
       .replace(/[\s/]+/g, "_");
   },
 
-  canViewParentContact() {
-    const permissionCandidates = [
-      "admissions_view",
-      "admissions_create",
-      "communications_view",
-      "parents_view",
-      "fees_view",
-      "finance_view",
-    ];
+  resolveRequestedTab() {
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      const tab = (params.get("tab") || "").trim();
+      return Object.prototype.hasOwnProperty.call(this.stages, tab) ? tab : null;
+    } catch (error) {
+      return null;
+    }
+  },
 
+  hasAnyPermission(permissionCandidates = []) {
     if (window.RoleBasedUI?.hasAnyPermission) {
-      if (window.RoleBasedUI.hasAnyPermission(permissionCandidates)) {
-        return true;
-      }
+      return window.RoleBasedUI.hasAnyPermission(permissionCandidates);
+    }
+    if (window.AuthContext?.hasAnyPermission) {
+      return window.AuthContext.hasAnyPermission(permissionCandidates);
+    }
+    return false;
+  },
+
+  canAccessStage(tabKey) {
+    if (Object.prototype.hasOwnProperty.call(this.state.allowedTabs, tabKey)) {
+      return Boolean(this.state.allowedTabs[tabKey]);
     }
 
-    return [
-      "headteacher",
-      "school_administrator",
-      "deputy_head_academic",
-      "deputy_head_discipline",
-      "registrar",
-      "director",
-      "accountant",
-      "bursar",
-      "system_administrator",
-    ].includes(this.state.userRole);
+    const stage = this.stages[tabKey];
+    if (!stage?.permissions?.length) return false;
+
+    if (this.hasAnyPermission(stage.permissions)) {
+      return true;
+    }
+
+    return this.hasAdmissionsViewAccess();
+  },
+
+  hasAdmissionsViewAccess() {
+    if (
+      this.hasAnyPermission([
+        "admission_view",
+        "admission_applications_view_all",
+        "admission_applications_view_own",
+        "admission_applications_view",
+      ])
+    ) {
+      return true;
+    }
+
+    return Boolean(window.__admissionsRouteAuthorized);
+  },
+
+  canViewParentContact() {
+    const permissionCandidates = [
+      "admission_applications_view_all",
+      "admission_applications_view_own",
+      "admission_applications_view",
+      "admission_documents_view_all",
+      "admission_documents_view_own",
+      "admission_documents_view",
+    ];
+
+    return this.hasAnyPermission(permissionCandidates);
   },
 
   canViewApplicantSensitive() {
-    const permissionCandidates = ["admissions_view", "students_view_sensitive"];
+    const permissionCandidates = [
+      "admission_applications_view_all",
+      "admission_applications_view_own",
+      "admission_applications_view",
+      "students_view_sensitive",
+    ];
 
-    if (window.RoleBasedUI?.hasAnyPermission) {
-      if (window.RoleBasedUI.hasAnyPermission(permissionCandidates)) {
-        return true;
-      }
+    return this.hasAnyPermission(permissionCandidates);
+  },
+
+  canPerformAction(action) {
+    if (action === "view" || action === "refresh") {
+      return this.hasAdmissionsViewAccess();
     }
 
-    return [
-      "headteacher",
-      "school_administrator",
-      "deputy_head_academic",
-      "deputy_head_discipline",
-      "registrar",
-      "director",
-      "system_administrator",
-    ].includes(this.state.userRole);
+    const permissionCandidates = this.actionPermissions[action] || [];
+    if (!permissionCandidates.length) {
+      return false;
+    }
+    return this.hasAnyPermission(permissionCandidates);
+  },
+
+  isActionAvailableForPayload(payload, actionKey) {
+    const actions = Array.isArray(payload?.available_actions)
+      ? payload.available_actions
+      : [];
+    return actions.includes(actionKey);
   },
 
   /**
    * Get the default tab based on user role
    */
   getDefaultTab() {
-    const role = this.state.userRole;
+    if (this.state.requestedTab && this.canAccessStage(this.state.requestedTab)) {
+      return this.state.requestedTab;
+    }
 
-    // Direct user to their most relevant queue
-    if (["accountant", "bursar"].includes(role)) {
-      return "payment_pending";
+    const priority = [
+      "documents_pending",
+      "interview_pending",
+      "placement_pending",
+      "payment_pending",
+      "enrollment_pending",
+    ];
+
+    for (const tabKey of priority) {
+      if (this.canAccessStage(tabKey)) {
+        return tabKey;
+      }
     }
-    if (role === "headteacher") {
-      return "interview_pending";
-    }
-    // Default to documents for registrars and admins
+
     return "documents_pending";
   },
 
@@ -221,10 +349,35 @@ const AdmissionsController = {
 
       const action = btn.dataset.action;
       const applicationId = btn.dataset.applicationId;
+      const supportedActions = new Set([
+        "view",
+        "upload-documents",
+        "verify-documents",
+        "schedule-interview",
+        "record-interview",
+        "generate-placement",
+        "record-payment",
+        "complete-enrollment",
+        "new-application",
+        "refresh",
+      ]);
+
+      if (!supportedActions.has(action)) {
+        return;
+      }
+
+      const isServerAuthorized = btn.dataset.serverAuthorized === "1";
+      if (!isServerAuthorized && !this.canPerformAction(action)) {
+        showNotification("You do not have permission to perform this action", "warning");
+        return;
+      }
 
       switch (action) {
         case "view":
           this.viewApplication(applicationId);
+          break;
+        case "upload-documents":
+          this.openUploadDocumentsModal(applicationId);
           break;
         case "verify-documents":
           this.openVerifyDocumentsModal(applicationId);
@@ -262,6 +415,10 @@ const AdmissionsController = {
       if (e.target.id === "verifyDocumentsForm") {
         e.preventDefault();
         await this.submitDocumentVerification(e.target);
+      }
+      if (e.target.id === "uploadDocumentsForm") {
+        e.preventDefault();
+        await this.submitUploadDocuments(e.target);
       }
       if (e.target.id === "scheduleInterviewForm") {
         e.preventDefault();
@@ -414,7 +571,22 @@ const AdmissionsController = {
       if (payload && payload.queues) {
         this.state.queues = payload.queues;
         this.state.summary = payload.summary || {};
+        this.state.allowedTabs = payload.allowed_tabs || {};
+
+        if (!this.canAccessStage(this.state.currentTab)) {
+          this.state.currentTab = this.getDefaultTab();
+        } else if (
+          this.state.requestedTab &&
+          this.canAccessStage(this.state.requestedTab)
+        ) {
+          this.state.currentTab = this.state.requestedTab;
+        }
+
+        this.state.requestedTab = null;
+        await this.loadStats();
         this.updateTabBadges();
+        this.updateStatsRow();
+        this.renderTabs();
         this.renderCurrentQueue();
       } else {
         showNotification("Failed to load admissions", "error");
@@ -435,12 +607,10 @@ const AdmissionsController = {
     const tabsContainer = document.getElementById("admissionTabs");
     if (!tabsContainer) return;
 
-    const role = this.state.userRole;
     let tabsHtml = "";
 
     for (const [key, config] of Object.entries(this.stages)) {
-      // Check if user role has access to this tab
-      const hasAccess = config.roles.includes(role);
+      const hasAccess = this.canAccessStage(key);
       if (!hasAccess) continue;
 
       const count = this.state.summary[key] || 0;
@@ -463,21 +633,53 @@ const AdmissionsController = {
     }
 
     tabsContainer.innerHTML = tabsHtml;
+
+    if (!tabsHtml.trim()) {
+      const queueContainer = document.getElementById("admissionQueueContent");
+      if (queueContainer) {
+        queueContainer.innerHTML = `
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-shield-lock me-2"></i>
+                    You do not have workflow-stage permissions to process admissions in this view.
+                </div>
+            `;
+      }
+    }
   },
 
   /**
    * Switch to a different tab
    */
   switchTab(tabKey) {
-    this.state.currentTab = tabKey;
+    if (!this.canAccessStage(tabKey)) {
+      this.state.currentTab = this.getDefaultTab();
+    } else {
+      this.state.currentTab = tabKey;
+    }
+
+    this.syncTabToUrl(this.state.currentTab);
 
     // Update active states
     document.querySelectorAll(".admission-tab").forEach((tab) => {
-      tab.classList.toggle("active", tab.dataset.tab === tabKey);
+      tab.classList.toggle("active", tab.dataset.tab === this.state.currentTab);
     });
 
     // Render the queue for this tab
     this.renderCurrentQueue();
+  },
+
+  syncTabToUrl(tabKey) {
+    try {
+      const url = new URL(window.location.href);
+      if (tabKey) {
+        url.searchParams.set("tab", tabKey);
+      } else {
+        url.searchParams.delete("tab");
+      }
+      window.history.replaceState({}, "", url.toString());
+    } catch (error) {
+      // no-op
+    }
   },
 
   /**
@@ -493,6 +695,27 @@ const AdmissionsController = {
   },
 
   /**
+   * Populate stats row cards from summary data
+   */
+  updateStatsRow() {
+    const row = document.getElementById("admissionStatsRow");
+    if (!row) return;
+
+    const s = this.state.summary;
+    const set = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val ?? "0";
+    };
+    set("stat-documents-pending", s.documents_pending);
+    set("stat-interview-pending", s.interview_pending);
+    set("stat-placement-pending", s.placement_pending);
+    // 'enrolled' comes from stats endpoint; keep graceful fallback.
+    set("stat-enrolled", s.enrolled ?? "–");
+
+    row.style.display = "";
+  },
+
+  /**
    * Render the current queue table
    */
   renderCurrentQueue() {
@@ -502,6 +725,16 @@ const AdmissionsController = {
     const tabKey = this.state.currentTab;
     const queue = this.state.queues[tabKey] || [];
     const config = this.stages[tabKey];
+
+    if (!config) {
+      container.innerHTML = `
+                <div class="alert alert-info mb-0">
+                    <i class="bi bi-shield-lock me-2"></i>
+                    Admissions workflow stages are not available for your current permissions.
+                </div>
+            `;
+      return;
+    }
 
     if (queue.length === 0) {
       container.innerHTML = `
@@ -522,7 +755,7 @@ const AdmissionsController = {
    * Render a queue as a table
    */
   renderQueueTable(queue, tabKey) {
-    const actions = this.getActionsForTab(tabKey);
+    const defaultActions = this.getActionsForTab(tabKey);
 
     let rows = queue
       .map((app) => {
@@ -537,8 +770,13 @@ const AdmissionsController = {
         const createdDate = new Date(app.created_at).toLocaleDateString();
 
         let statusBadge = this.getStatusBadge(app.status);
-        let actionButtons = actions
-          .map((action) => this.renderActionButton(action, app.id))
+        const usingServerActions = Array.isArray(app.available_actions);
+        const rowActions = usingServerActions ? app.available_actions : defaultActions;
+
+        let actionButtons = rowActions
+          .map((action) =>
+            this.renderActionButton(action, app.id, usingServerActions),
+          )
           .join(" ");
 
         // Add document count for documents_pending tab
@@ -607,36 +845,33 @@ const AdmissionsController = {
    * Get actions available for a tab
    */
   getActionsForTab(tabKey) {
-    const role = this.state.userRole;
-
     switch (tabKey) {
       case "documents_pending":
-        return ["verify-documents"];
+        return ["upload-documents", "verify-documents"].filter((action) =>
+          this.canPerformAction(action),
+        );
       case "interview_pending":
-        if (
-          [
-            "headteacher",
-            "deputy_head_academic",
-            "deputy_head_discipline",
-            "system_administrator",
-          ].includes(role)
-        ) {
-          return ["schedule-interview", "record-interview"];
+        if (this.canPerformAction("record-interview")) {
+          if (this.canPerformAction("schedule-interview")) {
+            return ["schedule-interview", "record-interview"];
+          }
+          return ["record-interview"];
         }
-        return ["schedule-interview"];
+        return this.canPerformAction("schedule-interview")
+          ? ["schedule-interview"]
+          : [];
       case "placement_pending":
-        return ["generate-placement"];
+        return this.canPerformAction("generate-placement")
+          ? ["generate-placement"]
+          : [];
       case "payment_pending":
-        if (
-          ["accountant", "bursar", "director", "system_administrator"].includes(
-            role,
-          )
-        ) {
-          return ["record-payment"];
-        }
-        return [];
+        return this.canPerformAction("record-payment")
+          ? ["record-payment"]
+          : [];
       case "enrollment_pending":
-        return ["complete-enrollment"];
+        return this.canPerformAction("complete-enrollment")
+          ? ["complete-enrollment"]
+          : [];
       default:
         return [];
     }
@@ -645,8 +880,13 @@ const AdmissionsController = {
   /**
    * Render an action button
    */
-  renderActionButton(action, applicationId) {
+  renderActionButton(action, applicationId, serverAuthorized = false) {
     const configs = {
+      "upload-documents": {
+        icon: "bi-paperclip",
+        color: "secondary",
+        title: "Upload Documents",
+      },
       "verify-documents": {
         icon: "bi-check-circle",
         color: "primary",
@@ -684,7 +924,8 @@ const AdmissionsController = {
 
     return `
             <button class="btn btn-${config.color}" data-action="${action}" 
-                    data-application-id="${applicationId}" title="${config.title}">
+                    data-application-id="${applicationId}" title="${config.title}"
+                    data-server-authorized="${serverAuthorized ? "1" : "0"}">
                 <i class="bi ${config.icon}"></i>
             </button>
         `;
@@ -698,10 +939,6 @@ const AdmissionsController = {
       submitted: { color: "secondary", text: "Submitted" },
       documents_pending: { color: "warning", text: "Docs Pending" },
       documents_verified: { color: "info", text: "Docs Verified" },
-      interview_scheduled: { color: "primary", text: "Interview Scheduled" },
-      interview_passed: { color: "success", text: "Interview Passed" },
-      interview_failed: { color: "danger", text: "Interview Failed" },
-      auto_qualified: { color: "success", text: "Auto Qualified" },
       placement_offered: { color: "primary", text: "Placement Offered" },
       fees_pending: { color: "warning", text: "Fees Pending" },
       enrolled: { color: "success", text: "Enrolled" },
@@ -805,8 +1042,11 @@ const AdmissionsController = {
     );
 
     // Build action buttons
-    let actionsHtml = availableActions
-      .map((action) => this.renderActionButton(action, application.id))
+    const normalizedActions = Array.isArray(availableActions)
+      ? availableActions
+      : [];
+    let actionsHtml = normalizedActions
+      .map((action) => this.renderActionButton(action, application.id, true))
       .join(" ");
 
     modal.querySelector(".modal-body").innerHTML = `
@@ -873,7 +1113,7 @@ const AdmissionsController = {
    */
   buildWorkflowTimeline(currentStage, workflowData) {
     const stages = [
-      { key: "application_submission", label: "Application" },
+      { key: "application", label: "Application" },
       { key: "document_verification", label: "Documents" },
       { key: "interview_scheduling", label: "Interview Schedule" },
       { key: "interview_assessment", label: "Interview" },
@@ -882,7 +1122,9 @@ const AdmissionsController = {
       { key: "enrollment", label: "Enrollment" },
     ];
 
-    const currentIndex = stages.findIndex((s) => s.key === currentStage);
+    const normalizedStage =
+      currentStage === "application_submission" ? "application" : currentStage;
+    const currentIndex = stages.findIndex((s) => s.key === normalizedStage);
 
     return `
             <ul class="list-unstyled">
@@ -935,27 +1177,314 @@ const AdmissionsController = {
   },
 
   /**
-   * Submit new application
+   * Submit new application (fields first, then optional document uploads)
    */
   async submitNewApplication(form) {
+    const submitBtn = form.querySelector('[type="submit"]');
     const formData = new FormData(form);
-    const data = Object.fromEntries(formData.entries());
+
+    // Separate file fields from regular fields
+    const fileFields = ["doc_birth_certificate", "doc_immunization_card",
+                        "doc_passport_photo", "doc_progress_report", "doc_leaving_certificate"];
+    const data = {};
+    for (const [key, value] of formData.entries()) {
+      if (!fileFields.includes(key)) {
+        data[key] = value;
+      }
+    }
 
     try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+      this.showButtonLoading(submitBtn);
 
-      await API.admission.submitApplication(data);
+      // 1. Submit application (JSON)
+      const response = await API.admission.submitApplication(data);
+      const payload = this.unwrapPayload(response);
+      const applicationId = payload?.application_id;
+
+      // 2. Upload any provided documents
+      if (applicationId) {
+        const docTypeMap = {
+          doc_birth_certificate: "birth_certificate",
+          doc_immunization_card: "immunization_card",
+          doc_passport_photo: "passport_photo",
+          doc_progress_report: "progress_report",
+          doc_leaving_certificate: "leaving_certificate",
+        };
+        for (const [fieldName, docType] of Object.entries(docTypeMap)) {
+          const file = formData.get(fieldName);
+          if (file && file.size > 0) {
+            const fd = new FormData();
+            fd.append("application_id", applicationId);
+            fd.append("document_type", docType);
+            fd.append("document", file);
+            try {
+              await API.admission.uploadDocument(fd);
+            } catch (uploadErr) {
+              console.warn(`[AdmissionsController] Upload failed for ${docType}:`, uploadErr);
+            }
+          }
+        }
+      }
+
       showNotification("Application submitted successfully", "success");
+      form.reset();
       this.closeModal("newApplicationModal");
       await this.loadQueues();
     } catch (error) {
+      console.error("[AdmissionsController] Error submitting application:", error);
+      showNotification(
+        error?.message || "Error submitting application — check all required fields",
+        "error",
+      );
+    } finally {
+      this.hideButtonLoading(submitBtn);
+    }
+  },
+
+  requiresTransferDocuments(grade) {
+    const normalized = String(grade || "")
+      .toLowerCase()
+      .replace(/\s+/g, "");
+    if (!normalized) {
+      return false;
+    }
+
+    return this.transferDocumentGrades.some(
+      (gradeCode) =>
+        String(gradeCode).toLowerCase().replace(/\s+/g, "") === normalized,
+    );
+  },
+
+  /**
+   * Open upload documents modal
+   */
+  async openUploadDocumentsModal(applicationId) {
+    try {
+      const response = await API.admission.getApplication(applicationId);
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
+        showNotification("Failed to load application", "error");
+        return;
+      }
+
+      if (!this.isActionAvailableForPayload(payload, "upload-documents")) {
+        showNotification(
+          "Document upload is not available at the current workflow stage",
+          "warning",
+        );
+        return;
+      }
+
+      const { application } = payload;
+      const documents = Array.isArray(payload.documents) ? payload.documents : [];
+      const modal = document.getElementById("uploadDocumentsModal");
+      if (!modal) return;
+
+      const existingByType = {};
+      documents.forEach((doc) => {
+        const key = String(doc.document_type || "").trim();
+        if (!key) return;
+        const current = existingByType[key];
+        if (!current || Number(doc.id || 0) > Number(current.id || 0)) {
+          existingByType[key] = doc;
+        }
+      });
+
+      const includeTransferDocs = this.requiresTransferDocuments(
+        application.grade_applying_for,
+      );
+
+      const uploadFields = [
+        {
+          inputName: "doc_birth_certificate",
+          documentType: "birth_certificate",
+          label: "Birth Certificate",
+          mandatory: true,
+          accept: ".pdf,.jpg,.jpeg,.png",
+        },
+        {
+          inputName: "doc_immunization_card",
+          documentType: "immunization_card",
+          label: "Immunization Card",
+          mandatory: true,
+          accept: ".pdf,.jpg,.jpeg,.png",
+        },
+        {
+          inputName: "doc_passport_photo",
+          documentType: "passport_photo",
+          label: "Passport Photo",
+          mandatory: true,
+          accept: ".jpg,.jpeg,.png",
+        },
+      ];
+
+      if (includeTransferDocs) {
+        uploadFields.push(
+          {
+            inputName: "doc_progress_report",
+            documentType: "progress_report",
+            label: "Latest Progress Report",
+            mandatory: true,
+            accept: ".pdf,.jpg,.jpeg,.png",
+          },
+          {
+            inputName: "doc_leaving_certificate",
+            documentType: "leaving_certificate",
+            label: "Leaving Certificate",
+            mandatory: true,
+            accept: ".pdf,.jpg,.jpeg,.png",
+          },
+        );
+      }
+
+      const fieldsHtml = uploadFields
+        .map((field) => {
+          const existing = existingByType[field.documentType];
+          const uploadStatus = existing
+            ? '<span class="badge bg-success">Uploaded</span>'
+            : '<span class="badge bg-secondary">Not Uploaded</span>';
+
+          const verificationStatus = existing?.verification_status
+            ? `<span class="badge bg-${
+                existing.verification_status === "verified"
+                  ? "success"
+                  : existing.verification_status === "rejected"
+                    ? "danger"
+                    : "warning"
+              } ms-2">${existing.verification_status}</span>`
+            : "";
+
+          const existingLink =
+            existing?.document_path || existing?.file_path
+              ? `<a href="${
+                  existing.document_path || existing.file_path
+                }" target="_blank" class="ms-2 text-decoration-none">
+                   <i class="bi bi-box-arrow-up-right"></i>
+                 </a>`
+              : "";
+
+          return `
+            <div class="card mb-3">
+              <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                  <div>
+                    <strong>${field.label}</strong>
+                    ${field.mandatory ? '<span class="text-danger ms-1">*</span>' : ""}
+                  </div>
+                  <div class="text-end">
+                    ${uploadStatus}
+                    ${verificationStatus}
+                    ${existingLink}
+                  </div>
+                </div>
+                <input type="file"
+                       class="form-control"
+                       name="${field.inputName}"
+                       accept="${field.accept}">
+                <small class="text-muted d-block mt-1">Upload to add or replace this document.</small>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+
+      modal.querySelector(".modal-body").innerHTML = `
+        <form id="uploadDocumentsForm">
+          <input type="hidden" name="application_id" value="${applicationId}">
+          <h6 class="mb-3">${application.applicant_name} - ${application.application_no}</h6>
+          <p class="text-muted mb-3">
+            Grade: <strong>${application.grade_applying_for || "N/A"}</strong>
+          </p>
+          ${fieldsHtml}
+        </form>
+      `;
+
+      modal.querySelector(".modal-footer").innerHTML = `
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" form="uploadDocumentsForm" class="btn btn-primary">
+          <i class="bi bi-upload me-1"></i>Upload Selected
+        </button>
+      `;
+
+      const bsModal = new bootstrap.Modal(modal);
+      bsModal.show();
+    } catch (error) {
       console.error(
-        "[AdmissionsController] Error submitting application:",
+        "[AdmissionsController] Error opening upload documents modal:",
         error,
       );
-      showNotification("Error submitting application", "error");
+      showNotification("Error loading upload form", "error");
+    }
+  },
+
+  async submitUploadDocuments(form) {
+    const formData = new FormData(form);
+    const applicationId = formData.get("application_id");
+    const submitButton = document.querySelector(
+      '#uploadDocumentsModal button[form="uploadDocumentsForm"]',
+    );
+
+    const fieldToType = {
+      doc_birth_certificate: "birth_certificate",
+      doc_immunization_card: "immunization_card",
+      doc_passport_photo: "passport_photo",
+      doc_progress_report: "progress_report",
+      doc_leaving_certificate: "leaving_certificate",
+    };
+
+    const uploadJobs = [];
+    for (const [inputName, documentType] of Object.entries(fieldToType)) {
+      const file = formData.get(inputName);
+      const isFileObject =
+        typeof File === "undefined"
+          ? Boolean(file && typeof file === "object")
+          : file instanceof File;
+      if (!file || !isFileObject || file.size <= 0) {
+        continue;
+      }
+
+      const payload = new FormData();
+      payload.append("application_id", applicationId);
+      payload.append("document_type", documentType);
+      payload.append("document", file);
+      uploadJobs.push(API.admission.uploadDocument(payload));
+    }
+
+    if (!uploadJobs.length) {
+      showNotification("Select at least one document to upload", "warning");
+      return;
+    }
+
+    try {
+      this.showButtonLoading(submitButton);
+      const results = await Promise.allSettled(uploadJobs);
+      const failed = results.filter((item) => item.status === "rejected").length;
+      const uploaded = uploadJobs.length - failed;
+
+      if (uploaded > 0) {
+        showNotification(
+          `${uploaded} document${uploaded === 1 ? "" : "s"} uploaded successfully`,
+          "success",
+        );
+      }
+
+      if (failed > 0) {
+        showNotification(
+          `${failed} upload${failed === 1 ? "" : "s"} failed. Please retry.`,
+          "error",
+        );
+      }
+
+      await this.loadQueues();
+
+      if (failed === 0) {
+        this.closeModal("uploadDocumentsModal");
+      }
+    } catch (error) {
+      console.error("[AdmissionsController] Error uploading documents:", error);
+      showNotification("Error uploading documents", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -968,6 +1497,14 @@ const AdmissionsController = {
       const payload = this.unwrapPayload(response);
       if (!payload || !payload.application) {
         showNotification("Failed to load documents", "error");
+        return;
+      }
+
+      if (!this.isActionAvailableForPayload(payload, "verify-documents")) {
+        showNotification(
+          "Document verification is not available at the current workflow stage",
+          "warning",
+        );
         return;
       }
 
@@ -993,8 +1530,10 @@ const AdmissionsController = {
                                         : ""
                                     }
                                     ${
-                                      doc.file_path
-                                        ? `<a href="${doc.file_path}" target="_blank" class="ms-2"><i class="bi bi-download"></i></a>`
+                                      (doc.document_path || doc.file_path)
+                                        ? `<a href="${
+                                            doc.document_path || doc.file_path
+                                          }" target="_blank" class="ms-2"><i class="bi bi-download"></i></a>`
                                         : ""
                                     }
                                 </div>
@@ -1077,7 +1616,9 @@ const AdmissionsController = {
    */
   async submitDocumentVerification(form) {
     const formData = new FormData(form);
-    const applicationId = formData.get("application_id");
+    const submitButton = document.querySelector(
+      '#verifyDocumentsModal button[form="verifyDocumentsForm"]',
+    );
 
     // Collect document statuses
     const documentStatuses = [];
@@ -1089,14 +1630,24 @@ const AdmissionsController = {
       });
     });
 
-    try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+    if (!documentStatuses.length) {
+      showNotification("Select at least one document status", "warning");
+      return;
+    }
 
-      await API.admission.verifyDocument({
-        application_id: applicationId,
-        documents: documentStatuses,
-        notes: formData.get("notes"),
-      });
+    try {
+      this.showButtonLoading(submitButton);
+
+      const notes = formData.get("notes") || "";
+      await Promise.all(
+        documentStatuses.map((doc) =>
+          API.admission.verifyDocument({
+            document_id: doc.document_id,
+            status: doc.status,
+            notes,
+          }),
+        ),
+      );
       showNotification("Documents verified successfully", "success");
       this.closeModal("verifyDocumentsModal");
       await this.loadQueues();
@@ -1104,7 +1655,7 @@ const AdmissionsController = {
       console.error("[AdmissionsController] Error verifying documents:", error);
       showNotification("Error verifying documents", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -1120,22 +1671,28 @@ const AdmissionsController = {
         return;
       }
 
+      if (!this.isActionAvailableForPayload(payload, "schedule-interview")) {
+        showNotification(
+          "Interview scheduling is not available at the current workflow stage",
+          "warning",
+        );
+        return;
+      }
+
       const { application } = payload;
 
       // Check if interview can be skipped
+      const gradeApplyingFor = String(application.grade_applying_for || "");
       const skipInterview = this.noInterviewGrades.some((g) =>
-        application.grade_applying_for.toLowerCase().includes(g.toLowerCase()),
+        gradeApplyingFor.toLowerCase().includes(g.toLowerCase()),
       );
 
       if (skipInterview) {
-        // Auto-qualify for ECD grades
-        const confirm = await this.confirm(
-          "Auto-Qualification",
-          `${application.grade_applying_for} students don't require an interview. Do you want to auto-qualify this applicant?`,
+        showNotification(
+          `${application.grade_applying_for} does not require an interview. Continue from Placement stage.`,
+          "info",
         );
-        if (confirm) {
-          await this.autoQualify(applicationId);
-        }
+        this.switchTab("placement_pending");
         return;
       }
 
@@ -1167,7 +1724,7 @@ const AdmissionsController = {
                     
                     <div class="mb-3">
                         <label class="form-label">Interview Location</label>
-                        <input type="text" name="location" class="form-control" 
+                      <input type="text" name="venue" class="form-control" 
                                placeholder="e.g., Headteacher's Office">
                     </div>
                     
@@ -1209,9 +1766,12 @@ const AdmissionsController = {
   async submitInterviewSchedule(form) {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    const submitButton = document.querySelector(
+      '#scheduleInterviewModal button[form="scheduleInterviewForm"]',
+    );
 
     try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+      this.showButtonLoading(submitButton);
 
       await API.admission.scheduleInterview(data);
       showNotification("Interview scheduled successfully", "success");
@@ -1224,7 +1784,7 @@ const AdmissionsController = {
       );
       showNotification("Error scheduling interview", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -1237,6 +1797,14 @@ const AdmissionsController = {
       const payload = this.unwrapPayload(response);
       if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
+        return;
+      }
+
+      if (!this.isActionAvailableForPayload(payload, "record-interview")) {
+        showNotification(
+          "Interview assessment is not available at the current workflow stage",
+          "warning",
+        );
         return;
       }
 
@@ -1321,9 +1889,12 @@ const AdmissionsController = {
   async submitInterviewResults(form) {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    const submitButton = document.querySelector(
+      '#recordInterviewModal button[form="recordInterviewForm"]',
+    );
 
     try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+      this.showButtonLoading(submitButton);
 
       await API.admission.recordInterviewResults(data);
       showNotification("Interview results recorded successfully", "success");
@@ -1336,7 +1907,7 @@ const AdmissionsController = {
       );
       showNotification("Error recording results", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -1370,6 +1941,14 @@ const AdmissionsController = {
         return;
       }
 
+      if (!this.isActionAvailableForPayload(payload, "generate-placement")) {
+        showNotification(
+          "Placement generation is not available at the current workflow stage",
+          "warning",
+        );
+        return;
+      }
+
       const { application } = payload;
       const modal = document.getElementById("placementModal");
       if (!modal) return;
@@ -1377,8 +1956,19 @@ const AdmissionsController = {
       // Load available classes for this grade
       let classesOptions = '<option value="">-- Select Class --</option>';
       try {
-        const classesResponse = await API.academic.listClasses();
-        const classes = this.unwrapList(classesResponse);
+        let classes = [];
+
+        if (API?.admission?.getPlacementClasses) {
+          const classesResponse = await API.admission.getPlacementClasses();
+          classes = this.unwrapList(classesResponse, "classes");
+        }
+
+        // Fallback for legacy backends that do not yet expose the admission endpoint.
+        if (!classes.length && API?.academic?.listClasses) {
+          const classesResponse = await API.academic.listClasses();
+          classes = this.unwrapList(classesResponse);
+        }
+
         if (classes.length) {
           classesOptions += classes
             .map(
@@ -1400,7 +1990,7 @@ const AdmissionsController = {
                     
                     <div class="mb-3">
                         <label class="form-label">Assign to Class <span class="text-danger">*</span></label>
-                        <select name="class_id" class="form-select" required>
+                      <select name="assigned_class_id" class="form-select" required>
                             ${classesOptions}
                         </select>
                     </div>
@@ -1452,9 +2042,12 @@ const AdmissionsController = {
   async submitPlacementOffer(form) {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    const submitButton = document.querySelector(
+      '#placementModal button[form="placementForm"]',
+    );
 
     try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+      this.showButtonLoading(submitButton);
 
       await API.admission.generatePlacementOffer(data);
       showNotification("Placement offer generated successfully", "success");
@@ -1467,7 +2060,7 @@ const AdmissionsController = {
       );
       showNotification("Error generating offer", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -1480,6 +2073,14 @@ const AdmissionsController = {
       const payload = this.unwrapPayload(response);
       if (!payload || !payload.application) {
         showNotification("Failed to load application", "error");
+        return;
+      }
+
+      if (!this.isActionAvailableForPayload(payload, "record-payment")) {
+        showNotification(
+          "Payment recording is not available at the current workflow stage",
+          "warning",
+        );
         return;
       }
 
@@ -1569,9 +2170,12 @@ const AdmissionsController = {
   async submitPaymentRecord(form) {
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    const submitButton = document.querySelector(
+      '#paymentModal button[form="paymentForm"]',
+    );
 
     try {
-      this.showButtonLoading(form.querySelector('[type="submit"]'));
+      this.showButtonLoading(submitButton);
 
       await API.admission.recordFeePayment(data);
       showNotification("Payment recorded successfully", "success");
@@ -1581,7 +2185,7 @@ const AdmissionsController = {
       console.error("[AdmissionsController] Error recording payment:", error);
       showNotification("Error recording payment", "error");
     } finally {
-      this.hideButtonLoading(form.querySelector('[type="submit"]'));
+      this.hideButtonLoading(submitButton);
     }
   },
 
@@ -1589,6 +2193,30 @@ const AdmissionsController = {
    * Complete enrollment
    */
   async completeEnrollment(applicationId) {
+    try {
+      const response = await API.admission.getApplication(applicationId);
+      const payload = this.unwrapPayload(response);
+      if (!payload || !payload.application) {
+        showNotification("Failed to load application", "error");
+        return;
+      }
+
+      if (!this.isActionAvailableForPayload(payload, "complete-enrollment")) {
+        showNotification(
+          "Enrollment completion is not available at the current workflow stage",
+          "warning",
+        );
+        return;
+      }
+    } catch (error) {
+      console.error(
+        "[AdmissionsController] Error validating enrollment action:",
+        error,
+      );
+      showNotification("Error validating enrollment action", "error");
+      return;
+    }
+
     const confirmed = await this.confirm(
       "Complete Enrollment",
       "This will create the student record and finalize the admission. Continue?",
@@ -1615,7 +2243,9 @@ const AdmissionsController = {
           "Would you like to view the new student record?",
         );
         if (viewStudent) {
-          window.location.href = `/pages/student_profile.php?id=${payload.student_id}`;
+          const studentId = encodeURIComponent(payload.student_id);
+          const route = this.resolveStudentRecordRoute();
+          window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile`;
         }
       }
     } catch (error) {
@@ -1652,6 +2282,19 @@ const AdmissionsController = {
         bsModal.hide();
       }
     }
+  },
+
+  resolveStudentRecordRoute() {
+    const allowedRoutes = window.AppRouteAccess?.getAllowedRoutes?.();
+    if (allowedRoutes && typeof allowedRoutes.has === "function") {
+      if (allowedRoutes.has("manage_students")) {
+        return "manage_students";
+      }
+      if (allowedRoutes.has("all_students")) {
+        return "all_students";
+      }
+    }
+    return "manage_students";
   },
 
   /**
@@ -1699,10 +2342,22 @@ const AdmissionsController = {
       button.innerHTML = button.dataset.originalText || "Submit";
     }
   },
+
+  async loadStats() {
+    try {
+      const response = await API.admission.getStats();
+      const payload = this.unwrapPayload(response);
+      if (payload && typeof payload.enrolled !== "undefined") {
+        this.state.summary.enrolled = Number(payload.enrolled) || 0;
+      }
+    } catch (error) {
+      console.warn("[AdmissionsController] Failed to load admission stats:", error);
+    }
+  },
 };
 
-// Initialize when DOM is ready
-document.addEventListener("DOMContentLoaded", () => {
+// Initialize controller (supports both static and dynamically injected script load)
+const bootstrapAdmissionsController = () => {
   // Only initialize on admissions page
   if (
     document.getElementById("admissionTabs") ||
@@ -1710,7 +2365,13 @@ document.addEventListener("DOMContentLoaded", () => {
   ) {
     AdmissionsController.init();
   }
-});
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootstrapAdmissionsController);
+} else {
+  bootstrapAdmissionsController();
+}
 
 // Export for external use
 window.AdmissionsController = AdmissionsController;

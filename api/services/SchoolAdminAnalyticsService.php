@@ -300,23 +300,58 @@ class SchoolAdminAnalyticsService
     {
         try {
             $query = "SELECT 
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved,
-                        SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected,
+                        SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
+                        SUM(CASE WHEN status = 'documents_pending' THEN 1 ELSE 0 END) as documents_pending,
+                        SUM(CASE WHEN status = 'documents_verified' THEN 1 ELSE 0 END) as documents_verified,
+                        SUM(CASE WHEN status = 'placement_offered' THEN 1 ELSE 0 END) as placement_offered,
+                        SUM(CASE WHEN status = 'fees_pending' THEN 1 ELSE 0 END) as fees_pending,
+                        SUM(CASE WHEN status = 'enrolled' THEN 1 ELSE 0 END) as enrolled,
+                        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
                         COUNT(*) as total
                       FROM admission_applications 
                       WHERE YEAR(created_at) = YEAR(CURDATE())";
             $stmt = $this->db->query($query);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
 
+            $submitted = (int) ($result['submitted'] ?? 0);
+            $documentsPending = (int) ($result['documents_pending'] ?? 0);
+            $documentsVerified = (int) ($result['documents_verified'] ?? 0);
+            $placementOffered = (int) ($result['placement_offered'] ?? 0);
+            $feesPending = (int) ($result['fees_pending'] ?? 0);
+            $enrolled = (int) ($result['enrolled'] ?? 0);
+            $cancelled = (int) ($result['cancelled'] ?? 0);
+
+            $pending = $submitted + $documentsPending + $documentsVerified + $placementOffered + $feesPending;
+
             return [
-                'pending' => (int) ($result['pending'] ?? 0),
-                'approved' => (int) ($result['approved'] ?? 0),
-                'rejected' => (int) ($result['rejected'] ?? 0),
+                // Legacy keys used by current dashboard widgets
+                'pending' => $pending,
+                'approved' => $enrolled,
+                'rejected' => $cancelled,
+                // Detailed pipeline keys for module-aware admissions UI
+                'submitted' => $submitted,
+                'documents_pending' => $documentsPending,
+                'documents_verified' => $documentsVerified,
+                'placement_offered' => $placementOffered,
+                'fees_pending' => $feesPending,
+                'enrolled' => $enrolled,
+                'cancelled' => $cancelled,
                 'total' => (int) ($result['total'] ?? 0)
             ];
         } catch (Exception $e) {
-            return ['pending' => 0, 'approved' => 0, 'rejected' => 0, 'total' => 0];
+            return [
+                'pending' => 0,
+                'approved' => 0,
+                'rejected' => 0,
+                'submitted' => 0,
+                'documents_pending' => 0,
+                'documents_verified' => 0,
+                'placement_offered' => 0,
+                'fees_pending' => 0,
+                'enrolled' => 0,
+                'cancelled' => 0,
+                'total' => 0
+            ];
         }
     }
 
@@ -545,17 +580,19 @@ class SchoolAdminAnalyticsService
 
         try {
             // Pending admission applications
-            $admissionQuery = "SELECT COUNT(*) as count FROM admission_applications WHERE status = 'pending'";
+            $admissionQuery = "SELECT COUNT(*) as count 
+                               FROM admission_applications 
+                               WHERE status IN ('submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending')";
             $stmt = $this->db->query($admissionQuery);
             $result = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (($result['count'] ?? 0) > 0) {
                 $items[] = [
                     'type' => 'Admission',
                     'icon' => 'fas fa-user-plus',
-                    'description' => 'New Admission Applications',
+                    'description' => 'Admission Applications In Pipeline',
                     'count' => (int) $result['count'],
                     'priority' => 'high',
-                    'action_url' => 'manage_admissions',
+                    'action_url' => 'manage_students_admissions',
                     'action_label' => 'Review'
                 ];
             }

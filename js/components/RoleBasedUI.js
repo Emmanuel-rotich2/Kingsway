@@ -142,36 +142,36 @@ const RoleBasedUI = (() => {
     },
     admissions: {
       view: {
-        permission: "admissions_view",
-        roles: ["registrar", "headteacher", "deputy_head_academic", "admin"],
+        permission: "admission_view",
+        roles: ["*"],
       },
       create: {
-        permission: "admissions_create",
-        roles: ["registrar", "secretary"],
+        permission: "admission_applications_create",
+        roles: ["*"],
       },
       verify_documents: {
-        permission: "admissions_verify",
-        roles: ["registrar", "deputy_head_academic"],
+        permission: "admission_documents_verify",
+        roles: ["*"],
       },
       schedule_interview: {
-        permission: "admissions_schedule",
-        roles: ["registrar", "secretary"],
+        permission: "admission_interviews_schedule",
+        roles: ["*"],
       },
       conduct_interview: {
-        permission: "admissions_interview",
-        roles: ["headteacher", "deputy_head_academic"],
+        permission: "admission_interviews_create",
+        roles: ["*"],
       },
       approve: {
-        permission: "admissions_approve",
-        roles: ["headteacher", "director"],
+        permission: "admission_applications_approve",
+        roles: ["*"],
       },
       reject: {
-        permission: "admissions_reject",
-        roles: ["headteacher", "director"],
+        permission: "admission_applications_reject",
+        roles: ["*"],
       },
       enroll: {
-        permission: "students_create",
-        roles: ["registrar", "headteacher"],
+        permission: "admission_applications_approve_final",
+        roles: ["*"],
       },
     },
     attendance: {
@@ -317,22 +317,46 @@ const RoleBasedUI = (() => {
   /**
    * Check if current user has a specific permission
    */
+  function expandPermissionAliases(permission) {
+    const aliases = [permission];
+
+    if (typeof permission !== "string") {
+      return aliases;
+    }
+
+    if (permission.endsWith("_edit")) {
+      aliases.push(permission.replace(/_edit$/, "_update"));
+    } else if (permission.endsWith("_update")) {
+      aliases.push(permission.replace(/_update$/, "_edit"));
+    }
+
+    if (permission.endsWith(".edit")) {
+      aliases.push(permission.replace(/\.edit$/, ".update"));
+    } else if (permission.endsWith(".update")) {
+      aliases.push(permission.replace(/\.update$/, ".edit"));
+    }
+
+    return aliases;
+  }
+
   function hasPermission(permission) {
-    return AuthContext.hasPermission(permission);
+    return expandPermissionAliases(permission).some((perm) =>
+      AuthContext.hasPermission(perm),
+    );
   }
 
   /**
    * Check if current user has any of the given permissions
    */
   function hasAnyPermission(permissions) {
-    return AuthContext.hasAnyPermission(permissions);
+    return (permissions || []).some((permission) => hasPermission(permission));
   }
 
   /**
    * Check if current user has all of the given permissions
    */
   function hasAllPermissions(permissions) {
-    return AuthContext.hasAllPermissions(permissions);
+    return (permissions || []).every((permission) => hasPermission(permission));
   }
 
   /**

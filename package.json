@@ -6,6 +6,7 @@
     "test:ui": "node scripts/ui-test.js"
   },
   "dependencies": {
+    "openai": "^6.33.0",
     "puppeteer": "^21.0.0"
   }
 }

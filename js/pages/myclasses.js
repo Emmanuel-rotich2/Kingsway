@@ -7,7 +7,7 @@ const myclassesController = (() => {
 
   async function init() {
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     await loadMyClasses();
@@ -112,8 +112,8 @@ const myclassesController = (() => {
           html += `<li class="list-group-item d-flex justify-content-between align-items-center">
                         <div><i class="bi bi-book me-2"></i>${subName}</div>
                         <div class="btn-group btn-group-sm">
-                            <a href="/Kingsway/home.php?route=enter_results&class_id=${classId}&subject_id=${subId}" class="btn btn-outline-success" title="Enter Marks"><i class="bi bi-pencil-square"></i></a>
-                            <a href="/Kingsway/home.php?route=all_lesson_plans" class="btn btn-outline-info" title="Lesson Plans"><i class="bi bi-file-text"></i></a>
+                            <a href=(window.APP_BASE || "") + "/home.php?route=enter_results&class_id=${classId}&subject_id=${subId}" class="btn btn-outline-success" title="Enter Marks"><i class="bi bi-pencil-square"></i></a>
+                            <a href=(window.APP_BASE || "") + "/home.php?route=all_lesson_plans" class="btn btn-outline-info" title="Lesson Plans"><i class="bi bi-file-text"></i></a>
                             <button class="btn btn-outline-primary" onclick="myclassesController.openUploadModal(${classId},${subId})" title="Upload Material"><i class="bi bi-upload"></i></button>
                         </div>
                     </li>`;
@@ -127,9 +127,9 @@ const myclassesController = (() => {
       html += `</div>
                 <div class="card-footer bg-light">
                     <div class="btn-group btn-group-sm">
-                        <a href="/Kingsway/home.php?route=mark_attendance&class_id=${classId}" class="btn btn-outline-primary"><i class="bi bi-check2-square me-1"></i>Attendance</a>
-                        <a href="/Kingsway/home.php?route=view_attendance&class_id=${classId}" class="btn btn-outline-info"><i class="bi bi-bar-chart me-1"></i>Reports</a>
-                        <a href="/Kingsway/home.php?route=class_details&class_id=${classId}" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>Class Details</a>
+                        <a href=(window.APP_BASE || "") + "/home.php?route=mark_attendance&class_id=${classId}" class="btn btn-outline-primary"><i class="bi bi-check2-square me-1"></i>Attendance</a>
+                        <a href=(window.APP_BASE || "") + "/home.php?route=view_attendance&class_id=${classId}" class="btn btn-outline-info"><i class="bi bi-bar-chart me-1"></i>Reports</a>
+                        <a href=(window.APP_BASE || "") + "/home.php?route=class_details&class_id=${classId}" class="btn btn-outline-secondary"><i class="bi bi-eye me-1"></i>Class Details</a>
                     </div>
                 </div>
             </div>`;

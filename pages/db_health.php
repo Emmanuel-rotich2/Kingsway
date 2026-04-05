@@ -12,5 +12,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-database me-2"></i>Database Health Details</h6></div><div class="card-body"><div id="monitorContent" class="text-center text-muted py-4">Loading monitoring data...</div></div></div>
 </div>
-<script src="/Kingsway/js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._monCtrl = new MonitoringController({ title: 'Database Health', apiEndpoint: '/system/db-health', refreshInterval: 30000 });</script>

@@ -75,4 +75,4 @@
     </div>
 </div>
 
-<script src="/Kingsway/js/pages/current_academic_year.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/current_academic_year.js?v=<?php echo time(); ?>"></script>

@@ -12,7 +12,7 @@ const CounselingRecordsController = {
 
   async init() {
     if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
     this.bindEvents();
@@ -184,7 +184,7 @@ const CounselingRecordsController = {
 
   async editSession(id) {
     // Navigate to counseling page with edit mode
-    window.location.href = `/Kingsway/pages/student_counseling.php?session_id=${id}&edit=1`;
+    window.location.href = (window.APP_BASE || "") + `/pages/student_counseling.php?session_id=${id}&edit=1`;
   },
 
   showTableLoading() {

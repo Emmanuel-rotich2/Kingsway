@@ -88,6 +88,8 @@
             </div>
         </div>
 
+        <div id="financeReportsError" class="alert alert-danger d-none" role="alert"></div>
+
         <!-- Report Content Area -->
         <div id="reportContent">
             <!-- Chart Area -->
@@ -125,11 +127,4 @@
         </div>
     </div>
 </div>
-
-<script>
-    // Initialize finance reports when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement financeReportsController in js/pages/finance_reports.js
-        console.log('Finance Reports page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/finance_reports.js"></script>

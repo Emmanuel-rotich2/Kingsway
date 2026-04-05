@@ -300,8 +300,10 @@ class DirectorAnalyticsService
         $stmt = $this->db->query($query);
         $result['pending_approvals'] = $stmt->fetch()['total'] ?? 0;
 
-        // Pending Admissions (simplified)
-        $query = "SELECT COUNT(*) as total FROM admission_applications WHERE status = 'pending'";
+        // Pending Admissions (active pipeline states from SQL workflow)
+        $query = "SELECT COUNT(*) as total
+                  FROM admission_applications
+                  WHERE status IN ('submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending')";
         $stmt = $this->db->query($query);
         $result['pending_admissions'] = $stmt->fetch()['total'] ?? 0;
 

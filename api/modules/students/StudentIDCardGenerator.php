@@ -26,16 +26,39 @@ class StudentIDCardGenerator extends BaseAPI
     public function __construct()
     {
         parent::__construct('student_id_cards');
-        $this->uploadsPath = __DIR__ . '/../../../images/students/';
-        $this->qrCodesPath = __DIR__ . '/../../../images/qr_codes/';
-        $this->templatesPath = __DIR__ . '/../../../templates/id_cards/';
+        $this->uploadsPath = $this->resolveWritablePath(__DIR__ . '/../../../images/students/', 'students');
+        $this->qrCodesPath = $this->resolveWritablePath(__DIR__ . '/../../../images/qr_codes/', 'qr_codes');
+        $this->templatesPath = $this->resolveWritablePath(__DIR__ . '/../../../templates/id_cards/', 'id_cards_templates');
+    }
 
-        // Ensure directories exist
-        foreach ([$this->uploadsPath, $this->qrCodesPath, $this->templatesPath] as $dir) {
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
+    /**
+     * Resolve a writable directory path without emitting PHP warnings.
+     */
+    private function resolveWritablePath(string $preferredPath, string $fallbackSuffix): string
+    {
+        $normalized = rtrim($preferredPath, '/\\') . DIRECTORY_SEPARATOR;
+
+        if (!is_dir($normalized)) {
+            @mkdir($normalized, 0755, true);
         }
+
+        if (is_dir($normalized) && is_writable($normalized)) {
+            return $normalized;
+        }
+
+        $fallback = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR .
+            'kingsway' . DIRECTORY_SEPARATOR . $fallbackSuffix . DIRECTORY_SEPARATOR;
+
+        if (!is_dir($fallback)) {
+            @mkdir($fallback, 0755, true);
+        }
+
+        if (is_dir($fallback) && is_writable($fallback)) {
+            return $fallback;
+        }
+
+        error_log("StudentIDCardGenerator: no writable directory for {$preferredPath}");
+        return $normalized;
     }
 
     /**

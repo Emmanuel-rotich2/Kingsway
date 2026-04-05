@@ -49,7 +49,7 @@
         // Check authentication
         if (!AuthContext.isAuthenticated()) {
             console.warn('User not authenticated - redirecting to login');
-            window.location.href = '/Kingsway/index.php';
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
 
@@ -119,7 +119,7 @@
         }
 
         // Load the appropriate template
-        const templatePath = '/Kingsway/pages/fee_structure/' + templateFile;
+        const templatePath = (window.APP_BASE || '') + '/pages/fee_structure/' + templateFile;
 
         console.log('Fee Structure - Loading template:', templatePath);
 
@@ -169,13 +169,4 @@
                     '</div>';
             });
     })();
-</script>
-
-
-<script>
-    // Initialize fee structure management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        console.log('Fee Structure Management page loaded');
-        // TODO: Implement feeStructureController in js/pages/feeStructure.js
-    });
 </script>

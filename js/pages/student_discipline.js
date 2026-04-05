@@ -20,7 +20,7 @@ const StudentDisciplineController = {
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
@@ -95,13 +95,14 @@ const StudentDisciplineController = {
     }
 
     try {
-      const studentResp = await window.API.apiCall(
-        `/students?limit=500`,
-        "GET",
-      );
-      const payload = this.unwrapPayload(studentResp);
-      const students = payload?.students || payload || [];
-      this.data.students = Array.isArray(students) ? students : [];
+      const studentResp = await window.API.students.getAll({
+        page: 1,
+        limit: 500,
+        status: "active",
+      });
+      this.data.students = Array.isArray(studentResp?.data)
+        ? studentResp.data
+        : [];
       this.populateStudentDropdown();
     } catch (error) {
       console.warn("Failed to load students", error);

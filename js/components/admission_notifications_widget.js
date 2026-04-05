@@ -13,12 +13,42 @@
  */
 
 const AdmissionNotificationsWidget = {
+  normalizeResponse(response) {
+    const payload =
+      response?.data !== undefined
+        ? response.data
+        : response && typeof response === "object"
+          ? response
+          : null;
+
+    const looksLikeNotificationsPayload = Boolean(
+      payload &&
+        typeof payload === "object" &&
+        (Array.isArray(payload.pending_tasks) ||
+          typeof payload.total_count === "number"),
+    );
+
+    const explicitSuccess =
+      response?.success === true ||
+      response?.status === "success" ||
+      payload?.success === true ||
+      payload?.status === "success";
+
+    return {
+      payload,
+      ok: explicitSuccess || looksLikeNotificationsPayload,
+    };
+  },
+
   /**
    * Load and render admission notifications
    * @param {string} containerId - ID of the container element
    * @param {object} options - Configuration options
    */
   async load(containerId, options = {}) {
+    this._lastContainerId = containerId;
+    this._lastOptions = options;
+
     const container = document.getElementById(containerId);
     if (!container) {
       console.warn(
@@ -32,9 +62,10 @@ const AdmissionNotificationsWidget = {
       container.innerHTML = this.renderLoading();
 
       const response = await API.admission.getNotifications();
+      const { payload, ok } = this.normalizeResponse(response);
 
-      if (response.success && response.data) {
-        container.innerHTML = this.render(response.data, options);
+      if (ok && payload) {
+        container.innerHTML = this.render(payload, options);
       } else {
         container.innerHTML = this.renderEmpty();
       }
@@ -97,7 +128,7 @@ const AdmissionNotificationsWidget = {
                     </div>
                 </div>
                 <div class="card-footer bg-transparent text-center">
-                    <a href="/pages/manage_admissions.php" class="text-primary text-decoration-none small">
+                    <a href=(window.APP_BASE || "") + "/home.php?route=manage_students_admissions" class="text-primary text-decoration-none small">
                         View All Admissions <i class="bi bi-arrow-right"></i>
                     </a>
                 </div>
@@ -183,9 +214,10 @@ const AdmissionNotificationsWidget = {
   async getBadgeHtml() {
     try {
       const response = await API.admission.getNotifications();
+      const { payload, ok } = this.normalizeResponse(response);
 
-      if (response.success && response.data && response.data.total_count > 0) {
-        return `<span class="badge bg-danger rounded-pill">${response.data.total_count}</span>`;
+      if (ok && payload && payload.total_count > 0) {
+        return `<span class="badge bg-danger rounded-pill">${payload.total_count}</span>`;
       }
       return "";
     } catch (error) {
@@ -207,9 +239,10 @@ const AdmissionNotificationsWidget = {
 
     try {
       const response = await API.admission.getNotifications();
+      const { payload, ok } = this.normalizeResponse(response);
 
-      if (response.success && response.data && response.data.total_count > 0) {
-        badge.textContent = response.data.total_count;
+      if (ok && payload && payload.total_count > 0) {
+        badge.textContent = payload.total_count;
         badge.style.display = "inline";
       } else {
         badge.style.display = "none";

@@ -13,5 +13,5 @@
     <div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3"><div class="col-md-8"><input type="text" class="form-control" id="searchInput" placeholder="Filter IP Ranges..."></div><div class="col-md-4"><button class="btn btn-outline-secondary w-100" onclick="window._matrixCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button></div></div></div></div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-network-wired me-2"></i>IP Range / Rule Matrix</h6></div><div class="card-body" id="matrixContainer"><div class="text-center text-muted py-4">Loading matrix...</div></div></div>
 </div>
-<script src="/Kingsway/js/pages/system/matrix_grid_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/system/matrix_grid_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._matrixCtrl = new MatrixGridController({ title: 'IP Whitelist/Blacklist', apiEndpoint: '/system/ip-lists', rowLabel: 'IP Range', colLabel: 'Rule' });</script>
