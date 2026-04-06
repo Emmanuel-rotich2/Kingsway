@@ -438,81 +438,182 @@ class DirectorAnalyticsService
     public function getFinancialTrends()
     {
         $query = "
-            SELECT 
+            SELECT
                 DATE_FORMAT(payment_date, '%Y-%m') as month,
                 SUM(amount_paid) as collected,
+                SUM(CASE WHEN term_allocation > amount_paid THEN (term_allocation - amount_paid) ELSE 0 END) as outstanding,
                 YEAR(payment_date) as year
-            FROM payment_transactions 
+            FROM payment_transactions
             WHERE payment_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-            AND status = 'confirmed'
+              AND status = 'confirmed'
             GROUP BY DATE_FORMAT(payment_date, '%Y-%m'), YEAR(payment_date)
             ORDER BY month
         ";
-        $stmt = $this->db->query($query);
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->db->query($query);
+            $rows = $stmt->fetchAll();
+            return array_map(function ($r) {
+                return [
+                    'month' => $r['month'],
+                    'collected' => (float) ($r['collected'] ?? 0),
+                    'outstanding' => (float) ($r['outstanding'] ?? 0),
+                ];
+            }, $rows);
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     /**
      * Get revenue sources breakdown
+     * Returns: [{ source, amount, percentage }]
      */
     public function getRevenueSources()
     {
-        $query = "
-            SELECT 
-                'School Fees' as source,
-                SUM(amount_paid) as amount
-            FROM payment_transactions
-            WHERE payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01')
-            AND status = 'confirmed'
-        ";
-        $stmt = $this->db->query($query);
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->db->query("
+                SELECT
+                    COALESCE(pt.payment_method, 'Other') as source,
+                    SUM(pt.amount_paid) as amount
+                FROM payment_transactions pt
+                WHERE pt.payment_date >= DATE_FORMAT(CURDATE(), '%Y-01-01')
+                  AND pt.status = 'confirmed'
+                GROUP BY pt.payment_method
+                ORDER BY amount DESC
+            ");
+            $rows  = $stmt->fetchAll();
+            $total = array_sum(array_column($rows, 'amount'));
+            return array_map(function ($r) use ($total) {
+                return [
+                    'source'     => $r['source'] ?? 'Other',
+                    'amount'     => (float) ($r['amount'] ?? 0),
+                    'percentage' => $total > 0 ? round($r['amount'] / $total * 100, 1) : 0,
+                ];
+            }, $rows);
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     /**
      * Get academic KPIs
+     * Returns: active_classes, total_students, overall_avg_percent, pass_rate_percent,
+     *          mean_score (alias), pass_rate (alias), dropout_rate, transition_rate
      */
     public function getAcademicKPIs()
     {
-        $result = [];
+        $result = [
+            'active_classes'      => 0,
+            'total_students'      => 0,
+            'overall_avg_percent' => 0.0,
+            'mean_score'          => 0.0,
+            'pass_rate_percent'   => 0.0,
+            'pass_rate'           => 0.0,
+            'dropout_rate'        => 0.0,
+            'transition_rate'     => 85.0,
+        ];
 
-        // Mean score (simplified)
-        $query = "SELECT AVG(marks_obtained) as mean_score FROM assessment_results";
-        $stmt = $this->db->query($query);
-        $result['mean_score'] = round($stmt->fetch()['mean_score'] ?? 0, 1);
+        try {
+            $row = $this->db->query("SELECT COUNT(*) as cnt FROM classes WHERE status = 'active'")->fetch();
+            $result['active_classes'] = (int) ($row['cnt'] ?? 0);
+        } catch (\Exception $e) {}
 
-        // Pass rate
-        $query = "SELECT (SUM(CASE WHEN marks_obtained >= 50 THEN 1 ELSE 0 END) / COUNT(*)) * 100 as pass_rate FROM assessment_results";
-        $stmt = $this->db->query($query);
-        $result['pass_rate'] = round($stmt->fetch()['pass_rate'] ?? 0, 1);
+        try {
+            $row = $this->db->query("SELECT COUNT(*) as cnt FROM students WHERE status = 'active'")->fetch();
+            $result['total_students'] = (int) ($row['cnt'] ?? 0);
+        } catch (\Exception $e) {}
 
-        // Dropout rate (simplified)
-        $query = "SELECT (SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) / COUNT(*)) * 100 as dropout_rate FROM students";
-        $stmt = $this->db->query($query);
-        $result['dropout_rate'] = round($stmt->fetch()['dropout_rate'] ?? 0, 1);
+        // Merge avg and pass-rate into one scan of assessment_results JOIN assessments
+        try {
+            $row = $this->db->query("
+                SELECT
+                    AVG(
+                        CASE WHEN a.max_marks > 0
+                             THEN (ar.marks_obtained / a.max_marks) * 100
+                             ELSE ar.marks_obtained END
+                    ) as avg_pct,
+                    SUM(CASE WHEN a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 THEN 1 ELSE 0 END) as passed,
+                    COUNT(*) as total
+                FROM assessment_results ar
+                JOIN assessments a ON ar.assessment_id = a.id
+            ")->fetch();
 
-        // Transition rate (simplified)
-        $result['transition_rate'] = 85.0; // Placeholder
+            $avg = round((float) ($row['avg_pct'] ?? 0), 1);
+            $result['overall_avg_percent'] = $avg;
+            $result['mean_score']          = $avg;
+
+            $total  = (int) ($row['total'] ?? 0);
+            $passed = (int) ($row['passed'] ?? 0);
+            $rate   = $total > 0 ? round($passed / $total * 100, 1) : 0.0;
+            $result['pass_rate_percent'] = $rate;
+            $result['pass_rate']         = $rate;
+        } catch (\Exception $e) {}
+
+        try {
+            $row = $this->db->query(
+                "SELECT (SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)) * 100 as dropout_rate FROM students"
+            )->fetch();
+            $result['dropout_rate'] = round((float) ($row['dropout_rate'] ?? 0), 1);
+        } catch (\Exception $e) {}
 
         return $result;
     }
 
     /**
-     * Get performance matrix data
+     * Get performance matrix data — per-class avg score and student count
      */
     public function getPerformanceMatrix()
     {
         $query = "
-            SELECT 
-                'Grade 1' as class_name,
-                'Mathematics' as subject,
-                AVG(marks_obtained) as avg_score
-            FROM assessment_results
-            GROUP BY class_name, subject
-            LIMIT 10
+            SELECT
+                c.name as class_name,
+                COUNT(DISTINCT ar.student_id) as student_count,
+                ROUND(AVG(
+                    CASE WHEN a.max_marks > 0
+                         THEN (ar.marks_obtained / a.max_marks) * 100
+                         ELSE ar.marks_obtained
+                    END
+                ), 1) as avg_score,
+                ROUND(
+                    SUM(CASE WHEN a.max_marks > 0 AND (ar.marks_obtained / a.max_marks) * 100 >= 50 THEN 1 ELSE 0 END)
+                    / NULLIF(COUNT(*), 0) * 100
+                , 1) as pass_rate
+            FROM assessment_results ar
+            JOIN assessments a ON ar.assessment_id = a.id
+            JOIN classes c ON a.class_id = c.id
+            WHERE c.status = 'active'
+            GROUP BY c.id, c.name
+            ORDER BY c.name
         ";
-        $stmt = $this->db->query($query);
-        return $stmt->fetchAll();
+        try {
+            $stmt = $this->db->query($query);
+            $rows = $stmt->fetchAll();
+            if (!empty($rows)) {
+                return $rows;
+            }
+        } catch (\Exception $e) {
+            // fall through to class-only fallback
+        }
+
+        // Fallback: return classes with zero scores if no assessment data exists
+        $fallbackQuery = "
+            SELECT
+                c.name as class_name,
+                (SELECT COUNT(*) FROM students s
+                 JOIN class_streams cs ON s.stream_id = cs.id
+                 WHERE cs.class_id = c.id AND s.status = 'active') as student_count,
+                0.0 as avg_score,
+                0.0 as pass_rate
+            FROM classes c
+            WHERE c.status = 'active'
+            ORDER BY c.name
+        ";
+        try {
+            $stmt = $this->db->query($fallbackQuery);
+            return $stmt->fetchAll();
+        } catch (\Exception $e) {
+            return [];
+        }
     }
 
     /**
@@ -642,7 +743,6 @@ class DirectorAnalyticsService
         $result['absent_staff'] = $stmt->fetchAll();
 
         // 4. Summary statistics
-        $today = date('Y-m-d');
 
         // Today's student attendance summary
         $query = "
@@ -712,73 +812,108 @@ class DirectorAnalyticsService
     }
 
     /**
-     * Return academic KPIs as table rows
+     * Return academic KPIs as table rows for the DataTable
+     * Returns: [{ kpi, value, target, status }]
      */
     public function getAcademicKPIsTable()
     {
         $kpis = $this->getAcademicKPIs();
+
+        // Define display config for each KPI: label, target, thresholds
+        $config = [
+            'active_classes'      => ['label' => 'Active Classes',        'target' => null,  'good' => 1,  'suffix' => ''],
+            'total_students'      => ['label' => 'Total Students',         'target' => null,  'good' => 1,  'suffix' => ''],
+            'overall_avg_percent' => ['label' => 'Overall Avg Score (%)',  'target' => 70,    'good' => 70, 'suffix' => '%'],
+            'pass_rate_percent'   => ['label' => 'Pass Rate (%)',          'target' => 75,    'good' => 75, 'suffix' => '%'],
+            'dropout_rate'        => ['label' => 'Dropout Rate (%)',       'target' => 2,     'good' => -1, 'suffix' => '%'], // lower is better
+            'transition_rate'     => ['label' => 'Transition Rate (%)',    'target' => 85,    'good' => 85, 'suffix' => '%'],
+        ];
+
         $rows = [];
-        foreach ($kpis as $key => $value) {
+        foreach ($config as $key => $cfg) {
+            if (!array_key_exists($key, $kpis)) continue;
+            $value = $kpis[$key];
+            $target = $cfg['target'];
+
+            // Determine status
+            if ($target === null) {
+                $status = 'N/A';
+            } elseif ($cfg['good'] === -1) {
+                // Lower is better (dropout rate)
+                $status = ($value <= $target) ? 'Good' : 'Needs Attention';
+            } else {
+                $status = ($value >= $cfg['good']) ? 'Good' : (($value >= $cfg['good'] * 0.8) ? 'Fair' : 'Needs Attention');
+            }
+
             $rows[] = [
-                'kpi' => strtoupper(str_replace('_', ' ', $key)),
-                'value' => $value,
-                'target' => null,
-                'status' => 'Good'
+                'kpi'    => $cfg['label'],
+                'value'  => $value . $cfg['suffix'],
+                'target' => $target !== null ? $target . $cfg['suffix'] : '—',
+                'status' => $status,
             ];
         }
+
         return $rows;
     }
 
     /**
      * Get operational risks
+     * Returns: { pending_approvals, admissions_queue, discipline_cases, audit_logs }
      */
     public function getOperationalRisks()
     {
-        $result = [];
+        $result = [
+            'pending_approvals' => [],
+            'admissions_queue'  => [],
+            'discipline_cases'  => [],
+            'audit_logs'        => [],
+        ];
 
         // Pending approvals by type
-        $query = "
-            SELECT 
-                wd.name as workflow_type,
-                COUNT(*) as count
-            FROM workflow_instances wi
-            JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-            WHERE wi.status IN ('pending', 'in_progress')
-            GROUP BY wd.name
-        ";
-        $stmt = $this->db->query($query);
-        $result['pending_approvals'] = $stmt->fetchAll();
+        try {
+            $stmt = $this->db->query("
+                SELECT
+                    wd.name as workflow_type,
+                    COUNT(*) as count
+                FROM workflow_instances wi
+                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
+                WHERE wi.status IN ('pending', 'in_progress')
+                GROUP BY wd.name
+            ");
+            $result['pending_approvals'] = $stmt->fetchAll();
+        } catch (\Exception $e) {}
 
-        // Audit logs (recent) - include entity and ip_address
-        $query = "
-            SELECT 
-                al.action,
-                al.entity,
-                al.entity_id,
-                al.user_id,
-                al.ip_address,
-                al.created_at,
-                CONCAT(u.first_name, ' ', u.last_name) as user_name
-            FROM audit_logs al
-            LEFT JOIN users u ON al.user_id = u.id
-            ORDER BY al.created_at DESC
-            LIMIT 20
-        ";
-        $stmt = $this->db->query($query);
-        $result['audit_logs'] = $stmt->fetchAll();
+        // Audit logs (recent)
+        try {
+            $stmt = $this->db->query("
+                SELECT
+                    al.action,
+                    al.entity,
+                    al.entity_id,
+                    al.user_id,
+                    al.ip_address,
+                    al.created_at,
+                    CONCAT(u.first_name, ' ', u.last_name) as user_name
+                FROM audit_logs al
+                LEFT JOIN users u ON al.user_id = u.id
+                ORDER BY al.created_at DESC
+                LIMIT 20
+            ");
+            $result['audit_logs'] = $stmt->fetchAll();
+        } catch (\Exception $e) {}
 
-        // Add pending admissions and discipline summary using HeadteacherAnalyticsService where available
+        // Pending admissions and discipline cases
         try {
             $ht = new HeadteacherAnalyticsService();
+
             $pendingAdmissions = $ht->getPendingAdmissions();
             $result['admissions_queue'] = $pendingAdmissions['data'] ?? [];
 
             $disciplineCases = $ht->getDisciplineCases();
-            $result['discipline_summary'] = $disciplineCases['data'] ?? [];
+            $result['discipline_cases'] = $disciplineCases['data'] ?? [];
         } catch (\Exception $e) {
-            // If HeadteacherAnalyticsService unavailable for any reason, fallback to empty arrays
             $result['admissions_queue'] = [];
-            $result['discipline_summary'] = [];
+            $result['discipline_cases'] = [];
         }
 
         return $result;

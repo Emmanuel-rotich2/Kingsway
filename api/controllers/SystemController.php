@@ -106,6 +106,9 @@ class SystemController extends BaseController
     // GET /api/system/logs
     public function getLogs($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->readLogs($data);
         return $this->handleResponse($result);
     }
@@ -127,6 +130,9 @@ class SystemController extends BaseController
     // GET /api/system/school-config
     public function getSchoolConfig($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->getSchoolConfig($id);
         return $this->handleResponse($result);
     }
@@ -134,6 +140,9 @@ class SystemController extends BaseController
     // POST /api/system/school-config
     public function postSchoolConfig($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->setSchoolConfig($data);
         return $this->handleResponse($result);
     }
@@ -148,11 +157,10 @@ class SystemController extends BaseController
     /**
      * GET /api/system/auth-events
      * Returns authentication events (logins/logouts) for audit trail
-     * SECURITY: System Admin only
      */
     public function getAuthEvents($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 
@@ -211,11 +219,10 @@ class SystemController extends BaseController
     /**
      * GET /api/system/active-sessions
      * Returns currently active user sessions
-     * SECURITY: System Admin only
      */
     public function getActiveSessions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 
@@ -605,6 +612,44 @@ class SystemController extends BaseController
                     LEFT JOIN staff s ON s.id = po.created_by
                     LEFT JOIN users su ON su.id = s.user_id
                     WHERE po.status = 'pending'
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('payroll-', sp.id) AS id,
+                        'payroll' AS type,
+                        CONCAT('Payroll ', sp.payroll_period, ' awaiting approval') AS description,
+                        sp.net_salary AS amount,
+                        sp.status AS status,
+                        'high' AS priority,
+                        NULL AS created_by,
+                        NULL AS first_name,
+                        NULL AS last_name,
+                        sp.created_at AS submitted_at,
+                        NULL AS due_by
+                    FROM staff_payroll sp
+                    WHERE sp.status IN ('pending', 'verification')
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('expense-', e.id) AS id,
+                        'expense' AS type,
+                        CONCAT('Expense: ', COALESCE(e.description, e.expense_category)) AS description,
+                        e.amount AS amount,
+                        e.status AS status,
+                        CASE
+                            WHEN e.amount >= 50000 THEN 'high'
+                            ELSE 'medium'
+                        END AS priority,
+                        e.created_by AS created_by,
+                        u4.first_name,
+                        u4.last_name,
+                        e.created_at AS submitted_at,
+                        NULL AS due_by
+                    FROM expenses e
+                    LEFT JOIN users u4 ON u4.id = e.created_by
+                    WHERE e.status = 'pending'
                 ) approvals
                 ORDER BY
                     CASE approvals.priority
@@ -688,6 +733,24 @@ class SystemController extends BaseController
         }
 
         return $this->forbidden('System Administrator access required');
+    }
+
+    /**
+     * Allow System Admin, Director, or any user with wildcard permission.
+     * School owner (Director) has the same visibility as System Admin for
+     * operational endpoints such as audit logs, sessions, and school config.
+     */
+    private function ensureSystemOrDirectorAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if ($this->userHasPermission('*') || $this->userHasAny([], [], ['System Administrator', 'Director'])) {
+            return null;
+        }
+
+        return $this->forbidden('System Administrator or Director access required');
     }
 
     private function ensureDirectorOrSchoolAdminAccess()
@@ -1222,7 +1285,7 @@ class SystemController extends BaseController
      */
     public function getModules($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 

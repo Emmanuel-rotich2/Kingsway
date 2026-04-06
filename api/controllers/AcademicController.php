@@ -426,11 +426,26 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/exams/approve-results - Approve exam results
+     * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
+     * Body: { instance_id, approved (bool, default true), comments }
      */
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->approveExamResults($data['instance_id'] ?? null, $data);
+        if (!$this->userHasAny(
+            ['academic_approve', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to approve exam results');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $approved = isset($data['action'])
+            ? (strtolower($data['action']) === 'approve')
+            : (bool) ($data['approved'] ?? true);
+        $remarks = $data['comments'] ?? ($data['remarks'] ?? '');
+
+        $result = $this->api->approveExamResults($instanceId, $approved, $remarks);
         return $this->handleResponse($result);
     }
 
@@ -520,11 +535,21 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/promotions/execute - Execute promotions
+     * POST /api/academic/promotions/execute - Execute promotions (Director or students_promote)
+     * Body: { instance_id, apply_immediately (bool), effective_date (optional) }
      */
     public function postPromotionsExecute($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->executePromotions($data['instance_id'] ?? null, $data['promotion_data'] ?? [], $data);
+        if (!$this->userHasAny(
+            ['students_promote', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to execute student promotions');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $result = $this->api->executePromotions($instanceId, $data);
         return $this->handleResponse($result);
     }
 
@@ -722,21 +747,46 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum
+     * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
+     * Body: { instance_id, action (approve|reject), comments }
      */
     public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->reviewAndApproveCurriculum($data['instance_id'] ?? null, $data['decision'] ?? null, $data);
+        if (!$this->userHasAny(
+            ['academic_approve', 'curriculum_approve', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to approve curriculum changes');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $action = strtolower($data['action'] ?? ($data['decision'] ?? 'approve'));
+        $review = array_merge($data, [
+            'approved' => ($action === 'approve'),
+            'feedback' => $data['comments'] ?? ($data['feedback'] ?? []),
+        ]);
+
+        $result = $this->api->reviewAndApproveCurriculum($instanceId, $review);
         return $this->handleResponse($result);
     }
 
     // ==================== YEAR TRANSITION WORKFLOW ====================
 
     /**
-     * POST /api/academic/year-transition/start-workflow - Start year transition workflow
+     * POST /api/academic/year-transition/start-workflow - Start year transition workflow (Director only)
+     * Body: { from_year, to_year, year_start_date, year_end_date, terms[] }
      */
     public function postYearTransitionStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can start year transition workflows');
+        }
+
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startYearTransitionWorkflow($payload);
         return $this->handleResponse($result);
@@ -761,11 +811,22 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/year-transition/setup-new-year - Setup new academic year
+     * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
+     * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }
      */
     public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->setupNewAcademicYear($data['instance_id'] ?? null, $data['year_config'] ?? [], $data);
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can setup new academic year');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $yearConfig = $data['year_config'] ?? $data;
+        $result = $this->api->setupNewAcademicYear($instanceId, $yearConfig);
         return $this->handleResponse($result);
     }
 
@@ -877,12 +938,26 @@ class AcademicController extends BaseController
     }
 
     /**
-     * PUT /api/academic/years/set-current/{id} - Set year as current
+     * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
+     * Accepts year_id from URL segment (/set-current/5) or from request body (year_id or id)
      */
     public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
-        $yearId = $id ?? ($data['id'] ?? null);
-        $result = $this->api->setCurrentAcademicYear($yearId);
+        // Only Director (role_id=3) or System Admin (role_id=1) may change the current year
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin', 'systemadmin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can set the current academic year');
+        }
+
+        $yearId = $id ?? ($data['year_id'] ?? ($data['id'] ?? null));
+        if (!$yearId) {
+            return $this->badRequest('year_id is required');
+        }
+
+        $result = $this->api->setCurrentAcademicYear((int) $yearId);
         return $this->handleResponse($result);
     }
 

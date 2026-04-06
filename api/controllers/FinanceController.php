@@ -17,18 +17,32 @@ use App\Database\Database;
 
 class FinanceController extends BaseController
 {
-
-
     private FinanceAPI $api;
+    private ExpenseManager $expenseManager;
 
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
+        $this->expenseManager = new ExpenseManager();
     }
 
     public function index()
     {
         return $this->success(['message' => 'Finance API is running']);
+    }
+
+    /**
+     * Guard: Director role (3) or any finance approval permission required.
+     * Returns a forbidden response when access is denied, null when granted.
+     */
+    private function requireApprovalAccess(string $action = 'perform this approval'): ?array
+    {
+        if ($this->userHasAny(['finance_approve', 'payroll_approve', 'budget_approve',
+                               'fee_structure_approve', 'expense_approve', 'finance.approve'],
+                              [3], ['director'])) {
+            return null;
+        }
+        return $this->forbidden("Insufficient permissions to $action");
     }
 
     // ========================================
@@ -57,17 +71,18 @@ class FinanceController extends BaseController
 
     /**
      * POST /api/finance/department-budgets/approve
-     * Approve or reject a department budget proposal
+     * Approve or reject a department budget proposal.
+     * Accepts: proposal_id (or budget_id alias), status (default: approved), reviewed_by
      */
     public function postDepartmentBudgetsApprove($id = null, $data = [], $segments = [])
     {
-        // Expecting: $data['proposal_id'], $data['status'], $data['reviewed_by']
-        $proposalId = $data['proposal_id'] ?? null;
-        $status = $data['status'] ?? null;
-        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
-        if (!$proposalId || !$status) {
-            return $this->badRequest('proposal_id and status are required');
+        if ($denied = $this->requireApprovalAccess('approve department budgets')) return $denied;
+        $proposalId = $data['proposal_id'] ?? $data['budget_id'] ?? null;
+        if (!$proposalId) {
+            return $this->badRequest('proposal_id (or budget_id) is required');
         }
+        $status     = $data['status']      ?? 'approved';
+        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
         $result = $this->api->updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy);
         return $this->handleResponse($result);
     }
@@ -118,12 +133,16 @@ class FinanceController extends BaseController
      */
     public function postExpensesApprove($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve expenses')) return $denied;
         $expenseId = $data['expense_id'] ?? $id ?? null;
         if (!$expenseId) {
             return $this->badRequest('expense_id is required');
         }
-        $manager = new ExpenseManager();
-        $result = $manager->approveExpense($expenseId, $this->getCurrentUserId(), $data['notes'] ?? null);
+        $result = $this->expenseManager->approveExpense(
+            $expenseId,
+            $this->getCurrentUserId(),
+            $data['notes'] ?? $data['comments'] ?? null
+        );
         return $this->handleResponse($result);
     }
 
@@ -132,12 +151,15 @@ class FinanceController extends BaseController
      */
     public function postExpensesReject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('reject expenses')) return $denied;
         $expenseId = $data['expense_id'] ?? $id ?? null;
         if (!$expenseId) {
             return $this->badRequest('expense_id is required');
         }
-        $manager = new ExpenseManager();
-        $result = $manager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason'] ?? 'Rejected');
+        if (empty($data['reason'])) {
+            return $this->badRequest('reason is required when rejecting an expense');
+        }
+        $result = $this->expenseManager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason']);
         return $this->handleResponse($result);
     }
 
@@ -302,6 +324,8 @@ class FinanceController extends BaseController
      */
     public function postPayrollsApprove($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
+        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
         $result = $this->api->approvePayroll($data);
         return $this->handleResponse($result);
     }
@@ -311,6 +335,8 @@ class FinanceController extends BaseController
      */
     public function postPayrollsReject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('reject payroll')) return $denied;
+        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
         $result = $this->api->rejectPayroll($data);
         return $this->handleResponse($result);
     }
@@ -620,6 +646,8 @@ class FinanceController extends BaseController
      */
     public function postFeesApproveStructure($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve fee structures')) return $denied;
+        $data['approved_by'] = $data['approved_by'] ?? $this->getCurrentUserId();
         $result = $this->api->approveFeeStructure($data);
         return $this->handleResponse($result);
     }
