@@ -155,6 +155,81 @@ class SystemController extends BaseController
     }
 
     /**
+     * GET /api/system/activity-audit-logs
+     * Returns activity audit log entries with filtering and pagination
+     */
+    public function getActivityAuditLogs($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
+        $filters = array_merge($_GET, $data ?? []);
+        $limit   = min((int)($filters['limit'] ?? 100), 500);
+        $offset  = (int)($filters['offset'] ?? 0);
+        $search  = $filters['search'] ?? '';
+        $level   = $filters['severity'] ?? '';
+        $from    = $filters['date_from'] ?? '';
+        $to      = $filters['date_to'] ?? '';
+
+        $where  = ['1=1'];
+        $params = [];
+
+        if ($search !== '') {
+            $where[]  = '(message LIKE ? OR source LIKE ? OR user LIKE ?)';
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+        }
+        if ($level !== '') {
+            $where[]  = 'level = ?';
+            $params[] = $level;
+        }
+        if ($from !== '') {
+            $where[]  = 'created_at >= ?';
+            $params[] = $from . ' 00:00:00';
+        }
+        if ($to !== '') {
+            $where[]  = 'created_at <= ?';
+            $params[] = $to . ' 23:59:59';
+        }
+
+        $whereClause = implode(' AND ', $where);
+
+        try {
+            $countStmt = $this->db->prepare("SELECT COUNT(*) FROM activity_logs WHERE $whereClause");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+
+            $stmt = $this->db->prepare(
+                "SELECT id, level, message, source, user, ip_address, created_at
+                 FROM activity_logs
+                 WHERE $whereClause
+                 ORDER BY created_at DESC
+                 LIMIT ? OFFSET ?"
+            );
+            $stmt->execute(array_merge($params, [$limit, $offset]));
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $errors   = count(array_filter($rows, fn($r) => ($r['level'] ?? '') === 'error'));
+            $warnings = count(array_filter($rows, fn($r) => ($r['level'] ?? '') === 'warning'));
+            $today    = count(array_filter($rows, fn($r) => str_starts_with($r['created_at'] ?? '', date('Y-m-d'))));
+
+            return $this->success([
+                'data'  => $rows,
+                'stats' => ['total' => $total, 'errors' => $errors, 'warnings' => $warnings, 'today' => $today],
+                'pagination' => ['limit' => $limit, 'offset' => $offset, 'total' => $total],
+            ]);
+        } catch (\Throwable $e) {
+            // Table may not exist — return empty gracefully
+            return $this->success([
+                'data'  => [],
+                'stats' => ['total' => 0, 'errors' => 0, 'warnings' => 0, 'today' => 0],
+                'pagination' => ['limit' => $limit, 'offset' => $offset, 'total' => 0],
+            ]);
+        }
+    }
+
+    /**
      * GET /api/system/auth-events
      * Returns authentication events (logins/logouts) for audit trail
      */
