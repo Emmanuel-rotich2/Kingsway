@@ -10,6 +10,7 @@ use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\MenuBuilderService;
 use App\API\Services\SystemConfigService;
+use App\Config\DashboardRouter;
 use App\Services\PolicyEngine;
 use Firebase\JWT\JWT;
 
@@ -408,7 +409,7 @@ class AuthAPI extends BaseAPI
                 try {
                     $roleForDashboard = $primaryRoleId ?? ($primaryRole ?? (!empty($userRoles) ? $userRoles[0] : null));
                     if ($roleForDashboard !== null) {
-                        $dashboardKey = \DashboardRouter::getDashboardForRole($roleForDashboard);
+                        $dashboardKey = DashboardRouter::getDashboardForRole($roleForDashboard);
                         if (!empty($dashboardKey)) {
                             // Attempt to read dashboard record by name
                             $dashboardInfo = $this->getConfigService()->getDashboardByName($dashboardKey);
@@ -439,7 +440,7 @@ class AuthAPI extends BaseAPI
 
             // Still no dashboard info? fall back to a safe default (system default dashboard)
             if (empty($dashboardInfo)) {
-                $defaultRoute = $defaultRoute ?? \DashboardRouter::getDefaultDashboard();
+                $defaultRoute = $defaultRoute ?? DashboardRouter::getDefaultDashboard();
                 $dashboardInfo = [
                     'name' => $defaultRoute,
                     'display_name' => ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $defaultRoute)))
@@ -447,7 +448,7 @@ class AuthAPI extends BaseAPI
             }
 
             // Ensure defaultRoute is set (route name/key)
-            $defaultRoute = $dashboardInfo['name'] ?? $defaultRoute ?? \DashboardRouter::getDefaultDashboard();
+            $defaultRoute = $dashboardInfo['name'] ?? $defaultRoute ?? DashboardRouter::getDefaultDashboard();
 
             // Normalize user permissions to codes and merge delegated permissions
             $userData = $this->normalizeUserPermissions($userData);
@@ -466,9 +467,9 @@ class AuthAPI extends BaseAPI
             // Determine the role to resolve dashboard for (prefer primary role id)
             $roleForDashboard = $primaryRoleId ?? ($primaryRole ?? (!empty($userRoles) ? $userRoles[0] : null));
             if ($roleForDashboard !== null) {
-                $resolvedKey = $dashboardInfo['name'] ?? \DashboardRouter::getDashboardForRole($roleForDashboard);
+                $resolvedKey = $dashboardInfo['name'] ?? DashboardRouter::getDashboardForRole($roleForDashboard);
             } else {
-                $resolvedKey = $dashboardInfo['name'] ?? \DashboardRouter::getDefaultDashboard();
+                $resolvedKey = $dashboardInfo['name'] ?? DashboardRouter::getDefaultDashboard();
             }
 
             // Normalize resolvedKey to ensure it's a route name, not full URL
@@ -480,7 +481,7 @@ class AuthAPI extends BaseAPI
             $resolvedLabel = $dashboardInfo['display_name'] ?? ($dashboardInfo['title'] ?? ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $resolvedKey))));
 
             // If we fell back to system default and role is known, try to find a role-specific dashboard by name
-            if ($resolvedKey === \DashboardRouter::getDefaultDashboard() && $roleForDashboard !== null) {
+            if ($resolvedKey === DashboardRouter::getDefaultDashboard() && $roleForDashboard !== null) {
                 // Try to determine role name from the provided context (prefer userData.roles)
                 $roleName = null;
                 if (!empty($userData['roles'])) {
@@ -646,13 +647,13 @@ class AuthAPI extends BaseAPI
 
         // Get dashboard key using DashboardRouter (prefer role ID if available)
         if ($primaryRoleId) {
-            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRoleId);
+            $dashboardKey = DashboardRouter::getDashboardForRole($primaryRoleId);
 
             // Try to get menu items using role ID as key
             $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
             $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
         } elseif ($primaryRole) {
-            $dashboardKey = \DashboardRouter::getDashboardForRole($primaryRole);
+            $dashboardKey = DashboardRouter::getDashboardForRole($primaryRole);
 
             // Fall back to role name lookup if role ID wasn't provided
             if ($primaryRoleId) {
@@ -719,7 +720,7 @@ class AuthAPI extends BaseAPI
         }
 
         // Determine dashboard details
-        $dashboardKeyResolved = $dashboardKey ?? \DashboardRouter::getDashboardForRole($primaryRoleId ?? $primaryRole);
+        $dashboardKeyResolved = $dashboardKey ?? DashboardRouter::getDashboardForRole($primaryRoleId ?? $primaryRole);
 
         // Normalize dashboard key to ensure it's a route name, not full URL
         if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
