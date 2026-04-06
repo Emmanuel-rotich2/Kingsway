@@ -1,13 +1,15 @@
 # Composer dependencies
 /vendor/
 ./vendor
-/config/config.php
+/uploads/
+/*.lock
 
 /.claude
+/uploads/
 
-./htaccess
 .htaccess
 /.htaccess
+
 
 /tests/
 /logs/*.log
@@ -17,7 +19,6 @@
 
 ./AGENTS.md
 ./CLAUDE.md
-config/config-production.php
 
 # IDE and editor files
 *.swp
@@ -39,10 +40,6 @@ Thumbs.db
 logs/
 *.log
 
-# Environment/config files
-.env
-.env.*
-config/db_connection.php
 
 # Cache
 cache/
@@ -63,3 +60,6 @@ cache/
 
 # Ignore documentation build output
 /docs/_build/
+# Environment files
+.env
+config/.env
