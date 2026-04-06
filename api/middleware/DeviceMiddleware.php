@@ -97,11 +97,17 @@ class DeviceMiddleware
     private static function deny($code, $message)
     {
         http_response_code($code);
-        echo json_encode([
-            'status' => 'error',
+        if (!headers_sent()) {
+            header('Content-Type: application/json; charset=utf-8');
+        }
+        $payload = json_encode([
+            'status'  => 'error',
             'message' => $message,
-            'code' => $code
+            'code'    => $code,
         ]);
+        echo $payload !== false
+            ? $payload
+            : '{"status":"error","message":"Internal error","code":500}';
         exit;
     }
 }
