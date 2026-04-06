@@ -4,9 +4,11 @@ RewriteEngine On
 RewriteBase /Kingsway/
 
 # API routing: /Kingsway/api/* -> /Kingsway/api/index.php
+RewriteCond %{REQUEST_FILENAME} !-f
 RewriteRule ^api/(.*)$ api/index.php [L,QSA]
 
 # Protect api directory from direct execution of PHP files except index.php
+RewriteCond %{REQUEST_URI} !^/Kingsway/api/index\.php$
 RewriteRule ^api/[^/]+\.php$ - [F]
 
 # Frontend page routing: exclude files/directories and api requests

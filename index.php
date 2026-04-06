@@ -419,6 +419,13 @@ ini_set('display_errors', 1);
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    <?php
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') $appBase = '';
+    ?>
+    window.APP_BASE = <?php echo json_encode($appBase); ?>;
+  </script>
   <script src="js/api.js?v=<?php echo time(); ?>"></script>
   <script src="js/sidebar.js?v=<?php echo time(); ?>"></script>
   
