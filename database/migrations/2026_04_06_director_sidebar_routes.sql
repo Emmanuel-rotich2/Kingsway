@@ -34,6 +34,18 @@ CREATE TABLE IF NOT EXISTS `backup_director_role_routes_20260406`
 DELETE FROM role_sidebar_menus
 WHERE role_id = 3 AND menu_item_id IN (101, 102, 104, 106, 107, 108, 109, 110);
 
+-- Also remove any other non-Director dashboard items that may exist
+-- (e.g. hod_talent_development_dashboard, driver_dashboard, deputy_head dashboards, etc.)
+DELETE FROM role_sidebar_menus
+WHERE role_id = 3
+AND menu_item_id IN (
+    SELECT smi.id
+    FROM sidebar_menu_items smi
+    JOIN routes r ON r.id = smi.route_id
+    WHERE r.name LIKE '%dashboard%'
+      AND r.name != 'director_owner_dashboard'
+);
+
 -- ----------------------------------------------------------------------------
 -- STEP B: Populate role_routes for Director from sidebar_menu_items
 -- This ensures every route linked to a Director sidebar item is authorized.
