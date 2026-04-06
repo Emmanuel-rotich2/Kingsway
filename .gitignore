@@ -40,10 +40,6 @@ Thumbs.db
 logs/
 *.log
 
-# Environment/config files
-.env
-.env.*
-config/db_connection.php
 
 # Cache
 cache/
