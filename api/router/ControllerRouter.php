@@ -170,11 +170,13 @@ class ControllerRouter
                 ];
             }
 
+            // Guard against non-JSON-serializable types (objects, resources, etc.)
             if (!is_numeric($result) && !is_bool($result) && $result !== null) {
                 return $this->abort(500,
                     'Controller returned non-serializable type: ' . gettype($result)
                 );
             }
+
             return [
                 'status' => 'success',
                 'data'   => $result,
