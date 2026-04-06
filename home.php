@@ -47,33 +47,7 @@ $roles = [$main_role];
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link rel="stylesheet" href="<?= $appBase ?>/king.css">
     <style>
-        #route-guard-loading {
-            position: fixed;
-            inset: 0;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background: rgba(248, 249, 250, 0.92);
-            z-index: 2000;
-            padding: 1.5rem;
-        }
-
-        #route-guard-loading .route-guard-card {
-            width: min(420px, 100%);
-            border-radius: 18px;
-            background: #ffffff;
-            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
-            padding: 1.5rem;
-            text-align: center;
-        }
-
-        html.route-guard-pending #route-guard-loading {
-            display: flex;
-        }
-
-        html.route-guard-pending #main-content-segment {
-            visibility: hidden;
-        }
+        /* route-guard overlay removed — PHP already serves the correct page */
     </style>
     
     <!-- JavaScript Dependencies -->
@@ -92,9 +66,7 @@ $roles = [$main_role];
         window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
         window.REQUESTED_ROUTE = <?php echo json_encode($route); ?>;
 
-            if (window.REQUESTED_ROUTE && window.REQUESTED_ROUTE !== "loading") {
-                document.documentElement.classList.add("route-guard-pending");
-            }
+            // Route guard overlay removed — content is served directly by PHP
     </script>
 </head>
 
@@ -107,13 +79,6 @@ $roles = [$main_role];
                     <span class="notification-message"></span>
                 </div>
             </div>
-        </div>
-    </div>
-    <div id="route-guard-loading" aria-live="polite" aria-busy="true">
-        <div class="route-guard-card">
-            <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true"></div>
-            <div class="fw-semibold mb-1">Checking page access</div>
-            <div class="text-muted" data-route-guard-message>Loading page...</div>
         </div>
     </div>
 
@@ -163,16 +128,11 @@ $roles = [$main_role];
 
                 if (route !== 'loading' && routeAccess && typeof routeAccess.authorizeRoute === 'function') {
                     try {
-                        routeAccess.setPending(true, 'Checking page access...');
                         const authorization = await routeAccess.authorizeRoute(route);
-
                         if (!authorization.authorized) {
                             console.warn('Route not permitted for current user. Redirecting.', authorization);
                             showNotification('You are not allowed to open that page.', NOTIFICATION_TYPES.WARNING);
-                            const redirected = await routeAccess.redirectToAllowedRoute(route);
-                            if (!redirected) {
-                                routeAccess.revealProtectedContent();
-                            }
+                            await routeAccess.redirectToAllowedRoute(route);
                             return;
                         }
                     } catch (e) {
@@ -192,12 +152,6 @@ $roles = [$main_role];
                     console.log('No dashboard info, using role:', role);
                     // Let the page load and show a default view
                 }
-            }
-
-            if (routeAccess && typeof routeAccess.revealProtectedContent === 'function') {
-                routeAccess.revealProtectedContent();
-            } else {
-                document.documentElement.classList.remove('route-guard-pending');
             }
 
             console.log('Authenticated as:', AuthContext.getUser().username);
