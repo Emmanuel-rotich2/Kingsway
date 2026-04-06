@@ -1,4 +1,6 @@
 <?php
+
+namespace App\Config;
 // permissions.php - Permission and Role helper functions
 
 /**

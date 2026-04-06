@@ -8,14 +8,13 @@ class ControllerRouter
 {
     public function __construct()
     {
-        // Write a test entry to router_debug.log on every instantiation
         if (php_sapi_name() !== 'cli') {
-            $logDir = dirname(__DIR__, 2) . '/logs';
-            if (!is_dir($logDir)) {
-                mkdir($logDir, 0755, true);
+            $logFile = $this->ensureLogDir() . '/router_debug.log';
+            try {
+                $entry = json_encode(['router_debug_test' => 'init', 'ts' => date('c')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            } catch (\JsonException $e) {
+                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
             }
-            $logFile = $logDir . '/router_debug.log';
-            $entry = json_encode(['router_debug_test' => 'init', 'ts' => date('c')]) . "\n";
             @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
         }
     }
@@ -171,9 +170,16 @@ class ControllerRouter
                 ];
             }
 
+            // Guard against non-JSON-serializable types (objects, resources, etc.)
+            if (!is_numeric($result) && !is_bool($result) && $result !== null) {
+                return $this->abort(500,
+                    'Controller returned non-serializable type: ' . gettype($result)
+                );
+            }
+
             return [
                 'status' => 'success',
-                'data' => $result
+                'data'   => $result,
             ];
 
         } catch (Exception $e) {
@@ -197,13 +203,12 @@ class ControllerRouter
                     $controllerMap[$key] = 'App\\API\\Controllers\\' . $base;
                 }
             }
-            // Log the controller map for diagnostics
-            $logDir = dirname(__DIR__, 2) . '/logs';
-            if (!is_dir($logDir)) {
-                mkdir($logDir, 0755, true);
+            $logFile = $this->ensureLogDir() . '/router_debug.log';
+            try {
+                $entry = json_encode(['controllerMap' => $controllerMap, 'ts' => date('c')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            } catch (\JsonException $e) {
+                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
             }
-            $logFile = $logDir . '/router_debug.log';
-            $entry = json_encode(['controllerMap' => $controllerMap, 'ts' => date('c')]) . "\n";
             @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
         }
         $key = strtolower($controllerName);
@@ -315,21 +320,26 @@ class ControllerRouter
         ];
     }
 
-    /**
-     * Write router debug entry to logs/router_debug.log
-     * @param array $data
-     */
+    private function ensureLogDir(): string
+    {
+        $logDir = dirname(__DIR__, 2) . '/logs';
+        if (!is_dir($logDir)) {
+            mkdir($logDir, 0755, true);
+        }
+        return $logDir;
+    }
+
     private function writeRouterDebugLog(array $data)
     {
         try {
-            // Use absolute path to logs directory
-            $logDir = dirname(__DIR__, 2) . '/logs';
-            if (!is_dir($logDir)) {
-                mkdir($logDir, 0755, true);
-            }
+            $logDir = $this->ensureLogDir();
             $logFile = $logDir . '/router_debug.log';
             $errFile = $logDir . '/errors.log';
-            $entry = json_encode($data) . "\n";
+            try {
+                $entry = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            } catch (\JsonException $e) {
+                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
+            }
             // Always try to write to both logs
             file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
             file_put_contents($errFile, '[ROUTER_DEBUG] ' . $entry, FILE_APPEND | LOCK_EX);

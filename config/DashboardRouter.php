@@ -13,6 +13,7 @@
  * @package App\Config
  * @since 2025-12-28
  */
+namespace App\Config;
 
 require_once __DIR__ . '/../database/Database.php';
 

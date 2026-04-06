@@ -929,12 +929,18 @@ class StudentsAPI extends BaseAPI
     private function mapStudentStatusToEnrollmentStatus(string $studentStatus): string
     {
         $normalized = strtolower(trim($studentStatus));
-        return match ($normalized) {
-            'graduated' => 'graduated',
-            'transferred' => 'transferred',
-            'inactive', 'suspended' => 'withdrawn',
-            default => 'active',
-        };
+
+        switch ($normalized) {
+            case 'graduated':
+                return 'graduated';
+            case 'transferred':
+                return 'transferred';
+            case 'inactive':
+            case 'suspended':
+                return 'withdrawn';
+            default:
+                return 'active';
+        }
     }
 
     private function resolveClassFromStream(int $streamId): ?array
