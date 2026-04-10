@@ -405,6 +405,94 @@ class TransportController extends BaseController
     }
 
     /**
+     * GET /api/transport/my-route
+     * Returns the route assigned to the authenticated driver
+     */
+    public function getMyRoute($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return $this->success(['route' => null, 'message' => 'No user context']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("
+                SELECT r.* FROM transport_routes r
+                INNER JOIN route_drivers rd ON rd.route_id = r.id
+                WHERE rd.driver_id = :uid
+                ORDER BY r.id DESC LIMIT 1
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $route = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $this->success($route ?: null);
+        } catch (\Exception $e) {
+            return $this->success(null);
+        }
+    }
+
+    /**
+     * GET /api/transport/my-vehicle
+     * Returns the vehicle assigned to the authenticated driver
+     */
+    public function getMyVehicle($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return $this->success(['vehicle' => null, 'message' => 'No user context']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("
+                SELECT v.* FROM vehicles v
+                INNER JOIN driver_vehicles dv ON dv.vehicle_id = v.id
+                WHERE dv.driver_id = :uid
+                ORDER BY v.id DESC LIMIT 1
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $vehicle = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $this->success($vehicle ?: null);
+        } catch (\Exception $e) {
+            return $this->success(null);
+        }
+    }
+
+    /**
+     * POST /api/transport/attendance
+     * Records student attendance for a route
+     * Body: { date, present_student_ids: [] }
+     */
+    public function postAttendance($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        $date = $data['date'] ?? date('Y-m-d');
+        $presentIds = $data['present_student_ids'] ?? [];
+
+        if (empty($presentIds)) {
+            return $this->success(['recorded' => 0, 'message' => 'No student IDs provided']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $recorded = 0;
+            foreach ($presentIds as $studentId) {
+                $stmt = $db->prepare("
+                    INSERT INTO transport_attendance (driver_id, student_id, date, status, created_at)
+                    VALUES (:did, :sid, :date, 'present', NOW())
+                    ON DUPLICATE KEY UPDATE status = 'present', updated_at = NOW()
+                ");
+                $stmt->execute([
+                    ':did'  => $userId,
+                    ':sid'  => (int) $studentId,
+                    ':date' => $date,
+                ]);
+                $recorded++;
+            }
+            return $this->success(['recorded' => $recorded, 'date' => $date]);
+        } catch (\Exception $e) {
+            return $this->success(['recorded' => 0, 'message' => 'Table not available']);
+        }
+    }
+
+    /**
      * Get current authenticated user ID
      */
     private function getCurrentUserId()

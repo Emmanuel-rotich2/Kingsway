@@ -796,4 +796,43 @@ class StaffController extends BaseController
 
         return $this->success($result);
     }
+
+    /**
+     * GET /api/staff/my-schedule
+     * Returns the timetable/schedule for the authenticated staff member
+     */
+    public function getMySchedule($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->user['id'] ?? null;
+        if (!$userId) {
+            return $this->success([]);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            // Try timetable_entries first
+            $stmt = $db->prepare("
+                SELECT te.*, s.name AS subject_name, c.name AS class_name
+                FROM timetable_entries te
+                LEFT JOIN subjects s ON s.id = te.subject_id
+                LEFT JOIN classes c ON c.id = te.class_id
+                WHERE te.staff_id = :uid
+                ORDER BY te.day_of_week, te.start_time
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($entries ?: []);
+        } catch (\Exception $e) {
+            try {
+                $db = \App\Database\Database::getInstance();
+                $stmt = $db->prepare("
+                    SELECT * FROM staff_schedules WHERE staff_id = :uid ORDER BY day_of_week, start_time
+                ");
+                $stmt->execute([':uid' => $userId]);
+                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                return $this->success($rows ?: []);
+            } catch (\Exception $e2) {
+                return $this->success([]);
+            }
+        }
+    }
 }

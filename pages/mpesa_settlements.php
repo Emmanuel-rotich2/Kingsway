@@ -11,7 +11,6 @@
  */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
 
 <div>
     <!-- Page Header -->
