@@ -43,6 +43,10 @@ class AuthMiddleware
             'payments/kcb-transfer-callback',
             'payments/kcb-notification',
             'payments/bank-webhook',
+            // Parent portal auth endpoints (use their own session tokens, not staff JWT)
+            'parent-portal/login',
+            'parent-portal/login-otp-request',
+            'parent-portal/login-otp-verify',
         ];
 
         // Check if current request is to a public endpoint
@@ -50,6 +54,14 @@ class AuthMiddleware
             if (strpos($path, $endpoint) !== false) {
                 return;
             }
+        }
+
+        // Parent portal routes bypass staff JWT auth entirely.
+        // Authenticated parent-portal endpoints enforce auth via $this->parentId checks
+        // in ParentPortalController (populated from $_SERVER['parent_auth'] set by
+        // ParentAuthMiddleware, which is invoked selectively per request context).
+        if (strpos($path, 'parent-portal/') !== false) {
+            return;
         }
 
         // TEST MODE: Accept X-Test-Token header to inject test user
