@@ -1099,4 +1099,119 @@ class FinanceController extends BaseController
     {
         return $this->user['id'] ?? null;
     }
+
+    // ========================================
+    // SECTION 8: Fee Bundle Workflow
+    // ========================================
+
+    /**
+     * POST /api/finance/fees-bundle-submit
+     * Accountant submits a fee structure bundle for director review
+     */
+    public function postFeesBundleSubmit($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['level_id']) || empty($data['academic_year']) || empty($data['term_id']) || empty($data['student_type_id'])) {
+            return $this->badRequest('level_id, academic_year, term_id, student_type_id are required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['submitted_by'] = $userId;
+        $result = $this->api->submitFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-bundle-review/{id}
+     * Finance manager reviews a submitted bundle
+     */
+    public function postFeesBundleReview($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('approval_id required');
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['approval_id'] = $id;
+        $data['reviewed_by'] = $userId;
+        if (empty($data['action'])) return $this->badRequest('action (approve|reject) required');
+        $result = $this->api->reviewFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-bundle-approve/{id}
+     * Director approves or rejects a fee structure bundle.
+     * On approval, automatically generates student_fee_obligations for all affected students.
+     */
+    public function postFeesBundleApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('approval_id required');
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['approval_id'] = $id;
+        $data['approved_by'] = $userId;
+        if (empty($data['action'])) return $this->badRequest('action (approve|reject) required');
+        $result = $this->api->approveFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fees-bundle-list
+     * List all fee structure bundles with status, for director review queue
+     * Query params: status, academic_year, term_id, level_id, page, limit
+     */
+    public function getFeesBundleList($id = null, $data = [], $segments = [])
+    {
+        $filters = [
+            'status'        => $data['status'] ?? $_GET['status'] ?? null,
+            'academic_year' => $data['academic_year'] ?? $_GET['academic_year'] ?? null,
+            'term_id'       => $data['term_id'] ?? $_GET['term_id'] ?? null,
+            'level_id'      => $data['level_id'] ?? $_GET['level_id'] ?? null,
+            'page'          => (int)($data['page'] ?? $_GET['page'] ?? 1),
+            'limit'         => (int)($data['limit'] ?? $_GET['limit'] ?? 20),
+        ];
+        $result = $this->api->getFeeStructureBundles($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-activate-generate-obligations
+     * Manually trigger obligation generation for an approved bundle
+     */
+    public function postFeesActivateGenerateObligations($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['level_id']) || empty($data['academic_year']) || empty($data['term_id']) || empty($data['student_type_id'])) {
+            return $this->badRequest('level_id, academic_year, term_id, student_type_id are required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->activateAndGenerateObligations(
+            $data['level_id'], $data['academic_year'], $data['term_id'], $data['student_type_id'], $userId
+        );
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
+    // SECTION 9: Student Billing History
+    // ========================================
+
+    /**
+     * GET /api/finance/students-billing-history/{id}
+     * Full billing history for a student across all years and terms
+     */
+    public function getStudentsBillingHistory($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        $result = $this->api->getStudentBillingHistory((int)$id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/class-billing-report/{id}
+     * Class-level billing report — all students, their balances and payment status
+     * Query params: academic_year_id (required), term_id (optional)
+     */
+    public function getClassBillingReport($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('class_id required');
+        $academicYearId = $data['academic_year_id'] ?? $_GET['academic_year_id'] ?? null;
+        if (!$academicYearId) return $this->badRequest('academic_year_id required');
+        $termId = $data['term_id'] ?? $_GET['term_id'] ?? null;
+        $result = $this->api->getClassBillingReport((int)$id, (int)$academicYearId, $termId ? (int)$termId : null);
+        return $this->handleResponse($result);
+    }
 }

@@ -2672,4 +2672,64 @@ class FinanceAPI extends BaseAPI
             $spStmt->closeCursor();
         }
     }
+
+    // ========================================================================
+    // FEE BUNDLE WORKFLOW — public wrappers delegating to FeeManager
+    // ========================================================================
+
+    /**
+     * Submit a fee structure bundle for director review
+     */
+    public function submitFeeStructureBundle($data)
+    {
+        return $this->feeManager->submitFeeStructureBundle($data);
+    }
+
+    /**
+     * Finance manager reviews a submitted bundle
+     */
+    public function reviewFeeStructureBundle($data)
+    {
+        return $this->feeManager->reviewFeeStructureBundle($data);
+    }
+
+    /**
+     * Director approves or rejects a fee structure bundle
+     */
+    public function approveFeeStructureBundle($data)
+    {
+        return $this->feeManager->approveFeeStructureBundle($data);
+    }
+
+    /**
+     * List fee structure bundles with optional filters
+     */
+    public function getFeeStructureBundles($filters)
+    {
+        return $this->feeManager->getFeeStructureBundles($filters);
+    }
+
+    /**
+     * Manually trigger obligation generation for an approved bundle
+     */
+    public function activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId)
+    {
+        return $this->feeManager->activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId);
+    }
+
+    /**
+     * Full billing history for a student across all years and terms
+     */
+    public function getStudentBillingHistory($studentId)
+    {
+        return $this->feeManager->getStudentBillingHistory($studentId);
+    }
+
+    /**
+     * Class-level billing report — all students, balances and payment status
+     */
+    public function getClassBillingReport($classId, $academicYearId, $termId = null)
+    {
+        return $this->feeManager->getClassBillingReport($classId, $academicYearId, $termId);
+    }
 }
