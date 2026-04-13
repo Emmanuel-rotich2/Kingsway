@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Discipline - Admin Layout
  * Full featured for System Admin, Director, Headteacher, Deputy Heads
- * 
+ *
  * Features:
  * - Full sidebar
  * - 4 stat cards with trends
@@ -12,173 +13,129 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/admin-theme.css">
+<!-- Header Actions -->
+<div class="header-actions" style="margin-bottom: 1rem;">
+    <button class="btn btn-outline" onclick="exportCases()">📥 Export</button>
+    <button class="btn btn-primary" onclick="showNewCaseModal()">➕ New Case</button>
+</div>
 
-<div class="admin-layout">
-    <!-- Full Sidebar -->
-    <aside class="admin-sidebar" id="adminSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
-            <h3>Kingsway Academy</h3>
+<!-- Stats Row - 4 cards -->
+<div class="admin-stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon bg-warning">📋</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalCases">0</span>
+            <span class="stat-label">Total Cases</span>
+            <span class="stat-trend" id="casesTrend">This Term</span>
         </div>
-
-        <nav class="sidebar-nav">
-            <div class="nav-section">
-                <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="nav-item">🏠 Dashboard</a>
-                <a href="/pages/all_students.php" class="nav-item">👨‍🎓 Students</a>
-            </div>
-            <div class="nav-section">
-                <span class="nav-section-title">Student Welfare</span>
-                <a href="/pages/discipline_cases.php" class="nav-item active">⚖️ Discipline</a>
-                <a href="/pages/counseling_records.php" class="nav-item">🧠 Counseling</a>
-                <a href="/pages/conduct_reports.php" class="nav-item">📋 Conduct</a>
-            </div>
-        </nav>
-
-        <div class="user-info" id="userInfo">
-            <img src="/images/default-avatar.png" alt="User" class="user-avatar">
-            <div class="user-details">
-                <span class="user-name" id="userName"></span>
-                <span class="user-role" id="userRole"></span>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-danger">🔴</div>
+        <div class="stat-content">
+            <span class="stat-value" id="openCases">0</span>
+            <span class="stat-label">Open</span>
+            <span class="stat-trend" id="openTrend">Pending</span>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="admin-main">
-        <!-- Header -->
-        <header class="admin-header">
-            <div class="header-left">
-                <h1 class="page-title">⚖️ Discipline Management</h1>
-                <p class="page-subtitle">Manage student discipline cases and resolutions</p>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-outline" onclick="exportCases()">📥 Export</button>
-                <button class="btn btn-primary" onclick="showNewCaseModal()">➕ New Case</button>
-            </div>
-        </header>
-
-        <!-- Stats Row - 4 cards -->
-        <div class="admin-stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon bg-warning">📋</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalCases">0</span>
-                    <span class="stat-label">Total Cases</span>
-                    <span class="stat-trend" id="casesTrend">This Term</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-danger">🔴</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="openCases">0</span>
-                    <span class="stat-label">Open</span>
-                    <span class="stat-trend" id="openTrend">Pending</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-success">✅</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="resolvedCases">0</span>
-                    <span class="stat-label">Resolved</span>
-                    <span class="stat-trend up" id="resolvedTrend">-</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-purple">⚠️</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="escalatedCases">0</span>
-                    <span class="stat-label">Escalated</span>
-                    <span class="stat-trend" id="escalatedTrend">Needs Attention</span>
-                </div>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-success">✅</div>
+        <div class="stat-content">
+            <span class="stat-value" id="resolvedCases">0</span>
+            <span class="stat-label">Resolved</span>
+            <span class="stat-trend up" id="resolvedTrend">-</span>
         </div>
-
-        <!-- Charts Row -->
-        <div class="admin-charts-row">
-            <div class="chart-card chart-wide">
-                <div class="chart-header">
-                    <h3>Cases Trend</h3>
-                    <select class="chart-filter" id="trendPeriod">
-                        <option value="term">This Term</option>
-                        <option value="year">This Year</option>
-                    </select>
-                </div>
-                <canvas id="trendChart" height="200"></canvas>
-            </div>
-            <div class="chart-card chart-narrow">
-                <div class="chart-header">
-                    <h3>By Category</h3>
-                </div>
-                <canvas id="categoryChart" height="200"></canvas>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-purple">⚠️</div>
+        <div class="stat-content">
+            <span class="stat-value" id="escalatedCases">0</span>
+            <span class="stat-label">Escalated</span>
+            <span class="stat-trend" id="escalatedTrend">Needs Attention</span>
         </div>
+    </div>
+</div>
 
-        <!-- Tabs -->
-        <div class="admin-tabs">
-            <button class="tab-btn active" data-tab="all">All Cases</button>
-            <button class="tab-btn" data-tab="open">Open</button>
-            <button class="tab-btn" data-tab="escalated">Escalated</button>
-            <button class="tab-btn" data-tab="resolved">Resolved</button>
+<!-- Charts Row -->
+<div class="admin-charts-row">
+    <div class="chart-card chart-wide">
+        <div class="chart-header">
+            <h3>Cases Trend</h3>
+            <select class="chart-filter" id="trendPeriod">
+                <option value="term">This Term</option>
+                <option value="year">This Year</option>
+            </select>
         </div>
-
-        <!-- Filters -->
-        <div class="admin-filters">
-            <div class="filter-row">
-                <select class="filter-select" id="filterCategory">
-                    <option value="">All Categories</option>
-                    <option value="misconduct">Misconduct</option>
-                    <option value="truancy">Truancy</option>
-                    <option value="fighting">Fighting</option>
-                    <option value="bullying">Bullying</option>
-                    <option value="substance">Substance Abuse</option>
-                    <option value="other">Other</option>
-                </select>
-                <select class="filter-select" id="filterSeverity">
-                    <option value="">All Severity</option>
-                    <option value="minor">Minor</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="major">Major</option>
-                    <option value="critical">Critical</option>
-                </select>
-                <select class="filter-select" id="filterClass">
-                    <option value="">All Classes</option>
-                </select>
-                <input type="text" class="filter-search" id="searchCase"
-                    placeholder="🔍 Search by student or case ID...">
-            </div>
+        <canvas id="trendChart" height="200"></canvas>
+    </div>
+    <div class="chart-card chart-narrow">
+        <div class="chart-header">
+            <h3>By Category</h3>
         </div>
+        <canvas id="categoryChart" height="200"></canvas>
+    </div>
+</div>
 
-        <!-- Data Table -->
-        <div class="admin-table-card">
-            <table class="admin-data-table" id="casesTable">
-                <thead>
-                    <tr>
-                        <th>Case ID</th>
-                        <th>Date</th>
-                        <th>Student</th>
-                        <th>Class</th>
-                        <th>Category</th>
-                        <th>Description</th>
-                        <th>Severity</th>
-                        <th>Status</th>
-                        <th>Reported By</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="casesTableBody">
-                    <!-- Data loaded dynamically -->
-                </tbody>
-            </table>
+<!-- Tabs -->
+<div class="admin-tabs">
+    <button class="tab-btn active" data-tab="all">All Cases</button>
+    <button class="tab-btn" data-tab="open">Open</button>
+    <button class="tab-btn" data-tab="escalated">Escalated</button>
+    <button class="tab-btn" data-tab="resolved">Resolved</button>
+</div>
 
-            <div class="table-footer">
-                <div class="page-info">Showing <span id="showingCount">0</span> of <span id="totalCount">0</span></div>
-                <div class="pagination" id="pagination"></div>
-            </div>
-        </div>
-    </main>
+<!-- Filters -->
+<div class="admin-filters">
+    <div class="filter-row">
+        <select class="filter-select" id="filterCategory">
+            <option value="">All Categories</option>
+            <option value="misconduct">Misconduct</option>
+            <option value="truancy">Truancy</option>
+            <option value="fighting">Fighting</option>
+            <option value="bullying">Bullying</option>
+            <option value="substance">Substance Abuse</option>
+            <option value="other">Other</option>
+        </select>
+        <select class="filter-select" id="filterSeverity">
+            <option value="">All Severity</option>
+            <option value="minor">Minor</option>
+            <option value="moderate">Moderate</option>
+            <option value="major">Major</option>
+            <option value="critical">Critical</option>
+        </select>
+        <select class="filter-select" id="filterClass">
+            <option value="">All Classes</option>
+        </select>
+        <input type="text" class="filter-search" id="searchCase"
+            placeholder="🔍 Search by student or case ID...">
+    </div>
+</div>
+
+<!-- Data Table -->
+<div class="admin-table-card">
+    <table class="admin-data-table" id="casesTable">
+        <thead>
+            <tr>
+                <th>Case ID</th>
+                <th>Date</th>
+                <th>Student</th>
+                <th>Class</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Reported By</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="casesTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
+
+    <div class="table-footer">
+        <div class="page-info">Showing <span id="showingCount">0</span> of <span id="totalCount">0</span></div>
+        <div class="pagination" id="pagination"></div>
+    </div>
 </div>
 
 <!-- New/Edit Case Modal -->
@@ -252,18 +209,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userName').textContent = user.name;
-            document.getElementById('userRole').textContent = user.role;
-        }
-
         loadCases();
         loadStats();
         loadFilters();

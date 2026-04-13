@@ -212,4 +212,4 @@
     </div>
 </div>
 
-<script src="js/pages/staff_performance.js"></script>
+<script src="<?= $appBase ?>js/pages/staff_performance.js"></script>

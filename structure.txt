@@ -1,0 +1,954 @@
+.
+├── AGENTS.md
+├── api
+│   ├── activities
+│   │   ├── delete.php
+│   │   ├── fetch.php
+│   │   ├── list.php
+│   │   └── save.php
+│   ├── categories
+│   │   └── list.php
+│   ├── controllers
+│   │   ├── AcademicController.php
+│   │   ├── AccountsController.php
+│   │   ├── ActivitiesController.php
+│   │   ├── AdmissionController.php
+│   │   ├── AlertsController.php
+│   │   ├── AttendanceController.php
+│   │   ├── AuditController.php
+│   │   ├── AuthController.php
+│   │   ├── BaseController.php
+│   │   ├── CommunicationsController.php
+│   │   ├── CounselingController.php
+│   │   ├── DashboardController.php
+│   │   ├── DelegationsController.php
+│   │   ├── FinanceController.php
+│   │   ├── InventoryController.php
+│   │   ├── MaintenanceController.php
+│   │   ├── PaymentsController.php
+│   │   ├── ReportsController.php
+│   │   ├── SchedulesController.php
+│   │   ├── SchoolConfigController.php
+│   │   ├── StaffController.php
+│   │   ├── StudentsController.php
+│   │   ├── SystemConfigController.php
+│   │   ├── SystemController.php
+│   │   ├── TransportController.php
+│   │   ├── UsersController.php
+│   │   └── VendorsController.php
+│   ├── get_sessions.php
+│   ├── get_summary.php
+│   ├── includes
+│   │   ├── AuditLogger.php
+│   │   ├── BaseAPI.php
+│   │   ├── BulkCrudController.php
+│   │   ├── BulkOperationsHelper.php
+│   │   ├── DashboardManager.php
+│   │   ├── ExportHelper.php
+│   │   ├── helpers.php
+│   │   ├── RoutePermissionsStore.php
+│   │   ├── ValidationHelper.php
+│   │   └── WorkflowHandler.php
+│   ├── index.php
+│   ├── middleware
+│   │   ├── AuthMiddleware.php
+│   │   ├── CORSMiddleware.php
+│   │   ├── DeviceMiddleware.php
+│   │   ├── EnhancedRBACMiddleware.php
+│   │   ├── RateLimitMiddleware.php
+│   │   ├── RBACMiddleware.php
+│   │   └── RouteAuthorization.php
+│   ├── modules
+│   │   ├── academic
+│   │   │   ├── AcademicAPI.php
+│   │   │   ├── AcademicAssessmentWorkflow.php
+│   │   │   ├── AcademicYearManager.php
+│   │   │   ├── AcademicYearTransitionWorkflow.php
+│   │   │   ├── CurriculumPlanningWorkflow.php
+│   │   │   ├── ExaminationWorkflow.php
+│   │   │   ├── LibraryManagementWorkflow.php
+│   │   │   ├── ReportGenerationWorkflow.php
+│   │   │   └── StudentPromotionWorkflow.php
+│   │   ├── activities
+│   │   │   ├── ActivitiesAPI.php
+│   │   │   ├── ActivitiesManager.php
+│   │   │   ├── CategoriesManager.php
+│   │   │   ├── ParticipantsManager.php
+│   │   │   ├── ResourcesManager.php
+│   │   │   ├── SchedulesManager.php
+│   │   │   └── workflows
+│   │   │       ├── ActivityPlanningWorkflow.php
+│   │   │       ├── ActivityRegistrationWorkflow.php
+│   │   │       ├── CompetitionWorkflow.php
+│   │   │       └── PerformanceEvaluationWorkflow.php
+│   │   ├── admission
+│   │   │   └── StudentAdmissionWorkflow.php
+│   │   ├── attendance
+│   │   │   ├── AttendanceAPI.php
+│   │   │   ├── AttendanceWorkflow.php
+│   │   │   ├── StaffAttendanceManager.php
+│   │   │   └── StudentAttendanceManager.php
+│   │   ├── auth
+│   │   │   └── AuthAPI.php
+│   │   ├── communications
+│   │   │   ├── CommunicationsAPI.php
+│   │   │   ├── CommunicationsManager.php
+│   │   │   ├── CommunicationWorkflowHandler.php
+│   │   │   ├── ContactDirectoryManager.php
+│   │   │   ├── ExternalInboundManager.php
+│   │   │   ├── ForumManager.php
+│   │   │   ├── InternalAnnouncementManager.php
+│   │   │   ├── InternalCommManager.php
+│   │   │   ├── ParentPortalMessageManager.php
+│   │   │   ├── StaffForumManager.php
+│   │   │   ├── StaffRequestManager.php
+│   │   │   └── templates
+│   │   │       ├── communication_templates_sms.json
+│   │   │       ├── communication_templates_whatsapp.json
+│   │   │       ├── email_bootstrap_template.html
+│   │   │       ├── formal_email_template.html
+│   │   │       └── TemplateLoader.php
+│   │   ├── counseling
+│   │   │   └── CounselingAPI.php
+│   │   ├── finance
+│   │   │   ├── BudgetApprovalWorkflow.php
+│   │   │   ├── BudgetManager.php
+│   │   │   ├── DepartmentBudgetManager.php
+│   │   │   ├── ExpenseApprovalWorkflow.php
+│   │   │   ├── ExpenseManager.php
+│   │   │   ├── FeeApprovalWorkflow.php
+│   │   │   ├── FeeManager.php
+│   │   │   ├── FinanceAPI.php
+│   │   │   ├── FinancePaymentsAPI.php
+│   │   │   ├── FinanceService.php
+│   │   │   ├── FinancialPeriodAPI.php
+│   │   │   ├── PaymentManager.php
+│   │   │   ├── PaymentReconciliationAPI.php
+│   │   │   ├── PayrollWorkflow.php
+│   │   │   └── ReportingManager.php
+│   │   ├── inventory
+│   │   │   ├── AssetDisposalWorkflow.php
+│   │   │   ├── CategoriesManager.php
+│   │   │   ├── InventoryAPI.php
+│   │   │   ├── InventoryItemsManager.php
+│   │   │   ├── LocationsManager.php
+│   │   │   ├── PurchaseOrdersManager.php
+│   │   │   ├── RequisitionsManager.php
+│   │   │   ├── StockAuditWorkflow.php
+│   │   │   ├── StockMovementsManager.php
+│   │   │   ├── StockProcurementWorkflow.php
+│   │   │   ├── StockTransferWorkflow.php
+│   │   │   ├── SuppliersManager.php
+│   │   │   ├── TransactionsManager.php
+│   │   │   └── UniformSalesManager.php
+│   │   ├── maintenance
+│   │   │   ├── EquipmentManager.php
+│   │   │   ├── MaintenanceAPI.php
+│   │   │   └── VehicleManager.php
+│   │   ├── payments
+│   │   │   └── PaymentsAPI.php
+│   │   ├── reports
+│   │   │   ├── AdmissionsReportManager.php
+│   │   │   ├── CommunicationReportManager.php
+│   │   │   ├── DisciplineReportManager.php
+│   │   │   ├── FinanceReportManager.php
+│   │   │   ├── InventoryReportManager.php
+│   │   │   ├── LogsReportManager.php
+│   │   │   ├── MealReportManager.php
+│   │   │   ├── ReportsAPI.php
+│   │   │   ├── StaffReportManager.php
+│   │   │   ├── StudentReportManager.php
+│   │   │   ├── SystemReportManager.php
+│   │   │   └── WorkflowReportManager.php
+│   │   ├── schedules
+│   │   │   ├── SchedulesAPI.php
+│   │   │   ├── SchedulesManager.php
+│   │   │   ├── SchedulesWorkflow.php
+│   │   │   ├── TermHolidayManager.php
+│   │   │   └── TermHolidayWorkflow.php
+│   │   ├── staff
+│   │   │   ├── AssignmentWorkflow.php
+│   │   │   ├── EvaluationWorkflow.php
+│   │   │   ├── LeaveWorkflow.php
+│   │   │   ├── OnboardingWorkflow.php
+│   │   │   ├── StaffAPI.php
+│   │   │   ├── StaffAssignmentManager.php
+│   │   │   ├── StaffLeaveManager.php
+│   │   │   ├── StaffOnboardingManager.php
+│   │   │   ├── StaffPayrollManager.php
+│   │   │   ├── StaffPerformanceManager.php
+│   │   │   └── StaffService.php
+│   │   ├── students
+│   │   │   ├── ClearanceManager.php
+│   │   │   ├── DocumentGenerator.php
+│   │   │   ├── FamilyGroupsManager.php
+│   │   │   ├── PromotionManager.php
+│   │   │   ├── ReAdmissionWorkflow.php
+│   │   │   ├── StudentIDCardGenerator.php
+│   │   │   ├── StudentsAPI.php
+│   │   │   └── TransferWorkflow.php
+│   │   ├── system
+│   │   │   ├── MediaManager.php
+│   │   │   ├── SystemAPI.php
+│   │   │   └── SystemConfigAPI.php
+│   │   ├── transport
+│   │   │   ├── DriverManager.php
+│   │   │   ├── RouteManager.php
+│   │   │   ├── StopManager.php
+│   │   │   ├── StudentTransportAssignmentManager.php
+│   │   │   ├── StudentTransportPaymentManager.php
+│   │   │   ├── StudentTransportStatusManager.php
+│   │   │   ├── TransportAPI.php
+│   │   │   └── VehicleManager.php
+│   │   └── users
+│   │       ├── PermissionManager.php
+│   │       ├── RoleManager.php
+│   │       ├── UserPermissionManager.php
+│   │       ├── UserRoleManager.php
+│   │       └── UsersAPI.php
+│   ├── router
+│   │   ├── ControllerRouter.php
+│   │   ├── Router.php
+│   │   └── system_config_router.php
+│   ├── save_session.php
+│   ├── save_student.php
+│   ├── services
+│   │   ├── ClassTeacherAnalyticsService.php
+│   │   ├── DelegationService.php
+│   │   ├── DeputyAcademicAnalyticsService.php
+│   │   ├── DeputyDisciplineAnalyticsService.php
+│   │   ├── DirectorAnalyticsService.php
+│   │   ├── HeadteacherAnalyticsService.php
+│   │   ├── InternTeacherAnalyticsService.php
+│   │   ├── MediaService.php
+│   │   ├── MenuBuilderService.php
+│   │   ├── MessageService.php
+│   │   ├── payments
+│   │   │   ├── BankPaymentWebhook.php
+│   │   │   ├── DisbursementManager.php
+│   │   │   ├── KcbFundsTransferService.php
+│   │   │   ├── MpesaB2CService.php
+│   │   │   └── MpesaPaymentService.php
+│   │   ├── PolicyEngine.php
+│   │   ├── SchoolAdminAnalyticsService.php
+│   │   ├── sms
+│   │   │   ├── AfricasTalkingWebhookHandler.php
+│   │   │   └── SMSGateway.php
+│   │   ├── SubjectTeacherAnalyticsService.php
+│   │   ├── SystemAdminAnalyticsService.php
+│   │   ├── SystemConfigService.php
+│   │   ├── TeacherAnalyticsService.php
+│   │   ├── whatsapp
+│   │   │   └── WhatsAppGateway.php
+│   │   └── workflows
+│   │       └── PayrollApprovalWorkflow.php
+│   ├── students
+│   │   ├── list.php
+│   │   ├── save.php
+│   │   └── stats.php
+│   └── students_api.php
+├── CLAUDE.md
+├── components
+│   ├── activities
+│   │   └── activities_fallback.php
+│   ├── cards
+│   │   ├── card_component.php
+│   │   ├── container.php
+│   │   └── dash_card.php
+│   ├── charts
+│   │   └── chart.php
+│   ├── dashboards
+│   │   ├── accountant_accounts_cash.php
+│   │   ├── accountant_assets.php
+│   │   ├── accountant_controls.php
+│   │   ├── accountant_mpesa.php
+│   │   ├── accountant_vendors.php
+│   │   ├── catering_manager_cook_lead_dashboard.php
+│   │   ├── class_teacher_dashboard.php
+│   │   ├── deputy_head_academic_dashboard.php
+│   │   ├── deputy_head_discipline_dashboard.php
+│   │   ├── director_owner_dashboard.php
+│   │   ├── driver_dashboard.php
+│   │   ├── headteacher_dashboard.php
+│   │   ├── hod_talent_development_dashboard.php
+│   │   ├── intern_student_teacher_dashboard.php
+│   │   ├── matron_housemother_dashboard.php
+│   │   ├── school_accountant_dashboard.php
+│   │   ├── school_administrative_officer_dashboard.php
+│   │   ├── school_counselor_chaplain_dashboard.php
+│   │   ├── store_manager_dashboard.php
+│   │   ├── subject_teacher_dashboard.php
+│   │   ├── support_staff_dashboard.php
+│   │   ├── system_administrator_dashboard.php
+│   │   └── teacher_dashboard.php
+│   ├── forms
+│   │   ├── academic_info_fields.php
+│   │   ├── admission_form.php
+│   │   ├── parent_info_fields.php
+│   │   └── personal_info_fields.php
+│   ├── global
+│   │   ├── circular_progressbar.php
+│   │   ├── dashboard_base.php
+│   │   ├── footer.php
+│   │   ├── header.php
+│   │   ├── notification_modal.php
+│   │   └── sidebar.php
+│   ├── inputs
+│   │   └── CustomTextField.php
+│   ├── modals
+│   │   ├── confirm_delete_modal.php
+│   │   ├── notification_modal.php
+│   │   ├── qr_code_modal.php
+│   │   └── student_details_modal.php
+│   └── tables
+│       ├── students_table.php
+│       └── table.php
+├── composer.json
+├── composer.lock
+├── config
+│   ├── config_development.php
+│   ├── Config.php
+│   ├── config_production.php
+│   ├── DashboardRouter.php
+│   ├── permissions.php
+│   ├── README.md
+│   └── test_config.php
+├── CONTRIBUTING.md
+├── css
+│   ├── roles
+│   │   ├── admin-theme.css
+│   │   ├── manager-theme.css
+│   │   ├── operator-theme.css
+│   │   └── viewer-theme.css
+│   └── school-theme.css
+├── database
+│   ├── Database.php
+│   ├── KingsWayAcademy.hostafrica.sql
+│   ├── KingsWayAcademy.sql
+│   └── migrations
+│       ├── 2026_02_07_fix_orphaned_role_routes.sql
+│       ├── 2026_03_29_fix_director_authorization.sql
+│       ├── 2026_03_29_phase7_remediation_assessment.sql
+│       ├── 2026_03_29_rbac_workflow_sync.sql
+│       ├── 2026_03_29_route_permissions_detailed.sql
+│       ├── 2026_03_29_validation_reports.sql
+│       ├── 2026_03_30_rebuild_route_permissions_and_role_routes.sql
+│       ├── 2026_03_30_role_permissions_from_blueprint.sql
+│       ├── 2026_03_31_director_vs_admin_fix_workflow_linkage.sql
+│       ├── 2026_03_31_validate_rbac_consistency.sql
+│       ├── 2026_04_01_all_stored_procedures.sql
+│       ├── 2026_04_01_missing_transport_tables.sql
+│       ├── 2026_04_01_rbac_module_tagging_updates.sql
+│       ├── 2026_04_01_rbac_schema_extensions_idempotent.sql
+│       ├── 20260402_dedup_role_sidebar_menus.sql
+│       ├── 20260402_fix_all_role_routes.sql
+│       ├── 2026_04_06_director_sidebar_routes.sql
+│       ├── lesson_plans_and_timetable_fixes.sql
+│       ├── MIGRATIONS_RUN_ORDER.txt
+│       └── timetable_system_setup.sql
+├── documantations
+│   ├── checklist.md
+│   ├── General
+│   │   ├── PAGES_MIGRATION.md
+│   │   ├── PAYMENT_API_DATA_INTEGRATION.md
+│   │   ├── RBAC_PERMISSION_CATALOG.md
+│   │   ├── RBAC_ROLE_MODULE_ASSIGNMENTS.md
+│   │   ├── RBAC_WORKFLOW_MATRIX.md
+│   │   ├── ROUTING_IMPLEMENTATION_SUMMARY.md
+│   │   ├── SECURITY.md
+│   │   ├── STATELESS_ARCHITECTURE_VIOLATIONS.md
+│   │   ├── WHATSAPP_TEMPLATE_EXAMPLES.php
+│   │   └── WHATSAPP_TEMPLATES.md
+│   └── REST APIs Endpoints
+│       ├── AcademicController_ENDPOINTS.md
+│       ├── ActivitiesController_ENDPOINTS.md
+│       ├── AdmissionController_ENDPOINTS.md
+│       ├── ALL_ENDPOINTS_RAW.txt
+│       ├── AttendanceController_ENDPOINTS.md
+│       ├── AuthController_ENDPOINTS.md
+│       ├── business_logic_update_summary.md
+│       ├── CommunicationsController_ENDPOINTS.md
+│       ├── ENDPOINTS_FOR_FRONTEND.txt
+│       ├── FinanceController_ENDPOINTS.md
+│       ├── InventoryController_ENDPOINTS.md
+│       ├── MaintenanceController_ENDPOINTS.md
+│       ├── PaymentsController_ENDPOINTS.md
+│       ├── ReportsController_ENDPOINTS.md
+│       ├── RESPONSE_FLOW_DIAGRAM.md
+│       ├── SchedulesController_ENDPOINTS.md
+│       ├── SchoolConfigController_ENDPOINTS.md
+│       ├── StaffController_ENDPOINTS.md
+│       ├── StudentsController_ENDPOINTS.md
+│       ├── SystemController_ENDPOINTS.md
+│       ├── TransportController_ENDPOINTS.md
+│       ├── user_endpoints_updated.md
+│       └── UsersController_ENDPOINTS.md
+├── forgot_password.php
+├── home.php
+├── images
+│   ├── favicon
+│   │   ├── apple-touch-icon.png
+│   │   ├── favicon-96x96.png
+│   │   ├── favicon.ico
+│   │   ├── favicon.svg
+│   │   ├── site.webmanifest
+│   │   ├── web-app-manifest-192x192.png
+│   │   └── web-app-manifest-512x512.png
+│   ├── kings logo.png
+│   └── logo.jpg
+├── index.php
+├── js
+│   ├── api.js
+│   ├── auth-utils.js
+│   ├── chart.js
+│   ├── components
+│   │   ├── ActionButtons.js
+│   │   ├── admission_notifications_widget.js
+│   │   ├── DataTable.js
+│   │   ├── EnhancedRoleBasedUI.js
+│   │   ├── ModalForm.js
+│   │   ├── PageNavigator.js
+│   │   ├── RoleBasedUI.js
+│   │   └── UIComponents.js
+│   ├── dashboards
+│   │   ├── accountant_accounts_cash_dashboard.js
+│   │   ├── accountant_assets_dashboard.js
+│   │   ├── accountant_controls_dashboard.js
+│   │   ├── accountant_mpesa_dashboard.js
+│   │   ├── accountant_vendors_dashboard.js
+│   │   ├── catering_manager_cook_lead_dashboard.js
+│   │   ├── class_teacher_dashboard.js
+│   │   ├── dashboard_base_controller.js
+│   │   ├── dashboard_router.js
+│   │   ├── deputy_head_academic_dashboard.js
+│   │   ├── deputy_head_discipline_dashboard.js
+│   │   ├── director_dashboard.js
+│   │   ├── driver_dashboard.js
+│   │   ├── headteacher_dashboard.js
+│   │   ├── hod_talent_development_dashboard.js
+│   │   ├── intern_student_teacher_dashboard.js
+│   │   ├── matron_housemother_dashboard.js
+│   │   ├── school_accountant_dashboard.js
+│   │   ├── school_administrative_officer_dashboard.js
+│   │   ├── school_counselor_chaplain_dashboard.js
+│   │   ├── store_manager_dashboard.js
+│   │   ├── subject_teacher_dashboard.js
+│   │   ├── support_staff_dashboard.js
+│   │   ├── system_administrator_dashboard.js
+│   │   └── teacher_dashboard.js
+│   ├── index.js
+│   ├── main.js
+│   ├── pages
+│   │   ├── academic_calendar.js
+│   │   ├── academic_reports.js
+│   │   ├── academics.js
+│   │   ├── academicsManager.js
+│   │   ├── academic_years.js
+│   │   ├── add_results.js
+│   │   ├── admin_delegations.js
+│   │   ├── admissions.js
+│   │   ├── all_classes.js
+│   │   ├── all_lesson_plans.js
+│   │   ├── all_parents.js
+│   │   ├── all_staff.js
+│   │   ├── all_students_accountant.js
+│   │   ├── all_subjects.js
+│   │   ├── all_teachers.js
+│   │   ├── api_explorer.js
+│   │   ├── assemblies.js
+│   │   ├── assessments_exams.js
+│   │   ├── assign_subjects_to_teachers.js
+│   │   ├── attendance_trends.js
+│   │   ├── backups.js
+│   │   ├── balances_by_class.js
+│   │   ├── bank_accounts.js
+│   │   ├── bank_transactions.js
+│   │   ├── boarding.js
+│   │   ├── boarding_roll_call.js
+│   │   ├── budget_overview.js
+│   │   ├── chapel_services.js
+│   │   ├── class_capacity.js
+│   │   ├── class_details.js
+│   │   ├── class_streams.js
+│   │   ├── class_teachers.js
+│   │   ├── clubs_societies.js
+│   │   ├── communications.js
+│   │   ├── comparative_reports.js
+│   │   ├── competitions.js
+│   │   ├── conduct_reports.js
+│   │   ├── counseling_records.js
+│   │   ├── current_academic_year.js
+│   │   ├── curriculum_cbc.js
+│   │   ├── dashboard_registry.js
+│   │   ├── detailed_payslip.js
+│   │   ├── discipline_cases.js
+│   │   ├── dormitory_management.js
+│   │   ├── enrollment_reports.js
+│   │   ├── enrollment_trends.js
+│   │   ├── enter_results.js
+│   │   ├── exam_schedule.js
+│   │   ├── exam_setup.js
+│   │   ├── family_groups.js
+│   │   ├── feature_flags.js
+│   │   ├── fee_defaulters.js
+│   │   ├── fee_structure_accountant.js
+│   │   ├── fee_structure_admin.js
+│   │   ├── fee_structure.js
+│   │   ├── fee_structure_viewer.js
+│   │   ├── finance_approvals.js
+│   │   ├── finance.js
+│   │   ├── finance_reports.js
+│   │   ├── financial_reports.js
+│   │   ├── food_store.js
+│   │   ├── grading_status.js
+│   │   ├── import_existing_students.js
+│   │   ├── JS_DIRECTORY_INDEX.md
+│   │   ├── learning_areas.js
+│   │   ├── lesson_plan_approval.js
+│   │   ├── lesson_plans_by_class.js
+│   │   ├── lesson_plans_by_teacher.js
+│   │   ├── manage_academics.js
+│   │   ├── manage_activities.js
+│   │   ├── manage_announcements.js
+│   │   ├── manage_assessments.js
+│   │   ├── manage_boarding.js
+│   │   ├── manage_calendar_events.js
+│   │   ├── manage_classes.js
+│   │   ├── manage_communications.js
+│   │   ├── manage_email.js
+│   │   ├── manage_expenses.js
+│   │   ├── manage_fees.js
+│   │   ├── manage_finance.js
+│   │   ├── manage_inventory.js
+│   │   ├── manage_lesson_plans.js
+│   │   ├── manage_non_teaching_staff.js
+│   │   ├── manage_payments.js
+│   │   ├── manage_payrolls.js
+│   │   ├── manage_requisitions.js
+│   │   ├── manage_roles.js
+│   │   ├── manage_sms.js
+│   │   ├── manage_staff.js
+│   │   ├── manage_stock.js
+│   │   ├── manage_students.js
+│   │   ├── manage_subjects.js
+│   │   ├── manage_teachers.js
+│   │   ├── manage_terms.js
+│   │   ├── manage_timetable.js
+│   │   ├── manage_transport.js
+│   │   ├── manage_users.js
+│   │   ├── manage_workflows.js
+│   │   ├── mark_attendance.js
+│   │   ├── me.js
+│   │   ├── menu_planning.js
+│   │   ├── messaging.js
+│   │   ├── module_management.js
+│   │   ├── mpesa_settlements.js
+│   │   ├── myclasses.js
+│   │   ├── my_routes.js
+│   │   ├── my_vehicle.js
+│   │   ├── parent_feedback.js
+│   │   ├── parent_meetings.js
+│   │   ├── payroll.js
+│   │   ├── payroll_manager.js
+│   │   ├── performance_analysis.js
+│   │   ├── performance_reports.js
+│   │   ├── performance_trends.js
+│   │   ├── permission_registry.js
+│   │   ├── permissions_exeats.js
+│   │   ├── petty_cash.js
+│   │   ├── pta_management.js
+│   │   ├── purchase_orders.js
+│   │   ├── README.md
+│   │   ├── report_cards.js
+│   │   ├── results_analysis.js
+│   │   ├── role_definitions.js
+│   │   ├── role_navigation_config.js
+│   │   ├── role_permission_matrix.js
+│   │   ├── route_registry.js
+│   │   ├── schemes_of_work.js
+│   │   ├── school_events.js
+│   │   ├── school_settings.js
+│   │   ├── settings.js
+│   │   ├── sidebar_menus.js
+│   │   ├── special_needs.js
+│   │   ├── sports.js
+│   │   ├── staff_attendance.js
+│   │   ├── staff_children.js
+│   │   ├── staff_controllers.js
+│   │   ├── staff.js
+│   │   ├── staff_performance.js
+│   │   ├── staff_performance_overview.js
+│   │   ├── staff_production_ui.js
+│   │   ├── student_counseling.js
+│   │   ├── student_discipline.js
+│   │   ├── student_fees.js
+│   │   ├── student_id_cards.js
+│   │   ├── student_performance.js
+│   │   ├── student_profile.js
+│   │   ├── student_promotion.js
+│   │   ├── student_schedule_extension.js
+│   │   ├── students.js
+│   │   ├── students_with_balance.js
+│   │   ├── subject_teachers.js
+│   │   ├── submit_attendance.js
+│   │   ├── submit_results.js
+│   │   ├── supervision_roster.js
+│   │   ├── system
+│   │   │   ├── crud_registry_controller.js
+│   │   │   ├── log_viewer_controller.js
+│   │   │   ├── matrix_grid_controller.js
+│   │   │   ├── monitoring_controller.js
+│   │   │   └── toggle_config_controller.js
+│   │   ├── system_settings.js
+│   │   ├── teacher_performance_reviews.js
+│   │   ├── teacher_workload.js
+│   │   ├── term_reports.js
+│   │   ├── timetable.js
+│   │   ├── transport.js
+│   │   ├── uniform_sales.js
+│   │   ├── unmatched_payments.js
+│   │   ├── users.js
+│   │   ├── vendors.js
+│   │   ├── view_attendance.js
+│   │   ├── view_calendar.js
+│   │   ├── view_results.js
+│   │   ├── widget_registry.js
+│   │   ├── year_calendar.js
+│   │   └── year_history.js
+│   ├── sidebar.js
+│   ├── token-migration.js
+│   └── utils
+│       └── form-validation.js
+├── king.css
+├── Kingsway.code-workspace
+├── layouts
+│   └── app_layout.php
+├── LICENSE
+├── logs
+│   └── errors.log
+├── maintenance.php
+├── package.json
+├── package-lock.json
+├── pages
+│   ├── academic_calendar.php
+│   ├── academic_reports.php
+│   ├── academic_years.php
+│   ├── account_status.php
+│   ├── active_sessions.php
+│   ├── active_users.php
+│   ├── activities
+│   │   ├── admin_activities.php
+│   │   ├── manager_activities.php
+│   │   ├── operator_activities.php
+│   │   └── viewer_activities.php
+│   ├── activity_audit_logs.php
+│   ├── add_results.php
+│   ├── admin_delegations.php
+│   ├── admin_delegation_test_item.php
+│   ├── admissions
+│   │   ├── admin_admissions.php
+│   │   ├── admissions_base.php
+│   │   ├── manager_admissions.php
+│   │   ├── operator_admissions.php
+│   │   └── viewer_admissions.php
+│   ├── admission_status.php
+│   ├── all_classes.php
+│   ├── all_lesson_plans.php
+│   ├── all_parents.php
+│   ├── all_staff.php
+│   ├── all_students.php
+│   ├── all_subjects.php
+│   ├── all_teachers.php
+│   ├── announcements.php
+│   ├── anonymization_rules.php
+│   ├── api_explorer.php
+│   ├── api_metrics.php
+│   ├── assemblies.php
+│   ├── assessments_exams.php
+│   ├── assign_subjects_to_teachers.php
+│   ├── attendance_trends.php
+│   ├── audit_requirements.php
+│   ├── authentication_logs.php
+│   ├── authorization_logs.php
+│   ├── background_jobs.php
+│   ├── backups.php
+│   ├── balances_by_class.php
+│   ├── bank_accounts.php
+│   ├── bank_transactions.php
+│   ├── boarding
+│   │   ├── admin_boarding.php
+│   │   ├── manager_boarding.php
+│   │   ├── operator_boarding.php
+│   │   └── viewer_boarding.php
+│   ├── boarding_roll_call.php
+│   ├── budget_overview.php
+│   ├── cache_monitor.php
+│   ├── chapel_services.php
+│   ├── circulars.php
+│   ├── class_capacity.php
+│   ├── class_details.php
+│   ├── class_streams.php
+│   ├── class_teachers.php
+│   ├── clubs_societies.php
+│   ├── communications
+│   │   ├── admin_communications.php
+│   │   ├── manager_communications.php
+│   │   ├── operator_communications.php
+│   │   └── viewer_communications.php
+│   ├── comparative_reports.php
+│   ├── competitions.php
+│   ├── conduct_reports.php
+│   ├── config_sync.php
+│   ├── counseling_records.php
+│   ├── current_academic_year.php
+│   ├── curriculum_cbc.php
+│   ├── dashboard.php
+│   ├── dashboard_registry.php
+│   ├── data_purge_policies.php
+│   ├── data_retention.php
+│   ├── data_retention_rules.php
+│   ├── db_health_monitor.php
+│   ├── db_health.php
+│   ├── delegated_permissions.php
+│   ├── detailed_payslip.php
+│   ├── discipline
+│   │   ├── admin_discipline.php
+│   │   ├── manager_discipline.php
+│   │   ├── operator_discipline.php
+│   │   └── viewer_discipline.php
+│   ├── discipline_cases.php
+│   ├── domain_isolation_rules.php
+│   ├── dormitory_management.php
+│   ├── enrollment_reports.php
+│   ├── enrollment_trends.php
+│   ├── enter_results.php
+│   ├── error_logs.php
+│   ├── error_rate.php
+│   ├── exam_schedule.php
+│   ├── exam_setup.php
+│   ├── expiry_based_access.php
+│   ├── failed_login_attempts.php
+│   ├── feature_flags.php
+│   ├── fee_defaulters.php
+│   ├── fees
+│   │   ├── admin_fees.php
+│   │   ├── manager_fees.php
+│   │   ├── operator_fees.php
+│   │   └── viewer_fees.php
+│   ├── fee_structure
+│   │   ├── accountant_fee_structure.php
+│   │   ├── admin_fee_structure.php
+│   │   └── viewer_fee_structure.php
+│   ├── fee_structure.php
+│   ├── finance
+│   │   ├── admin_finance.php
+│   │   ├── manager_finance.php
+│   │   ├── operator_finance.php
+│   │   └── viewer_finance.php
+│   ├── finance_approvals.php
+│   ├── finance_reports.php
+│   ├── financial_reports.php
+│   ├── food_store.php
+│   ├── force_logout.php
+│   ├── grading_status.php
+│   ├── headteacher_test_item.php
+│   ├── icons_ordering.php
+│   ├── import_existing_students.php
+│   ├── ip_whitelist_blacklist.php
+│   ├── job_inspector.php
+│   ├── job_queue_monitor.php
+│   ├── learning_areas.php
+│   ├── lesson_plan_approval.php
+│   ├── lesson_plans_by_class.php
+│   ├── lesson_plans_by_teacher.php
+│   ├── location_device_rules.php
+│   ├── maintenance_mode.php
+│   ├── manage_academics.php
+│   ├── manage_activities.php
+│   ├── manage_admissions.php
+│   ├── manage_announcements.php
+│   ├── manage_assessments.php
+│   ├── manage_boarding.php
+│   ├── manage_calendar_events.php
+│   ├── manage_classes.php
+│   ├── manage_communications.php
+│   ├── manage_dashboards.php
+│   ├── manage_email.php
+│   ├── manage_expenses.php
+│   ├── manage_family_groups.php
+│   ├── manage_fees.php
+│   ├── manage_fee_structure.php
+│   ├── manage_finance.php
+│   ├── manage_inventory.php
+│   ├── manage_lesson_plans.php
+│   ├── manage_menus.php
+│   ├── manage_non_teaching_staff.php
+│   ├── manage_payments.php
+│   ├── manage_payrolls.php
+│   ├── manage_permissions.php
+│   ├── manage_policies.php
+│   ├── manage_requisitions.php
+│   ├── manage_roles.php
+│   ├── manage_routes.php
+│   ├── manage_sms.php
+│   ├── manage_staff_children.php
+│   ├── manage_staff.php
+│   ├── manage_stock.php
+│   ├── manage_students_admissions.php
+│   ├── manage_students.php
+│   ├── manage_subjects.php
+│   ├── manage_teachers.php
+│   ├── manage_terms.php
+│   ├── manage_timetable.php
+│   ├── manage_transport.php
+│   ├── manage_uniform_sales.php
+│   ├── manage_users.php
+│   ├── manage_workflows.php
+│   ├── mark_attendance.php
+│   ├── menu_planning.php
+│   ├── me.php
+│   ├── migrations.php
+│   ├── module_enablement.php
+│   ├── module_management.php
+│   ├── mpesa_settlements.php
+│   ├── myclasses.php
+│   ├── my_routes.php
+│   ├── my_vehicle.php
+│   ├── new_applications.php
+│   ├── parent_feedback.php
+│   ├── parent_meetings.php
+│   ├── payroll.php
+│   ├── performance_analysis.php
+│   ├── performance_reports.php
+│   ├── performance_trends.php
+│   ├── permission_changes.php
+│   ├── permission_policies.php
+│   ├── permission_registry.php
+│   ├── permissions_exeats.php
+│   ├── petty_cash.php
+│   ├── policy_violations.php
+│   ├── pta_management.php
+│   ├── purchase_orders.php
+│   ├── queue_health.php
+│   ├── queue_monitor.php
+│   ├── rate_limiting_status.php
+│   ├── readonly_enforcement.php
+│   ├── report_cards.php
+│   ├── resource_based_permissions.php
+│   ├── results_analysis.php
+│   ├── retention_policies.php
+│   ├── revoke_tokens.php
+│   ├── role_dashboard_mapping.php
+│   ├── role_definitions.php
+│   ├── role_navigation_config.php
+│   ├── role_permission_matrix.php
+│   ├── role_scope.php
+│   ├── route_access_rules.php
+│   ├── route_domains.php
+│   ├── route_registry.php
+│   ├── schema_registry.php
+│   ├── schemes_of_work.php
+│   ├── school_events.php
+│   ├── school_settings.php
+│   ├── security_incidents.php
+│   ├── sidebar_menus.php
+│   ├── special_needs.php
+│   ├── sports.php
+│   ├── staff
+│   │   ├── admin_staff.php
+│   │   ├── manager_staff.php
+│   │   ├── manage_staff_admin.php
+│   │   ├── manage_staff_base.php
+│   │   ├── manage_staff_manager.php
+│   │   ├── manage_staff_operator.php
+│   │   ├── manage_staff_production.php
+│   │   ├── manage_staff_viewer.php
+│   │   ├── operator_staff.php
+│   │   └── viewer_staff.php
+│   ├── staff_attendance.php
+│   ├── staff_performance_overview.php
+│   ├── staff_performance.php
+│   ├── student_counseling.php
+│   ├── student_discipline.php
+│   ├── student_fees.php
+│   ├── student_id_cards.php
+│   ├── student_performance.php
+│   ├── student_promotion.php
+│   ├── students
+│   │   ├── accountant_students.php
+│   │   ├── admin_students.php
+│   │   ├── manager_students.php
+│   │   ├── manage_students_admin.php
+│   │   ├── manage_students_base.php
+│   │   ├── manage_students_manager.php
+│   │   ├── manage_students_operator.php
+│   │   ├── manage_students_viewer.php
+│   │   ├── operator_students.php
+│   │   └── viewer_students.php
+│   ├── students_with_balance.php
+│   ├── subject_teachers.php
+│   ├── submenus_management.php
+│   ├── submit_attendance.php
+│   ├── submit_results.php
+│   ├── supervision_roster.php
+│   ├── system_diagnostics.php
+│   ├── system_health.php
+│   ├── system_settings.php
+│   ├── system_uptime.php
+│   ├── teacher_performance_reviews.php
+│   ├── teacher_workload.php
+│   ├── temporary_roles.php
+│   ├── term_reports.php
+│   ├── time_bound_access.php
+│   ├── timetable.php
+│   ├── token_management.php
+│   ├── transport
+│   │   ├── admin_transport.php
+│   │   ├── manager_transport.php
+│   │   ├── operator_transport.php
+│   │   └── viewer_transport.php
+│   ├── unmatched_payments.php
+│   ├── vendors.php
+│   ├── view_attendance.php
+│   ├── view_calendar.php
+│   ├── view_results.php
+│   ├── webhook_registry.php
+│   ├── widget_registry.php
+│   ├── year_calendar.php
+│   └── year_history.php
+├── php.exe
+├── README.md
+├── reset_password.php
+├── scripts
+│   ├── apply_create_class_teachers.sh
+│   ├── backfill_current_enrollments.sql
+│   ├── check_db_config.php
+│   ├── create_class_teachers.sh
+│   ├── export_role_permissions_after_migrations.sh
+│   ├── fix_stream_trigger_conflicts.sql
+│   ├── make_hostafrica_dump.sh
+│   ├── rbac_completion_checks.sql
+│   ├── rbac_reconcile.sql
+│   ├── rbac_role_bootstrap.sql
+│   ├── rbac_role_menu_permissions_report.sql
+│   ├── run_kingsway_migrations.sh
+│   ├── test_accountant_dashboard_api.php
+│   ├── test_build_sidebar.php
+│   ├── test_c2b_callback.php
+│   ├── test_db_login_response.php
+│   ├── test_normalize_login.php
+│   ├── ui-test.js
+│   ├── verify_all_logins.sh
+│   └── verify_rbac_ui_alignment.php
+├── structure.txt
+├── templates
+│   └── student_import_template.csv
+├── tests
+│   └── validate_user.php
+└── uploads
+    ├── documents
+    ├── index.html
+    ├── staff
+    └── students
+
+82 directories, 870 files

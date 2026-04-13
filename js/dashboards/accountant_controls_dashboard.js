@@ -49,8 +49,8 @@ const accountantControlsDashboardController = Object.assign(
     loadAllData: async function () {
       var self = this;
       var results = await Promise.all([
-        self.fetchJSON("/Kingsway/api/dashboard/accountant/controls"),
-        self.fetchJSON("/Kingsway/api/finance/audit"),
+        self.fetchJSON((window.APP_BASE || '') + '/api/dashboard/accountant/controls'),
+        self.fetchJSON((window.APP_BASE || '') + '/api/finance/audit'),
       ]);
       if (results[0] && results[0].data) {
         self.renderControlsSummary(results[0].data);
@@ -148,7 +148,7 @@ const accountantControlsDashboardController = Object.assign(
         return;
       }
       console.log("Handling approval:", action, "for ID:", id);
-      fetch("/Kingsway/api/finance/approve", {
+      fetch((window.APP_BASE || '') + '/api/finance/approve', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: id, action: action }),

@@ -96,5 +96,3 @@ const CurrentAcademicYearController = (() => {
     return { init, refresh: loadData, exportCSV };
 })();
 document.addEventListener('DOMContentLoaded', () => CurrentAcademicYearController.init());
-})();
-document.addEventListener('DOMContentLoaded', () => CurrentAcademicYearController.init());

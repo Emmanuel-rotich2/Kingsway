@@ -2,92 +2,60 @@
 /**
  * Communications - Operator Layout
  * Minimal layout for Class Teachers, Subject Teachers, etc.
- * 
+ *
  * Features:
- * - Mini sidebar
  * - 2 stat cards
  * - Simple message list
  * - Can compose to own class only
  * - View own messages only
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
-
-<div class="operator-layout">
-    <!-- Mini Sidebar -->
-    <aside class="operator-sidebar" id="operatorSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 2 columns -->
+<div class="operator-stats">
+    <div class="operator-stat-card">
+        <div class="stat-icon">📤</div>
+        <div class="stat-info">
+            <div class="stat-value" id="sentCount">0</div>
+            <div class="stat-label">Sent</div>
         </div>
-
-        <nav class="operator-nav">
-            <a href="/pages/dashboard.php" class="operator-nav-item" data-tooltip="Dashboard">🏠</a>
-            <a href="/pages/manage_activities.php" class="operator-nav-item" data-tooltip="Activities">🏆</a>
-            <a href="/pages/manage_communications.php" class="operator-nav-item active" data-tooltip="Messages">💬</a>
-            <a href="/pages/my_classes.php" class="operator-nav-item" data-tooltip="My Classes">📚</a>
-        </nav>
-
-        <div class="user-avatar" id="userAvatar">T</div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="operator-main">
-        <!-- Header -->
-        <header class="operator-header">
-            <h1 class="page-title">💬 Messages</h1>
-            <button class="btn btn-primary btn-sm" id="composeBtn">✉️ Send to Class</button>
-        </header>
-
-        <!-- Content -->
-        <div class="operator-content">
-            <!-- Stats - 2 columns -->
-            <div class="operator-stats">
-                <div class="operator-stat-card">
-                    <div class="stat-icon">📤</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="sentCount">0</div>
-                        <div class="stat-label">Sent</div>
-                    </div>
-                </div>
-                <div class="operator-stat-card">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="deliveredCount">0</div>
-                        <div class="stat-label">Delivered</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Search -->
-            <div class="operator-filters">
-                <input type="text" class="search-input form-control" id="searchMessages"
-                    placeholder="Search messages...">
-            </div>
-
-            <!-- Message Table - Essential columns -->
-            <div class="operator-table-card">
-                <div class="operator-table-header">
-                    <span class="table-title">My Messages</span>
-                </div>
-
-                <table class="operator-data-table" id="messagesTable">
-                    <thead>
-                        <tr>
-                            <th>Recipient</th>
-                            <th>Message</th>
-                            <th>Status</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody id="messagesTableBody">
-                        <!-- Data loaded dynamically -->
-                    </tbody>
-                </table>
-            </div>
+    </div>
+    <div class="operator-stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+            <div class="stat-value" id="deliveredCount">0</div>
+            <div class="stat-label">Delivered</div>
         </div>
-    </main>
+    </div>
+</div>
+
+<!-- Search -->
+<div class="operator-filters">
+    <input type="text" class="search-input form-control" id="searchMessages"
+        placeholder="Search messages...">
+    <button class="btn btn-primary btn-sm" id="composeBtn">✉️ Send to Class</button>
+</div>
+
+<!-- Message Table - Essential columns -->
+<div class="operator-table-card">
+    <div class="operator-table-header">
+        <span class="table-title">My Messages</span>
+    </div>
+
+    <table class="operator-data-table" id="messagesTable">
+        <thead>
+            <tr>
+                <th>Recipient</th>
+                <th>Message</th>
+                <th>Status</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="messagesTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
 </div>
 
 <!-- Simple Compose Modal -->
@@ -121,16 +89,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userAvatar').textContent = (user.name || 'T').charAt(0).toUpperCase();
-        }
-
         loadMyMessages();
         loadMyClasses();
 

@@ -2,157 +2,108 @@
 /**
  * Communications - Manager Layout
  * Compact layout for HODs, Deputy Heads, Accountant, etc.
- * 
+ *
  * Features:
- * - Compact sidebar (80px expandable)
+ * - Compact sidebar
  * - 3 stat cards
  * - 2 channels (SMS, Email primarily)
  * - Standard table with view/edit
  * - Can compose messages
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/manager-theme.css">
-
-<div class="manager-layout">
-    <!-- Compact Sidebar -->
-    <aside class="manager-sidebar" id="managerSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 3 columns -->
+<div class="manager-stats">
+    <div class="manager-stat-card">
+        <div class="stat-icon">📤</div>
+        <div class="stat-content">
+            <div class="stat-value" id="totalSent">0</div>
+            <div class="stat-label">Sent</div>
         </div>
-
-        <nav class="manager-nav">
-            <a href="/pages/dashboard.php" class="manager-nav-item" data-tooltip="Dashboard">
-                <span class="nav-icon">🏠</span>
-                <span class="nav-label">Dashboard</span>
-            </a>
-            <a href="/pages/manage_activities.php" class="manager-nav-item" data-tooltip="Activities">
-                <span class="nav-icon">🏆</span>
-                <span class="nav-label">Activities</span>
-            </a>
-            <a href="/pages/manage_communications.php" class="manager-nav-item active" data-tooltip="Communications">
-                <span class="nav-icon">💬</span>
-                <span class="nav-label">Communications</span>
-            </a>
-            <a href="/pages/all_students.php" class="manager-nav-item" data-tooltip="Students">
-                <span class="nav-icon">👨‍🎓</span>
-                <span class="nav-label">Students</span>
-            </a>
-            <a href="/pages/reports.php" class="manager-nav-item" data-tooltip="Reports">
-                <span class="nav-icon">📊</span>
-                <span class="nav-label">Reports</span>
-            </a>
-        </nav>
-
-        <div class="user-avatar" id="userAvatar" title="Profile">M</div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="manager-main">
-        <!-- Header -->
-        <header class="manager-header">
-            <h1 class="page-title">💬 Communications</h1>
-            <div class="manager-header-actions">
-                <button class="btn btn-outline btn-sm" id="templatesBtn">Templates</button>
-                <button class="btn btn-primary btn-sm" id="composeBtn">✉️ Compose</button>
-            </div>
-        </header>
-
-        <!-- Content -->
-        <div class="manager-content">
-            <!-- Stats - 3 columns -->
-            <div class="manager-stats">
-                <div class="manager-stat-card">
-                    <div class="stat-icon">📤</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="totalSent">0</div>
-                        <div class="stat-label">Sent</div>
-                    </div>
-                </div>
-                <div class="manager-stat-card">
-                    <div class="stat-icon">⏰</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="scheduled">0</div>
-                        <div class="stat-label">Scheduled</div>
-                    </div>
-                </div>
-                <div class="manager-stat-card">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="deliveryRate">0%</div>
-                        <div class="stat-label">Delivery Rate</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Simple Chart -->
-            <div class="manager-charts">
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Recent Activity</h3>
-                    </div>
-                    <div class="chart-body">
-                        <canvas id="activityChart" height="200"></canvas>
-                    </div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3 class="chart-title">By Channel</h3>
-                    </div>
-                    <div class="chart-body">
-                        <canvas id="channelChart" height="200"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Data Table -->
-            <div class="manager-table-card">
-                <div class="manager-table-header">
-                    <span class="table-title">Messages</span>
-                    <span class="table-count" id="recordCount">0 records</span>
-                </div>
-
-                <div class="manager-filters">
-                    <input type="text" class="search-input form-control" id="searchMessages" placeholder="Search...">
-                    <select class="filter-select" id="channelFilter">
-                        <option value="">All Channels</option>
-                        <option value="sms">SMS</option>
-                        <option value="email">Email</option>
-                    </select>
-                    <select class="filter-select" id="statusFilter">
-                        <option value="">All Status</option>
-                        <option value="sent">Sent</option>
-                        <option value="scheduled">Scheduled</option>
-                        <option value="draft">Draft</option>
-                    </select>
-                </div>
-
-                <div class="table-responsive">
-                    <table class="manager-data-table" id="messagesTable">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Recipient</th>
-                                <th>Channel</th>
-                                <th>Message</th>
-                                <th>Status</th>
-                                <th>Sent At</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="messagesTableBody">
-                            <!-- Data loaded dynamically -->
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="table-pagination">
-                    <span class="pagination-info">Showing 1-20 of <span id="totalRecords">0</span></span>
-                </div>
-            </div>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">⏰</div>
+        <div class="stat-content">
+            <div class="stat-value" id="scheduled">0</div>
+            <div class="stat-label">Scheduled</div>
         </div>
-    </main>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-content">
+            <div class="stat-value" id="deliveryRate">0%</div>
+            <div class="stat-label">Delivery Rate</div>
+        </div>
+    </div>
+</div>
+
+<!-- Simple Chart -->
+<div class="manager-charts">
+    <div class="chart-card">
+        <div class="chart-header">
+            <h3 class="chart-title">Recent Activity</h3>
+        </div>
+        <div class="chart-body">
+            <canvas id="activityChart" height="200"></canvas>
+        </div>
+    </div>
+    <div class="chart-card">
+        <div class="chart-header">
+            <h3 class="chart-title">By Channel</h3>
+        </div>
+        <div class="chart-body">
+            <canvas id="channelChart" height="200"></canvas>
+        </div>
+    </div>
+</div>
+
+<!-- Data Table -->
+<div class="manager-table-card">
+    <div class="manager-table-header">
+        <span class="table-title">Messages</span>
+        <span class="table-count" id="recordCount">0 records</span>
+    </div>
+
+    <div class="manager-filters">
+        <input type="text" class="search-input form-control" id="searchMessages" placeholder="Search...">
+        <select class="filter-select" id="channelFilter">
+            <option value="">All Channels</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+        </select>
+        <select class="filter-select" id="statusFilter">
+            <option value="">All Status</option>
+            <option value="sent">Sent</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="draft">Draft</option>
+        </select>
+        <button class="btn btn-outline btn-sm" id="templatesBtn">Templates</button>
+        <button class="btn btn-primary btn-sm" id="composeBtn">✉️ Compose</button>
+    </div>
+
+    <div class="table-responsive">
+        <table class="manager-data-table" id="messagesTable">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Recipient</th>
+                    <th>Channel</th>
+                    <th>Message</th>
+                    <th>Status</th>
+                    <th>Sent At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="messagesTableBody">
+                <!-- Data loaded dynamically -->
+            </tbody>
+        </table>
+    </div>
+
+    <div class="table-pagination">
+        <span class="pagination-info">Showing 1-20 of <span id="totalRecords">0</span></span>
+    </div>
 </div>
 
 <!-- Compose Modal -->
@@ -190,16 +141,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userAvatar').textContent = (user.name || 'M').charAt(0).toUpperCase();
-        }
-
         loadMessages();
         initCharts();
 

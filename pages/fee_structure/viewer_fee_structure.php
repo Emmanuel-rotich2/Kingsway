@@ -2,19 +2,16 @@
 /**
  * Fee Structure - Headteacher/Viewer Layout
  * For Headteacher, Deputy Headteacher, HODs
- * 
+ *
  * Features:
- * - Minimal sidebar
  * - 3 stat cards (overview only)
  * - 1 chart (fee structure summary)
  * - Read-only data table
  * - Actions: View Details, Export (no Create, Edit, or Delete)
  * - Focus on oversight and reporting
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
-
-<div class="viewer-layout" data-user-role="viewer">
-<!-- Fee Structure Viewer Content -->
 
 <!-- Page Header -->
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -241,4 +238,3 @@
         }
     });
 </script>
-</div>

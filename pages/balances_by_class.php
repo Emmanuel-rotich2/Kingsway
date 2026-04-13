@@ -104,4 +104,4 @@
     </div>
 </div>
 
-<script src="js/pages/balances_by_class.js"></script>
+<script src="<?= $appBase ?>js/pages/balances_by_class.js"></script>

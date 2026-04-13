@@ -270,3 +270,4 @@
         </div>
     </div>
 </div>
+<script src="<?= $appBase ?>js/pages/staff_children.js"></script>

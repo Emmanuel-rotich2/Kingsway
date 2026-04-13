@@ -2,128 +2,93 @@
 /**
  * Discipline - Manager Layout
  * Compact layout for HODs, Boarding Master, Counselors
- * 
+ *
  * Features:
- * - Compact sidebar
  * - 3 stat cards
  * - 2 charts
  * - Standard table (7 columns)
  * - Can report and manage cases in their department
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/manager-theme.css">
-
-<div class="manager-layout">
-    <!-- Compact Sidebar -->
-    <aside class="manager-sidebar" id="managerSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 3 columns -->
+<div class="manager-stats-grid">
+    <div class="manager-stat-card">
+        <div class="stat-icon">📋</div>
+        <div class="stat-info">
+            <span class="stat-value" id="totalCases">0</span>
+            <span class="stat-label">Total</span>
         </div>
-
-        <nav class="manager-nav">
-            <a href="/pages/dashboard.php" class="manager-nav-item" data-label="Dashboard">🏠</a>
-            <a href="/pages/all_students.php" class="manager-nav-item" data-label="Students">👨‍🎓</a>
-            <a href="/pages/discipline_cases.php" class="manager-nav-item active" data-label="Discipline">⚖️</a>
-            <a href="/pages/counseling_records.php" class="manager-nav-item" data-label="Counseling">🧠</a>
-        </nav>
-
-        <div class="user-section" id="userSection">
-            <span class="user-initial" id="userInitial">M</span>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">🔴</div>
+        <div class="stat-info">
+            <span class="stat-value" id="openCases">0</span>
+            <span class="stat-label">Open</span>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="manager-main">
-        <!-- Header -->
-        <header class="manager-header">
-            <div class="header-left">
-                <h1 class="page-title">⚖️ Discipline Cases</h1>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-primary btn-sm" onclick="showNewCaseModal()">➕ Report Case</button>
-            </div>
-        </header>
-
-        <!-- Stats - 3 columns -->
-        <div class="manager-stats-grid">
-            <div class="manager-stat-card">
-                <div class="stat-icon">📋</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="totalCases">0</span>
-                    <span class="stat-label">Total</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">🔴</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="openCases">0</span>
-                    <span class="stat-label">Open</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">✅</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="resolvedCases">0</span>
-                    <span class="stat-label">Resolved</span>
-                </div>
-            </div>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+            <span class="stat-value" id="resolvedCases">0</span>
+            <span class="stat-label">Resolved</span>
         </div>
+    </div>
+</div>
 
-        <!-- Charts - 2 columns -->
-        <div class="manager-charts-row">
-            <div class="manager-chart-card">
-                <h4>Weekly Trend</h4>
-                <canvas id="trendChart" height="180"></canvas>
-            </div>
-            <div class="manager-chart-card">
-                <h4>By Category</h4>
-                <canvas id="categoryChart" height="180"></canvas>
-            </div>
-        </div>
+<!-- Charts - 2 columns -->
+<div class="manager-charts-row">
+    <div class="manager-chart-card">
+        <h4>Weekly Trend</h4>
+        <canvas id="trendChart" height="180"></canvas>
+    </div>
+    <div class="manager-chart-card">
+        <h4>By Category</h4>
+        <canvas id="categoryChart" height="180"></canvas>
+    </div>
+</div>
 
-        <!-- Filters -->
-        <div class="manager-filters">
-            <select class="filter-select" id="filterCategory">
-                <option value="">All Categories</option>
-                <option value="misconduct">Misconduct</option>
-                <option value="truancy">Truancy</option>
-                <option value="fighting">Fighting</option>
-                <option value="bullying">Bullying</option>
-            </select>
-            <select class="filter-select" id="filterStatus">
-                <option value="">All Status</option>
-                <option value="open">Open</option>
-                <option value="resolved">Resolved</option>
-            </select>
-            <input type="text" class="filter-search" id="searchCase" placeholder="🔍 Search...">
-        </div>
+<!-- Filters -->
+<div class="manager-filters">
+    <select class="filter-select" id="filterCategory">
+        <option value="">All Categories</option>
+        <option value="misconduct">Misconduct</option>
+        <option value="truancy">Truancy</option>
+        <option value="fighting">Fighting</option>
+        <option value="bullying">Bullying</option>
+    </select>
+    <select class="filter-select" id="filterStatus">
+        <option value="">All Status</option>
+        <option value="open">Open</option>
+        <option value="resolved">Resolved</option>
+    </select>
+    <input type="text" class="filter-search" id="searchCase" placeholder="🔍 Search...">
+    <button class="btn btn-primary btn-sm" onclick="showNewCaseModal()">➕ Report Case</button>
+</div>
 
-        <!-- Table - 7 columns -->
-        <div class="manager-table-card">
-            <table class="manager-data-table" id="casesTable">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Student</th>
-                        <th>Class</th>
-                        <th>Category</th>
-                        <th>Severity</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="casesTableBody">
-                    <!-- Data loaded dynamically -->
-                </tbody>
-            </table>
+<!-- Table - 7 columns -->
+<div class="manager-table-card">
+    <table class="manager-data-table" id="casesTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Student</th>
+                <th>Class</th>
+                <th>Category</th>
+                <th>Severity</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="casesTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
 
-            <div class="table-footer">
-                <span class="page-info">Showing <span id="showingCount">0</span> cases</span>
-            </div>
-        </div>
-    </main>
+    <div class="table-footer">
+        <span class="page-info">Showing <span id="showingCount">0</span> cases</span>
+    </div>
 </div>
 
 <!-- Report Case Modal -->
@@ -177,17 +142,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userInitial').textContent = (user.name || 'M').charAt(0).toUpperCase();
-        }
-
         loadCases();
         loadStats();
         loadStudents();

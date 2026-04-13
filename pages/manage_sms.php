@@ -182,10 +182,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize SMS management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement smsManagementController in js/pages/sms.js
-        console.log('SMS Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_sms.js?v=<?php echo time(); ?>"></script>

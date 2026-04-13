@@ -214,10 +214,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize email management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement emailManagementController in js/pages/email.js
-        console.log('Email Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_email.js?v=<?php echo time(); ?>"></script>

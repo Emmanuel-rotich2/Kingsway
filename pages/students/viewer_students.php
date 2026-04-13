@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Students - Viewer Layout
  * Read-only layout for Students, Parents, Guardians
- * 
+ *
  * Features:
  * - No sidebar
  * - Single profile card
@@ -12,26 +13,11 @@
  */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
-<link rel="stylesheet" href="<?= $appBase ?>css/roles/viewer-theme.css">
-
-<div class="viewer-layout">
-    <!-- Header -->
-    <header class="viewer-header">
-        <a href="<?= $appBase ?>home.php" class="back-link">← Dashboard</a>
-        <h1 class="page-title">Student Profile</h1>
-    </header>
-
-    <!-- Main Content -->
-    <main class="viewer-main">
-        <!-- Profile Cards Container -->
-        <div class="viewer-profile-container" id="profileContainer">
-            <!-- Loaded dynamically based on user type -->
-        </div>
-    </main>
+<!-- Profile Cards Container -->
+<div class="viewer-profile-container" id="profileContainer">
+    <!-- Loaded dynamically based on user type -->
 </div>
 
-<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (window.RoleBasedUI?.applyLayout) {
@@ -110,7 +96,7 @@
                     <span class="profile-id">${escapeHtml(student.admission_no)}</span>
                 </div>
             </div>
-            
+
             <div class="profile-body">
                 <div class="profile-section">
                     <h4>Academic Info</h4>
@@ -133,7 +119,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="profile-section">
                     <h4>Personal Info</h4>
                     <div class="profile-info-grid">
@@ -151,7 +137,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 ${student.fee_balance !== undefined ? `
                 <div class="profile-section">
                     <h4>Fee Status</h4>

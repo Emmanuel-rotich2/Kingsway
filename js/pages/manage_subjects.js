@@ -14,7 +14,7 @@ const ManageSubjectsController = {
     },
     loadData: async function() {
         try {
-            const response = await window.API.apiCall('/api/manage_subjects', 'GET');
+            const response = await window.API.apiCall('/academics/subjects', 'GET');
             if (response) {
                 this.data = response;
                 this.render();

@@ -176,7 +176,7 @@ const schoolAccountantDashboardController = Object.assign(
               window.navigateToRoute(route);
               window.history.pushState({}, "", "?route=" + route);
             } else {
-              window.location.href = "/Kingsway/home.php?route=" + route;
+              window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
             }
           }
         };
@@ -266,31 +266,31 @@ const schoolAccountantDashboardController = Object.assign(
         // Financial summary - using API.dashboard.getAccountantFinancial()
         const financial = await safeApiCall(
           dashboard?.getAccountantFinancial,
-          "/Kingsway/api/dashboard/accountant/financial",
+          (window.APP_BASE || '') + '/api/dashboard/accountant/financial',
         );
 
         // Payments/trends - using API.dashboard.getAccountantPayments()
         const payments = await safeApiCall(
           dashboard?.getAccountantPayments,
-          "/Kingsway/api/dashboard/accountant/payments",
+          (window.APP_BASE || '') + '/api/dashboard/accountant/payments',
         );
 
         // Alerts - using API.dashboard.getAccountantAlerts()
         const alertsResponse = await safeApiCall(
           dashboard?.getAccountantAlerts,
-          "/Kingsway/api/alerts",
+          (window.APP_BASE || '') + '/api/alerts',
         );
 
         // Unmatched payments - using API.dashboard.getAccountantUnmatchedPayments()
         const unmatchedResponse = await safeApiCall(
           dashboard?.getAccountantUnmatchedPayments,
-          "/Kingsway/api/payments/unmatched-mpesa",
+          (window.APP_BASE || '') + '/api/payments/unmatched-mpesa',
         );
 
         // Bank accounts - using API.dashboard.getAccountantBankAccounts()
         const bankResponse = await safeApiCall(
           dashboard?.getAccountantBankAccounts,
-          "/Kingsway/api/accounts/bank-accounts",
+          (window.APP_BASE || '') + '/api/accounts/bank-accounts',
         );
 
         // Normalize data objects
@@ -1381,7 +1381,7 @@ schoolAccountantDashboardController.openPaymentHistoryModal = async function (
   // Print button
   document.getElementById("btnPrintPaymentHistory").onclick = () => {
     window.open(
-      `/Kingsway/pages/student_payment_history.php?student_id=${data.studentId}&print=1`,
+      `${window.APP_BASE || ''}/pages/student_payment_history.php?student_id=${data.studentId}&print=1`,
       "_blank",
     );
   };
@@ -1688,7 +1688,7 @@ schoolAccountantDashboardController.openFeeStatementModal = async function (
   // Print button
   document.getElementById("btnPrintFeeStatement").onclick = () => {
     window.open(
-      `/Kingsway/pages/fee_statement.php?student_id=${data.studentId}&print=1`,
+      `${window.APP_BASE || ''}/pages/fee_statement.php?student_id=${data.studentId}&print=1`,
       "_blank",
     );
   };
@@ -1696,7 +1696,7 @@ schoolAccountantDashboardController.openFeeStatementModal = async function (
   // Download button
   document.getElementById("btnDownloadFeeStatement").onclick = () => {
     window.open(
-      `/Kingsway/api/?route=finance/fee-statement-pdf&student_id=${data.studentId}`,
+      `${window.APP_BASE || ''}/api/?route=finance/fee-statement-pdf&student_id=${data.studentId}`,
       "_blank",
     );
   };
@@ -1883,7 +1883,7 @@ schoolAccountantDashboardController.openFeeStructureModal = async function (
 
   document.getElementById("btnPrintFeeStructure").onclick = () => {
     window.open(
-      `/Kingsway/pages/fee_structure_print.php?student_id=${data.studentId}&print=1`,
+      `${window.APP_BASE || ''}/pages/fee_structure_print.php?student_id=${data.studentId}&print=1`,
       "_blank",
     );
   };
@@ -2004,7 +2004,7 @@ schoolAccountantDashboardController.openStudentProfileModal = async function (
     }
   }
   document.getElementById("btnViewFullProfile").href =
-    `/Kingsway/home.php?route=${encodeURIComponent(profileRoute)}&student_id=${data.studentId}&view=profile`;
+    `${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(profileRoute)}&student_id=${data.studentId}&view=profile`;
 
   const bsModal = new bootstrap.Modal(modal);
   bsModal.show();
@@ -2033,13 +2033,13 @@ schoolAccountantDashboardController.renderStudentProfile = function (response) {
     return;
   }
 
-  const photoUrl = student.photo_url || "/Kingsway/images/default-avatar.png";
+  const photoUrl = student.photo_url || (window.APP_BASE || '') + '/images/default-avatar.png';
 
   let html = `
     <div class="row">
       <div class="col-md-4 text-center">
         <img src="${photoUrl}" class="img-thumbnail mb-2" style="max-width: 150px;" 
-             alt="Student Photo" onerror="this.src='/Kingsway/images/default-avatar.png'">
+             alt="Student Photo" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
         <h5 class="mb-1">${student.first_name || ""} ${student.last_name || ""}</h5>
         <p class="text-muted">${student.admission_no || "--"}</p>
       </div>
@@ -2322,7 +2322,7 @@ schoolAccountantDashboardController.fetchBankTransactions = async function (
       json = await window.API.accounts.getBankTransactions(bankId);
     } else {
       const res = await fetch(
-        `/Kingsway/api/accounts/bank-transactions?bank_id=${encodeURIComponent(bankId)}`,
+        `${window.APP_BASE || ''}/api/accounts/bank-transactions?bank_id=${encodeURIComponent(bankId)}`,
       );
       if (!res.ok) throw new Error("Failed to fetch bank transactions");
       json = await res.json();
@@ -2715,7 +2715,7 @@ schoolAccountantDashboardController.renderTables = function () {
         window.navigateToRoute(route);
         window.history.pushState({}, "", "?route=" + route);
       } else {
-        window.location.href = `/Kingsway/pages/${route}.php`;
+        window.location.href = `${window.APP_BASE || ''}/pages/${route}.php`;
       }
     };
     el._dashNavHandler = handler;
@@ -2924,7 +2924,7 @@ schoolAccountantDashboardController.openReconcileModal = async function (
               : json.message || "Transaction reconciled successfully";
             showNotification(msg, "success");
           } else {
-            const res = await fetch("/Kingsway/api/payments/reconcile-mpesa", {
+            const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -3093,7 +3093,7 @@ schoolAccountantDashboardController.loadReconcileHistory = async function (
       json = await window.API.payments.getMpesaReconcileHistory(mpesaId);
     } else {
       const res = await fetch(
-        "/Kingsway/api/payments/mpesa-reconcile-history?mpesa_id=" +
+        (window.APP_BASE || '') + '/api/payments/mpesa-reconcile-history?mpesa_id=' +
           encodeURIComponent(mpesaId),
       );
       if (!res.ok) throw new Error("History fetch failed");
@@ -3158,7 +3158,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
 
   try {
     let json;
-    const url = `/Kingsway/api/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`;
+    const url = `${window.APP_BASE || ''}/api/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`;
     const res = await fetch(url, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("jwt_token") || ""}`,
@@ -3248,7 +3248,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
 
         try {
           // Call API to update mpesa_transactions with student_id
-          const linkRes = await fetch("/Kingsway/api/payments/link-student", {
+          const linkRes = await fetch((window.APP_BASE || '') + '/api/payments/link-student', {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -3350,7 +3350,7 @@ schoolAccountantDashboardController.loadBankTransactionsForReconcile =
       if (window.API?.accounts?.getBankTransactions) {
         json = await window.API.accounts.getBankTransactions();
       } else {
-        const res = await fetch("/Kingsway/api/accounts/bank-transactions");
+        const res = await fetch((window.APP_BASE || '') + '/api/accounts/bank-transactions');
         if (!res.ok) throw new Error("Failed to fetch bank transactions");
         json = await res.json();
       }
@@ -3451,7 +3451,7 @@ schoolAccountantDashboardController.loadBankTransactionsCache =
       if (window.API?.accounts?.getBankTransactions) {
         json = await window.API.accounts.getBankTransactions();
       } else {
-        const res = await fetch("/Kingsway/api/accounts/bank-transactions");
+        const res = await fetch((window.APP_BASE || '') + '/api/accounts/bank-transactions');
         if (!res.ok) return [];
         json = await res.json();
       }
@@ -3688,7 +3688,7 @@ schoolAccountantDashboardController.autoReconcile = async function (
         "Auto-matched by system",
       );
     } else {
-      const res = await fetch("/Kingsway/api/payments/reconcile-mpesa", {
+      const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -3749,7 +3749,7 @@ schoolAccountantDashboardController.bulkAutoReconcile = async function () {
           "Bulk auto-matched by system",
         );
       } else {
-        const res = await fetch("/Kingsway/api/payments/reconcile-mpesa", {
+        const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -3873,7 +3873,7 @@ schoolAccountantDashboardController.openBulkReconcileModal = function () {
               await window.API.payments.reconcileMpesa(mpesaId, ref, notes);
             } else {
               const res = await fetch(
-                "/Kingsway/api/payments/reconcile-mpesa",
+                (window.APP_BASE || '') + '/api/payments/reconcile-mpesa',
                 {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -3954,7 +3954,7 @@ document.addEventListener("DOMContentLoaded", function () {
         );
         showNotification(json.message || "Reconciled", "success");
       } else {
-        const res = await fetch("/Kingsway/api/payments/reconcile-mpesa", {
+        const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

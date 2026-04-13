@@ -286,4 +286,4 @@
     </div>
 </div>
 
-<script src="js/pages/chapel_services.js"></script>
+<script src="<?= $appBase ?>js/pages/chapel_services.js"></script>

@@ -1,4 +1,6 @@
-<div class="admin-layout" data-user-role="director_owner">
+<?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
+?>
 <!-- Fee Structure Admin Component - Full management features -->
 
 <!-- Page Header -->
@@ -274,4 +276,3 @@
         }
     });
 </script>
-</div>

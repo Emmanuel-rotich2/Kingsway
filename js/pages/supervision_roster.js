@@ -198,7 +198,7 @@ const SupervisionRosterController = (() => {
             window._rosterSearchTimeout = setTimeout(() => loadData(1), 300);
         });
         document.getElementById('exportRosterBtn')?.addEventListener('click', () => {
-            window.open('/Kingsway/api/?route=academic/supervision-roster/export&format=csv', '_blank');
+            window.open((window.APP_BASE || '') + '/api/?route=academic/supervision-roster/export&format=csv', '_blank');
         });
         document.getElementById('autoGenerateBtn')?.addEventListener('click', async () => {
             if (!confirm('Auto-generate supervision roster for current term?')) return;

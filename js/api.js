@@ -388,6 +388,41 @@ const AuthContext = (() => {
     return !!currentUser && !!localStorage.getItem("token");
   }
 
+  /**
+   * Alias for getUser() — used by dashboard_router.js
+   */
+  function getCurrentUser() {
+    return currentUser;
+  }
+
+  /**
+   * Module-scoped permission helpers.
+   * Checks both dot notation (module.action) and underscore aliases (module_action).
+   * @param {string} module — e.g., 'finance', 'students'
+   */
+  function canView(module) {
+    return hasPermission(`${module}.view`) || hasPermission(`${module}_view`);
+  }
+  function canCreate(module) {
+    return hasPermission(`${module}.create`) || hasPermission(`${module}_create`);
+  }
+  function canEdit(module) {
+    return hasPermission(`${module}.edit`) || hasPermission(`${module}_edit`) ||
+           hasPermission(`${module}.update`) || hasPermission(`${module}_update`);
+  }
+  function canDelete(module) {
+    return hasPermission(`${module}.delete`) || hasPermission(`${module}_delete`);
+  }
+  function canApprove(module) {
+    return hasPermission(`${module}.approve`) || hasPermission(`${module}_approve`);
+  }
+  function canExport(module) {
+    return hasPermission(`${module}.export`) || hasPermission(`${module}_export`);
+  }
+  function canManage(module) {
+    return hasPermission(`${module}.manage`) || hasPermission(`${module}_manage`);
+  }
+
   // Initialize on load
   initialize();
 
@@ -400,6 +435,7 @@ const AuthContext = (() => {
     hasAllPermissions,
     hasRole,
     getUser,
+    getCurrentUser,
     getPermissions,
     getRoles,
     getSidebarItems,
@@ -407,6 +443,13 @@ const AuthContext = (() => {
     getPermissionCount,
     isAuthenticated,
     initialize,
+    canView,
+    canCreate,
+    canEdit,
+    canDelete,
+    canApprove,
+    canExport,
+    canManage,
   };
 })();
 

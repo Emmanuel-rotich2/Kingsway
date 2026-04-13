@@ -2,128 +2,91 @@
 /**
  * Students - Manager Layout
  * Compact layout for Deputy Heads, HODs, Accountant, etc.
- * 
+ *
  * Features:
- * - Compact sidebar (expands on hover)
  * - 3 stat cards
  * - 2 charts
  * - Standard table with 7 columns
  * - Actions: View, Edit, Export
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
-<link rel="stylesheet" href="<?= $appBase ?>css/roles/manager-theme.css">
-
-<div class="manager-layout">
-    <!-- Compact Sidebar -->
-    <aside class="manager-sidebar" id="managerSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 3 columns -->
+<div class="manager-stats-grid">
+    <div class="manager-stat-card">
+        <div class="stat-icon">👨‍🎓</div>
+        <div class="stat-info">
+            <span class="stat-value" id="totalStudents">0</span>
+            <span class="stat-label">Total</span>
         </div>
-
-        <nav class="manager-nav">
-            <a href="/pages/dashboard.php" class="manager-nav-item" data-label="Dashboard">🏠</a>
-            <a href="/pages/all_students.php" class="manager-nav-item active" data-label="Students">👨‍🎓</a>
-            <a href="/pages/all_teachers.php" class="manager-nav-item" data-label="Teachers">👩‍🏫</a>
-            <a href="/pages/all_classes.php" class="manager-nav-item" data-label="Classes">📚</a>
-            <a href="/pages/manage_communications.php" class="manager-nav-item" data-label="Messages">📧</a>
-            <a href="/pages/manage_activities.php" class="manager-nav-item" data-label="Activities">🏆</a>
-        </nav>
-
-        <div class="user-section" id="userSection">
-            <span class="user-initial" id="userInitial">M</span>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+            <span class="stat-value" id="activeStudents">0</span>
+            <span class="stat-label">Active</span>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="manager-main">
-        <!-- Header -->
-        <header class="manager-header">
-            <div class="header-left">
-                <h1 class="page-title">👨‍🎓 Students</h1>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-outline btn-sm" onclick="exportStudents()">📥 Export</button>
-                <button class="btn btn-primary btn-sm" onclick="showAddStudentModal()">➕ Add</button>
-            </div>
-        </header>
-
-        <!-- Stats - 3 columns -->
-        <div class="manager-stats-grid">
-            <div class="manager-stat-card">
-                <div class="stat-icon">👨‍🎓</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="totalStudents">0</span>
-                    <span class="stat-label">Total</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">✅</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="activeStudents">0</span>
-                    <span class="stat-label">Active</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">🆕</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="newThisTerm">0</span>
-                    <span class="stat-label">New</span>
-                </div>
-            </div>
+    </div>
+    <div class="manager-stat-card">
+        <div class="stat-icon">🆕</div>
+        <div class="stat-info">
+            <span class="stat-value" id="newThisTerm">0</span>
+            <span class="stat-label">New</span>
         </div>
+    </div>
+</div>
 
-        <!-- Charts - 2 columns -->
-        <div class="manager-charts-row">
-            <div class="manager-chart-card">
-                <h4>Class Distribution</h4>
-                <canvas id="classChart" height="180"></canvas>
-            </div>
-            <div class="manager-chart-card">
-                <h4>Gender</h4>
-                <canvas id="genderChart" height="180"></canvas>
-            </div>
-        </div>
+<!-- Charts - 2 columns -->
+<div class="manager-charts-row">
+    <div class="manager-chart-card">
+        <h4>Class Distribution</h4>
+        <canvas id="classChart" height="180"></canvas>
+    </div>
+    <div class="manager-chart-card">
+        <h4>Gender</h4>
+        <canvas id="genderChart" height="180"></canvas>
+    </div>
+</div>
 
-        <!-- Filters -->
-        <div class="manager-filters">
-            <select class="filter-select" id="filterClass">
-                <option value="">All Classes</option>
-            </select>
-            <select class="filter-select" id="filterStatus">
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-            </select>
-            <input type="text" class="filter-search" id="searchStudent" placeholder="🔍 Search...">
-        </div>
+<!-- Filters -->
+<div class="manager-filters">
+    <select class="filter-select" id="filterClass">
+        <option value="">All Classes</option>
+    </select>
+    <select class="filter-select" id="filterStatus">
+        <option value="">All Status</option>
+        <option value="active">Active</option>
+        <option value="inactive">Inactive</option>
+    </select>
+    <input type="text" class="filter-search" id="searchStudent" placeholder="🔍 Search...">
+    <button class="btn btn-outline btn-sm" onclick="exportStudents()">📥 Export</button>
+    <button class="btn btn-primary btn-sm" onclick="showAddStudentModal()">➕ Add</button>
+</div>
 
-        <!-- Table - 7 columns -->
-        <div class="manager-table-card">
-            <table class="manager-data-table" id="studentsTable">
-                <thead>
-                    <tr>
-                        <th>Adm No</th>
-                        <th>Name</th>
-                        <th>Class</th>
-                        <th>Gender</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="studentsTableBody">
-                    <!-- Data loaded dynamically -->
-                </tbody>
-            </table>
+<!-- Table - 7 columns -->
+<div class="manager-table-card">
+    <table class="manager-data-table" id="studentsTable">
+        <thead>
+            <tr>
+                <th>Adm No</th>
+                <th>Name</th>
+                <th>Class</th>
+                <th>Gender</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="studentsTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
 
-            <div class="table-footer">
-                <span class="page-info">Showing <span id="showingCount">0</span> students</span>
-                <div class="pagination" id="pagination"></div>
-            </div>
-        </div>
-    </main>
+    <div class="table-footer">
+        <span class="page-info">Showing <span id="showingCount">0</span> students</span>
+        <div class="pagination" id="pagination"></div>
+    </div>
 </div>
 
 <!-- Add/Edit Modal -->
@@ -179,17 +142,8 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userInitial').textContent = (user.name || 'M').charAt(0).toUpperCase();
-        }
-
         loadStudents();
         loadStats();
         loadFilters();

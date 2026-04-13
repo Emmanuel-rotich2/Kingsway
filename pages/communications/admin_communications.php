@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Communications - Admin Layout
  * Full-featured layout for System Administrator, Director, Headteacher, School Administrator
- * 
+ *
  * Features:
  * - Full sidebar with all navigation
  * - 4+ stat cards (Total Sent, Scheduled, Drafts, Failed, Cost stats)
@@ -13,266 +14,204 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/admin-theme.css">
-
-<div class="admin-layout">
-    <!-- Sidebar Navigation -->
-    <aside class="admin-sidebar" id="adminSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
-            <span class="logo-text">Kingsway Academy</span>
-        </div>
-
-        <nav class="admin-nav">
-            <div class="nav-section">
-                <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="admin-nav-item">
-                    <span class="nav-icon">🏠</span>
-                    <span class="nav-label">Dashboard</span>
-                </a>
-                <a href="/pages/manage_activities.php" class="admin-nav-item">
-                    <span class="nav-icon">🏆</span>
-                    <span class="nav-label">Activities</span>
-                </a>
-                <a href="/pages/manage_communications.php" class="admin-nav-item active">
-                    <span class="nav-icon">💬</span>
-                    <span class="nav-label">Communications</span>
-                </a>
-            </div>
-
-            <div class="nav-section">
-                <span class="nav-section-title">Academics</span>
-                <a href="/pages/all_students.php" class="admin-nav-item">
-                    <span class="nav-icon">👨‍🎓</span>
-                    <span class="nav-label">Students</span>
-                </a>
-                <a href="/pages/all_teachers.php" class="admin-nav-item">
-                    <span class="nav-icon">👨‍🏫</span>
-                    <span class="nav-label">Teachers</span>
-                </a>
-            </div>
-        </nav>
-
-        <div class="user-section">
-            <div class="user-avatar" id="userAvatar">A</div>
-            <div class="user-info">
-                <span class="user-name" id="userName">Administrator</span>
-                <span class="user-role" id="userRole">Admin</span>
+<!-- Content Area -->
+<div class="admin-content">
+    <!-- Stats Grid - 4+ columns -->
+    <div class="admin-stats">
+        <div class="admin-stat-card">
+            <div class="stat-icon">📤</div>
+            <div class="stat-content">
+                <div class="stat-value" id="totalSent">0</div>
+                <div class="stat-label">Total Sent</div>
+                <div class="stat-change positive">↑ 15%</div>
             </div>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="admin-main">
-        <!-- Page Header -->
-        <header class="admin-header">
-            <div class="breadcrumb">
-                <a href="/pages/dashboard.php">Dashboard</a>
-                <span>/</span>
-                <a href="/pages/manage_communications.php">Communications</a>
-            </div>
-            <h1 class="page-title">Communications Hub</h1>
-            <div class="admin-header-actions">
-                <button class="btn btn-outline btn-sm" id="templatesBtn">
-                    📝 Templates
-                </button>
-                <button class="btn btn-outline btn-sm" id="campaignBtn">
-                    📢 Campaign
-                </button>
-                <button class="btn btn-outline btn-sm" id="exportBtn">
-                    📤 Export
-                </button>
-                <button class="btn btn-primary" id="composeBtn">
-                    ✉️ New Message
-                </button>
-            </div>
-        </header>
-
-        <!-- Content Area -->
-        <div class="admin-content">
-            <!-- Stats Grid - 4+ columns -->
-            <div class="admin-stats">
-                <div class="admin-stat-card">
-                    <div class="stat-icon">📤</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="totalSent">0</div>
-                        <div class="stat-label">Total Sent</div>
-                        <div class="stat-change positive">↑ 15%</div>
-                    </div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="stat-icon">⏰</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="scheduled">0</div>
-                        <div class="stat-label">Scheduled</div>
-                    </div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="stat-icon">📋</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="drafts">0</div>
-                        <div class="stat-label">Drafts</div>
-                    </div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="stat-icon">❌</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="failed">0</div>
-                        <div class="stat-label">Failed</div>
-                        <div class="stat-change negative">↓ 5%</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Cost Stats (Admin/Finance only) -->
-            <div class="admin-stats" style="margin-top: 1rem;">
-                <div class="admin-stat-card">
-                    <div class="stat-icon">💰</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="smsCredits">0</div>
-                        <div class="stat-label">SMS Credits Used</div>
-                    </div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="stat-icon">💵</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="totalCost">KES 0</div>
-                        <div class="stat-label">Total Cost (Month)</div>
-                    </div>
-                </div>
-                <div class="admin-stat-card">
-                    <div class="stat-icon">📊</div>
-                    <div class="stat-content">
-                        <div class="stat-value" id="deliveryRate">0%</div>
-                        <div class="stat-label">Delivery Rate</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Charts Row -->
-            <div class="admin-charts">
-                <div class="chart-card large">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Message Trends</h3>
-                        <select class="chart-filter" id="trendPeriod">
-                            <option value="7days">Last 7 Days</option>
-                            <option value="30days" selected>Last 30 Days</option>
-                            <option value="quarter">This Quarter</option>
-                        </select>
-                    </div>
-                    <div class="chart-body">
-                        <canvas id="messageTrendsChart"></canvas>
-                    </div>
-                </div>
-                <div class="chart-card">
-                    <div class="chart-header">
-                        <h3 class="chart-title">By Channel</h3>
-                    </div>
-                    <div class="chart-body">
-                        <canvas id="channelChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Channel Tabs -->
-            <ul class="nav nav-tabs mb-3" id="channelTabs">
-                <li class="nav-item">
-                    <a class="nav-link active" data-bs-toggle="tab" href="#allMessages">All Messages</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#smsTab">📱 SMS</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#whatsappTab">💬 WhatsApp</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#emailTab">📧 Email</a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" data-bs-toggle="tab" href="#pushTab">🔔 Push</a>
-                </li>
-            </ul>
-
-            <!-- Data Table -->
-            <div class="admin-table-card tab-content">
-                <div id="allMessages" class="tab-pane fade show active">
-                    <div class="admin-table-header">
-                        <span class="table-title">All Messages</span>
-                        <span id="recordCount">0 records</span>
-                    </div>
-
-                    <div class="admin-filters">
-                        <input type="text" class="search-input form-control" id="searchMessages"
-                            placeholder="Search messages...">
-                        <select class="filter-select" id="channelFilter">
-                            <option value="">All Channels</option>
-                            <option value="sms">SMS</option>
-                            <option value="whatsapp">WhatsApp</option>
-                            <option value="email">Email</option>
-                            <option value="push">Push</option>
-                        </select>
-                        <select class="filter-select" id="statusFilter">
-                            <option value="">All Status</option>
-                            <option value="sent">Sent</option>
-                            <option value="delivered">Delivered</option>
-                            <option value="scheduled">Scheduled</option>
-                            <option value="failed">Failed</option>
-                            <option value="draft">Draft</option>
-                        </select>
-                        <div class="bulk-actions" id="bulkActions" style="display:none;">
-                            <span class="selected-count">0 selected</span>
-                            <button class="btn btn-warning btn-sm">Resend</button>
-                            <button class="btn btn-danger btn-sm">Delete</button>
-                        </div>
-                    </div>
-
-                    <div class="table-responsive">
-                        <table class="admin-data-table" id="messagesTable">
-                            <thead>
-                                <tr>
-                                    <th><input type="checkbox" class="select-all" id="selectAll"></th>
-                                    <th>ID</th>
-                                    <th>Recipient</th>
-                                    <th>Channel</th>
-                                    <th>Subject/Message</th>
-                                    <th>Status</th>
-                                    <th>Sent At</th>
-                                    <th>Sent By</th>
-                                    <th>Cost</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="messagesTableBody">
-                                <!-- Data loaded dynamically -->
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="table-pagination">
-                        <div class="pagination-info">
-                            Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span
-                                id="totalRecords">0</span>
-                        </div>
-                        <div class="pagination-controls" id="paginationControls"></div>
-                    </div>
-                </div>
-
-                <div id="smsTab" class="tab-pane fade">
-                    <div class="p-4 text-muted">SMS messages filtered here...</div>
-                </div>
-                <div id="whatsappTab" class="tab-pane fade">
-                    <div class="p-4 text-muted">WhatsApp messages filtered here...</div>
-                </div>
-                <div id="emailTab" class="tab-pane fade">
-                    <div class="p-4 text-muted">Email messages filtered here...</div>
-                </div>
-                <div id="pushTab" class="tab-pane fade">
-                    <div class="p-4 text-muted">Push notifications filtered here...</div>
-                </div>
+        <div class="admin-stat-card">
+            <div class="stat-icon">⏰</div>
+            <div class="stat-content">
+                <div class="stat-value" id="scheduled">0</div>
+                <div class="stat-label">Scheduled</div>
             </div>
         </div>
-    </main>
+        <div class="admin-stat-card">
+            <div class="stat-icon">📋</div>
+            <div class="stat-content">
+                <div class="stat-value" id="drafts">0</div>
+                <div class="stat-label">Drafts</div>
+            </div>
+        </div>
+        <div class="admin-stat-card">
+            <div class="stat-icon">❌</div>
+            <div class="stat-content">
+                <div class="stat-value" id="failed">0</div>
+                <div class="stat-label">Failed</div>
+                <div class="stat-change negative">↓ 5%</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cost Stats (Admin/Finance only) -->
+    <div class="admin-stats" style="margin-top: 1rem;">
+        <div class="admin-stat-card">
+            <div class="stat-icon">💰</div>
+            <div class="stat-content">
+                <div class="stat-value" id="smsCredits">0</div>
+                <div class="stat-label">SMS Credits Used</div>
+            </div>
+        </div>
+        <div class="admin-stat-card">
+            <div class="stat-icon">💵</div>
+            <div class="stat-content">
+                <div class="stat-value" id="totalCost">KES 0</div>
+                <div class="stat-label">Total Cost (Month)</div>
+            </div>
+        </div>
+        <div class="admin-stat-card">
+            <div class="stat-icon">📊</div>
+            <div class="stat-content">
+                <div class="stat-value" id="deliveryRate">0%</div>
+                <div class="stat-label">Delivery Rate</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Page Header Actions -->
+    <div class="admin-header-actions" style="margin: 1rem 0;">
+        <button class="btn btn-outline btn-sm" id="templatesBtn">
+            📝 Templates
+        </button>
+        <button class="btn btn-outline btn-sm" id="campaignBtn">
+            📢 Campaign
+        </button>
+        <button class="btn btn-outline btn-sm" id="exportBtn">
+            📤 Export
+        </button>
+        <button class="btn btn-primary" id="composeBtn">
+            ✉️ New Message
+        </button>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="admin-charts">
+        <div class="chart-card large">
+            <div class="chart-header">
+                <h3 class="chart-title">Message Trends</h3>
+                <select class="chart-filter" id="trendPeriod">
+                    <option value="7days">Last 7 Days</option>
+                    <option value="30days" selected>Last 30 Days</option>
+                    <option value="quarter">This Quarter</option>
+                </select>
+            </div>
+            <div class="chart-body">
+                <canvas id="messageTrendsChart"></canvas>
+            </div>
+        </div>
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3 class="chart-title">By Channel</h3>
+            </div>
+            <div class="chart-body">
+                <canvas id="channelChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Channel Tabs -->
+    <ul class="nav nav-tabs mb-3" id="channelTabs">
+        <li class="nav-item">
+            <a class="nav-link active" data-bs-toggle="tab" href="#allMessages">All Messages</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#smsTab">📱 SMS</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#whatsappTab">💬 WhatsApp</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#emailTab">📧 Email</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link" data-bs-toggle="tab" href="#pushTab">🔔 Push</a>
+        </li>
+    </ul>
+
+    <!-- Data Table -->
+    <div class="admin-table-card tab-content">
+        <div id="allMessages" class="tab-pane fade show active">
+            <div class="admin-table-header">
+                <span class="table-title">All Messages</span>
+                <span id="recordCount">0 records</span>
+            </div>
+
+            <div class="admin-filters">
+                <input type="text" class="search-input form-control" id="searchMessages"
+                    placeholder="Search messages...">
+                <select class="filter-select" id="channelFilter">
+                    <option value="">All Channels</option>
+                    <option value="sms">SMS</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="email">Email</option>
+                    <option value="push">Push</option>
+                </select>
+                <select class="filter-select" id="statusFilter">
+                    <option value="">All Status</option>
+                    <option value="sent">Sent</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="failed">Failed</option>
+                    <option value="draft">Draft</option>
+                </select>
+                <div class="bulk-actions" id="bulkActions" style="display:none;">
+                    <span class="selected-count">0 selected</span>
+                    <button class="btn btn-warning btn-sm">Resend</button>
+                    <button class="btn btn-danger btn-sm">Delete</button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="admin-data-table" id="messagesTable">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" class="select-all" id="selectAll"></th>
+                            <th>ID</th>
+                            <th>Recipient</th>
+                            <th>Channel</th>
+                            <th>Subject/Message</th>
+                            <th>Status</th>
+                            <th>Sent At</th>
+                            <th>Sent By</th>
+                            <th>Cost</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="messagesTableBody">
+                        <!-- Data loaded dynamically -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="table-pagination">
+                <div class="pagination-info">
+                    Showing <span id="showingFrom">0</span> to <span id="showingTo">0</span> of <span
+                        id="totalRecords">0</span>
+                </div>
+                <div class="pagination-controls" id="paginationControls"></div>
+            </div>
+        </div>
+
+        <div id="smsTab" class="tab-pane fade">
+            <div class="p-4 text-muted">SMS messages filtered here...</div>
+        </div>
+        <div id="whatsappTab" class="tab-pane fade">
+            <div class="p-4 text-muted">WhatsApp messages filtered here...</div>
+        </div>
+        <div id="emailTab" class="tab-pane fade">
+            <div class="p-4 text-muted">Email messages filtered here...</div>
+        </div>
+        <div id="pushTab" class="tab-pane fade">
+            <div class="p-4 text-muted">Push notifications filtered here...</div>
+        </div>
+    </div>
 </div>
 
 <!-- Compose Message Modal -->
@@ -344,18 +283,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userName').textContent = user.name || 'Administrator';
-            document.getElementById('userRole').textContent = user.role || 'Admin';
-            document.getElementById('userAvatar').textContent = (user.name || 'A').charAt(0).toUpperCase();
-        }
-
         loadMessages();
         initCharts();
 

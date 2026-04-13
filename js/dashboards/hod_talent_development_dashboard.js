@@ -1,160 +1,81 @@
 /**
  * HOD Talent Development Dashboard Controller
- * Manages HOD Talent Development dashboard using api.js for real-time data
+ * Role: HOD Talent Development (ID 21)
  */
-
 const hodDashboardController = {
-    dashboardData: {},
-    refreshInterval: 30000,
-    isLoading: false,
-    
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
+    init: function () {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        
-        this.loadDashboardData();
-        this.attachEventListeners();
-        this.setupAutoRefresh();
-        console.log('HOD Talent Development Dashboard initialized');
+        this.loadAll();
     },
-    
-    loadDashboardData: async function() {
-        if (this.isLoading) return;
-        
-        this.isLoading = true;
-        try {
-            const stats = await window.API.apiCall('/dashboard/hod/stats', 'GET');
-            if (stats) {
-                this.dashboardData.stats = stats;
-                this.updateStatistics();
-            }
-            
-            const additionalData = await window.API.apiCall('/dashboard/hod/students', 'GET');
-            if (additionalData) {
-                this.dashboardData.additional = additionalData;
-                this.updateAdditionalData();
-            }
-            
-            const refreshTime = document.getElementById('lastRefreshTime');
-            if (refreshTime) {
-                refreshTime.textContent = new Date().toLocaleTimeString();
-            }
-        } catch (error) {
-            console.error('Error loading dashboard data:', error);
-            showNotification('Error loading dashboard data: ' + error.message, 'error');
-        } finally {
-            this.isLoading = false;
-        }
+
+    refresh: function () { this.loadAll(); },
+
+    loadAll: async function () {
+        const token = localStorage.getItem('token');
+        const h = { 'Authorization': 'Bearer ' + token };
+        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+
+        const [stats, activities, events] = await Promise.allSettled([
+            get('/api/activities/stats'),
+            get('/api/activities?limit=8&status=active'),
+            get('/api/events?limit=5&upcoming=1')
+        ]);
+
+        if (stats.value) this.renderStats(stats.value?.data || stats.value);
+        if (activities.value) this.renderActivities(activities.value?.data || activities.value || []);
+        if (events.value) this.renderEvents(events.value?.data || events.value || []);
     },
-    
-    updateStatistics: function() {
-        const stats = this.dashboardData.stats;
-        if (!stats) return;
-        
-        Object.keys(stats).forEach(key => {
-            const element = document.getElementById(key) || document.querySelector(`[data-stat="${key}"]`);
-            if (element) {
-                if (typeof stats[key] === 'number') {
-                    element.textContent = this.formatNumber(stats[key]);
-                } else {
-                    element.textContent = stats[key];
-                }
-            }
-        });
+
+    renderStats: function (d) {
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
+        set('activeActivities', d.active_activities || d.total_activities || 0);
+        set('studentsEnrolled', d.students_enrolled || d.total_participants || 0);
+        set('upcomingEvents', d.upcoming_events || 0);
+        set('awardsThisTerm', d.awards || d.awards_this_term || 0);
     },
-    
-    updateAdditionalData: function() {
-        const data = this.dashboardData.additional;
-        if (!data) return;
-        
-        if (data.chartData) {
-            this.updateCharts(data.chartData);
-        }
-        
-        if (data.tableData) {
-            this.updateTables(data.tableData);
-        }
+
+    renderActivities: function (list) {
+        const tbody = document.getElementById('activitiesTableBody');
+        if (!tbody) return;
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No active activities.</td></tr>'; return; }
+        tbody.innerHTML = list.map(a => {
+            const status = a.status || 'active';
+            return `<tr>
+                <td><strong>${this.esc(a.name || a.title)}</strong></td>
+                <td><span class="badge bg-warning text-dark">${this.esc(a.category || '—')}</span></td>
+                <td>${a.participant_count || a.participants || 0}</td>
+                <td>${this.esc(a.coach_name || a.teacher_name || '—')}</td>
+                <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${status}</span></td>
+            </tr>`;
+        }).join('');
     },
-    
-    updateCharts: function(chartData) {
-        console.log('Updating charts with:', chartData);
+
+    renderEvents: function (list) {
+        const el = document.getElementById('upcomingEventsList');
+        if (!el) return;
+        if (!list.length) { el.innerHTML = '<div class="text-center text-muted py-3 small">No upcoming events.</div>'; return; }
+        el.innerHTML = list.map(e => {
+            const date = e.event_date || e.date;
+            const d = date ? new Date(date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '—';
+            return `<a href="#" class="list-group-item list-group-item-action py-2">
+                <div class="d-flex justify-content-between">
+                    <span class="small fw-semibold">${this.esc(e.name || e.title)}</span>
+                    <small class="text-muted">${d}</small>
+                </div>
+                <small class="text-muted">${this.esc(e.venue || e.location || '')}</small>
+            </a>`;
+        }).join('');
     },
-    
-    updateTables: function(tableData) {
-        Object.keys(tableData).forEach(tableId => {
-            const table = document.getElementById(tableId);
-            if (table && table.querySelector('tbody')) {
-                const tbody = table.querySelector('tbody');
-                const rows = tableData[tableId].map((item, index) => {
-                    const dateStr = new Date(item.date || item.created_at).toLocaleDateString();
-                    return `<tr><td>${index + 1}</td><td>${this.getItemDisplay(item)}</td><td>${this.formatStatus(item.status)}</td><td>${dateStr}</td></tr>`;
-                }).join('');
-                tbody.innerHTML = rows;
-            }
-        });
+
+    navigate: function (route) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
     },
-    
-    getItemDisplay: function(item) {
-        return item.name || item.title || item.description || item.id || 'N/A';
-    },
-    
-    formatStatus: function(status) {
-        if (!status) return '<span class="badge bg-secondary">N/A</span>';
-        const statusClass = {'active': 'bg-success', 'pending': 'bg-warning', 'completed': 'bg-success', 'failed': 'bg-danger'}[status.toLowerCase()] || 'bg-secondary';
-        return `<span class="badge ${statusClass}">${status}</span>`;
-    },
-    
-    formatNumber: function(num) {
-        return new Intl.NumberFormat().format(num);
-    },
-    
-    attachEventListeners: function() {
-        document.getElementById('refreshDashboard')?.addEventListener('click', () => {
-            this.loadDashboardData();
-        });
-        
-        document.querySelectorAll('[data-filter]').forEach(filter => {
-            filter.addEventListener('change', () => {
-                this.loadDashboardData();
-            });
-        });
-        
-        document.getElementById('exportDashboard')?.addEventListener('click', () => {
-            this.exportDashboardData();
-        });
-        
-        document.getElementById('printDashboard')?.addEventListener('click', () => {
-            window.print();
-        });
-    },
-    
-    setupAutoRefresh: function() {
-        setInterval(() => {
-            this.loadDashboardData();
-        }, this.refreshInterval);
-    },
-    
-    exportDashboardData: function() {
-        try {
-            const data = {
-                dashboard: 'HOD Talent Development Dashboard',
-                timestamp: new Date().toISOString(),
-                ...this.dashboardData
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            downloadFile(blob, 'dashboard-export-' + Date.now() + '.json');
-            showNotification('Dashboard exported successfully', 'success');
-        } catch (error) {
-            console.error('Error exporting dashboard:', error);
-            showNotification('Error exporting dashboard', 'error');
-        }
-    },
-    
-    navigateTo: function(route) {
-        window.location.href = `/Kingsway/home.php?route=${route}`;
+
+    esc: function (s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 };
 

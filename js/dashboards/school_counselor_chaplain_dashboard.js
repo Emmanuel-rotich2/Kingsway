@@ -1,160 +1,85 @@
 /**
- * Counselor/Chaplain Dashboard Controller
- * Manages Counselor/Chaplain dashboard using api.js for real-time data
+ * School Counselor / Chaplain Dashboard Controller
+ * Role: Chaplain (ID 24)
  */
-
 const counselorDashboardController = {
-    dashboardData: {},
-    refreshInterval: 30000,
-    isLoading: false,
-    
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
+    init: function () {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        
-        this.loadDashboardData();
-        this.attachEventListeners();
-        this.setupAutoRefresh();
-        console.log('Counselor/Chaplain Dashboard initialized');
+        this.loadAll();
     },
-    
-    loadDashboardData: async function() {
-        if (this.isLoading) return;
-        
-        this.isLoading = true;
-        try {
-            const stats = await window.API.apiCall('/dashboard/counselor/students', 'GET');
-            if (stats) {
-                this.dashboardData.stats = stats;
-                this.updateStatistics();
-            }
-            
-            const additionalData = await window.API.apiCall('/dashboard/counselor/cases', 'GET');
-            if (additionalData) {
-                this.dashboardData.additional = additionalData;
-                this.updateAdditionalData();
-            }
-            
-            const refreshTime = document.getElementById('lastRefreshTime');
-            if (refreshTime) {
-                refreshTime.textContent = new Date().toLocaleTimeString();
-            }
-        } catch (error) {
-            console.error('Error loading dashboard data:', error);
-            showNotification('Error loading dashboard data: ' + error.message, 'error');
-        } finally {
-            this.isLoading = false;
-        }
+
+    refresh: function () { this.loadAll(); },
+
+    loadAll: async function () {
+        const token = localStorage.getItem('token');
+        const h = { 'Authorization': 'Bearer ' + token };
+        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+
+        const [stats, sessions, chapel] = await Promise.allSettled([
+            get('/api/counseling/stats'),
+            get('/api/counseling/sessions?limit=8&sort=recent'),
+            get('/api/chapel/services?limit=5&upcoming=1')
+        ]);
+
+        if (stats.value) this.renderStats(stats.value?.data || stats.value);
+        if (sessions.value) this.renderSessions(sessions.value?.data || sessions.value || []);
+        if (chapel.value) this.renderChapel(chapel.value?.data || chapel.value || []);
     },
-    
-    updateStatistics: function() {
-        const stats = this.dashboardData.stats;
-        if (!stats) return;
-        
-        Object.keys(stats).forEach(key => {
-            const element = document.getElementById(key) || document.querySelector(`[data-stat="${key}"]`);
-            if (element) {
-                if (typeof stats[key] === 'number') {
-                    element.textContent = this.formatNumber(stats[key]);
-                } else {
-                    element.textContent = stats[key];
-                }
-            }
-        });
+
+    renderStats: function (d) {
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
+        set('sessionsThisWeek', d.sessions_this_week || d.sessions_week || 0);
+        set('studentsSeen', d.students_seen || d.unique_students || 0);
+        set('pendingReferrals', d.pending_referrals || d.referrals || 0);
+        set('chapelServices', d.chapel_services || d.services_this_term || 0);
     },
-    
-    updateAdditionalData: function() {
-        const data = this.dashboardData.additional;
-        if (!data) return;
-        
-        if (data.chartData) {
-            this.updateCharts(data.chartData);
-        }
-        
-        if (data.tableData) {
-            this.updateTables(data.tableData);
-        }
+
+    renderSessions: function (list) {
+        const tbody = document.getElementById('sessionsTableBody');
+        if (!tbody) return;
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No sessions recorded.</td></tr>'; return; }
+        tbody.innerHTML = list.map(s => {
+            const d = s.session_date || s.date;
+            const dateStr = d ? new Date(d).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '—';
+            return `<tr>
+                <td>${this.esc(s.student_name || s.student?.full_name || '—')}</td>
+                <td><span class="badge bg-info text-dark">${this.esc(s.session_type || s.type || 'General')}</span></td>
+                <td>${dateStr}</td>
+                <td>${s.follow_up ? '<span class="badge bg-warning text-dark">Needed</span>' : '<span class="badge bg-success">None</span>'}</td>
+            </tr>`;
+        }).join('');
     },
-    
-    updateCharts: function(chartData) {
-        console.log('Updating charts with:', chartData);
+
+    renderChapel: function (list) {
+        const el = document.getElementById('chapelScheduleList');
+        if (!el) return;
+        if (!list.length) { el.innerHTML = '<div class="text-center text-muted py-3 small">No upcoming services.</div>'; return; }
+        el.innerHTML = list.map(s => {
+            const d = s.service_date || s.date;
+            const dateStr = d ? new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'}) : '—';
+            return `<a href="#" class="list-group-item list-group-item-action py-2">
+                <div class="d-flex justify-content-between">
+                    <span class="small fw-semibold">${this.esc(s.title || s.theme || 'Chapel Service')}</span>
+                    <small class="text-muted">${dateStr}</small>
+                </div>
+                <small class="text-muted">${s.time || ''} ${this.esc(s.venue || '')}</small>
+            </a>`;
+        }).join('');
     },
-    
-    updateTables: function(tableData) {
-        Object.keys(tableData).forEach(tableId => {
-            const table = document.getElementById(tableId);
-            if (table && table.querySelector('tbody')) {
-                const tbody = table.querySelector('tbody');
-                const rows = tableData[tableId].map((item, index) => {
-                    const dateStr = new Date(item.date || item.created_at).toLocaleDateString();
-                    return `<tr><td>${index + 1}</td><td>${this.getItemDisplay(item)}</td><td>${this.formatStatus(item.status)}</td><td>${dateStr}</td></tr>`;
-                }).join('');
-                tbody.innerHTML = rows;
-            }
-        });
+
+    showNewSessionModal: function () {
+        this.navigate('student_counseling');
     },
-    
-    getItemDisplay: function(item) {
-        return item.name || item.title || item.description || item.id || 'N/A';
+
+    navigate: function (route) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
     },
-    
-    formatStatus: function(status) {
-        if (!status) return '<span class="badge bg-secondary">N/A</span>';
-        const statusClass = {'active': 'bg-success', 'pending': 'bg-warning', 'completed': 'bg-success', 'failed': 'bg-danger'}[status.toLowerCase()] || 'bg-secondary';
-        return `<span class="badge ${statusClass}">${status}</span>`;
-    },
-    
-    formatNumber: function(num) {
-        return new Intl.NumberFormat().format(num);
-    },
-    
-    attachEventListeners: function() {
-        document.getElementById('refreshDashboard')?.addEventListener('click', () => {
-            this.loadDashboardData();
-        });
-        
-        document.querySelectorAll('[data-filter]').forEach(filter => {
-            filter.addEventListener('change', () => {
-                this.loadDashboardData();
-            });
-        });
-        
-        document.getElementById('exportDashboard')?.addEventListener('click', () => {
-            this.exportDashboardData();
-        });
-        
-        document.getElementById('printDashboard')?.addEventListener('click', () => {
-            window.print();
-        });
-    },
-    
-    setupAutoRefresh: function() {
-        setInterval(() => {
-            this.loadDashboardData();
-        }, this.refreshInterval);
-    },
-    
-    exportDashboardData: function() {
-        try {
-            const data = {
-                dashboard: 'Counselor/Chaplain Dashboard',
-                timestamp: new Date().toISOString(),
-                ...this.dashboardData
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            downloadFile(blob, 'dashboard-export-' + Date.now() + '.json');
-            showNotification('Dashboard exported successfully', 'success');
-        } catch (error) {
-            console.error('Error exporting dashboard:', error);
-            showNotification('Error exporting dashboard', 'error');
-        }
-    },
-    
-    navigateTo: function(route) {
-        window.location.href = `/Kingsway/home.php?route=${route}`;
+
+    esc: function (s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 };
 

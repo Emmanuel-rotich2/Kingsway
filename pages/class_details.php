@@ -23,4 +23,4 @@
     </div>
 </div>
 
-<script src="js/pages/class_details.js"></script>
+<script src="<?= $appBase ?>js/pages/class_details.js"></script>

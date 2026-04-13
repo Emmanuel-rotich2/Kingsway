@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Transport - Admin Layout
  * Full featured for System Admin, Director, Transport Manager
- * 
+ *
  * Features:
  * - Full sidebar
  * - 4 stat cards (routes, vehicles, students, drivers)
@@ -11,178 +12,136 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/admin-theme.css">
+<!-- Header Actions -->
+<div class="header-actions" style="margin-bottom: 1rem;">
+    <button class="btn btn-outline" onclick="exportData()">📥 Export</button>
+    <button class="btn btn-primary" onclick="showAddRouteModal()">➕ Add Route</button>
+</div>
 
-<div class="admin-layout">
-    <!-- Full Sidebar -->
-    <aside class="admin-sidebar" id="adminSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
-            <h3>Kingsway Academy</h3>
+<!-- Stats Row - 4 cards -->
+<div class="admin-stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon bg-primary">🛣️</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalRoutes">0</span>
+            <span class="stat-label">Routes</span>
         </div>
-
-        <nav class="sidebar-nav">
-            <div class="nav-section">
-                <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="nav-item">🏠 Dashboard</a>
-                <a href="/pages/all_students.php" class="nav-item">👨‍🎓 Students</a>
-            </div>
-            <div class="nav-section">
-                <span class="nav-section-title">Transport</span>
-                <a href="/pages/manage_transport.php" class="nav-item active">🚌 Transport</a>
-            </div>
-        </nav>
-
-        <div class="user-info" id="userInfo">
-            <img src="/images/default-avatar.png" alt="User" class="user-avatar">
-            <div class="user-details">
-                <span class="user-name" id="userName"></span>
-                <span class="user-role" id="userRole"></span>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-success">🚌</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalVehicles">0</span>
+            <span class="stat-label">Vehicles</span>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="admin-main">
-        <!-- Header -->
-        <header class="admin-header">
-            <div class="header-left">
-                <h1 class="page-title">🚌 Transport Management</h1>
-                <p class="page-subtitle">Manage routes, vehicles, and student transport</p>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-outline" onclick="exportData()">📥 Export</button>
-                <button class="btn btn-primary" onclick="showAddRouteModal()">➕ Add Route</button>
-            </div>
-        </header>
-
-        <!-- Stats Row - 4 cards -->
-        <div class="admin-stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon bg-primary">🛣️</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalRoutes">0</span>
-                    <span class="stat-label">Routes</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-success">🚌</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalVehicles">0</span>
-                    <span class="stat-label">Vehicles</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-info">👨‍🎓</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="studentsUsingTransport">0</span>
-                    <span class="stat-label">Students</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-warning">👨‍✈️</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalDrivers">0</span>
-                    <span class="stat-label">Drivers</span>
-                </div>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-info">👨‍🎓</div>
+        <div class="stat-content">
+            <span class="stat-value" id="studentsUsingTransport">0</span>
+            <span class="stat-label">Students</span>
         </div>
-
-        <!-- Charts Row -->
-        <div class="admin-charts-row">
-            <div class="chart-card chart-wide">
-                <div class="chart-header">
-                    <h3>Students by Route</h3>
-                </div>
-                <canvas id="routeChart" height="200"></canvas>
-            </div>
-            <div class="chart-card chart-narrow">
-                <div class="chart-header">
-                    <h3>Vehicle Status</h3>
-                </div>
-                <canvas id="vehicleChart" height="200"></canvas>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-warning">👨‍✈️</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalDrivers">0</span>
+            <span class="stat-label">Drivers</span>
         </div>
+    </div>
+</div>
 
-        <!-- Tabs -->
-        <div class="admin-tabs">
-            <button class="tab-btn active" data-tab="routes">Routes</button>
-            <button class="tab-btn" data-tab="vehicles">Vehicles</button>
-            <button class="tab-btn" data-tab="drivers">Drivers</button>
-            <button class="tab-btn" data-tab="students">Student Assignments</button>
+<!-- Charts Row -->
+<div class="admin-charts-row">
+    <div class="chart-card chart-wide">
+        <div class="chart-header">
+            <h3>Students by Route</h3>
         </div>
+        <canvas id="routeChart" height="200"></canvas>
+    </div>
+    <div class="chart-card chart-narrow">
+        <div class="chart-header">
+            <h3>Vehicle Status</h3>
+        </div>
+        <canvas id="vehicleChart" height="200"></canvas>
+    </div>
+</div>
 
-        <!-- Filters -->
-        <div class="admin-filters">
-            <div class="filter-row">
-                <select class="filter-select" id="filterStatus">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                </select>
-                <input type="text" class="filter-search" id="searchTransport" placeholder="🔍 Search...">
-            </div>
-        </div>
+<!-- Tabs -->
+<div class="admin-tabs">
+    <button class="tab-btn active" data-tab="routes">Routes</button>
+    <button class="tab-btn" data-tab="vehicles">Vehicles</button>
+    <button class="tab-btn" data-tab="drivers">Drivers</button>
+    <button class="tab-btn" data-tab="students">Student Assignments</button>
+</div>
 
-        <!-- Routes Table -->
-        <div class="admin-table-card" id="routesTab">
-            <table class="admin-data-table" id="routesTable">
-                <thead>
-                    <tr>
-                        <th>Route Name</th>
-                        <th>Vehicle</th>
-                        <th>Driver</th>
-                        <th>Stops</th>
-                        <th>Students</th>
-                        <th>AM Pickup</th>
-                        <th>PM Dropoff</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="routesTableBody">
-                    <!-- Data loaded dynamically -->
-                </tbody>
-            </table>
-        </div>
+<!-- Filters -->
+<div class="admin-filters">
+    <div class="filter-row">
+        <select class="filter-select" id="filterStatus">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+        </select>
+        <input type="text" class="filter-search" id="searchTransport" placeholder="🔍 Search...">
+    </div>
+</div>
 
-        <!-- Vehicles Table (hidden by default) -->
-        <div class="admin-table-card" id="vehiclesTab" style="display:none;">
-            <table class="admin-data-table">
-                <thead>
-                    <tr>
-                        <th>Reg No</th>
-                        <th>Make/Model</th>
-                        <th>Capacity</th>
-                        <th>Year</th>
-                        <th>Insurance Expiry</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="vehiclesTableBody"></tbody>
-            </table>
-        </div>
+<!-- Routes Table -->
+<div class="admin-table-card" id="routesTab">
+    <table class="admin-data-table" id="routesTable">
+        <thead>
+            <tr>
+                <th>Route Name</th>
+                <th>Vehicle</th>
+                <th>Driver</th>
+                <th>Stops</th>
+                <th>Students</th>
+                <th>AM Pickup</th>
+                <th>PM Dropoff</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="routesTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
+</div>
 
-        <!-- Drivers Table (hidden by default) -->
-        <div class="admin-table-card" id="driversTab" style="display:none;">
-            <table class="admin-data-table">
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Phone</th>
-                        <th>License No</th>
-                        <th>License Expiry</th>
-                        <th>Assigned Vehicle</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="driversTableBody"></tbody>
-            </table>
-        </div>
-    </main>
+<!-- Vehicles Table (hidden by default) -->
+<div class="admin-table-card" id="vehiclesTab" style="display:none;">
+    <table class="admin-data-table">
+        <thead>
+            <tr>
+                <th>Reg No</th>
+                <th>Make/Model</th>
+                <th>Capacity</th>
+                <th>Year</th>
+                <th>Insurance Expiry</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="vehiclesTableBody"></tbody>
+    </table>
+</div>
+
+<!-- Drivers Table (hidden by default) -->
+<div class="admin-table-card" id="driversTab" style="display:none;">
+    <table class="admin-data-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>License No</th>
+                <th>License Expiry</th>
+                <th>Assigned Vehicle</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="driversTableBody"></tbody>
+    </table>
 </div>
 
 <!-- Add Route Modal -->
@@ -232,18 +191,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userName').textContent = user.name;
-            document.getElementById('userRole').textContent = user.role;
-        }
-
         loadRoutes();
         loadStats();
         initCharts();

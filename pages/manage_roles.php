@@ -298,9 +298,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement rolesManagementController in js/pages/manage_roles.js
-        console.log('Roles Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_roles.js"></script>

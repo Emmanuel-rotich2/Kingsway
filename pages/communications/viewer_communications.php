@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Communications - Viewer Layout
  * Read-only layout for Students, Parents, Guardians
- * 
+ *
  * Features:
  * - No sidebar
  * - Single summary card
@@ -11,43 +12,29 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
+<!-- Summary Card -->
+<div class="viewer-summary-card">
+    <div class="summary-icon">📧</div>
+    <div class="summary-stat">
+        <span class="summary-value" id="totalMessages">0</span>
+        <span class="summary-label">Messages</span>
+    </div>
+    <div class="summary-stat">
+        <span class="summary-value" id="unreadCount">0</span>
+        <span class="summary-label">Unread</span>
+    </div>
+</div>
 
-<div class="viewer-layout">
-    <!-- Header -->
-    <header class="viewer-header">
-        <a href="/pages/dashboard.php" class="back-link">← Dashboard</a>
-        <h1 class="page-title">📬 My Messages</h1>
-    </header>
+<!-- Messages Inbox -->
+<div class="viewer-inbox" id="inboxContainer">
+    <div class="inbox-header">
+        <span class="inbox-title">Inbox</span>
+        <button class="mark-read-btn" id="markAllRead">Mark all read</button>
+    </div>
 
-    <!-- Content -->
-    <main class="viewer-main">
-        <!-- Summary Card -->
-        <div class="viewer-summary-card">
-            <div class="summary-icon">📧</div>
-            <div class="summary-stat">
-                <span class="summary-value" id="totalMessages">0</span>
-                <span class="summary-label">Messages</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-value" id="unreadCount">0</span>
-                <span class="summary-label">Unread</span>
-            </div>
-        </div>
-
-        <!-- Messages Inbox -->
-        <div class="viewer-inbox" id="inboxContainer">
-            <div class="inbox-header">
-                <span class="inbox-title">Inbox</span>
-                <button class="mark-read-btn" id="markAllRead">Mark all read</button>
-            </div>
-
-            <div class="inbox-list" id="inboxList">
-                <!-- Messages loaded dynamically -->
-            </div>
-        </div>
-    </main>
+    <div class="inbox-list" id="inboxList">
+        <!-- Messages loaded dynamically -->
+    </div>
 </div>
 
 <!-- Message View Modal -->
@@ -72,10 +59,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         loadInbox();
 
         document.getElementById('markAllRead').addEventListener('click', markAllAsRead);

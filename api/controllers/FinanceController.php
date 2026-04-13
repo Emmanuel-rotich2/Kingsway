@@ -121,9 +121,7 @@ class FinanceController extends BaseController
     public function getDepartmentBudgetsSummary($id = null, $data = [], $segments = [])
     {
         $departmentId = $_GET['department_id'] ?? $data['department_id'] ?? $id ?? null;
-        if (!$departmentId) {
-            return $this->badRequest('department_id is required');
-        }
+        // department_id is optional — null returns all departments
         $result = $this->api->getDepartmentBudgetSummary($departmentId);
         return $this->handleResponse($result);
     }
@@ -239,6 +237,14 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 2: Payroll Operations
     // ========================================
+
+    /**
+     * GET /api/finance/payrolls — alias for list
+     */
+    public function getPayrolls($id = null, $data = [], $segments = [])
+    {
+        return $this->getPayrollsList($id, $data, $segments);
+    }
 
     /**
      * GET /api/finance/payrolls/list

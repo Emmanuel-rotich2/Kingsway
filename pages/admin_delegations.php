@@ -73,4 +73,4 @@
     </div>
 </div>
 
-<script src="js/pages/admin_delegations.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>js/pages/admin_delegations.js?v=<?php echo time(); ?>"></script>

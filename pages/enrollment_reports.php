@@ -179,4 +179,4 @@
     </div>
 </div>
 
-<script src="js/pages/enrollment_reports.js"></script>
+<script src="<?= $appBase ?>js/pages/enrollment_reports.js"></script>

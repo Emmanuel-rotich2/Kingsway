@@ -256,5 +256,5 @@
     </div>
 </div>
 
-<script src="js/pages/food_store.js"></script>
+<script src="<?= $appBase ?>js/pages/food_store.js"></script>
 </script>

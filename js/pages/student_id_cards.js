@@ -956,8 +956,8 @@ const StudentIdCardsController = {
     const value = String(path || "").trim();
     if (!value) return "";
     if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:")) return value;
-    if (value.startsWith("/Kingsway/")) return value;
-    if (value.startsWith("/")) return `/Kingsway${value}`;
+    if (value.startsWith(window.APP_BASE + '/')) return value;
+    if (value.startsWith("/")) return `${window.APP_BASE || ''}${value}`;
     return (window.APP_BASE || "") + `/${value.replace(/^\/+/, "")}`;
   },
 

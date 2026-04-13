@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="js/pages/timetable.js"></script>
+<script src="<?= $appBase ?>js/pages/timetable.js"></script>

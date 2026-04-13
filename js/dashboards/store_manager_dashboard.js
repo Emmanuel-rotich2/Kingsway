@@ -1,160 +1,87 @@
 /**
- * Store Manager Dashboard Controller
- * Manages Store Manager dashboard using api.js for real-time data
+ * Store Manager (Inventory) Dashboard Controller
+ * Role: Inventory Manager (ID 14)
  */
-
 const storeDashboardController = {
-    dashboardData: {},
-    refreshInterval: 30000,
-    isLoading: false,
-    
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
+    init: function () {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        
-        this.loadDashboardData();
-        this.attachEventListeners();
-        this.setupAutoRefresh();
-        console.log('Store Manager Dashboard initialized');
+        this.loadAll();
     },
-    
-    loadDashboardData: async function() {
-        if (this.isLoading) return;
-        
-        this.isLoading = true;
-        try {
-            const stats = await window.API.apiCall('/dashboard/store/inventory', 'GET');
-            if (stats) {
-                this.dashboardData.stats = stats;
-                this.updateStatistics();
-            }
-            
-            const additionalData = await window.API.apiCall('/dashboard/store/stock-levels', 'GET');
-            if (additionalData) {
-                this.dashboardData.additional = additionalData;
-                this.updateAdditionalData();
-            }
-            
-            const refreshTime = document.getElementById('lastRefreshTime');
-            if (refreshTime) {
-                refreshTime.textContent = new Date().toLocaleTimeString();
-            }
-        } catch (error) {
-            console.error('Error loading dashboard data:', error);
-            showNotification('Error loading dashboard data: ' + error.message, 'error');
-        } finally {
-            this.isLoading = false;
-        }
+
+    refresh: function () { this.loadAll(); },
+
+    loadAll: async function () {
+        const token = localStorage.getItem('token');
+        const h = { 'Authorization': 'Bearer ' + token };
+        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+
+        const [stats, lowStock, requisitions] = await Promise.allSettled([
+            get('/api/inventory/stats'),
+            get('/api/inventory/low-stock?limit=8'),
+            get('/api/requisitions?status=pending&limit=8')
+        ]);
+
+        if (stats.value) this.renderStats(stats.value?.data || stats.value);
+        if (lowStock.value) this.renderLowStock(lowStock.value?.data || lowStock.value || []);
+        if (requisitions.value) this.renderRequisitions(requisitions.value?.data || requisitions.value || []);
     },
-    
-    updateStatistics: function() {
-        const stats = this.dashboardData.stats;
-        if (!stats) return;
-        
-        Object.keys(stats).forEach(key => {
-            const element = document.getElementById(key) || document.querySelector(`[data-stat="${key}"]`);
-            if (element) {
-                if (typeof stats[key] === 'number') {
-                    element.textContent = this.formatNumber(stats[key]);
-                } else {
-                    element.textContent = stats[key];
-                }
-            }
-        });
+
+    renderStats: function (d) {
+        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
+        set('totalItems', d.total_items || d.total || 0);
+        set('lowStockCount', d.low_stock || d.low_stock_count || 0);
+        set('pendingRequisitions', d.pending_requisitions || d.pending || 0);
+        const stockEl = document.getElementById('stockValue');
+        if (stockEl) stockEl.textContent = 'KES ' + (d.stock_value || 0).toLocaleString();
     },
-    
-    updateAdditionalData: function() {
-        const data = this.dashboardData.additional;
-        if (!data) return;
-        
-        if (data.chartData) {
-            this.updateCharts(data.chartData);
-        }
-        
-        if (data.tableData) {
-            this.updateTables(data.tableData);
-        }
+
+    renderLowStock: function (list) {
+        const tbody = document.getElementById('lowStockTableBody');
+        if (!tbody) return;
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No low stock items.</td></tr>'; return; }
+        tbody.innerHTML = list.map(item => {
+            const level = Number(item.current_quantity || item.quantity || 0);
+            const min = Number(item.minimum_quantity || item.min_level || 0);
+            const pct = min > 0 ? Math.round((level / min) * 100) : 100;
+            const cls = pct < 25 ? 'danger' : pct < 50 ? 'warning' : 'success';
+            return `<tr>
+                <td>${this.esc(item.name || item.item_name)}</td>
+                <td><span class="text-${cls} fw-bold">${level}</span></td>
+                <td>${min}</td>
+                <td>
+                    <button class="btn btn-xs btn-outline-primary btn-sm py-0 px-1"
+                        onclick="storeDashboardController.navigate('manage_stock')">
+                        Reorder
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
     },
-    
-    updateCharts: function(chartData) {
-        console.log('Updating charts with:', chartData);
+
+    renderRequisitions: function (list) {
+        const tbody = document.getElementById('requisitionsTableBody');
+        if (!tbody) return;
+        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No pending requisitions.</td></tr>'; return; }
+        tbody.innerHTML = list.map(r => {
+            const s = r.status || 'pending';
+            return `<tr>
+                <td>${this.esc(r.item_name || r.name)}</td>
+                <td>${r.quantity || 0}</td>
+                <td>${this.esc(r.requested_by || r.requester || '—')}</td>
+                <td><span class="badge bg-${s === 'approved' ? 'success' : s === 'rejected' ? 'danger' : 'warning'} text-${s === 'pending' ? 'dark' : 'white'}">${s}</span></td>
+            </tr>`;
+        }).join('');
     },
-    
-    updateTables: function(tableData) {
-        Object.keys(tableData).forEach(tableId => {
-            const table = document.getElementById(tableId);
-            if (table && table.querySelector('tbody')) {
-                const tbody = table.querySelector('tbody');
-                const rows = tableData[tableId].map((item, index) => {
-                    const dateStr = new Date(item.date || item.created_at).toLocaleDateString();
-                    return `<tr><td>${index + 1}</td><td>${this.getItemDisplay(item)}</td><td>${this.formatStatus(item.status)}</td><td>${dateStr}</td></tr>`;
-                }).join('');
-                tbody.innerHTML = rows;
-            }
-        });
+
+    navigate: function (route) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
     },
-    
-    getItemDisplay: function(item) {
-        return item.name || item.title || item.description || item.id || 'N/A';
-    },
-    
-    formatStatus: function(status) {
-        if (!status) return '<span class="badge bg-secondary">N/A</span>';
-        const statusClass = {'active': 'bg-success', 'pending': 'bg-warning', 'completed': 'bg-success', 'failed': 'bg-danger'}[status.toLowerCase()] || 'bg-secondary';
-        return `<span class="badge ${statusClass}">${status}</span>`;
-    },
-    
-    formatNumber: function(num) {
-        return new Intl.NumberFormat().format(num);
-    },
-    
-    attachEventListeners: function() {
-        document.getElementById('refreshDashboard')?.addEventListener('click', () => {
-            this.loadDashboardData();
-        });
-        
-        document.querySelectorAll('[data-filter]').forEach(filter => {
-            filter.addEventListener('change', () => {
-                this.loadDashboardData();
-            });
-        });
-        
-        document.getElementById('exportDashboard')?.addEventListener('click', () => {
-            this.exportDashboardData();
-        });
-        
-        document.getElementById('printDashboard')?.addEventListener('click', () => {
-            window.print();
-        });
-    },
-    
-    setupAutoRefresh: function() {
-        setInterval(() => {
-            this.loadDashboardData();
-        }, this.refreshInterval);
-    },
-    
-    exportDashboardData: function() {
-        try {
-            const data = {
-                dashboard: 'Store Manager Dashboard',
-                timestamp: new Date().toISOString(),
-                ...this.dashboardData
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            downloadFile(blob, 'dashboard-export-' + Date.now() + '.json');
-            showNotification('Dashboard exported successfully', 'success');
-        } catch (error) {
-            console.error('Error exporting dashboard:', error);
-            showNotification('Error exporting dashboard', 'error');
-        }
-    },
-    
-    navigateTo: function(route) {
-        window.location.href = `/Kingsway/home.php?route=${route}`;
+
+    esc: function (s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 };
 
