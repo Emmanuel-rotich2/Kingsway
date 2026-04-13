@@ -43,6 +43,10 @@ class AuthMiddleware
             'payments/kcb-transfer-callback',
             'payments/kcb-notification',
             'payments/bank-webhook',
+            // Parent portal auth endpoints (use their own session tokens, not staff JWT)
+            'parent-portal/login',
+            'parent-portal/login-otp-request',
+            'parent-portal/login-otp-verify',
         ];
 
         // Check if current request is to a public endpoint
@@ -52,17 +56,22 @@ class AuthMiddleware
             }
         }
 
+        // Parent portal routes bypass staff JWT auth entirely.
+        // Authenticated parent-portal endpoints enforce auth via $this->parentId checks
+        // in ParentPortalController.
+        if (strpos($path, 'parent-portal/') !== false) {
+            return;
+        }
+
         // TEST MODE: Accept X-Test-Token header to inject a test user.
         // Only active on localhost/127.0.0.1 — disabled in production automatically.
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
         $isLocalEnv = ($host === 'localhost' || strpos($host, '127.0.0.1') !== false);
-        if ($isLocalEnv) {
-            $headers = function_exists('getallheaders') ? getallheaders() : [];
-            if (isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
-                error_log('AuthMiddleware: DEV test token used from ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
-                $_SERVER['auth_user'] = self::TEST_USER;
-                return;
-            }
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        if ($isLocalEnv && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
+            error_log('AuthMiddleware: DEV test token used from ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+            $_SERVER['auth_user'] = self::TEST_USER;
+            return;
         }
 
         // Validate JWT token for protected endpoints
