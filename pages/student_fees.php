@@ -44,7 +44,9 @@
             <div class="col-md-2">
                 <select class="form-select" id="termFilter">
                     <option value="">Current Term</option>
-                    <option value="" disabled>Loading terms...</option>
+                    <option value="1">Term 1</option>
+                    <option value="2">Term 2</option>
+                    <option value="3">Term 3</option>
                 </select>
             </div>
         </div>
@@ -249,4 +251,23 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/student_fees.js"></script>
+<!-- Student Billing History Modal -->
+<div class="modal fade" id="studentBillingHistoryModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="billingHistoryContent">
+        <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" onclick="window.print()"><i class="fas fa-print me-1"></i>Print Statement</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="<?= (defined('APP_BASE') ? APP_BASE : '/Kingsway') ?>/js/pages/student_fees.js"></script>
