@@ -458,4 +458,49 @@
         </div>
     </div>
 
+    <!-- Record Uniform Payment Modal -->
+    <div class="modal fade" id="uniformPaymentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fas fa-money-bill-wave me-2"></i>Record Payment</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" id="upSaleInfo"></p>
+                    <input type="hidden" id="upSaleId">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Amount (KES) <span class="text-danger">*</span></label>
+                            <input type="number" id="upAmount" class="form-control" min="1" step="0.01">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Payment Method</label>
+                            <select id="upMethod" class="form-select">
+                                <option value="cash">Cash</option>
+                                <option value="mpesa">M-Pesa</option>
+                                <option value="bank">Bank</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Reference / M-Pesa Code</label>
+                            <input type="text" id="upReference" class="form-control" placeholder="Optional">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes</label>
+                            <input type="text" id="upNotes" class="form-control" placeholder="Optional">
+                        </div>
+                    </div>
+                    <div id="upError" class="alert alert-danger mt-3 d-none"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="upSaveBtn" onclick="UniformSalesController.saveUniformPayment()">
+                        <i class="fas fa-check me-1"></i>Record Payment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
 <script src="<?= $appBase ?>js/pages/uniform_sales.js"></script>

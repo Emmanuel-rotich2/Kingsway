@@ -670,9 +670,9 @@ const UniformSalesController = {
                     <td>
                         <div class="btn-group btn-group-sm">
                             ${sale.payment_status !== 'paid' ? `
-                                <button class="btn btn-outline-success" title="Mark as Paid"
-                                        onclick="UniformSalesController.updatePaymentStatus(${sale.id}, 'paid')">
-                                    <i class="fas fa-check"></i>
+                                <button class="btn btn-outline-success" title="Record Payment"
+                                        onclick="UniformSalesController.openUniformPayment(${sale.id}, '${(sale.student_name || '').replace(/'/g, "\\'")}', ${sale.total_amount || 0})">
+                                    <i class="fas fa-money-bill-wave"></i>
                                 </button>
                             ` : ''}
                             <button class="btn btn-outline-danger" title="Delete"
@@ -745,6 +745,53 @@ const UniformSalesController = {
         } catch (error) {
             console.error('Error updating payment:', error);
             this.showError('Error updating payment status');
+        }
+    },
+
+    /**
+     * Open payment modal for a uniform sale
+     */
+    openUniformPayment: function(saleId, studentName, totalAmount) {
+        document.getElementById('upSaleId').value = saleId;
+        document.getElementById('upSaleInfo').textContent = studentName + ' — Total: KES ' + Number(totalAmount).toLocaleString();
+        document.getElementById('upAmount').value = Number(totalAmount).toFixed(2);
+        document.getElementById('upReference').value = '';
+        document.getElementById('upNotes').value = '';
+        document.getElementById('upError').classList.add('d-none');
+        new bootstrap.Modal(document.getElementById('uniformPaymentModal')).show();
+    },
+
+    /**
+     * Save uniform payment from modal
+     */
+    saveUniformPayment: async function() {
+        const saleId = document.getElementById('upSaleId').value;
+        const amount = parseFloat(document.getElementById('upAmount').value);
+        const errEl = document.getElementById('upError');
+        errEl.classList.add('d-none');
+        if (!amount || amount <= 0) {
+            errEl.textContent = 'Enter a valid amount.';
+            errEl.classList.remove('d-none');
+            return;
+        }
+        const saveBtn = document.getElementById('upSaveBtn');
+        saveBtn.disabled = true;
+        try {
+            const response = await window.API.apiCall('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
+                amount_paid: amount,
+                payment_method: document.getElementById('upMethod').value,
+                reference_no: document.getElementById('upReference').value || null,
+                notes: document.getElementById('upNotes').value || null,
+            });
+            bootstrap.Modal.getInstance(document.getElementById('uniformPaymentModal')).hide();
+            this.showSuccess('Payment recorded successfully');
+            this.loadSales();
+            this.loadDashboard();
+        } catch (e) {
+            errEl.textContent = e.message || 'Failed to record payment.';
+            errEl.classList.remove('d-none');
+        } finally {
+            saveBtn.disabled = false;
         }
     },
 
