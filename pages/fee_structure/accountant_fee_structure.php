@@ -2,16 +2,19 @@
 /**
  * Fee Structure - Accountant Layout
  * For School Accountant, Bursar
- *
+ * 
  * Features:
+ * - Collapsible sidebar (80px → 240px)
  * - 4 stat cards (focused on revenue & collections)
  * - 2 charts (revenue tracking, payment status)
  * - Data table with accountant-relevant columns
  * - Actions: Create, Edit, Duplicate, Export (no Delete, Approve requires request)
  * - Revenue tracking and reconciliation tools
  */
-/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
+
+<div class="manager-layout" data-user-role="accountant">
+<!-- Fee Structure Accountant Content -->
 
 <!-- Page Header -->
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -358,7 +361,7 @@
     }
 </style>
 
-<script src="<?= $appBase ?>js/pages/fee_structure_accountant.js"></script>
+<script src="/Kingsway/js/pages/fee_structure_accountant.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof window.FeeStructureAccountantController !== 'undefined') {
@@ -368,3 +371,4 @@
         }
     });
 </script>
+</div>

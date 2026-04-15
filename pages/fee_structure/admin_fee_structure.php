@@ -1,6 +1,4 @@
-<?php
-/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
-?>
+<div class="admin-layout" data-user-role="director_owner">
 <!-- Fee Structure Admin Component - Full management features -->
 
 <!-- Page Header -->
@@ -266,7 +264,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/fee_structure_admin.js"></script>
+<script src="/Kingsway/js/pages/fee_structure_admin.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof window.FeeStructureAdminController !== 'undefined') {
@@ -276,3 +274,4 @@
         }
     });
 </script>
+</div>
