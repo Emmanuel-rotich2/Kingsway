@@ -13,10 +13,6 @@ Compatible with load balancing and horizontal scaling
         </div>
         <!-- Actions -->
         <div class="d-flex align-items-center gap-2 ms-3">
-            <!-- Sidebar Toggle (mobile only) -->
-            <button class="btn btn-light d-lg-none me-2" onclick="toggleSidebar()">
-                <i class="fas fa-bars"></i>
-            </button>
             <!-- Notifications -->
             <button class="btn btn-light position-relative">
                 <i class="fas fa-bell"></i>
@@ -141,7 +137,7 @@ Compatible with load balancing and horizontal scaling
             console.error('Logout error:', err);
             // Even if API call fails, clear local storage and redirect
             AuthContext.clearUser();
-            window.location.href = '/Kingsway/index.php';
+            window.location.href = (window.APP_BASE || '') + '/index.php';
         });
     }
 
@@ -156,19 +152,26 @@ Compatible with load balancing and horizontal scaling
      * Navigate to user profile
      */
     function goToProfile() {
-        window.location.href = '/Kingsway/layouts/app_layout.php?route=profile';
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=profile';
     }
 
     /**
-     * Toggle sidebar visibility
+     * Toggle sidebar visibility — desktop collapses to icon rail, mobile slides in/out
      */
     function toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
         const mainContent = document.querySelector('.main-flex-layout');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (!sidebar) return;
 
-        if (sidebar && mainContent) {
-            sidebar.classList.toggle('collapsed');
-            mainContent.classList.toggle('sidebar-collapsed');
+        const isMobile = window.innerWidth < 992;
+
+        if (isMobile) {
+            const isOpen = sidebar.classList.toggle('sidebar-visible-mobile');
+            if (overlay) overlay.style.display = isOpen ? 'block' : 'none';
+        } else {
+            sidebar.classList.toggle('sidebar-collapsed');
+            if (mainContent) mainContent.classList.toggle('collapsed-main');
         }
     }
 

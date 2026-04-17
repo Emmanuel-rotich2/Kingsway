@@ -13,10 +13,29 @@ class CORSMiddleware
         $allowedOrigins = defined('ALLOWED_ORIGINS') ? ALLOWED_ORIGINS : [
             'http://localhost',
             'http://127.0.0.1',
+            'https://localhost',
+            'https://127.0.0.1',
             'http://localhost:8080',
             'http://127.0.0.1:8080',
+            'https://localhost:8080',
+            'https://127.0.0.1:8080',
             'http://localhost:8081',
-            'http://127.0.0.1:8081'
+            'http://127.0.0.1:8081',
+            'https://localhost:8081',
+            'https://127.0.0.1:8081',
+            'https://localhost:8082',
+            'https://127.0.0.1:8082',
+            'http://localhost:8082',
+            'http://127.0.0.1:8082',
+            'http://localhost:8083',
+            'http://127.0.0.1:8083',
+            'https://localhost:8083',
+            'https://127.0.0.1:8083',
+            'http://localhost:8084',
+            'http://127.0.0.1:8084',
+            'https://localhost:8084',
+            'https://127.0.0.1:8084',
+            'https://kingswaypreparatoryschool.sc.ke',
         ];
 
         // Check if origin is allowed

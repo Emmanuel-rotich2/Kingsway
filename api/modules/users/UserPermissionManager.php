@@ -108,9 +108,24 @@ class UserPermissionManager
     public function getEffectivePermissions($userId)
     {
         try {
-            $sql = 'CALL sp_user_get_effective_permissions(?)';
+            // Optimized direct query instead of stored procedure to avoid view overhead
+            // Gets role-based permissions (fast)
+            $sql = 'SELECT DISTINCT p.id, p.code, p.entity, p.action
+                    FROM permissions p
+                    INNER JOIN role_permissions rp ON p.id = rp.permission_id
+                    INNER JOIN user_roles ur ON rp.role_id = ur.role_id
+                    WHERE ur.user_id = ?
+                    UNION ALL
+                    SELECT DISTINCT p.id, p.code, p.entity, p.action
+                    FROM permissions p
+                    INNER JOIN user_permissions up ON p.id = up.permission_id
+                    WHERE up.user_id = ?
+                    AND up.permission_type IN (\'grant\', \'override\')
+                    AND (up.expires_at IS NULL OR up.expires_at > NOW())
+                    ORDER BY code';
+            
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$userId]);
+            $stmt->execute([$userId, $userId]);
             $permissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return [

@@ -51,23 +51,12 @@ $roles = [$main_role];
         /* route-guard overlay removed — PHP already serves the correct page */
     </style>
     
-    <!-- JavaScript Dependencies -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+    <!-- Global path variable — must be in <head> so all inline scripts can use it -->
     <script>
-        // App base path — auto-detected by PHP, used by all JS for URL construction.
-        // Empty string when deployed at domain root (production), '/Kingsway' on localhost/XAMPP.
         window.APP_BASE = <?php echo json_encode($appBase); ?>;
-        // User data is managed by AuthContext in api.js (JWT-based, stateless)
-        // AuthContext loads from localStorage on page load
-        // No PHP session needed - this maintains stateless architecture
         window.USER_ROLES = <?php echo json_encode($roles); ?>;
         window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
         window.REQUESTED_ROUTE = <?php echo json_encode($route); ?>;
-
-            // Route guard overlay removed — content is served directly by PHP
     </script>
 </head>
 
@@ -83,8 +72,18 @@ $roles = [$main_role];
         </div>
     </div>
 
-    <!-- Application Scripts -->
-    <?php $v = time(); ?>
+    <?php include __DIR__ . '/layouts/app_layout.php'; ?>
+
+    <?php
+    // All JS loaded AFTER the DOM so Bootstrap/jQuery find document.body immediately
+    // and sidebar/header elements exist when scripts initialize.
+    $v = time();
+    ?>
+    <!-- Third-party libraries -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Application scripts -->
     <script src="<?= $appBase ?>/js/api.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/ActionButtons.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= $v ?>"></script>
@@ -97,8 +96,6 @@ $roles = [$main_role];
     <script src="<?= $appBase ?>/js/sidebar.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/main.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/index.js?v=<?= $v ?>"></script>
-
-    <?php include __DIR__ . '/layouts/app_layout.php'; ?>
     <script>
         // JWT-based authentication check (stateless)
         document.addEventListener('DOMContentLoaded', async function () {
