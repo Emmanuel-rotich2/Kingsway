@@ -22,7 +22,11 @@ body {
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   height: 70px;
   z-index: 1001;
-  position: relative;
+  position: fixed;
+  top: 0;
+  left: 250px;
+  right: 0;
+  transition: left 0.3s ease;
 }
 
 .school-header img {
@@ -111,18 +115,52 @@ body {
   flex-direction: column;
   min-height: 100vh;
   margin-left: 250px;
-  transition: margin-left 0.3s ease;
+  margin-top: 70px;
+  transition: margin-left 0.3s ease, margin-top 0.3s ease;
 }
 
 .main-flex-layout.collapsed-main {
   margin-left: 60px;
 }
 
-.main-content {
-  flex: 1;
-  padding: 1.5rem 1rem 1rem;
-  display: flex;
-  flex-direction: column;
+/* Header responsive to sidebar collapse */
+.app-layout .school-header {
+  left: 250px;
+}
+
+.app-layout .sidebar.sidebar-collapsed ~ .main-flex-layout .school-header,
+.main-flex-layout.collapsed-main .school-header {
+  left: 60px;
+}
+
+
+/* Main Content Container - Remove Bootstrap default padding & margins */
+.container-fluid {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  max-width: 100% !important;
+}
+
+.container {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  max-width: 100% !important;
+}
+
+/* Remove row gutters */
+.row {
+  --bs-gutter-x: 0 !important;
+  --bs-gutter-y: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#main-content-segment {
+  padding: 1.5rem 0 1rem 0 !important;
 }
 
 /* Mobile overlay backdrop */
@@ -197,6 +235,13 @@ body {
   .main-flex-layout,
   .main-flex-layout.collapsed-main {
     margin-left: 0 !important;
+    margin-top: 70px;
+  }
+
+  /* Header stays full width on mobile, left-aligned */
+  .school-header {
+    left: 0 !important;
+    right: 0;
   }
 
   /* Show overlay when sidebar is open on mobile */

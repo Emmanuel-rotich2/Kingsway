@@ -54,7 +54,7 @@ $sidebar_items = [];
         <?php include __DIR__ . '/../components/global/header.php'; ?>
         
         <!-- Main Content -->
-        <main class="main-content flex-grow-1" id="main-content-area">
+        <main  id="main-content-area">
             <div class="container-fluid py-3" id="main-content-segment">
                 <?php
                 if ($route === 'loading') {
