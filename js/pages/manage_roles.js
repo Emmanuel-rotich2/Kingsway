@@ -1,6 +1,6 @@
 /**
  * Manage Roles Page Controller
- * Full RBAC role management: list, create, edit, delete, toggle status.
+ * Scope-aware: system admin sees all + can create permissions; school admin manages school roles only.
  */
 
 (function () {
@@ -12,20 +12,44 @@
     currentPage: 1,
     perPage: 15,
     modal: null,
+    isSystemAdmin: false,
+    isSchoolAdmin: false,
 
     init: function () {
       if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
         window.location.href = (window.APP_BASE || '') + '/index.php';
         return;
       }
+
+      const user = typeof AuthContext !== 'undefined' ? AuthContext.getUser() : null;
+      const roles = (user?.roles || []).map(r => (typeof r === 'string' ? r : r?.name || '').toLowerCase());
+      this.isSystemAdmin = roles.includes('system administrator');
+      this.isSchoolAdmin = !this.isSystemAdmin && roles.includes('school administrator');
+
+      this.applyUIScope();
       this.bindEvents();
       this.loadRoles();
+    },
+
+    /** Show/hide controls based on who is logged in. */
+    applyUIScope: function () {
+      // System-admin-only elements
+      document.querySelectorAll('[data-system-only]').forEach(el => {
+        el.style.display = this.isSystemAdmin ? '' : 'none';
+      });
+
+      // Scope selector in modal — only system admin can pick scope/is_system
+      const scopeRow = document.getElementById('scopeRow');
+      if (scopeRow) scopeRow.style.display = this.isSystemAdmin ? '' : 'none';
+
+      // System module permissions — school admin cannot assign these
+      const sysModule = document.getElementById('systemPermissionsModule');
+      if (sysModule) sysModule.style.display = this.isSystemAdmin ? '' : 'none';
     },
 
     bindEvents: function () {
       const self = this;
 
-      // Search / filter
       const search = document.getElementById('searchRoles');
       if (search) search.addEventListener('input', () => self.applyFilters());
 
@@ -35,19 +59,15 @@
       const typeFilter = document.getElementById('typeFilter');
       if (typeFilter) typeFilter.addEventListener('change', () => self.applyFilters());
 
-      // Add new role
       const addBtn = document.getElementById('addRoleBtn');
       if (addBtn) addBtn.addEventListener('click', () => self.openModal());
 
-      // Save role
       const saveBtn = document.getElementById('saveRoleBtn');
       if (saveBtn) saveBtn.addEventListener('click', () => self.saveRole());
 
-      // Export
       const exportBtn = document.getElementById('exportBtn');
       if (exportBtn) exportBtn.addEventListener('click', () => self.exportCSV());
 
-      // Module select-all checkboxes
       document.querySelectorAll('.module-check').forEach(function (chk) {
         chk.addEventListener('change', function () {
           const mod = this.dataset.module;
@@ -60,7 +80,7 @@
     loadRoles: async function () {
       try {
         const tbody = document.querySelector('#rolesTable tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-3"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
 
         const res = await API.system.getRoles();
         this.roles = Array.isArray(res) ? res : (res?.roles || res?.data || []);
@@ -69,7 +89,7 @@
       } catch (err) {
         console.error('Failed to load roles:', err);
         const tbody = document.querySelector('#rolesTable tbody');
-        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-3">Failed to load roles.</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">Failed to load roles.</td></tr>';
       }
     },
 
@@ -115,43 +135,58 @@
       const page = this.filtered.slice(start, start + this.perPage);
 
       if (page.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No roles found.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-4">No roles found.</td></tr>';
         return;
       }
 
+      const self = this;
       tbody.innerHTML = page.map(r => {
-        const name = this.esc(r.name || r.role_name || '—');
-        const desc = this.esc(r.description || '—');
-        const type = r.is_system ? '<span class="badge bg-secondary">System</span>' : '<span class="badge bg-info">Custom</span>';
+        const name = self.esc(r.name || r.role_name || '—');
+        const desc = self.esc(r.description || '—');
+        const isSystem = !!r.is_system;
+        const scope = r.scope || 'school';
+        const typeBadge = isSystem
+          ? '<span class="badge bg-secondary">System</span>'
+          : (scope === 'system'
+              ? '<span class="badge bg-dark">Sys-Custom</span>'
+              : '<span class="badge bg-info">School</span>');
+        const scopeBadge = self.isSystemAdmin
+          ? `<span class="badge ${scope === 'system' ? 'bg-danger' : 'bg-success'} ms-1">${scope}</span>`
+          : '';
         const users = r.user_count ?? '—';
         const perms = r.permission_count ?? '—';
         const isActive = r.is_active || r.status === 'active';
         const statusBadge = isActive
           ? '<span class="badge bg-success">Active</span>'
           : '<span class="badge bg-secondary">Inactive</span>';
-        const canEdit = !r.is_system;
+
+        // School admin: cannot edit/delete system or system-scope roles
+        const schoolAdminRestricted = self.isSchoolAdmin && (isSystem || scope === 'system');
+        const canEdit = !isSystem && !schoolAdminRestricted;
+        const canToggle = !isSystem && !schoolAdminRestricted;
 
         return `<tr>
-          <td><strong>${name}</strong></td>
+          <td><strong>${name}</strong>${scopeBadge}</td>
           <td class="text-muted small">${desc}</td>
-          <td>${type}</td>
+          <td>${typeBadge}</td>
           <td>${users}</td>
           <td>${perms}</td>
+          <td>${statusBadge}</td>
           <td>
             <div class="form-check form-switch mb-0">
               <input class="form-check-input" type="checkbox" ${isActive ? 'checked' : ''}
                 onchange="ManageRolesController.toggleStatus(${r.id}, this.checked)"
-                ${r.is_system ? 'disabled' : ''}>
+                ${canToggle ? '' : 'disabled'}>
             </div>
           </td>
           <td>
             ${canEdit ? `
-              <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageRolesController.editRole(${r.id})">
+              <button class="btn btn-sm btn-outline-primary me-1" onclick="ManageRolesController.editRole(${r.id})" title="Edit">
                 <i class="fas fa-edit"></i>
               </button>
-              <button class="btn btn-sm btn-outline-danger" onclick="ManageRolesController.deleteRole(${r.id}, '${name}')">
+              <button class="btn btn-sm btn-outline-danger" onclick="ManageRolesController.deleteRole(${r.id}, '${name}')" title="Delete">
                 <i class="fas fa-trash"></i>
-              </button>` : '<span class="text-muted small">System</span>'}
+              </button>` : '<span class="text-muted small">Locked</span>'}
           </td>
         </tr>`;
       }).join('');
@@ -187,10 +222,18 @@
       document.getElementById('status').value = (role?.is_active || role?.status === 'active') ? 'active' : 'inactive';
       document.getElementById('description').value = role?.description || '';
 
-      // Reset all checkboxes
+      // Scope selector (system admin only)
+      const scopeSel = document.getElementById('roleScope');
+      if (scopeSel) {
+        scopeSel.value = role?.scope || 'school';
+      }
+      const isSysSel = document.getElementById('roleIsSystem');
+      if (isSysSel) {
+        isSysSel.checked = !!role?.is_system;
+      }
+
       document.querySelectorAll('.permission-check, .module-check').forEach(c => { c.checked = false; });
 
-      // Check permissions if editing
       if (role?.permissions && Array.isArray(role.permissions)) {
         role.permissions.forEach(p => {
           const id = typeof p === 'string' ? p : (p.code || p.name || '');
@@ -209,8 +252,6 @@
       try {
         const role = this.roles.find(r => r.id === id);
         if (!role) return;
-
-        // Try to fetch full role with permissions
         try {
           const full = await API.system.getRole(id);
           this.openModal(full || role);
@@ -239,6 +280,14 @@
         is_active: document.getElementById('status').value === 'active',
         permissions,
       };
+
+      // System admin can set scope
+      if (this.isSystemAdmin) {
+        const scopeSel = document.getElementById('roleScope');
+        if (scopeSel) data.scope = scopeSel.value;
+        const isSysSel = document.getElementById('roleIsSystem');
+        if (isSysSel) data.is_system = isSysSel.checked ? 1 : 0;
+      }
 
       const saveBtn = document.getElementById('saveRoleBtn');
       if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
@@ -281,16 +330,17 @@
         this.updateStats();
       } catch (err) {
         this.showToast('Failed to update status.', 'danger');
-        await this.loadRoles(); // Re-sync
+        await this.loadRoles();
       }
     },
 
     exportCSV: function () {
-      const rows = [['Name', 'Description', 'Type', 'Users', 'Status']];
+      const rows = [['Name', 'Description', 'Scope', 'Type', 'Users', 'Status']];
       this.filtered.forEach(r => {
         rows.push([
           r.name || r.role_name || '',
           r.description || '',
+          r.scope || 'school',
           r.is_system ? 'System' : 'Custom',
           r.user_count ?? '',
           (r.is_active || r.status === 'active') ? 'Active' : 'Inactive',

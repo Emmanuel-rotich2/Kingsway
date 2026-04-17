@@ -66,7 +66,7 @@ class AuthMiddleware
         // TEST MODE: Accept X-Test-Token header to inject a test user.
         // Only active on localhost/127.0.0.1 — disabled in production automatically.
         $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $isLocalEnv = ($host === 'localhost' || strpos($host, '127.0.0.1') !== false);
+        $isLocalEnv = ($host === 'localhost' || strpos($host, 'localhost') !== false || strpos($host, '127.0.0.1') !== false);
         $headers = function_exists('getallheaders') ? getallheaders() : [];
         if ($isLocalEnv && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
             error_log('AuthMiddleware: DEV test token used from ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));

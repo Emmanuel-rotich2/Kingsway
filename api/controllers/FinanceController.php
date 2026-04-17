@@ -917,6 +917,32 @@ class FinanceController extends BaseController
     // ========================================
 
     /**
+     * GET /api/finance/reports — summary of available reports + recent totals
+     */
+    public function getReports($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = $this->db ?? \App\Database\Database::getInstance();
+            // Return basic financial summary for the reports page
+            $stmt = $db->query(
+                "SELECT
+                    (SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE YEAR(payment_date)=YEAR(CURDATE())) AS total_collected_ytd,
+                    (SELECT COALESCE(SUM(total_fees - paid_amount),0) FROM student_fees WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
+                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
+                    (SELECT COUNT(*) FROM fee_payments WHERE DATE(payment_date)=CURDATE()) AS payments_today"
+            );
+            $summary = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            return $this->success(['summary' => $summary, 'report_types' => [
+                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
+            ]]);
+        } catch (\Exception $e) {
+            return $this->success(['summary' => [], 'report_types' => [
+                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
+            ]]);
+        }
+    }
+
+    /**
      * POST /api/finance/reports/generate-payroll
      */
     public function postReportsGeneratePayroll($id = null, $data = [], $segments = [])

@@ -30,6 +30,19 @@ class TransportController extends BaseController
         return $this->success(['message' => 'Transport API is running']);
     }
 
+    public function get($id = null, $data = [], $segments = [])
+    {
+        // GET /api/transport — return summary of routes, vehicles, students
+        try {
+            $routes   = (int)$this->db->query("SELECT COUNT(*) FROM transport_routes WHERE status='active'")->fetchColumn();
+            $vehicles = (int)$this->db->query("SELECT COUNT(*) FROM transport_vehicles WHERE status='active'")->fetchColumn();
+            $students = (int)$this->db->query("SELECT COUNT(*) FROM transport_subscriptions WHERE status='active'")->fetchColumn();
+            return $this->success(['routes' => $routes, 'vehicles' => $vehicles, 'active_subscriptions' => $students]);
+        } catch (Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
     /**
      * POST /api/transport/verify-student
      * Verify student by admission number or phone (for transport payments)

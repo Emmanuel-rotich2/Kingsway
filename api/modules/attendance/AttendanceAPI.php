@@ -88,8 +88,24 @@ class AttendanceAPI extends BaseAPI {
     // List attendance records with pagination and filtering
     public function list($params = [])
     {
-        // Implement your own listing logic or call a manager method
-        return errorResponse('Not implemented', 501);
+        try {
+            $db   = $this->db;  // raw PDO
+            $date = $params['date'] ?? date('Y-m-d');
+            $q = function($sql, $bind) use ($db) {
+                $s = $db->prepare($sql); $s->execute($bind); return (int)$s->fetchColumn();
+            };
+            return successResponse([
+                'date'    => $date,
+                'students' => [
+                    'present' => $q("SELECT COUNT(*) FROM student_attendance WHERE date=? AND status='present'", [$date]),
+                    'absent'  => $q("SELECT COUNT(*) FROM student_attendance WHERE date=? AND status='absent'",  [$date]),
+                    'late'    => $q("SELECT COUNT(*) FROM student_attendance WHERE date=? AND status='late'",    [$date]),
+                ],
+                'staff_present' => $q("SELECT COUNT(*) FROM staff_attendance WHERE date=? AND status='present'", [$date]),
+            ]);
+        } catch (\Exception $e) {
+            return errorResponse('Failed to fetch attendance: ' . $e->getMessage(), 500);
+        }
     }
 
     // Advanced: Expose student and staff attendance manager methods
