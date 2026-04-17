@@ -192,10 +192,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize expenses management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement expensesManagementController in js/pages/expenses.js
-        console.log('Expense Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_expenses.js"></script>

@@ -17,18 +17,32 @@ use App\Database\Database;
 
 class FinanceController extends BaseController
 {
-
-
     private FinanceAPI $api;
+    private ExpenseManager $expenseManager;
 
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
+        $this->expenseManager = new ExpenseManager();
     }
 
     public function index()
     {
         return $this->success(['message' => 'Finance API is running']);
+    }
+
+    /**
+     * Guard: Director role (3) or any finance approval permission required.
+     * Returns a forbidden response when access is denied, null when granted.
+     */
+    private function requireApprovalAccess(string $action = 'perform this approval'): ?array
+    {
+        if ($this->userHasAny(['finance_approve', 'payroll_approve', 'budget_approve',
+                               'fee_structure_approve', 'expense_approve', 'finance.approve'],
+                              [3], ['director'])) {
+            return null;
+        }
+        return $this->forbidden("Insufficient permissions to $action");
     }
 
     // ========================================
@@ -57,17 +71,18 @@ class FinanceController extends BaseController
 
     /**
      * POST /api/finance/department-budgets/approve
-     * Approve or reject a department budget proposal
+     * Approve or reject a department budget proposal.
+     * Accepts: proposal_id (or budget_id alias), status (default: approved), reviewed_by
      */
     public function postDepartmentBudgetsApprove($id = null, $data = [], $segments = [])
     {
-        // Expecting: $data['proposal_id'], $data['status'], $data['reviewed_by']
-        $proposalId = $data['proposal_id'] ?? null;
-        $status = $data['status'] ?? null;
-        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
-        if (!$proposalId || !$status) {
-            return $this->badRequest('proposal_id and status are required');
+        if ($denied = $this->requireApprovalAccess('approve department budgets')) return $denied;
+        $proposalId = $data['proposal_id'] ?? $data['budget_id'] ?? null;
+        if (!$proposalId) {
+            return $this->badRequest('proposal_id (or budget_id) is required');
         }
+        $status     = $data['status']      ?? 'approved';
+        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
         $result = $this->api->updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy);
         return $this->handleResponse($result);
     }
@@ -106,9 +121,7 @@ class FinanceController extends BaseController
     public function getDepartmentBudgetsSummary($id = null, $data = [], $segments = [])
     {
         $departmentId = $_GET['department_id'] ?? $data['department_id'] ?? $id ?? null;
-        if (!$departmentId) {
-            return $this->badRequest('department_id is required');
-        }
+        // department_id is optional — null returns all departments
         $result = $this->api->getDepartmentBudgetSummary($departmentId);
         return $this->handleResponse($result);
     }
@@ -118,12 +131,16 @@ class FinanceController extends BaseController
      */
     public function postExpensesApprove($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve expenses')) return $denied;
         $expenseId = $data['expense_id'] ?? $id ?? null;
         if (!$expenseId) {
             return $this->badRequest('expense_id is required');
         }
-        $manager = new ExpenseManager();
-        $result = $manager->approveExpense($expenseId, $this->getCurrentUserId(), $data['notes'] ?? null);
+        $result = $this->expenseManager->approveExpense(
+            $expenseId,
+            $this->getCurrentUserId(),
+            $data['notes'] ?? $data['comments'] ?? null
+        );
         return $this->handleResponse($result);
     }
 
@@ -132,12 +149,15 @@ class FinanceController extends BaseController
      */
     public function postExpensesReject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('reject expenses')) return $denied;
         $expenseId = $data['expense_id'] ?? $id ?? null;
         if (!$expenseId) {
             return $this->badRequest('expense_id is required');
         }
-        $manager = new ExpenseManager();
-        $result = $manager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason'] ?? 'Rejected');
+        if (empty($data['reason'])) {
+            return $this->badRequest('reason is required when rejecting an expense');
+        }
+        $result = $this->expenseManager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason']);
         return $this->handleResponse($result);
     }
 
@@ -217,6 +237,14 @@ class FinanceController extends BaseController
     // ========================================
     // SECTION 2: Payroll Operations
     // ========================================
+
+    /**
+     * GET /api/finance/payrolls — alias for list
+     */
+    public function getPayrolls($id = null, $data = [], $segments = [])
+    {
+        return $this->getPayrollsList($id, $data, $segments);
+    }
 
     /**
      * GET /api/finance/payrolls/list
@@ -302,6 +330,8 @@ class FinanceController extends BaseController
      */
     public function postPayrollsApprove($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
+        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
         $result = $this->api->approvePayroll($data);
         return $this->handleResponse($result);
     }
@@ -311,6 +341,8 @@ class FinanceController extends BaseController
      */
     public function postPayrollsReject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('reject payroll')) return $denied;
+        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
         $result = $this->api->rejectPayroll($data);
         return $this->handleResponse($result);
     }
@@ -620,6 +652,8 @@ class FinanceController extends BaseController
      */
     public function postFeesApproveStructure($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requireApprovalAccess('approve fee structures')) return $denied;
+        $data['approved_by'] = $data['approved_by'] ?? $this->getCurrentUserId();
         $result = $this->api->approveFeeStructure($data);
         return $this->handleResponse($result);
     }
@@ -883,6 +917,32 @@ class FinanceController extends BaseController
     // ========================================
 
     /**
+     * GET /api/finance/reports — summary of available reports + recent totals
+     */
+    public function getReports($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = $this->db ?? \App\Database\Database::getInstance();
+            // Return basic financial summary for the reports page
+            $stmt = $db->query(
+                "SELECT
+                    (SELECT COALESCE(SUM(amount),0) FROM fee_payments WHERE YEAR(payment_date)=YEAR(CURDATE())) AS total_collected_ytd,
+                    (SELECT COALESCE(SUM(total_fees - paid_amount),0) FROM student_fees WHERE academic_year_id=(SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)) AS total_outstanding,
+                    (SELECT COALESCE(SUM(amount),0) FROM expenses WHERE YEAR(expense_date)=YEAR(CURDATE()) AND status='approved') AS total_expenses_ytd,
+                    (SELECT COUNT(*) FROM fee_payments WHERE DATE(payment_date)=CURDATE()) AS payments_today"
+            );
+            $summary = $stmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+            return $this->success(['summary' => $summary, 'report_types' => [
+                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
+            ]]);
+        } catch (\Exception $e) {
+            return $this->success(['summary' => [], 'report_types' => [
+                'collections', 'fee_defaulters', 'expenses', 'payroll', 'balance_sheet'
+            ]]);
+        }
+    }
+
+    /**
      * POST /api/finance/reports/generate-payroll
      */
     public function postReportsGeneratePayroll($id = null, $data = [], $segments = [])
@@ -1064,5 +1124,120 @@ class FinanceController extends BaseController
     private function getCurrentUserId()
     {
         return $this->user['id'] ?? null;
+    }
+
+    // ========================================
+    // SECTION 8: Fee Bundle Workflow
+    // ========================================
+
+    /**
+     * POST /api/finance/fees-bundle-submit
+     * Accountant submits a fee structure bundle for director review
+     */
+    public function postFeesBundleSubmit($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['level_id']) || empty($data['academic_year']) || empty($data['term_id']) || empty($data['student_type_id'])) {
+            return $this->badRequest('level_id, academic_year, term_id, student_type_id are required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['submitted_by'] = $userId;
+        $result = $this->api->submitFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-bundle-review/{id}
+     * Finance manager reviews a submitted bundle
+     */
+    public function postFeesBundleReview($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('approval_id required');
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['approval_id'] = $id;
+        $data['reviewed_by'] = $userId;
+        if (empty($data['action'])) return $this->badRequest('action (approve|reject) required');
+        $result = $this->api->reviewFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-bundle-approve/{id}
+     * Director approves or rejects a fee structure bundle.
+     * On approval, automatically generates student_fee_obligations for all affected students.
+     */
+    public function postFeesBundleApprove($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('approval_id required');
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $data['approval_id'] = $id;
+        $data['approved_by'] = $userId;
+        if (empty($data['action'])) return $this->badRequest('action (approve|reject) required');
+        $result = $this->api->approveFeeStructureBundle($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/fees-bundle-list
+     * List all fee structure bundles with status, for director review queue
+     * Query params: status, academic_year, term_id, level_id, page, limit
+     */
+    public function getFeesBundleList($id = null, $data = [], $segments = [])
+    {
+        $filters = [
+            'status'        => $data['status'] ?? $_GET['status'] ?? null,
+            'academic_year' => $data['academic_year'] ?? $_GET['academic_year'] ?? null,
+            'term_id'       => $data['term_id'] ?? $_GET['term_id'] ?? null,
+            'level_id'      => $data['level_id'] ?? $_GET['level_id'] ?? null,
+            'page'          => (int)($data['page'] ?? $_GET['page'] ?? 1),
+            'limit'         => (int)($data['limit'] ?? $_GET['limit'] ?? 20),
+        ];
+        $result = $this->api->getFeeStructureBundles($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/fees-activate-generate-obligations
+     * Manually trigger obligation generation for an approved bundle
+     */
+    public function postFeesActivateGenerateObligations($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['level_id']) || empty($data['academic_year']) || empty($data['term_id']) || empty($data['student_type_id'])) {
+            return $this->badRequest('level_id, academic_year, term_id, student_type_id are required');
+        }
+        $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $result = $this->api->activateAndGenerateObligations(
+            $data['level_id'], $data['academic_year'], $data['term_id'], $data['student_type_id'], $userId
+        );
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
+    // SECTION 9: Student Billing History
+    // ========================================
+
+    /**
+     * GET /api/finance/students-billing-history/{id}
+     * Full billing history for a student across all years and terms
+     */
+    public function getStudentsBillingHistory($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        $result = $this->api->getStudentBillingHistory((int)$id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/class-billing-report/{id}
+     * Class-level billing report — all students, their balances and payment status
+     * Query params: academic_year_id (required), term_id (optional)
+     */
+    public function getClassBillingReport($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('class_id required');
+        $academicYearId = $data['academic_year_id'] ?? $_GET['academic_year_id'] ?? null;
+        if (!$academicYearId) return $this->badRequest('academic_year_id required');
+        $termId = $data['term_id'] ?? $_GET['term_id'] ?? null;
+        $result = $this->api->getClassBillingReport((int)$id, (int)$academicYearId, $termId ? (int)$termId : null);
+        return $this->handleResponse($result);
     }
 }

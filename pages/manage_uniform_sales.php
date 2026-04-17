@@ -1,18 +1,11 @@
 <?php
-// Authentication handled by JWT middleware and JavaScript
-$pageTitle = 'Uniform Sales Management';
-$pageDescription = 'Manage school uniform inventory, sales, and stock levels';
+/**
+ * Manage Uniform Sales — PARTIAL (injected into app shell via app_layout.php)
+ * JS controller: js/pages/uniform_sales.js
+ */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= $pageTitle ?> - Kingsway Academy</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link rel="stylesheet" href="<?= $appBase ?>king.css">
-    <style>
+<style>
         .uniform-card {
             transition: all 0.3s ease;
             border-radius: 12px;
@@ -56,11 +49,8 @@ $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
         .sale-row:hover { background-color: #f8f9fa; }
         .payment-badge { font-size: 0.8rem; }
     </style>
-</head>
-<body>
-    <?php include_once '../layouts/app_layout.php'; ?>
-    
-    <div>
+
+<div>
         <!-- Page Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
@@ -468,9 +458,49 @@ $pageDescription = 'Manage school uniform inventory, sales, and stock levels';
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="<?= $appBase ?>js/api.js"></script>
-    <script src="<?= $appBase ?>js/pages/uniform_sales.js"></script>
-</body>
-</html>
+    <!-- Record Uniform Payment Modal -->
+    <div class="modal fade" id="uniformPaymentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="fas fa-money-bill-wave me-2"></i>Record Payment</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-3" id="upSaleInfo"></p>
+                    <input type="hidden" id="upSaleId">
+                    <div class="row g-3">
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Amount (KES) <span class="text-danger">*</span></label>
+                            <input type="number" id="upAmount" class="form-control" min="1" step="0.01">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label fw-semibold">Payment Method</label>
+                            <select id="upMethod" class="form-select">
+                                <option value="cash">Cash</option>
+                                <option value="mpesa">M-Pesa</option>
+                                <option value="bank">Bank</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Reference / M-Pesa Code</label>
+                            <input type="text" id="upReference" class="form-control" placeholder="Optional">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes</label>
+                            <input type="text" id="upNotes" class="form-control" placeholder="Optional">
+                        </div>
+                    </div>
+                    <div id="upError" class="alert alert-danger mt-3 d-none"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success" id="upSaveBtn" onclick="UniformSalesController.saveUniformPayment()">
+                        <i class="fas fa-check me-1"></i>Record Payment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script src="<?= $appBase ?>js/pages/uniform_sales.js"></script>

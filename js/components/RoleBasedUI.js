@@ -781,7 +781,7 @@ const RoleBasedUI = (() => {
       tableActions: ["view", "edit", "delete", "export", "bulk"],
       headerActions: ["filters", "export", "create"],
       animations: "full",
-      cssFile: "/css/roles/admin-theme.css",
+      cssFile: (window.APP_BASE || '') + "/css/roles/admin-theme.css",
     },
     manager: {
       themeClass: "manager-layout",
@@ -794,7 +794,7 @@ const RoleBasedUI = (() => {
       tableActions: ["view", "edit", "export"],
       headerActions: ["export", "create"],
       animations: "moderate",
-      cssFile: "/css/roles/manager-theme.css",
+      cssFile: (window.APP_BASE || '') + "/css/roles/manager-theme.css",
     },
     operator: {
       themeClass: "operator-layout",
@@ -807,7 +807,7 @@ const RoleBasedUI = (() => {
       tableActions: ["view"],
       headerActions: [],
       animations: "subtle",
-      cssFile: "/css/roles/operator-theme.css",
+      cssFile: (window.APP_BASE || '') + "/css/roles/operator-theme.css",
     },
     viewer: {
       themeClass: "viewer-layout",

@@ -10,6 +10,7 @@ ini_set('display_errors', 1);
 
 // Load DashboardRouter for role-to-dashboard mapping
 require_once __DIR__ . '/../config/DashboardRouter.php';
+use App\Config\DashboardRouter;
 
 // Get route from URL (authentication verified by JWT in JavaScript)
 $route = $_GET['route'] ?? 'loading';

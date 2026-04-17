@@ -2529,35 +2529,67 @@ class FinanceAPI extends BaseAPI
     /**
      * Department budget summary for quick dashboards
      */
-    public function getDepartmentBudgetSummary($departmentId)
+    public function getDepartmentBudgetSummary($departmentId = null)
     {
         try {
-            if (empty($departmentId)) {
-                return formatResponse(false, null, 'Department ID is required');
+            if ($departmentId) {
+                // Single department summary
+                $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM department_accounts WHERE department_id = ?");
+                $stmt->execute([$departmentId]);
+                $allocated = floatval($stmt->fetchColumn());
+
+                $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status IN ('approved', 'paid')");
+                $stmt->execute([$departmentId]);
+                $spent = floatval($stmt->fetchColumn());
+
+                $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status = 'pending'");
+                $stmt->execute([$departmentId]);
+                $pending = floatval($stmt->fetchColumn());
+
+                $available = $allocated - $spent;
+                $utilization = $allocated > 0 ? round(($spent / $allocated) * 100, 2) : 0;
+
+                return formatResponse(true, [
+                    'department_id' => (int) $departmentId,
+                    'allocated' => $allocated,
+                    'spent' => $spent,
+                    'pending' => $pending,
+                    'available' => $available,
+                    'utilization_percent' => $utilization
+                ]);
             }
 
-            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM department_accounts WHERE department_id = ?");
-            $stmt->execute([$departmentId]);
-            $allocated = floatval($stmt->fetchColumn());
+            // All departments summary
+            $stmt = $this->db->query("
+                SELECT d.id AS department_id, d.name AS department_name,
+                    COALESCE(da.allocated, 0) AS allocated,
+                    COALESCE(e_spent.spent, 0) AS spent,
+                    COALESCE(e_pending.pending, 0) AS pending,
+                    COALESCE(da.allocated, 0) - COALESCE(e_spent.spent, 0) AS available,
+                    CASE WHEN COALESCE(da.allocated, 0) > 0
+                        THEN ROUND(COALESCE(e_spent.spent, 0) / da.allocated * 100, 2)
+                        ELSE 0 END AS utilization_percent
+                FROM departments d
+                LEFT JOIN (SELECT department_id, SUM(amount) AS allocated FROM department_accounts GROUP BY department_id) da ON da.department_id = d.id
+                LEFT JOIN (SELECT department_id, SUM(amount) AS spent FROM expenses WHERE status IN ('approved','paid') GROUP BY department_id) e_spent ON e_spent.department_id = d.id
+                LEFT JOIN (SELECT department_id, SUM(amount) AS pending FROM expenses WHERE status = 'pending' GROUP BY department_id) e_pending ON e_pending.department_id = d.id
+                ORDER BY d.name
+            ");
+            $departments = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status IN ('approved', 'paid')");
-            $stmt->execute([$departmentId]);
-            $spent = floatval($stmt->fetchColumn());
-
-            $stmt = $this->db->prepare("SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE department_id = ? AND status = 'pending'");
-            $stmt->execute([$departmentId]);
-            $pending = floatval($stmt->fetchColumn());
-
-            $available = $allocated - $spent;
-            $utilization = $allocated > 0 ? round(($spent / $allocated) * 100, 2) : 0;
+            $totalAllocated = array_sum(array_column($departments, 'allocated'));
+            $totalSpent     = array_sum(array_column($departments, 'spent'));
+            $totalPending   = array_sum(array_column($departments, 'pending'));
 
             return formatResponse(true, [
-                'department_id' => (int) $departmentId,
-                'allocated' => $allocated,
-                'spent' => $spent,
-                'pending' => $pending,
-                'available' => $available,
-                'utilization_percent' => $utilization
+                'departments' => $departments,
+                'totals' => [
+                    'allocated' => $totalAllocated,
+                    'spent'     => $totalSpent,
+                    'pending'   => $totalPending,
+                    'available' => $totalAllocated - $totalSpent,
+                    'utilization_percent' => $totalAllocated > 0 ? round($totalSpent / $totalAllocated * 100, 2) : 0
+                ]
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);
@@ -2639,5 +2671,65 @@ class FinanceAPI extends BaseAPI
             ]);
             $spStmt->closeCursor();
         }
+    }
+
+    // ========================================================================
+    // FEE BUNDLE WORKFLOW — public wrappers delegating to FeeManager
+    // ========================================================================
+
+    /**
+     * Submit a fee structure bundle for director review
+     */
+    public function submitFeeStructureBundle($data)
+    {
+        return $this->feeManager->submitFeeStructureBundle($data);
+    }
+
+    /**
+     * Finance manager reviews a submitted bundle
+     */
+    public function reviewFeeStructureBundle($data)
+    {
+        return $this->feeManager->reviewFeeStructureBundle($data);
+    }
+
+    /**
+     * Director approves or rejects a fee structure bundle
+     */
+    public function approveFeeStructureBundle($data)
+    {
+        return $this->feeManager->approveFeeStructureBundle($data);
+    }
+
+    /**
+     * List fee structure bundles with optional filters
+     */
+    public function getFeeStructureBundles($filters)
+    {
+        return $this->feeManager->getFeeStructureBundles($filters);
+    }
+
+    /**
+     * Manually trigger obligation generation for an approved bundle
+     */
+    public function activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId)
+    {
+        return $this->feeManager->activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId);
+    }
+
+    /**
+     * Full billing history for a student across all years and terms
+     */
+    public function getStudentBillingHistory($studentId)
+    {
+        return $this->feeManager->getStudentBillingHistory($studentId);
+    }
+
+    /**
+     * Class-level billing report — all students, balances and payment status
+     */
+    public function getClassBillingReport($classId, $academicYearId, $termId = null)
+    {
+        return $this->feeManager->getClassBillingReport($classId, $academicYearId, $termId);
     }
 }

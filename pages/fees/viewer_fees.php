@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Fees - Viewer Layout
  * For Students, Parents (view personal fee balance)
- * 
+ *
  * Features:
  * - No sidebar
  * - Fee balance card
@@ -11,82 +12,68 @@
  */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
-<link rel="stylesheet" href="<?= $appBase ?>css/roles/viewer-theme.css">
+<!-- Term Selector (for parents with multiple children) -->
+<div class="viewer-section" id="childSelector" style="display: none;">
+    <select class="form-select full-width" id="selectChild">
+        <option value="">Select Child</option>
+    </select>
+</div>
 
-<div class="viewer-layout">
-    <!-- Header -->
-    <header class="viewer-header">
-        <a href="<?= $appBase ?>home.php?route=dashboard" class="back-link">← Dashboard</a>
-        <h1 class="page-title">🧾 My Fees</h1>
-    </header>
-
-    <!-- Main Content -->
-    <main class="viewer-main">
-        <!-- Term Selector (for parents with multiple children) -->
-        <div class="viewer-section" id="childSelector" style="display: none;">
-            <select class="form-select full-width" id="selectChild">
-                <option value="">Select Child</option>
-            </select>
+<!-- Fee Balance Card -->
+<div class="viewer-profile-card">
+    <div class="profile-header">
+        <div class="stat-icon bg-gold">🧾</div>
+        <div class="profile-name-section">
+            <h2 class="profile-name" id="studentName">Loading...</h2>
+            <span class="profile-id" id="currentTerm">-</span>
         </div>
+    </div>
 
-        <!-- Fee Balance Card -->
-        <div class="viewer-profile-card">
-            <div class="profile-header">
-                <div class="stat-icon bg-gold">🧾</div>
-                <div class="profile-name-section">
-                    <h2 class="profile-name" id="studentName">Loading...</h2>
-                    <span class="profile-id" id="currentTerm">-</span>
-                </div>
+    <div class="profile-body">
+        <div class="fee-summary">
+            <div class="fee-item">
+                <span class="fee-label">Total Fee</span>
+                <span class="fee-value" id="totalFee">KES 0</span>
             </div>
-
-            <div class="profile-body">
-                <div class="fee-summary">
-                    <div class="fee-item">
-                        <span class="fee-label">Total Fee</span>
-                        <span class="fee-value" id="totalFee">KES 0</span>
-                    </div>
-                    <div class="fee-item">
-                        <span class="fee-label">Amount Paid</span>
-                        <span class="fee-value text-success" id="amountPaid">KES 0</span>
-                    </div>
-                    <div class="fee-item highlight">
-                        <span class="fee-label">Balance Due</span>
-                        <span class="fee-value text-danger" id="balanceDue">KES 0</span>
-                    </div>
-                </div>
-
-                <div class="fee-status-indicator" id="feeStatus">
-                    <span class="status-badge">Loading...</span>
-                </div>
+            <div class="fee-item">
+                <span class="fee-label">Amount Paid</span>
+                <span class="fee-value text-success" id="amountPaid">KES 0</span>
+            </div>
+            <div class="fee-item highlight">
+                <span class="fee-label">Balance Due</span>
+                <span class="fee-value text-danger" id="balanceDue">KES 0</span>
             </div>
         </div>
 
-        <!-- Payment History -->
-        <div class="viewer-section">
-            <h3>📜 Payment History</h3>
-
-            <div class="viewer-list" id="paymentHistoryList">
-                <div class="loading-item">Loading payment history...</div>
-            </div>
+        <div class="fee-status-indicator" id="feeStatus">
+            <span class="status-badge">Loading...</span>
         </div>
+    </div>
+</div>
 
-        <!-- Fee Breakdown -->
-        <div class="viewer-section">
-            <h3>📋 Fee Breakdown</h3>
+<!-- Payment History -->
+<div class="viewer-section">
+    <h3>📜 Payment History</h3>
 
-            <div class="fee-breakdown" id="feeBreakdown">
-                <div class="loading-item">Loading...</div>
-            </div>
-        </div>
+    <div class="viewer-list" id="paymentHistoryList">
+        <div class="loading-item">Loading payment history...</div>
+    </div>
+</div>
 
-        <!-- Download Statement -->
-        <div class="viewer-section">
-            <button class="btn btn-outline-full" onclick="downloadStatement()">
-                📥 Download Fee Statement
-            </button>
-        </div>
-    </main>
+<!-- Fee Breakdown -->
+<div class="viewer-section">
+    <h3>📋 Fee Breakdown</h3>
+
+    <div class="fee-breakdown" id="feeBreakdown">
+        <div class="loading-item">Loading...</div>
+    </div>
+</div>
+
+<!-- Download Statement -->
+<div class="viewer-section">
+    <button class="btn btn-outline-full" onclick="downloadStatement()">
+        📥 Download Fee Statement
+    </button>
 </div>
 
 <style>
@@ -222,10 +209,8 @@
     }
 </style>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         loadFeeDetails();
     });
 

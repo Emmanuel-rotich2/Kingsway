@@ -198,9 +198,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement budgetOverviewController in js/pages/budget_overview.js
-        console.log('Budget Overview page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/budget_overview.js"></script>

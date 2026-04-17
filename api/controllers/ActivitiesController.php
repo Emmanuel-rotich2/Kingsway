@@ -1029,6 +1029,51 @@ class ActivitiesController extends BaseController
     }
 
     /**
+     * GET /api/activities/stats
+     * Returns activity statistics summary
+     */
+    public function getStats($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+            $stats = [];
+
+            $stmt = $db->query("SELECT COUNT(*) FROM activities WHERE status = 'active'");
+            $stats['active_activities'] = (int)($stmt->fetchColumn() ?: 0);
+
+            try {
+                $stmt = $db->query("SELECT COUNT(DISTINCT student_id) FROM activity_enrollments WHERE status = 'active'");
+                $stats['students_enrolled'] = (int)($stmt->fetchColumn() ?: 0);
+            } catch (\Exception $e) {
+                $stats['students_enrolled'] = 0;
+            }
+
+            try {
+                $stmt = $db->query("SELECT COUNT(*) FROM activities WHERE start_date > CURDATE() AND status = 'active'");
+                $stats['upcoming_events'] = (int)($stmt->fetchColumn() ?: 0);
+            } catch (\Exception $e) {
+                $stats['upcoming_events'] = 0;
+            }
+
+            try {
+                $stmt = $db->query("SELECT COUNT(*) FROM activity_awards WHERE YEAR(awarded_date) = YEAR(CURDATE()) AND MONTH(awarded_date) BETWEEN 1 AND 12");
+                $stats['awards_this_term'] = (int)($stmt->fetchColumn() ?: 0);
+            } catch (\Exception $e) {
+                $stats['awards_this_term'] = 0;
+            }
+
+            return $this->success($stats);
+        } catch (\Exception $e) {
+            return $this->success([
+                'active_activities' => 0,
+                'students_enrolled' => 0,
+                'upcoming_events'   => 0,
+                'awards_this_term'  => 0,
+            ]);
+        }
+    }
+
+    /**
      * Get current authenticated user ID
      */
     private function getCurrentUserId()

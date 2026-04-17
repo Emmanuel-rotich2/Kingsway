@@ -49,8 +49,8 @@ const accountantAssetsDashboardController = Object.assign(
     loadAllData: async function () {
       var self = this;
       var results = await Promise.all([
-        self.fetchJSON("/Kingsway/api/dashboard/accountant/assets"),
-        self.fetchJSON("/Kingsway/api/inventory/assets"),
+        self.fetchJSON((window.APP_BASE || '') + '/api/dashboard/accountant/assets'),
+        self.fetchJSON((window.APP_BASE || '') + '/api/inventory/assets'),
       ]);
       var assetsResponse = results[0];
       var depreciationResponse = results[1];

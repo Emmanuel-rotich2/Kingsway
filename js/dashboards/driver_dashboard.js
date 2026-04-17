@@ -1,160 +1,121 @@
 /**
  * Driver Dashboard Controller
- * Manages Driver dashboard using api.js for real-time data
+ * Role: Driver (ID 23)
  */
-
 const driverDashboardController = {
-    dashboardData: {},
-    refreshInterval: 30000,
-    isLoading: false,
-    
-    init: function() {
-        if (!AuthContext.isAuthenticated()) {
-            window.location.href = '/Kingsway/index.php';
+    routeData: null,
+
+    init: function () {
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        
-        this.loadDashboardData();
-        this.attachEventListeners();
-        this.setupAutoRefresh();
-        console.log('Driver Dashboard initialized');
+        this.loadAll();
     },
-    
-    loadDashboardData: async function() {
-        if (this.isLoading) return;
-        
-        this.isLoading = true;
+
+    refresh: function () { this.loadAll(); },
+
+    loadAll: async function () {
         try {
-            const stats = await window.API.apiCall('/dashboard/driver/routes', 'GET');
-            if (stats) {
-                this.dashboardData.stats = stats;
-                this.updateStatistics();
-            }
-            
-            const additionalData = await window.API.apiCall('/dashboard/driver/trips', 'GET');
-            if (additionalData) {
-                this.dashboardData.additional = additionalData;
-                this.updateAdditionalData();
-            }
-            
-            const refreshTime = document.getElementById('lastRefreshTime');
-            if (refreshTime) {
-                refreshTime.textContent = new Date().toLocaleTimeString();
-            }
-        } catch (error) {
-            console.error('Error loading dashboard data:', error);
-            showNotification('Error loading dashboard data: ' + error.message, 'error');
-        } finally {
-            this.isLoading = false;
-        }
-    },
-    
-    updateStatistics: function() {
-        const stats = this.dashboardData.stats;
-        if (!stats) return;
-        
-        Object.keys(stats).forEach(key => {
-            const element = document.getElementById(key) || document.querySelector(`[data-stat="${key}"]`);
-            if (element) {
-                if (typeof stats[key] === 'number') {
-                    element.textContent = this.formatNumber(stats[key]);
-                } else {
-                    element.textContent = stats[key];
+            const [routeRes, vehicleRes] = await Promise.allSettled([
+                API.transport.getMyRoute ? API.transport.getMyRoute() : fetch((window.APP_BASE || '') + '/api/transport/my-route', {headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')}}).then(r => r.json()),
+                fetch((window.APP_BASE || '') + '/api/transport/my-vehicle', {headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')}}).then(r => r.json())
+            ]);
+
+            if (routeRes.status === 'fulfilled') {
+                const res = routeRes.value;
+                const route = res?.data || res;
+                if (route) {
+                    this.routeData = route;
+                    this.renderRoute(route);
                 }
             }
-        });
-    },
-    
-    updateAdditionalData: function() {
-        const data = this.dashboardData.additional;
-        if (!data) return;
-        
-        if (data.chartData) {
-            this.updateCharts(data.chartData);
-        }
-        
-        if (data.tableData) {
-            this.updateTables(data.tableData);
-        }
-    },
-    
-    updateCharts: function(chartData) {
-        console.log('Updating charts with:', chartData);
-    },
-    
-    updateTables: function(tableData) {
-        Object.keys(tableData).forEach(tableId => {
-            const table = document.getElementById(tableId);
-            if (table && table.querySelector('tbody')) {
-                const tbody = table.querySelector('tbody');
-                const rows = tableData[tableId].map((item, index) => {
-                    const dateStr = new Date(item.date || item.created_at).toLocaleDateString();
-                    return `<tr><td>${index + 1}</td><td>${this.getItemDisplay(item)}</td><td>${this.formatStatus(item.status)}</td><td>${dateStr}</td></tr>`;
-                }).join('');
-                tbody.innerHTML = rows;
+            if (vehicleRes.status === 'fulfilled') {
+                const v = vehicleRes.value?.data || vehicleRes.value;
+                if (v) this.renderVehicle(v);
             }
-        });
-    },
-    
-    getItemDisplay: function(item) {
-        return item.name || item.title || item.description || item.id || 'N/A';
-    },
-    
-    formatStatus: function(status) {
-        if (!status) return '<span class="badge bg-secondary">N/A</span>';
-        const statusClass = {'active': 'bg-success', 'pending': 'bg-warning', 'completed': 'bg-success', 'failed': 'bg-danger'}[status.toLowerCase()] || 'bg-secondary';
-        return `<span class="badge ${statusClass}">${status}</span>`;
-    },
-    
-    formatNumber: function(num) {
-        return new Intl.NumberFormat().format(num);
-    },
-    
-    attachEventListeners: function() {
-        document.getElementById('refreshDashboard')?.addEventListener('click', () => {
-            this.loadDashboardData();
-        });
-        
-        document.querySelectorAll('[data-filter]').forEach(filter => {
-            filter.addEventListener('change', () => {
-                this.loadDashboardData();
-            });
-        });
-        
-        document.getElementById('exportDashboard')?.addEventListener('click', () => {
-            this.exportDashboardData();
-        });
-        
-        document.getElementById('printDashboard')?.addEventListener('click', () => {
-            window.print();
-        });
-    },
-    
-    setupAutoRefresh: function() {
-        setInterval(() => {
-            this.loadDashboardData();
-        }, this.refreshInterval);
-    },
-    
-    exportDashboardData: function() {
-        try {
-            const data = {
-                dashboard: 'Driver Dashboard',
-                timestamp: new Date().toISOString(),
-                ...this.dashboardData
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            downloadFile(blob, 'dashboard-export-' + Date.now() + '.json');
-            showNotification('Dashboard exported successfully', 'success');
-        } catch (error) {
-            console.error('Error exporting dashboard:', error);
-            showNotification('Error exporting dashboard', 'error');
+        } catch (e) {
+            console.error('Driver dashboard error:', e);
         }
     },
-    
-    navigateTo: function(route) {
-        window.location.href = `/Kingsway/home.php?route=${route}`;
+
+    renderRoute: function (route) {
+        const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v || '—'; };
+        setText('routeNameCard', route.name);
+        setText('amPickup', route.am_pickup);
+        setText('pmDropoff', route.pm_dropoff);
+
+        const students = route.students || [];
+        const stops = route.stops || [];
+        const present = students.filter(s => s.present).length;
+        setText('totalStudents', students.length);
+        setText('totalStops', stops.length);
+        setText('presentToday', present);
+
+        this.renderStudents(students);
+        this.renderStops(stops);
+    },
+
+    renderStudents: function (students) {
+        const el = document.getElementById('studentAttendanceList');
+        if (!el) return;
+        if (!students.length) { el.innerHTML = '<div class="text-center text-muted py-4">No students assigned.</div>'; return; }
+        el.innerHTML = students.map(s => `
+            <div class="d-flex align-items-center gap-3 px-3 py-2 border-bottom">
+                <input type="checkbox" class="form-check-input student-att-check" data-id="${s.id}" ${s.present ? 'checked' : ''} style="width:20px;height:20px">
+                <label class="d-flex justify-content-between flex-fill mb-0">
+                    <span class="fw-500">${this.esc(s.full_name)}</span>
+                    <small class="text-muted">${this.esc(s.stop_name || '')}</small>
+                </label>
+            </div>`).join('');
+    },
+
+    renderStops: function (stops) {
+        const el = document.getElementById('stopsList');
+        if (!el) return;
+        if (!stops.length) { el.innerHTML = '<p class="text-muted small">No stops.</p>'; return; }
+        el.innerHTML = stops.map((s, i) => `
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <span class="badge bg-primary rounded-pill">${i + 1}</span>
+                <span class="small flex-fill">${this.esc(s.name)}</span>
+                <small class="text-muted">${s.time || ''}</small>
+            </div>`).join('');
+    },
+
+    renderVehicle: function (v) {
+        const setText = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+        setText('vehicleReg', v.registration_no || v.reg_no);
+        setText('vehicleModel', v.model || v.make);
+        setText('vehicleCapacity', v.capacity ? v.capacity + ' seats' : null);
+        const statusEl = document.getElementById('vehicleStatus');
+        if (statusEl) {
+            const s = (v.status || 'unknown').toLowerCase();
+            statusEl.textContent = s;
+            statusEl.className = 'badge bg-' + (s === 'active' ? 'success' : s === 'maintenance' ? 'warning' : 'secondary');
+        }
+    },
+
+    saveAttendance: async function () {
+        const present = Array.from(document.querySelectorAll('.student-att-check:checked')).map(cb => cb.dataset.id);
+        try {
+            await fetch((window.APP_BASE || '') + '/api/transport/attendance', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token')},
+                body: JSON.stringify({ students: present, date: new Date().toISOString().slice(0, 10) })
+            });
+            document.getElementById('presentToday').textContent = present.length;
+            if (typeof showNotification === 'function') showNotification('Attendance saved!', 'success');
+        } catch (e) {
+            if (typeof showNotification === 'function') showNotification('Failed to save attendance.', 'error');
+        }
+    },
+
+    navigate: function (route) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
+    },
+
+    esc: function (s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 };
 

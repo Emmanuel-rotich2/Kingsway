@@ -109,4 +109,4 @@
     </div>
 </div>
 
-<script src="js/pages/performance_trends.js"></script>
+<script src="<?= $appBase ?>js/pages/performance_trends.js"></script>

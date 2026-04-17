@@ -57,7 +57,7 @@ const dashboardBaseController = {
         // Security: Check authentication
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             console.error('❌ User not authenticated');
-            window.location.href = '/Kingsway/index.php';
+            window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
         
@@ -103,7 +103,7 @@ const dashboardBaseController = {
                 if (endpoint.includes('schedule')) return window.API.dashboard?.getScheduleStats?.() || Promise.resolve(null);
                 
                 // Generic fetch for other endpoints
-                return fetch(`/Kingsway${endpoint}`)
+                return fetch(`${window.APP_BASE || ''}${endpoint}`)
                     .then(r => r.ok ? r.json() : null)
                     .catch(e => {
                         console.warn(`⚠️  API call failed: ${endpoint}`, e);
@@ -194,7 +194,7 @@ const dashboardBaseController = {
               window.history.pushState({}, "", "?route=" + route);
             } else if (route) {
               // Fallback to direct page navigation
-              window.location.href = `/Kingsway/pages/${route}.php`;
+              window.location.href = `${window.APP_BASE || ''}/pages/${route}.php`;
             }
           };
           el._routeHandler = handler;

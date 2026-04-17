@@ -71,4 +71,4 @@
     </div>
 </div>
 
-<script src="js/pages/all_classes.js"></script>
+<script src="<?= $appBase ?>js/pages/all_classes.js"></script>

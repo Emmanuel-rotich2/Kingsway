@@ -90,6 +90,7 @@
                         <th>Users</th>
                         <th>Permissions</th>
                         <th>Status</th>
+                        <th>Active</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -135,6 +136,23 @@
                     <div class="mb-3">
                         <label class="form-label">Description</label>
                         <textarea class="form-control" id="description" rows="2"></textarea>
+                    </div>
+                    <!-- Scope selector — shown only for System Administrator -->
+                    <div class="row mb-3" id="scopeRow" style="display:none;" data-system-only>
+                        <div class="col-md-6">
+                            <label class="form-label">Scope</label>
+                            <select class="form-select" id="roleScope">
+                                <option value="school">School</option>
+                                <option value="system">System</option>
+                            </select>
+                            <div class="form-text">System scope roles are for system administration only.</div>
+                        </div>
+                        <div class="col-md-6 d-flex align-items-center">
+                            <div class="form-check mt-3">
+                                <input type="checkbox" class="form-check-input" id="roleIsSystem">
+                                <label class="form-check-label" for="roleIsSystem">Mark as built-in system role (cannot be deleted)</label>
+                            </div>
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Permissions*</label>
@@ -267,8 +285,8 @@
                                         </div>
                                     </div>
 
-                                    <!-- System Module -->
-                                    <div class="col-md-6 mb-3">
+                                    <!-- System Module (System Admin only) -->
+                                    <div class="col-md-6 mb-3" id="systemPermissionsModule">
                                         <h6 class="border-bottom pb-2">
                                             <input type="checkbox" class="module-check" data-module="system"> System
                                         </h6>
@@ -298,9 +316,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement rolesManagementController in js/pages/manage_roles.js
-        console.log('Roles Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_roles.js"></script>

@@ -232,9 +232,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement myRoutesController in js/pages/my_routes.js
-        console.log('My Routes page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/my_routes.js"></script>

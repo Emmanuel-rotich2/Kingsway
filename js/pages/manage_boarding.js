@@ -14,7 +14,7 @@ const ManageBoardingController = {
     },
     loadData: async function() {
         try {
-            const response = await window.API.apiCall('/api/manage_boarding', 'GET');
+            const response = await window.API.apiCall('/boarding', 'GET');
             if (response) {
                 this.data = response;
                 this.render();

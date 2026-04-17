@@ -2,60 +2,39 @@
 /**
  * Staff - Operator Layout
  * For Class Teacher, Subject Teacher (view colleagues)
- * 
+ *
  * Features:
- * - Icon-only sidebar (60px)
  * - 1 stat card
  * - Simple directory list
  * - View-only contact info
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
-
-<div class="operator-layout">
-    <!-- Icon-only Sidebar -->
-    <aside class="operator-sidebar">
-        <a href="/pages/dashboard.php" class="nav-icon-item" title="Dashboard">🏠</a>
-        <a href="/pages/all_staff.php" class="nav-icon-item active" title="Staff">👥</a>
-        <a href="/pages/all_teachers.php" class="nav-icon-item" title="Teachers">👩‍🏫</a>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="operator-main">
-        <!-- Header -->
-        <header class="operator-header">
-            <h1 class="page-title">👥 Staff Directory</h1>
-            <p class="page-subtitle">View staff contact information</p>
-        </header>
-
-        <!-- Stats Row - 1 card -->
-        <div class="operator-stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon bg-primary">👥</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalStaff">0</span>
-                    <span class="stat-label">Total Colleagues</span>
-                </div>
-            </div>
+<!-- Stats Row - 1 card -->
+<div class="operator-stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon bg-primary">👥</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalStaff">0</span>
+            <span class="stat-label">Total Colleagues</span>
         </div>
+    </div>
+</div>
 
-        <!-- Search -->
-        <div class="operator-section">
-            <div class="search-container">
-                <input type="text" class="form-input full-width" id="staffSearch"
-                    placeholder="🔍 Search staff by name or department...">
-            </div>
-        </div>
+<!-- Search -->
+<div class="operator-section">
+    <div class="search-container">
+        <input type="text" class="form-input full-width" id="staffSearch"
+            placeholder="🔍 Search staff by name or department...">
+    </div>
+</div>
 
-        <!-- Staff Directory List -->
-        <div class="operator-section">
-            <div class="directory-list" id="staffDirectory">
-                <div class="loading-item">Loading staff directory...</div>
-            </div>
-        </div>
-    </main>
+<!-- Staff Directory List -->
+<div class="operator-section">
+    <div class="directory-list" id="staffDirectory">
+        <div class="loading-item">Loading staff directory...</div>
+    </div>
 </div>
 
 <style>
@@ -124,10 +103,8 @@
     }
 </style>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         loadStaffDirectory();
 
         document.getElementById('staffSearch').addEventListener('input', function () {

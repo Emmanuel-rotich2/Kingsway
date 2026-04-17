@@ -272,4 +272,4 @@
     </div>
 </div>
 
-<script src="js/pages/learning_areas.js"></script>
+<script src="<?= $appBase ?>js/pages/learning_areas.js"></script>

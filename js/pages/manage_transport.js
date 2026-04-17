@@ -14,7 +14,7 @@ const ManageTransportController = {
     },
     loadData: async function() {
         try {
-            const response = await window.API.apiCall('/api/manage_transport', 'GET');
+            const response = await window.API.apiCall('/transport', 'GET');
             if (response) {
                 this.data = response;
                 this.render();

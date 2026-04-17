@@ -195,4 +195,17 @@
     </div>
 </div>
 
+<!-- Purchase Orders Section -->
+<div class="card shadow-sm mt-4">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <h6 class="mb-0"><i class="bi bi-receipt me-2"></i>Purchase Orders</h6>
+    <button class="btn btn-sm btn-outline-secondary" onclick="VendorsController.refresh()">
+      <i class="bi bi-arrow-clockwise"></i>
+    </button>
+  </div>
+  <div class="card-body p-0" id="poContainer">
+    <div class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+  </div>
+</div>
+
 <script src="<?= $appBase ?>js/pages/vendors.js?v=<?php echo time(); ?>"></script>

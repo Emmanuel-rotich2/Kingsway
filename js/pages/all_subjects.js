@@ -194,7 +194,7 @@ const AllSubjectsController = (() => {
         document.getElementById('typeFilter')?.addEventListener('change', () => loadData(1));
         document.getElementById('statusFilterSubject')?.addEventListener('change', () => loadData(1));
         document.getElementById('exportSubjectsBtn')?.addEventListener('click', () => {
-            window.open('/Kingsway/api/?route=academic/subjects/export&format=csv', '_blank');
+            window.open((window.APP_BASE || '') + '/api/?route=academic/subjects/export&format=csv', '_blank');
         });
     }
 

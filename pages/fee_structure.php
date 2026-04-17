@@ -1,21 +1,14 @@
 <?php
 /**
- * Fee Structure Page - JWT-Based Role Router
+ * Fee Structure Page — JWT-Based Role Router
  *
- * STATELESS ARCHITECTURE:
- * - NO PHP sessions (compatible with load balancing)
- * - User role determined from JWT token in localStorage
- * - Template loaded client-side based on role
- *
- * Role-to-Template Mapping:
- * - director_owner, school_admin, system_administrator -> admin template
- * - accountant, bursar -> accountant template
- * - headteacher, deputy_headteacher, hod -> viewer template
+ * Uses PageShell.loadRoleTemplate() to select the correct sub-template.
+ * Fully stateless (no PHP session). Also see manage_fee_structure.php.
  */
 ?>
 
 <!-- Loading state while determining user role -->
-<div id="loading-state" style="padding: 40px; text-align: center;">
+<div id="fee-structure-loading" style="padding: 40px; text-align: center;">
     <div class="spinner-border text-primary" role="status">
         <span class="visually-hidden">Loading...</span>
     </div>
@@ -23,117 +16,38 @@
 </div>
 
 <!-- Container where the correct template will be loaded -->
-<div id="fee-structure-container" style="display: none;"></div>
+<div id="fee-structure-content" style="display: none;"></div>
 
 <script>
-    (function () {
-        // Ensure AuthContext is loaded
-        if (typeof AuthContext === 'undefined') {
-            console.error('AuthContext not found - cannot determine user role');
-            document.getElementById('loading-state').innerHTML =
-                '<div class="alert alert-danger">Authentication system not loaded. Please refresh the page.</div>';
-            return;
-        }
-
-        // Check authentication
-        if (!AuthContext.isAuthenticated()) {
-            console.warn('User not authenticated - redirecting to login');
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
-        }
-
-        // Get user from JWT token (stored in localStorage)
-        const user = AuthContext.getUser();
-        if (!user || !user.role_name) {
-            console.error('User role not found in JWT token');
-            document.getElementById('loading-state').innerHTML =
-                '<div class="alert alert-danger">User role not found. Please log in again.</div>';
-            return;
-        }
-
-        // Normalize role name to match our mapping
-        const userRoleName = user.role_name.toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
-
-        console.log('User role from JWT:', user.role_name);
-        console.log('Normalized role:', userRoleName);
-
-        // Map roles to template files
-        const roleTemplateMap = {
-            // Admin roles - Full management interface
-            'director_owner': 'admin_fee_structure.php',
-            'school_admin': 'admin_fee_structure.php',
-            'system_administrator': 'admin_fee_structure.php',
-
-            // Accountant roles - Revenue and payment tracking
-            'school_accountant': 'accountant_fee_structure.php',
-            'accountant': 'accountant_fee_structure.php',
-            'bursar': 'accountant_fee_structure.php',
-
-            // Viewer roles - Read-only oversight
-            'headteacher': 'viewer_fee_structure.php',
-            'deputy_headteacher': 'viewer_fee_structure.php',
-            'hod': 'viewer_fee_structure.php',
-
-            // Limited access roles
-            'teacher': 'viewer_fee_structure.php',
-            'parent': 'viewer_fee_structure.php',
-            'student': 'viewer_fee_structure.php'
-        };
-
-        // Determine which template to load
-        const templateFile = roleTemplateMap[userRoleName];
-
-        if (!templateFile) {
-            console.error('No template found for role:', userRoleName);
-            document.getElementById('loading-state').innerHTML =
-                '<div class="alert alert-danger">' +
-                '<i class="bi bi-shield-exclamation me-2"></i>' +
-                'Access denied: Your role (' + user.role_name + ') does not have permission to view fee structures.' +
-                '</div>';
-            return;
-        }
-
-        // Load the appropriate template
-        const templatePath = (window.APP_BASE || '') + '/pages/fee_structure/' + templateFile;
-
-        console.log('Loading template:', templatePath);
-
-        // Fetch and inject the template
-        fetch(templatePath)
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Template not found: ' + templatePath);
-                }
-                return response.text();
-            })
-            .then(html => {
-                // Hide loading, show content
-                document.getElementById('loading-state').style.display = 'none';
-                const container = document.getElementById('fee-structure-container');
-                container.innerHTML = html;
-                container.style.display = 'block';
-
-                // Execute any scripts in the template
-                const scripts = container.querySelectorAll('script');
-                scripts.forEach(script => {
-                    const newScript = document.createElement('script');
-                    if (script.src) {
-                        newScript.src = script.src;
-                    } else {
-                        newScript.textContent = script.textContent;
-                    }
-                    document.body.appendChild(newScript);
-                });
-
-                console.log('Template loaded successfully for role:', user.role_name);
-            })
-            .catch(error => {
-                console.error('Failed to load template:', error);
-                document.getElementById('loading-state').innerHTML =
-                    '<div class="alert alert-warning">' +
-                    '<i class="bi bi-exclamation-triangle me-2"></i>' +
-                    'Template not found for your role. Please contact system administrator.' +
-                    '</div>';
-            });
-    })();
+(function () {
+    PageShell.loadRoleTemplate({
+        loadingId:   'fee-structure-loading',
+        contentId:   'fee-structure-content',
+        templateDir: '/pages/fee_structure/',
+        module:      'Fee Structure',
+        levels: [
+            {
+                file: 'admin_fee_structure.php',
+                test: function () {
+                    return PageShell.hasAny(['fee_structure_manage', 'fee_structure_admin', 'fee_structure_delete', 'fee_structure_create']) ||
+                           PageShell.hasRole(['system_administrator', 'director', 'director_owner', 'school_administrator', 'school_admin']);
+                },
+            },
+            {
+                file: 'accountant_fee_structure.php',
+                test: function () {
+                    return PageShell.hasAny(['fee_structure_edit', 'fee_structure_view_financial']) ||
+                           PageShell.hasRole(['school_accountant', 'accountant', 'bursar']);
+                },
+            },
+            {
+                file: 'viewer_fee_structure.php',
+                test: function () {
+                    return PageShell.hasAny(['fee_structure_view', 'fee_structure_view_own', 'fees_view']) ||
+                           PageShell.hasRole(['headteacher', 'deputy_head_academic', 'deputy_head_discipline', 'class_teacher', 'subject_teacher', 'parent', 'student']);
+                },
+            },
+        ],
+    });
+})();
 </script>

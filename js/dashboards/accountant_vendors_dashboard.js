@@ -49,8 +49,8 @@ const accountantVendorsDashboardController = Object.assign(
     loadAllData: async function () {
       var self = this;
       var results = await Promise.all([
-        self.fetchJSON("/Kingsway/api/dashboard/accountant/vendors"),
-        self.fetchJSON("/Kingsway/api/vendors"),
+        self.fetchJSON((window.APP_BASE || '') + '/api/dashboard/accountant/vendors'),
+        self.fetchJSON((window.APP_BASE || '') + '/api/vendors'),
       ]);
       if (results[0] && results[0].data) {
         self.renderVendorsSummary(results[0].data);
@@ -172,16 +172,16 @@ const accountantVendorsDashboardController = Object.assign(
     },
 
     handleAddVendor: function () {
-      window.location.href = "/Kingsway/home.php?route=vendors&action=add";
+      window.location.href = (window.APP_BASE || '') + '/home.php?route=vendors&action=add';
     },
 
     viewVendorDetails: function (vendorId) {
-      window.location.href = "/Kingsway/home.php?route=vendors&id=" + vendorId;
+      window.location.href = (window.APP_BASE || '') + '/home.php?route=vendors&id=' + vendorId;
     },
 
     initiateVendorPayment: function (vendorId) {
       console.log("Initiating payment for vendor:", vendorId);
-      window.location.href = "/Kingsway/home.php?route=vendors&action=pay&id=" + vendorId;
+      window.location.href = (window.APP_BASE || '') + '/home.php?route=vendors&action=pay&id=' + vendorId;
     },
 
     updateRefreshTime: function () {

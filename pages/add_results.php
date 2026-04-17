@@ -114,4 +114,4 @@
     </div>
 </div>
 
-<script src="js/pages/add_results.js"></script>
+<script src="<?= $appBase ?>js/pages/add_results.js"></script>

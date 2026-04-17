@@ -36,7 +36,7 @@ const DormitoryManagementController = {
         (await window.API.academic
           ?.getCustom({ action: "dormitories" })
           .catch(() => null)) ||
-        (await fetch("/Kingsway/api/?route=boarding&action=dormitories")
+        (await fetch((window.APP_BASE || '') + '/api/?route=boarding&action=dormitories')
           .then((r) => r.json())
           .catch(() => null));
 
@@ -193,7 +193,7 @@ const DormitoryManagementController = {
         (await window.API.academic
           ?.postCustom({ action: "create-dormitory", ...data })
           .catch(() => null)) ||
-        (await fetch("/Kingsway/api/?route=boarding&action=create-dormitory", {
+        (await fetch((window.APP_BASE || '') + '/api/?route=boarding&action=create-dormitory', {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),

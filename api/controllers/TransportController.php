@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\transport\TransportAPI;
+use App\API\Modules\Finance\TransportBillingManager;
 use Exception;
 
 /**
@@ -16,15 +17,30 @@ class TransportController extends BaseController
 {
 
     private TransportAPI $api;
+    private TransportBillingManager $billing;
 
     public function __construct() {
         parent::__construct();
-        $this->api = new TransportAPI();
+        $this->api     = new TransportAPI();
+        $this->billing = new TransportBillingManager();
     }
 
     public function index()
     {
         return $this->success(['message' => 'Transport API is running']);
+    }
+
+    public function get($id = null, $data = [], $segments = [])
+    {
+        // GET /api/transport — return summary of routes, vehicles, students
+        try {
+            $routes   = (int)$this->db->query("SELECT COUNT(*) FROM transport_routes WHERE status='active'")->fetchColumn();
+            $vehicles = (int)$this->db->query("SELECT COUNT(*) FROM transport_vehicles WHERE status='active'")->fetchColumn();
+            $students = (int)$this->db->query("SELECT COUNT(*) FROM transport_subscriptions WHERE status='active'")->fetchColumn();
+            return $this->success(['routes' => $routes, 'vehicles' => $vehicles, 'active_subscriptions' => $students]);
+        } catch (Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
     }
 
     /**
@@ -402,6 +418,182 @@ class TransportController extends BaseController
         }
 
         return $this->success($result);
+    }
+
+    /**
+     * GET /api/transport/my-route
+     * Returns the route assigned to the authenticated driver
+     */
+    public function getMyRoute($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return $this->success(['route' => null, 'message' => 'No user context']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("
+                SELECT r.* FROM transport_routes r
+                INNER JOIN route_drivers rd ON rd.route_id = r.id
+                WHERE rd.driver_id = :uid
+                ORDER BY r.id DESC LIMIT 1
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $route = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $this->success($route ?: null);
+        } catch (\Exception $e) {
+            return $this->success(null);
+        }
+    }
+
+    /**
+     * GET /api/transport/my-vehicle
+     * Returns the vehicle assigned to the authenticated driver
+     */
+    public function getMyVehicle($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return $this->success(['vehicle' => null, 'message' => 'No user context']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("
+                SELECT v.* FROM vehicles v
+                INNER JOIN driver_vehicles dv ON dv.vehicle_id = v.id
+                WHERE dv.driver_id = :uid
+                ORDER BY v.id DESC LIMIT 1
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $vehicle = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $this->success($vehicle ?: null);
+        } catch (\Exception $e) {
+            return $this->success(null);
+        }
+    }
+
+    /**
+     * POST /api/transport/attendance
+     * Records student attendance for a route
+     * Body: { date, present_student_ids: [] }
+     */
+    public function postAttendance($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->getCurrentUserId();
+        $date = $data['date'] ?? date('Y-m-d');
+        $presentIds = $data['present_student_ids'] ?? [];
+
+        if (empty($presentIds)) {
+            return $this->success(['recorded' => 0, 'message' => 'No student IDs provided']);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            $recorded = 0;
+            foreach ($presentIds as $studentId) {
+                $stmt = $db->prepare("
+                    INSERT INTO transport_attendance (driver_id, student_id, date, status, created_at)
+                    VALUES (:did, :sid, :date, 'present', NOW())
+                    ON DUPLICATE KEY UPDATE status = 'present', updated_at = NOW()
+                ");
+                $stmt->execute([
+                    ':did'  => $userId,
+                    ':sid'  => (int) $studentId,
+                    ':date' => $date,
+                ]);
+                $recorded++;
+            }
+            return $this->success(['recorded' => $recorded, 'date' => $date]);
+        } catch (\Exception $e) {
+            return $this->success(['recorded' => 0, 'message' => 'Table not available']);
+        }
+    }
+
+    // ================================================================
+    // TRANSPORT BILLING ENDPOINTS
+    // ================================================================
+
+    /** POST /api/transport/subscriptions — subscribe student to route */
+    public function postSubscriptions($id = null, $data = [], $segments = [])
+    {
+        try {
+            $data['subscribed_by'] = $this->user['user_id'] ?? $this->user['id'] ?? null;
+            $result = $this->billing->subscribe($data);
+            return $this->success($result, 'Student subscribed to transport');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            return $this->serverError('Subscription failed: ' . $e->getMessage());
+        }
+    }
+
+    /** DELETE /api/transport/subscriptions/{id} — cancel subscription */
+    public function deleteSubscriptions($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('subscription_id required');
+        $endMonth = $data['end_month'] ?? date('Y-m-01');
+        $userId   = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        $ok = $this->billing->unsubscribe((int)$id, $endMonth, $userId);
+        return $ok ? $this->success(null, 'Subscription cancelled') : $this->notFound('Subscription not found');
+    }
+
+    /** GET /api/transport/subscriptions?student_id=&route_id=&status= */
+    public function getSubscriptions($id = null, $data = [], $segments = [])
+    {
+        $filters = [
+            'student_id' => $_GET['student_id'] ?? $data['student_id'] ?? null,
+            'route_id'   => $_GET['route_id']   ?? $data['route_id']   ?? null,
+            'status'     => $_GET['status']      ?? $data['status']     ?? null,
+        ];
+        return $this->success($this->billing->getSubscriptions($filters));
+    }
+
+    /** POST /api/transport/bills-generate — generate monthly bills */
+    public function postBillsGenerate($id = null, $data = [], $segments = [])
+    {
+        $billingMonth = $data['billing_month'] ?? date('Y-m-01');
+        $userId       = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        try {
+            $result = $this->billing->generateMonthlyBills($billingMonth, $userId);
+            return $this->success($result, 'Monthly bills generated');
+        } catch (Exception $e) {
+            return $this->serverError('Bill generation failed: ' . $e->getMessage());
+        }
+    }
+
+    /** GET /api/transport/bills?billing_month=&student_id=&route_id=&status= */
+    public function getBills($id = null, $data = [], $segments = [])
+    {
+        $filters = [
+            'billing_month'  => $_GET['billing_month']  ?? $data['billing_month']  ?? null,
+            'student_id'     => $_GET['student_id']     ?? $data['student_id']     ?? null,
+            'route_id'       => $_GET['route_id']       ?? $data['route_id']       ?? null,
+            'payment_status' => $_GET['payment_status'] ?? $data['payment_status'] ?? null,
+            'page'           => (int)($_GET['page']     ?? $data['page']  ?? 1),
+            'limit'          => (int)($_GET['limit']    ?? $data['limit'] ?? 50),
+        ];
+        return $this->success($this->billing->getBills($filters));
+    }
+
+    /** GET /api/transport/bills-summary?billing_month=YYYY-MM-01 */
+    public function getBillsSummary($id = null, $data = [], $segments = [])
+    {
+        $billingMonth = $_GET['billing_month'] ?? $data['billing_month'] ?? date('Y-m-01');
+        return $this->success($this->billing->getMonthlyBillingSummary($billingMonth));
+    }
+
+    /** POST /api/transport/bills-record-payment/{id} */
+    public function postBillsRecordPayment($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('bill_id required');
+        $data['received_by'] = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        try {
+            $result = $this->billing->recordTransportPayment((int)$id, $data);
+            return $this->success($result, 'Payment recorded');
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            return $this->serverError('Payment recording failed: ' . $e->getMessage());
+        }
     }
 
     /**

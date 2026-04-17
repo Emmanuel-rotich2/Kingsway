@@ -121,4 +121,4 @@
     </div>
 </div>
 
-<script src="js/pages/clubs_societies.js"></script>
+<script src="<?= $appBase ?>js/pages/clubs_societies.js"></script>

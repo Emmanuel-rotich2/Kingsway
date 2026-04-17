@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="js/pages/dormitory_management.js"></script>
+<script src="<?= $appBase ?>js/pages/dormitory_management.js"></script>

@@ -177,7 +177,7 @@ const CurriculumCBCController = (() => {
             window._currSearchTimeout = setTimeout(() => loadData(1), 300);
         });
         document.getElementById('exportCurriculumBtn')?.addEventListener('click', () => {
-            window.open('/Kingsway/api/?route=academic/curriculum/export&format=csv', '_blank');
+            window.open((window.APP_BASE || '') + '/api/?route=academic/curriculum/export&format=csv', '_blank');
         });
     }
 

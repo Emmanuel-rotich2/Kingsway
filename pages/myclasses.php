@@ -84,4 +84,4 @@
   </div>
 </div>
 
-<script src="js/pages/myclasses.js"></script>
+<script src="<?= $appBase ?>js/pages/myclasses.js"></script>

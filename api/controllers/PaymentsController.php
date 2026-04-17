@@ -65,13 +65,13 @@ class PaymentsController extends BaseController
         try {
             $db = $this->db;
 
-            // Get fees collected this month
+            // Get fees collected this month (payment_transactions uses payment_date + amount_paid)
             $monthlyQuery = "
-                SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) as monthly_collected 
-                FROM payment_transactions 
-                WHERE status = 'successful' 
-                AND YEAR(transaction_date) = YEAR(NOW())
-                AND MONTH(transaction_date) = MONTH(NOW())
+                SELECT COALESCE(SUM(amount_paid), 0) as monthly_collected
+                FROM payment_transactions
+                WHERE status = 'confirmed'
+                AND YEAR(payment_date) = YEAR(NOW())
+                AND MONTH(payment_date) = MONTH(NOW())
             ";
             $monthlyResult = $db->query($monthlyQuery);
             $monthlyRow = $monthlyResult->fetch();
@@ -81,28 +81,26 @@ class PaymentsController extends BaseController
             $overdueQuery = "
                 SELECT COUNT(DISTINCT student_id) as overdue_count
                 FROM student_fee_obligations
-                WHERE status = 'overdue'
+                WHERE balance > 0 AND due_date < NOW()
             ";
             $overdueResult = $db->query($overdueQuery);
             $overdueRow = $overdueResult->fetch();
             $overdueCount = (int) ($overdueRow['overdue_count'] ?? 0);
 
-            // Get total fees expected (sum of active fee obligations)
+            // Get total fees expected
             $totalFeesQuery = "
-                SELECT SUM(balance) as total_expected 
-                FROM student_fee_obligations 
-                WHERE status = 'active' OR status = 'pending'
+                SELECT COALESCE(SUM(amount_due), 0) as total_expected
+                FROM student_fee_obligations
             ";
             $totalResult = $db->query($totalFeesQuery);
             $totalRow = $totalResult->fetch();
             $totalExpected = (float) ($totalRow['total_expected'] ?? 0);
 
-            // Get total fees collected (sum of confirmed payments in last 30 days)
-            // Note: payment_transactions uses 'confirmed' status, not 'successful'
+            // Get total fees collected (confirmed payments in last 30 days)
             $collectedQuery = "
-                SELECT COALESCE(SUM(COALESCE(amount_paid, amount, 0)), 0) as amount_collected 
-                FROM payment_transactions 
-                WHERE status IN ('confirmed', 'successful') AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                SELECT COALESCE(SUM(amount_paid), 0) as amount_collected
+                FROM payment_transactions
+                WHERE status = 'confirmed' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
             ";
             $collectedResult = $db->query($collectedQuery);
             $collectedRow = $collectedResult->fetch();

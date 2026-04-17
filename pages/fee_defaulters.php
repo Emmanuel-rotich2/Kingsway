@@ -116,4 +116,4 @@
     </div>
 </div>
 
-<script src="js/pages/fee_defaulters.js"></script>
+<script src="<?= $appBase ?>js/pages/fee_defaulters.js"></script>

@@ -49,7 +49,7 @@
       if (!user) {
         console.warn("No user in AuthContext");
         await loadFragment(
-          "/Kingsway/components/dashboards/subject_teacher_dashboard.php"
+          (window.APP_BASE || '') + '/components/dashboards/subject_teacher_dashboard.php'
         );
         return;
       }
@@ -128,7 +128,7 @@
 
           if (isClassTeacher) {
             await loadFragment(
-              "/Kingsway/components/dashboards/class_teacher_dashboard.php"
+              (window.APP_BASE || '') + '/components/dashboards/class_teacher_dashboard.php'
             );
             return;
           }
@@ -139,7 +139,7 @@
 
       // Default: load subject teacher dashboard
       await loadFragment(
-        "/Kingsway/components/dashboards/subject_teacher_dashboard.php"
+        (window.APP_BASE || '') + '/components/dashboards/subject_teacher_dashboard.php'
       );
     } finally {
       const loader = document.getElementById("teacher-dashboard-loading");
@@ -147,7 +147,17 @@
     }
   }
 
-  document.addEventListener("DOMContentLoaded", function () {
+  // Expose controller for dashboard_router.js dynamic loading
+  window.teacherDashboardController = {
+    init: function () {
+      init();
+    },
+  };
+
+  // Also auto-run if DOM already ready (handles both static include and dynamic load)
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
     init();
-  });
+  }
 })();

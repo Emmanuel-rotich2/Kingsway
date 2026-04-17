@@ -796,4 +796,375 @@ class StaffController extends BaseController
 
         return $this->success($result);
     }
+
+    // ========================================================================
+    // STAFF PROMOTIONS
+    // ========================================================================
+
+    /**
+     * GET /api/staff/promotions - List all promotions
+     */
+    public function getPromotions($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($data['staff_id'])) {
+                $where[] = 'sp.staff_id=:sid';
+                $params[':sid'] = (int)$data['staff_id'];
+            }
+            if (!empty($data['status'])) {
+                $where[] = 'sp.status=:status';
+                $params[':status'] = $data['status'];
+            }
+
+            $stmt = $db->query(
+                "SELECT sp.*,
+                        CONCAT(s.first_name,' ',s.last_name) AS staff_name,
+                        s.staff_no,
+                        fd.name AS from_department,
+                        td.name AS to_department,
+                        r.name AS approved_by_name,
+                        c.name AS created_by_name
+                 FROM staff_promotions sp
+                 JOIN staff s ON s.id = sp.staff_id
+                 LEFT JOIN departments fd ON fd.id = sp.from_department_id
+                 LEFT JOIN departments td ON td.id = sp.to_department_id
+                 LEFT JOIN staff r ON r.id = sp.approved_by
+                 JOIN staff c ON c.id = sp.created_by
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY sp.created_at DESC
+                 LIMIT 200",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/promotions - Create a promotion
+     */
+    public function postPromotions($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+
+            $staffId = (int)($data['staff_id'] ?? 0);
+            if (!$staffId) return $this->badRequest('staff_id is required');
+
+            $staff = $db->query("SELECT * FROM staff WHERE id=?", [$staffId])->fetch();
+            if (!$staff) return $this->badRequest('Staff member not found');
+
+            $effectiveDate = $data['effective_date'] ?? null;
+            if (!$effectiveDate) return $this->badRequest('effective_date is required');
+
+            $db->query(
+                "INSERT INTO staff_promotions
+                  (staff_id, promotion_type, from_position, to_position,
+                   from_department_id, to_department_id, from_salary, to_salary,
+                   effective_date, status, reason, letter_url, created_by)
+                 VALUES (:sid, :ptype, :fpos, :tpos, :fdept, :tdept, :fsal, :tsal, :edate, 'pending', :reason, :lurl, :cby)",
+                [
+                    ':sid'   => $staffId,
+                    ':ptype' => $data['promotion_type'] ?? 'substantive',
+                    ':fpos'  => $staff['position'],
+                    ':tpos'  => $data['to_position'] ?? $staff['position'],
+                    ':fdept' => $staff['department_id'],
+                    ':tdept' => $data['to_department_id'] ?? $staff['department_id'],
+                    ':fsal'  => $staff['salary'],
+                    ':tsal'  => isset($data['to_salary']) ? (float)$data['to_salary'] : null,
+                    ':edate' => $effectiveDate,
+                    ':reason'=> $data['reason'] ?? null,
+                    ':lurl'  => $data['letter_url'] ?? null,
+                    ':cby'   => $this->user['user_id'] ?? null,
+                ]
+            );
+            return $this->created(['id' => (int)$db->lastInsertId()], 'Promotion submitted for approval');
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/staff/promotions/{id}/approve - Approve or reject a promotion
+     */
+    public function putPromotionsApprove($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+            $promotionId = (int)($id ?? $data['id'] ?? 0);
+            if (!$promotionId) return $this->badRequest('Promotion ID is required');
+
+            $action = $data['action'] ?? '';
+            if (!in_array($action, ['approve', 'reject'])) {
+                return $this->badRequest('action must be approve or reject');
+            }
+
+            $promo = $db->query("SELECT * FROM staff_promotions WHERE id=?", [$promotionId])->fetch();
+            if (!$promo) return $this->badRequest('Promotion not found');
+
+            $newStatus = $action === 'approve' ? 'approved' : 'rejected';
+            $db->query(
+                "UPDATE staff_promotions
+                 SET status=:status, approved_by=:aby, approved_at=NOW(),
+                     rejected_reason=:rj, updated_at=NOW()
+                 WHERE id=:id",
+                [
+                    ':status' => $newStatus,
+                    ':aby'    => $this->user['user_id'] ?? null,
+                    ':rj'     => $action === 'reject' ? ($data['reason'] ?? null) : null,
+                    ':id'     => $promotionId,
+                ]
+            );
+
+            if ($action === 'approve') {
+                $db->query(
+                    "UPDATE staff SET position=:pos, salary=:sal, updated_at=NOW() WHERE id=:sid",
+                    [':pos' => $promo['to_position'], ':sal' => $promo['to_salary'], ':sid' => $promo['staff_id']]
+                );
+                if ($promo['effective_date'] <= date('Y-m-d')) {
+                    $db->query("UPDATE staff_promotions SET status='effective' WHERE id=?", [$promotionId]);
+                }
+            }
+
+            return $this->success(null, "Promotion {$action}d");
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ========================================================================
+    // STAFF OFFBOARDING / RETIREMENT
+    // ========================================================================
+
+    /**
+     * GET /api/staff/offboarding - List all offboarding records
+     */
+    public function getOffboarding($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+
+            $where = ['1=1'];
+            $params = [];
+            if (!empty($data['staff_id'])) {
+                $where[] = 'so.staff_id=:sid';
+                $params[':sid'] = (int)$data['staff_id'];
+            }
+            if (!empty($data['status'])) {
+                $where[] = 'so.status=:status';
+                $params[':status'] = $data['status'];
+            }
+            if (!empty($data['type'])) {
+                $where[] = 'so.offboarding_type=:type';
+                $params[':type'] = $data['type'];
+            }
+
+            $stmt = $db->query(
+                "SELECT so.*,
+                        CONCAT(s.first_name,' ',s.last_name) AS staff_name,
+                        s.staff_no,
+                        p.name AS processed_by_name,
+                        c.name AS created_by_name
+                 FROM staff_offboarding so
+                 JOIN staff s ON s.id = so.staff_id
+                 LEFT JOIN staff p ON p.id = so.processed_by
+                 JOIN staff c ON c.id = so.created_by
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY so.created_at DESC
+                 LIMIT 200",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/offboarding - Initiate offboarding
+     */
+    public function postOffboarding($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+
+            $staffId = (int)($data['staff_id'] ?? 0);
+            if (!$staffId) return $this->badRequest('staff_id is required');
+
+            $staff = $db->query("SELECT * FROM staff WHERE id=?", [$staffId])->fetch();
+            if (!$staff) return $this->badRequest('Staff member not found');
+
+            $lastWorkingDay = $data['last_working_day'] ?? null;
+            if (!$lastWorkingDay) return $this->badRequest('last_working_day is required');
+
+            $db->query(
+                "INSERT INTO staff_offboarding
+                  (staff_id, offboarding_type, last_working_day,
+                   exit_interview_date, exit_interview_notes,
+                   asset_return_complete, clearance_form_complete, handover_report_complete,
+                   final_pay_calculated, outstanding_leave_days, outstanding_salary,
+                   leave_pay_amount, final_settlement_amount,
+                   nssf_clearance, paye_clearance, documents_url,
+                   notify_hr, notify_finance, notify_it, status, processed_by, created_by)
+                 VALUES
+                  (:sid, :otype, :lwd,
+                   :eid, :ein, :arc, :cfc, :hrc, :fpc, :old, :osal, :lpa, :fsa,
+                   :nssf, :paye, :doc, :nhr, :nfin, :nit, 'initiated', :pby, :cby)",
+                [
+                    ':sid'   => $staffId,
+                    ':otype' => $data['offboarding_type'] ?? 'retirement',
+                    ':lwd'   => $lastWorkingDay,
+                    ':eid'   => $data['exit_interview_date'] ?? null,
+                    ':ein'   => $data['exit_interview_notes'] ?? null,
+                    ':arc'   => (int)($data['asset_return_complete'] ?? false),
+                    ':cfc'   => (int)($data['clearance_form_complete'] ?? false),
+                    ':hrc'   => (int)($data['handover_report_complete'] ?? false),
+                    ':fpc'   => (int)($data['final_pay_calculated'] ?? false),
+                    ':old'   => $data['outstanding_leave_days'] ?? null,
+                    ':osal'  => $data['outstanding_salary'] ?? null,
+                    ':lpa'   => $data['leave_pay_amount'] ?? null,
+                    ':fsa'   => $data['final_settlement_amount'] ?? null,
+                    ':nssf'  => (int)($data['nssf_clearance'] ?? false),
+                    ':paye'  => (int)($data['paye_clearance'] ?? false),
+                    ':doc'   => $data['documents_url'] ?? null,
+                    ':nhr'   => (int)($data['notify_hr'] ?? true),
+                    ':nfin'  => (int)($data['notify_finance'] ?? true),
+                    ':nit'   => (int)($data['notify_it'] ?? false),
+                    ':pby'   => $this->user['user_id'] ?? null,
+                    ':cby'   => $this->user['user_id'] ?? null,
+                ]
+            );
+            return $this->created(['id' => (int)$db->lastInsertId()], 'Offboarding initiated');
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/staff/offboarding/{id} - Update offboarding record
+     */
+    public function putOffboarding($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+            $offId = (int)($id ?? $data['id'] ?? 0);
+            if (!$offId) return $this->badRequest('Offboarding ID is required');
+
+            $off = $db->query("SELECT * FROM staff_offboarding WHERE id=?", [$offId])->fetch();
+            if (!$off) return $this->badRequest('Offboarding record not found');
+
+            $allowed = [
+                'exit_interview_date', 'exit_interview_notes',
+                'asset_return_complete', 'clearance_form_complete',
+                'handover_report_complete', 'final_pay_calculated',
+                'outstanding_leave_days', 'outstanding_salary',
+                'leave_pay_amount', 'final_settlement_amount',
+                'nssf_clearance', 'paye_clearance',
+                'documents_url', 'notify_hr', 'notify_finance', 'notify_it', 'status',
+            ];
+
+            $fields = [];
+            $vals = [];
+            foreach ($allowed as $f) {
+                if (array_key_exists($f, $data)) {
+                    $fields[] = "$f = :$f";
+                    $vals[":$f"] = $data[$f];
+                }
+            }
+
+            if (!empty($fields)) {
+                $fields[] = "updated_at = NOW()";
+                $vals[':id'] = $offId;
+                $db->query("UPDATE staff_offboarding SET " . implode(', ', $fields) . " WHERE id=:id", $vals);
+            }
+
+            if (($data['status'] ?? '') === 'completed') {
+                $db->query("UPDATE staff SET status='inactive', updated_at=NOW() WHERE id=?", [$off['staff_id']]);
+                $db->query(
+                    "UPDATE staff_offboarding SET processed_by=:pby, processed_at=NOW() WHERE id=:id",
+                    [':pby' => $this->user['user_id'] ?? null, ':id' => $offId]
+                );
+            }
+
+            return $this->success(null, 'Offboarding updated');
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/upcoming-retirements - Staff approaching retirement
+     */
+    public function getUpcomingRetirements($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = \App\Database\Database::getInstance();
+            $months = max(1, (int)($data['months'] ?? 12));
+            $cutoff = date('Y-m-d', strtotime("+{$months} months"));
+
+            $stmt = $db->query(
+                "SELECT s.id, s.staff_no, s.first_name, s.last_name,
+                        s.position, s.employment_date, s.date_of_birth,
+                        d.name AS department,
+                        TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) AS age,
+                        DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) AS retirement_date,
+                        DATEDIFF(DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
+                        s.status
+                 FROM staff s
+                 LEFT JOIN departments d ON d.id = s.department_id
+                 WHERE s.status = 'active'
+                   AND TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) >= 55
+                   AND DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) <= :cutoff
+                 ORDER BY days_remaining ASC",
+                [':cutoff' => $cutoff]
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/my-schedule
+     * Returns the timetable/schedule for the authenticated staff member
+     */
+    public function getMySchedule($id = null, $data = [], $segments = [])
+    {
+        $userId = $this->user['id'] ?? null;
+        if (!$userId) {
+            return $this->success([]);
+        }
+        try {
+            $db = \App\Database\Database::getInstance();
+            // Try timetable_entries first
+            $stmt = $db->prepare("
+                SELECT te.*, s.name AS subject_name, c.name AS class_name
+                FROM timetable_entries te
+                LEFT JOIN subjects s ON s.id = te.subject_id
+                LEFT JOIN classes c ON c.id = te.class_id
+                WHERE te.staff_id = :uid
+                ORDER BY te.day_of_week, te.start_time
+            ");
+            $stmt->execute([':uid' => $userId]);
+            $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($entries ?: []);
+        } catch (\Exception $e) {
+            try {
+                $db = \App\Database\Database::getInstance();
+                $stmt = $db->prepare("
+                    SELECT * FROM staff_schedules WHERE staff_id = :uid ORDER BY day_of_week, start_time
+                ");
+                $stmt->execute([':uid' => $userId]);
+                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                return $this->success($rows ?: []);
+            } catch (\Exception $e2) {
+                return $this->success([]);
+            }
+        }
+    }
 }

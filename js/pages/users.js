@@ -10,6 +10,8 @@ const manageUsersController = {
     roles: [],
     permissions: [],
     currentUser: null,
+    isSystemAdmin: false,
+    isSchoolAdmin: false,
     currentFilters: {
         role: '',
         status: '',
@@ -21,16 +23,42 @@ const manageUsersController = {
      */
     init: async function() {
         try {
-            console.log('Initializing user management...');
+            // Detect scope
+            const authUser = typeof AuthContext !== 'undefined' ? AuthContext.getUser() : null;
+            const roleNames = (authUser?.roles || []).map(r => (typeof r === 'string' ? r : r?.name || '').toLowerCase());
+            this.isSystemAdmin = roleNames.includes('system administrator');
+            this.isSchoolAdmin = !this.isSystemAdmin && roleNames.includes('school administrator');
+
             await this.loadRoles();
             await this.loadPermissions();
             await this.loadUsers();
             this.setupEventListeners();
             this.checkUserPermissions();
-            console.log('User management loaded successfully');
+            this.applyUIScope();
         } catch (error) {
             console.error('Error initializing users controller:', error);
             showNotification('Failed to load user management', 'error');
+        }
+    },
+
+    /**
+     * Show/hide elements based on admin scope.
+     */
+    applyUIScope: function() {
+        // Elements only for system admin (test user creation, etc.)
+        document.querySelectorAll('[data-system-only]').forEach(el => {
+            el.style.display = this.isSystemAdmin ? '' : 'none';
+        });
+
+        // Add a scope info banner if school admin
+        const banner = document.getElementById('scopeInfoBanner');
+        if (banner) {
+            if (this.isSchoolAdmin) {
+                banner.innerHTML = '<div class="alert alert-info py-2 mb-3"><i class="bi bi-info-circle"></i> <strong>School Admin:</strong> You can manage school users and assign school-scope roles. System roles and system users are restricted.</div>';
+                banner.style.display = '';
+            } else {
+                banner.style.display = 'none';
+            }
         }
     },
 
@@ -83,43 +111,39 @@ const manageUsersController = {
      * Populate role filter dropdown
      */
     populateRoleFilters: function() {
+      // School admin can only assign school-scope roles
+      const assignableRoles = this.isSchoolAdmin
+        ? this.roles.filter(r => !r.is_system && (r.scope || 'school') !== 'system')
+        : this.roles;
+
       const roleFilter = document.getElementById("roleFilter");
       const mainRoleSelect = document.getElementById("mainRole");
 
       if (roleFilter) {
         roleFilter.innerHTML = '<option value="">All Roles</option>';
         this.roles.forEach((role) => {
-          roleFilter.innerHTML += `<option value="${role.role_id || role.id}">${
-            role.role_name || role.name
-          }</option>`;
+          roleFilter.innerHTML += `<option value="${role.role_id || role.id}">${role.role_name || role.name}</option>`;
         });
       }
 
       if (mainRoleSelect) {
-        mainRoleSelect.innerHTML =
-          '<option value="">-- Select Role --</option>';
-        this.roles.forEach((role) => {
-          mainRoleSelect.innerHTML += `<option value="${
-            role.role_id || role.id
-          }">${role.role_name || role.name}</option>`;
+        mainRoleSelect.innerHTML = '<option value="">-- Select Role --</option>';
+        assignableRoles.forEach((role) => {
+          mainRoleSelect.innerHTML += `<option value="${role.role_id || role.id}">${role.role_name || role.name}</option>`;
         });
       }
-      // Populate additional roles container for create modal
-      const extraCreateContainer = document.getElementById(
-        "extraRolesCreateContainer"
-      );
+
+      const extraCreateContainer = document.getElementById("extraRolesCreateContainer");
       if (extraCreateContainer) {
         extraCreateContainer.innerHTML = "";
-        this.roles.forEach((role) => {
+        assignableRoles.forEach((role) => {
           const roleId = role.role_id || role.id;
+          const scopeLabel = role.scope === 'system' ? ' <span class="badge bg-danger ms-1">sys</span>' : '';
           extraCreateContainer.innerHTML += `
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" value="${roleId}" id="create_role_${roleId}">
-                        <label class="form-check-label" for="create_role_${roleId}">${
-            role.role_name || role.name
-          }</label>
-                    </div>
-                `;
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" value="${roleId}" id="create_role_${roleId}">
+              <label class="form-check-label" for="create_role_${roleId}">${role.role_name || role.name}${scopeLabel}</label>
+            </div>`;
         });
       }
     },
