@@ -109,15 +109,28 @@
     }
 
     /**
+     * Close mobile sidebar
+     */
+    function closeMobileSidebar() {
+        if (window.innerWidth < 992) {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            if (sidebar) sidebar.classList.remove('sidebar-visible-mobile');
+            if (overlay) overlay.style.display = 'none';
+        }
+    }
+
+    /**
      * Attach click handlers to sidebar links for SPA navigation
      */
     function attachSidebarHandlers() {
         const sidebarLinks = document.querySelectorAll('.sidebar-link');
-        
+
         sidebarLinks.forEach(link => {
             link.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
+                closeMobileSidebar();
                 const route = this.getAttribute('data-route');
 
                 if (route && route !== '#') {
