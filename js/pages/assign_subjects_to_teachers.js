@@ -218,7 +218,7 @@ const AssignSubjectsController = (() => {
             window._assignSearchTimeout = setTimeout(() => loadData(1), 300);
         });
         document.getElementById('exportAssignmentsBtn')?.addEventListener('click', () => {
-            window.open('/Kingsway/api/?route=academic/subject-assignments/export&format=csv', '_blank');
+            window.open((window.APP_BASE || '') + '/api/?route=academic/subject-assignments/export&format=csv', '_blank');
         });
     }
 

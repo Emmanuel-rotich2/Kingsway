@@ -2038,4 +2038,738 @@ class FeeManager
             return formatResponse(false, null, 'Failed to duplicate fee structure: ' . $e->getMessage());
         }
     }
+
+    // =====================================================
+    // FEE BUNDLE WORKFLOW
+    // =====================================================
+
+    /**
+     * Submit a fee structure bundle for review
+     * @param array $data Contains: level_id, academic_year, term_id, student_type_id, submitted_by, notes (optional)
+     * @return array Response with approval record and line item count
+     */
+    public function submitFeeStructureBundle($data)
+    {
+        try {
+            $required = ['level_id', 'academic_year', 'term_id', 'student_type_id', 'submitted_by'];
+            $missing = array_diff($required, array_keys($data));
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            // Validate that draft rows exist for this bundle
+            $stmt = $this->db->prepare("
+                SELECT COUNT(*) AS cnt
+                FROM fee_structures_detailed
+                WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                  AND status IN ('draft', 'pending_review')
+            ");
+            $stmt->execute([
+                $data['level_id'],
+                $data['academic_year'],
+                $data['term_id'],
+                $data['student_type_id'],
+            ]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            $lineItemCount = (int) $row['cnt'];
+
+            if ($lineItemCount === 0) {
+                return formatResponse(false, null, 'No draft fee structure rows found for this bundle');
+            }
+
+            $this->db->beginTransaction();
+
+            // Update draft rows to pending_review
+            $stmt = $this->db->prepare("
+                UPDATE fee_structures_detailed
+                SET status = 'pending_review', updated_by = ?, updated_at = NOW()
+                WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                  AND status = 'draft'
+            ");
+            $stmt->execute([
+                $data['submitted_by'],
+                $data['level_id'],
+                $data['academic_year'],
+                $data['term_id'],
+                $data['student_type_id'],
+            ]);
+
+            // Upsert fee_structure_approvals record
+            $stmt = $this->db->prepare("
+                INSERT INTO fee_structure_approvals
+                    (level_id, academic_year, term_id, student_type_id, status, submitted_by, submitted_at, review_notes)
+                VALUES (?, ?, ?, ?, 'submitted', ?, NOW(), ?)
+                ON DUPLICATE KEY UPDATE
+                    status = 'submitted',
+                    submitted_by = VALUES(submitted_by),
+                    submitted_at = NOW(),
+                    review_notes = VALUES(review_notes)
+            ");
+            $stmt->execute([
+                $data['level_id'],
+                $data['academic_year'],
+                $data['term_id'],
+                $data['student_type_id'],
+                $data['submitted_by'],
+                $data['notes'] ?? null,
+            ]);
+
+            // Fetch the approval record
+            $approvalId = $this->db->lastInsertId();
+            if (!$approvalId) {
+                $lookupStmt = $this->db->prepare("
+                    SELECT id FROM fee_structure_approvals
+                    WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                    LIMIT 1
+                ");
+                $lookupStmt->execute([
+                    $data['level_id'],
+                    $data['academic_year'],
+                    $data['term_id'],
+                    $data['student_type_id'],
+                ]);
+                $approvalId = $lookupStmt->fetchColumn();
+            }
+
+            $approvalStmt = $this->db->prepare("SELECT * FROM fee_structure_approvals WHERE id = ?");
+            $approvalStmt->execute([$approvalId]);
+            $approval = $approvalStmt->fetch(PDO::FETCH_ASSOC);
+
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'approval' => $approval,
+                'line_item_count' => $lineItemCount,
+                'message' => 'Fee structure bundle submitted for review'
+            ]);
+
+        } catch (\PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
+                return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
+            }
+            return formatResponse(false, null, 'Failed to submit fee structure bundle: ' . $e->getMessage());
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'Failed to submit fee structure bundle: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Review a fee structure bundle (approve or reject at review stage)
+     * @param array $data Contains: approval_id, reviewed_by, action ('approve'|'reject'), notes
+     * @return array Response with updated approval record
+     */
+    public function reviewFeeStructureBundle($data)
+    {
+        try {
+            $required = ['approval_id', 'reviewed_by', 'action', 'notes'];
+            $missing = array_diff($required, array_keys($data));
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            if (!in_array($data['action'], ['approve', 'reject'])) {
+                return formatResponse(false, null, "action must be 'approve' or 'reject'");
+            }
+
+            // Fetch approval record
+            $stmt = $this->db->prepare("SELECT * FROM fee_structure_approvals WHERE id = ?");
+            $stmt->execute([$data['approval_id']]);
+            $approval = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$approval) {
+                return formatResponse(false, null, 'Approval record not found');
+            }
+
+            $this->db->beginTransaction();
+
+            if ($data['action'] === 'approve') {
+                // Update approval record
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structure_approvals
+                    SET status = 'reviewed', reviewed_by = ?, reviewed_at = NOW(), review_notes = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$data['reviewed_by'], $data['notes'], $data['approval_id']]);
+
+                // Update fee_structures_detailed rows
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structures_detailed
+                    SET status = 'reviewed', reviewed_by = ?, reviewed_at = NOW()
+                    WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                ");
+                $stmt->execute([
+                    $data['reviewed_by'],
+                    $approval['level_id'],
+                    $approval['academic_year'],
+                    $approval['term_id'],
+                    $approval['student_type_id'],
+                ]);
+            } else {
+                // Reject: update approval record
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structure_approvals
+                    SET status = 'rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$data['reviewed_by'], $data['notes'], $data['approval_id']]);
+
+                // Reset fee_structures_detailed back to draft
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structures_detailed
+                    SET status = 'draft'
+                    WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                ");
+                $stmt->execute([
+                    $approval['level_id'],
+                    $approval['academic_year'],
+                    $approval['term_id'],
+                    $approval['student_type_id'],
+                ]);
+            }
+
+            // Fetch updated approval record
+            $stmt = $this->db->prepare("SELECT * FROM fee_structure_approvals WHERE id = ?");
+            $stmt->execute([$data['approval_id']]);
+            $updatedApproval = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            $this->db->commit();
+
+            return formatResponse(true, [
+                'approval' => $updatedApproval,
+                'message' => 'Fee structure bundle ' . ($data['action'] === 'approve' ? 'reviewed' : 'rejected') . ' successfully'
+            ]);
+
+        } catch (\PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
+                return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
+            }
+            return formatResponse(false, null, 'Failed to review fee structure bundle: ' . $e->getMessage());
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'Failed to review fee structure bundle: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Approve a fee structure bundle (final approval stage)
+     * @param array $data Contains: approval_id, approved_by, action ('approve'|'reject'), notes
+     * @return array Response with updated approval record and obligations count
+     */
+    public function approveFeeStructureBundle($data)
+    {
+        try {
+            $required = ['approval_id', 'approved_by', 'action', 'notes'];
+            $missing = array_diff($required, array_keys($data));
+            if (!empty($missing)) {
+                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            }
+
+            if (!in_array($data['action'], ['approve', 'reject'])) {
+                return formatResponse(false, null, "action must be 'approve' or 'reject'");
+            }
+
+            // Fetch approval record
+            $stmt = $this->db->prepare("SELECT * FROM fee_structure_approvals WHERE id = ?");
+            $stmt->execute([$data['approval_id']]);
+            $approval = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$approval) {
+                return formatResponse(false, null, 'Approval record not found');
+            }
+
+            $this->db->beginTransaction();
+
+            $obligationsCount = 0;
+
+            if ($data['action'] === 'approve') {
+                // Update approval record to approved
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structure_approvals
+                    SET status = 'approved', approved_by = ?, approved_at = NOW(), approval_notes = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$data['approved_by'], $data['notes'], $data['approval_id']]);
+
+                // Update fee_structures_detailed to approved
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structures_detailed
+                    SET status = 'approved', approved_by = ?, approved_at = NOW()
+                    WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                ");
+                $stmt->execute([
+                    $data['approved_by'],
+                    $approval['level_id'],
+                    $approval['academic_year'],
+                    $approval['term_id'],
+                    $approval['student_type_id'],
+                ]);
+
+                $this->db->commit();
+
+                // Activate and generate obligations (outside transaction to avoid nesting issues)
+                $result = $this->activateAndGenerateObligations(
+                    $approval['level_id'],
+                    $approval['academic_year'],
+                    $approval['term_id'],
+                    $approval['student_type_id'],
+                    $data['approved_by']
+                );
+
+                $obligationsCount = 0;
+                if (!empty($result['data']['obligations_created'])) {
+                    $obligationsCount = (int) $result['data']['obligations_created'];
+                }
+
+                // Update approval record with active status and obligations count
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structure_approvals
+                    SET status = 'active', obligations_generated = 1, obligations_count = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$obligationsCount, $data['approval_id']]);
+
+            } else {
+                // Reject
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structure_approvals
+                    SET status = 'rejected', rejected_by = ?, rejected_at = NOW(), rejection_reason = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$data['approved_by'], $data['notes'], $data['approval_id']]);
+
+                // Reset fee_structures_detailed back to draft
+                $stmt = $this->db->prepare("
+                    UPDATE fee_structures_detailed
+                    SET status = 'draft'
+                    WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                ");
+                $stmt->execute([
+                    $approval['level_id'],
+                    $approval['academic_year'],
+                    $approval['term_id'],
+                    $approval['student_type_id'],
+                ]);
+
+                $this->db->commit();
+            }
+
+            // Fetch updated approval record
+            $stmt = $this->db->prepare("SELECT * FROM fee_structure_approvals WHERE id = ?");
+            $stmt->execute([$data['approval_id']]);
+            $updatedApproval = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return formatResponse(true, [
+                'approval' => $updatedApproval,
+                'obligations_count' => $obligationsCount,
+                'message' => 'Fee structure bundle ' . ($data['action'] === 'approve' ? 'approved and activated' : 'rejected') . ' successfully'
+            ]);
+
+        } catch (\PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
+                return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
+            }
+            return formatResponse(false, null, 'Failed to approve fee structure bundle: ' . $e->getMessage());
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return formatResponse(false, null, 'Failed to approve fee structure bundle: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Activate fee structures and generate student fee obligations for a bundle
+     * @param int $levelId
+     * @param int $academicYear  4-digit year integer (NOT a foreign key)
+     * @param int $termId
+     * @param int $studentTypeId
+     * @param int $userId
+     * @return array Response with students_processed and obligations_created counts
+     */
+    public function activateAndGenerateObligations($levelId, $academicYear, $termId, $studentTypeId, $userId)
+    {
+        try {
+            // 1. Mark fee_structures_detailed as active
+            $stmt = $this->db->prepare("
+                UPDATE fee_structures_detailed
+                SET status = 'active', activated_at = NOW()
+                WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+            ");
+            $stmt->execute([$levelId, $academicYear, $termId, $studentTypeId]);
+
+            // 2. Resolve academic_year_id from the 4-digit year
+            $stmt = $this->db->prepare("
+                SELECT id FROM academic_years
+                WHERE YEAR(start_date) = ? OR year_code = ?
+                LIMIT 1
+            ");
+            $stmt->execute([$academicYear, $academicYear]);
+            $academicYearId = $stmt->fetchColumn();
+
+            if (!$academicYearId) {
+                return formatResponse(false, null, "Academic year record not found for year: $academicYear");
+            }
+
+            // 3. Get active students enrolled in this level + student_type
+            $stmt = $this->db->prepare("
+                SELECT DISTINCT s.id AS student_id
+                FROM students s
+                JOIN class_enrollments ce ON ce.student_id = s.id
+                JOIN classes c ON ce.class_id = c.id
+                WHERE c.level_id = ?
+                  AND s.student_type_id = ?
+                  AND s.status = 'active'
+                  AND ce.academic_year_id = ?
+                  AND ce.enrollment_status = 'active'
+            ");
+            $stmt->execute([$levelId, $studentTypeId, $academicYearId]);
+            $students = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+            // 4. Get all fee structure detail rows for this bundle
+            $fsdStmt = $this->db->prepare("
+                SELECT id, amount, due_date
+                FROM fee_structures_detailed
+                WHERE level_id = ? AND academic_year = ? AND term_id = ? AND student_type_id = ?
+                  AND status = 'active'
+            ");
+            $fsdStmt->execute([$levelId, $academicYear, $termId, $studentTypeId]);
+            $feeRows = $fsdStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($feeRows)) {
+                return formatResponse(true, [
+                    'students_processed' => 0,
+                    'obligations_created' => 0,
+                    'message' => 'No active fee structure rows found after activation'
+                ]);
+            }
+
+            // 5. Insert obligations for each student × each fee row
+            $insertStmt = $this->db->prepare("
+                INSERT INTO student_fee_obligations
+                    (student_id, academic_year, term_id, fee_structure_detail_id,
+                     amount_due, amount_paid, amount_waived, status, payment_status, due_date, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, 0, 'pending', 'pending', ?, NOW())
+                ON DUPLICATE KEY UPDATE
+                    amount_due = VALUES(amount_due),
+                    due_date   = VALUES(due_date)
+            ");
+
+            $totalObligations = 0;
+            foreach ($students as $studentId) {
+                foreach ($feeRows as $feeRow) {
+                    $insertStmt->execute([
+                        $studentId,
+                        $academicYear,
+                        $termId,
+                        $feeRow['id'],
+                        $feeRow['amount'],
+                        $feeRow['due_date'] ?? null,
+                    ]);
+                    $totalObligations++;
+                }
+            }
+
+            return formatResponse(true, [
+                'students_processed' => count($students),
+                'obligations_created' => $totalObligations,
+                'message' => 'Obligations generated successfully'
+            ]);
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to activate and generate obligations: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get a paginated list of fee structure bundles (from fee_structure_approvals)
+     * @param array $filters Optional: status, academic_year, term_id, level_id
+     * @param int $page
+     * @param int $limit
+     * @return array Response with paginated list
+     */
+    public function getFeeStructureBundles($filters = [], $page = 1, $limit = 20)
+    {
+        try {
+            $offset = ($page - 1) * $limit;
+
+            $where = "WHERE 1=1";
+            $params = [];
+
+            if (!empty($filters['status'])) {
+                $where .= " AND fsa.status = ?";
+                $params[] = $filters['status'];
+            }
+            if (!empty($filters['academic_year'])) {
+                $where .= " AND fsa.academic_year = ?";
+                $params[] = $filters['academic_year'];
+            }
+            if (!empty($filters['term_id'])) {
+                $where .= " AND fsa.term_id = ?";
+                $params[] = $filters['term_id'];
+            }
+            if (!empty($filters['level_id'])) {
+                $where .= " AND fsa.level_id = ?";
+                $params[] = $filters['level_id'];
+            }
+
+            $sql = "
+                SELECT fsa.*,
+                       sl.name  AS level_name,
+                       at.name  AS term_name,
+                       st.name  AS student_type_name,
+                       COUNT(fsd.id) AS line_item_count,
+                       SUM(fsd.amount) AS total_amount,
+                       u_sub.display_name AS submitted_by_name,
+                       u_apr.display_name AS approved_by_name
+                FROM fee_structure_approvals fsa
+                JOIN school_levels sl ON fsa.level_id = sl.id
+                JOIN academic_terms at ON fsa.term_id = at.id
+                JOIN student_types st ON fsa.student_type_id = st.id
+                LEFT JOIN fee_structures_detailed fsd
+                       ON fsd.level_id = fsa.level_id
+                      AND fsd.academic_year = fsa.academic_year
+                      AND fsd.term_id = fsa.term_id
+                      AND fsd.student_type_id = fsa.student_type_id
+                LEFT JOIN users u_sub ON fsa.submitted_by = u_sub.id
+                LEFT JOIN users u_apr ON fsa.approved_by = u_apr.id
+                $where
+                GROUP BY fsa.id
+                ORDER BY fsa.created_at DESC
+                LIMIT ? OFFSET ?
+            ";
+
+            $listParams = array_merge($params, [$limit, $offset]);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($listParams);
+            $bundles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Count total
+            $countSql = "
+                SELECT COUNT(DISTINCT fsa.id) AS total
+                FROM fee_structure_approvals fsa
+                JOIN school_levels sl ON fsa.level_id = sl.id
+                JOIN academic_terms at ON fsa.term_id = at.id
+                JOIN student_types st ON fsa.student_type_id = st.id
+                $where
+            ";
+            $countStmt = $this->db->prepare($countSql);
+            $countStmt->execute($params);
+            $total = (int) $countStmt->fetchColumn();
+
+            return formatResponse(true, [
+                'bundles' => $bundles,
+                'pagination' => [
+                    'total' => $total,
+                    'page'  => $page,
+                    'limit' => $limit,
+                    'pages' => $total > 0 ? (int) ceil($total / $limit) : 0
+                ]
+            ]);
+
+        } catch (\PDOException $e) {
+            if (strpos($e->getMessage(), "fee_structure_approvals") !== false) {
+                return formatResponse(false, null, 'fee_structure_approvals table does not exist. Please run the migration first.');
+            }
+            return formatResponse(false, null, 'Failed to get fee structure bundles: ' . $e->getMessage());
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get fee structure bundles: ' . $e->getMessage());
+        }
+    }
+
+    // =====================================================
+    // BILLING HISTORY
+    // =====================================================
+
+    /**
+     * Get a student's full billing history grouped by academic year and term
+     * @param int $studentId
+     * @return array Response with academic_years array
+     */
+    public function getStudentBillingHistory($studentId)
+    {
+        try {
+            if (empty($studentId)) {
+                return formatResponse(false, null, 'student_id is required');
+            }
+
+            // Fetch obligations with enriched joins
+            $stmt = $this->db->prepare("
+                SELECT sfo.*,
+                       at.name        AS term_name,
+                       at.term_number,
+                       ft.name        AS fee_type_name,
+                       ft.code        AS fee_type_code,
+                       sl.name        AS level_name,
+                       c.name         AS class_name
+                FROM student_fee_obligations sfo
+                JOIN fee_structures_detailed fsd ON sfo.fee_structure_detail_id = fsd.id
+                JOIN fee_types ft               ON fsd.fee_type_id = ft.id
+                JOIN academic_terms at          ON sfo.term_id = at.id
+                LEFT JOIN class_enrollments ce  ON ce.student_id = sfo.student_id
+                                               AND YEAR(ce.created_at) = sfo.academic_year
+                LEFT JOIN classes c             ON ce.class_id = c.id
+                LEFT JOIN school_levels sl      ON c.level_id = sl.id
+                WHERE sfo.student_id = ?
+                ORDER BY sfo.academic_year DESC, at.term_number ASC
+            ");
+            $stmt->execute([$studentId]);
+            $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Fetch confirmed payments
+            $stmt = $this->db->prepare("
+                SELECT pt.*, at2.name AS term_name
+                FROM payment_transactions pt
+                JOIN academic_terms at2 ON pt.term_id = at2.id
+                WHERE pt.student_id = ? AND pt.status = 'confirmed'
+                ORDER BY pt.payment_date DESC
+            ");
+            $stmt->execute([$studentId]);
+            $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Group obligations by (academic_year, term_id)
+            $grouped = [];
+            foreach ($obligations as $ob) {
+                $year   = (int) $ob['academic_year'];
+                $termId = (int) $ob['term_id'];
+                if (!isset($grouped[$year])) {
+                    $grouped[$year] = [];
+                }
+                if (!isset($grouped[$year][$termId])) {
+                    $grouped[$year][$termId] = [
+                        'term_id'      => $termId,
+                        'term_name'    => $ob['term_name'],
+                        'term_number'  => (int) $ob['term_number'],
+                        'obligations'  => [],
+                        'payments'     => [],
+                        'total_due'    => 0.0,
+                        'total_paid'   => 0.0,
+                        'total_waived' => 0.0,
+                        'balance'      => 0.0,
+                    ];
+                }
+                $grouped[$year][$termId]['obligations'][] = $ob;
+                $grouped[$year][$termId]['total_due']    += (float) $ob['amount_due'];
+                $grouped[$year][$termId]['total_paid']   += (float) $ob['amount_paid'];
+                $grouped[$year][$termId]['total_waived'] += (float) $ob['amount_waived'];
+                $grouped[$year][$termId]['balance']       = $grouped[$year][$termId]['total_due']
+                                                            - $grouped[$year][$termId]['total_paid']
+                                                            - $grouped[$year][$termId]['total_waived'];
+            }
+
+            // Attach payments to their (academic_year, term_id) bucket
+            foreach ($payments as $pmt) {
+                $year   = (int) ($pmt['academic_year'] ?? 0);
+                $termId = (int) ($pmt['term_id'] ?? 0);
+                if (isset($grouped[$year][$termId])) {
+                    $grouped[$year][$termId]['payments'][] = $pmt;
+                }
+            }
+
+            // Build final structure
+            $academicYears = [];
+            foreach ($grouped as $year => $terms) {
+                $termsArr = array_values($terms);
+                // Sort terms by term_number ascending
+                usort($termsArr, fn($a, $b) => $a['term_number'] <=> $b['term_number']);
+                $academicYears[] = [
+                    'year'  => $year,
+                    'terms' => $termsArr,
+                ];
+            }
+
+            return formatResponse(true, ['academic_years' => $academicYears]);
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get student billing history: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get a billing report for all active students in a class for a given academic year/term
+     * @param int $classId
+     * @param int $academicYearId
+     * @param int|null $termId Optional: filter by term
+     * @return array Response with per-student rows and class aggregate
+     */
+    public function getClassBillingReport($classId, $academicYearId, $termId = null)
+    {
+        try {
+            if (empty($classId) || empty($academicYearId)) {
+                return formatResponse(false, null, 'class_id and academic_year_id are required');
+            }
+
+            $termFilter        = $termId ? " AND sfo.term_id = $termId" : "";
+            $pmtTermFilter     = $termId ? " AND pt.term_id = $termId" : "";
+
+            $sql = "
+                SELECT s.id,
+                       s.first_name,
+                       s.last_name,
+                       s.admission_no,
+                       st.name                        AS student_type,
+                       COALESCE(SUM(sfo.amount_due),    0) AS total_billed,
+                       COALESCE(SUM(sfo.amount_paid),   0) AS total_paid,
+                       COALESCE(SUM(sfo.amount_waived), 0) AS total_waived,
+                       COALESCE(SUM(sfo.balance),       0) AS balance,
+                       MAX(sfo.payment_status)             AS payment_status,
+                       MAX(pt.payment_date)                AS last_payment_date,
+                       COUNT(DISTINCT pt.id)               AS payment_count
+                FROM class_enrollments ce
+                JOIN students s       ON s.id = ce.student_id
+                JOIN student_types st ON s.student_type_id = st.id
+                LEFT JOIN student_fee_obligations sfo
+                       ON sfo.student_id = s.id
+                      AND sfo.academic_year = (SELECT YEAR(start_date) FROM academic_years WHERE id = ?)
+                      $termFilter
+                LEFT JOIN payment_transactions pt
+                       ON pt.student_id = s.id
+                      AND pt.status = 'confirmed'
+                      $pmtTermFilter
+                WHERE ce.class_id = ?
+                  AND ce.academic_year_id = ?
+                  AND s.status = 'active'
+                GROUP BY s.id, s.first_name, s.last_name, s.admission_no, st.name
+                ORDER BY s.last_name, s.first_name
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$academicYearId, $classId, $academicYearId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Compute class aggregates
+            $totalStudents      = count($rows);
+            $totalBilledClass   = array_sum(array_column($rows, 'total_billed'));
+            $totalCollectedClass = array_sum(array_column($rows, 'total_paid'));
+            $collectionRate     = $totalBilledClass > 0
+                                    ? round(($totalCollectedClass / $totalBilledClass) * 100, 2)
+                                    : 0.0;
+
+            return formatResponse(true, [
+                'students' => $rows,
+                'aggregate' => [
+                    'total_students'       => $totalStudents,
+                    'total_billed_class'   => $totalBilledClass,
+                    'total_collected_class' => $totalCollectedClass,
+                    'collection_rate'      => $collectionRate,
+                ]
+            ]);
+
+        } catch (Exception $e) {
+            return formatResponse(false, null, 'Failed to get class billing report: ' . $e->getMessage());
+        }
+    }
 }

@@ -49,8 +49,8 @@ const accountantAccountsCashDashboardController = Object.assign(
     loadAllData: async function () {
       var self = this;
       var results = await Promise.all([
-        self.fetchJSON("/Kingsway/api/finance/cash-flow"),
-        self.fetchJSON("/Kingsway/api/dashboard/accountant/cash"),
+        self.fetchJSON((window.APP_BASE || '') + '/api/finance/cash-flow'),
+        self.fetchJSON((window.APP_BASE || '') + '/api/dashboard/accountant/cash'),
       ]);
       if (results[0] && results[0].data) {
         self.renderCashFlowSummary(results[0].data);

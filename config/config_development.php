@@ -52,6 +52,9 @@ define('SMS_WHATSAPP_NUMBER', $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690');
 
 // M-Pesa Configuration - Load from .env for security
 define('MPESA_ENVIRONMENT', $_ENV['MPESA_ENVIRONMENT'] ?? 'sandbox');
+define('MPESA_BASE_URL', MPESA_ENVIRONMENT === 'production'
+    ? 'https://api.safaricom.co.ke'
+    : 'https://sandbox.safaricom.co.ke');
 define('MPESA_CONSUMER_KEY', $_ENV['MPESA_CONSUMER_KEY'] ?? '');
 define('MPESA_CONSUMER_SECRET', $_ENV['MPESA_CONSUMER_SECRET'] ?? '');
 define('MPESA_SHORTCODE', $_ENV['MPESA_SHORTCODE'] ?? '');
@@ -64,6 +67,9 @@ define('MPESA_SECURITY_CREDENTIAL', $_ENV['MPESA_SECURITY_CREDENTIAL'] ?? '');
 
 // KCB Bank Buni Configuration - Load from .env for security
 define('KCB_ENVIRONMENT', $_ENV['KCB_ENVIRONMENT'] ?? 'sandbox');
+define('KCB_BASE_URL', KCB_ENVIRONMENT === 'production'
+    ? 'https://uat.buni.kcbgroup.com'
+    : 'https://uat.buni.kcbgroup.com');
 define('KCB_CONSUMER_KEY', $_ENV['KCB_CONSUMER_KEY'] ?? '');
 define('KCB_CONSUMER_SECRET', $_ENV['KCB_CONSUMER_SECRET'] ?? '');
 define("KCB_API_KEY", $_ENV['KCB_API_KEY'] ?? '');

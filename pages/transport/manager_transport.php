@@ -2,87 +2,73 @@
 /**
  * Transport - Manager Layout
  * For Transport Coordinator, HOD Operations
- * 
+ *
  * Features:
- * - Compact sidebar
  * - 3 stat cards
  * - Route overview table
  * - Can manage routes and assign students
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/manager-theme.css">
-
-<div class="manager-layout">
-    <!-- Compact Sidebar -->
-    <aside class="manager-sidebar" id="managerSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 3 columns -->
+<div class="manager-stats-grid d-flex gap-3 mb-4">
+    <div class="card flex-fill shadow-sm border-0">
+        <div class="card-body text-center">
+            <div class="fs-3">🛣️</div>
+            <h4 id="totalRoutes" class="mb-0">0</h4>
+            <small class="text-muted">Routes</small>
         </div>
-
-        <nav class="manager-nav">
-            <a href="/pages/dashboard.php" class="manager-nav-item" data-label="Dashboard">🏠</a>
-            <a href="/pages/all_students.php" class="manager-nav-item" data-label="Students">👨‍🎓</a>
-            <a href="/pages/manage_transport.php" class="manager-nav-item active" data-label="Transport">🚌</a>
-        </nav>
-
-        <div class="user-section" id="userSection">
-            <span class="user-initial" id="userInitial">M</span>
+    </div>
+    <div class="card flex-fill shadow-sm border-0">
+        <div class="card-body text-center">
+            <div class="fs-3">🚌</div>
+            <h4 id="totalVehicles" class="mb-0">0</h4>
+            <small class="text-muted">Vehicles</small>
         </div>
-    </aside>
+    </div>
+    <div class="card flex-fill shadow-sm border-0">
+        <div class="card-body text-center">
+            <div class="fs-3">👨‍🎓</div>
+            <h4 id="studentsCount" class="mb-0">0</h4>
+            <small class="text-muted">Students</small>
+        </div>
+    </div>
+</div>
 
-    <!-- Main Content -->
-    <main class="manager-main">
-        <!-- Header -->
-        <header class="manager-header">
-            <div class="header-left">
-                <h1 class="page-title">🚌 Transport</h1>
+<!-- Filters -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <select class="form-select" id="filterStatus">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
             </div>
-            <div class="header-actions">
-                <button class="btn btn-primary btn-sm" onclick="showAddRouteModal()">➕ Add Route</button>
+            <div class="col-md-5">
+                <input type="text" class="form-control" id="searchRoute" placeholder="🔍 Search routes...">
             </div>
-        </header>
-
-        <!-- Stats - 3 columns -->
-        <div class="manager-stats-grid">
-            <div class="manager-stat-card">
-                <div class="stat-icon">🛣️</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="totalRoutes">0</span>
-                    <span class="stat-label">Routes</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">🚌</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="totalVehicles">0</span>
-                    <span class="stat-label">Vehicles</span>
-                </div>
-            </div>
-            <div class="manager-stat-card">
-                <div class="stat-icon">👨‍🎓</div>
-                <div class="stat-info">
-                    <span class="stat-value" id="studentsCount">0</span>
-                    <span class="stat-label">Students</span>
-                </div>
+            <div class="col-md-4 text-end">
+                <button class="btn btn-primary" onclick="showAddRouteModal()">
+                    <i class="fas fa-plus me-1"></i> Add Route
+                </button>
             </div>
         </div>
+    </div>
+</div>
 
-        <!-- Filters -->
-        <div class="manager-filters">
-            <select class="filter-select" id="filterStatus">
-                <option value="">All Status</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-            </select>
-            <input type="text" class="filter-search" id="searchRoute" placeholder="🔍 Search...">
-        </div>
-
-        <!-- Table - 6 columns -->
-        <div class="manager-table-card">
-            <table class="manager-data-table" id="routesTable">
-                <thead>
+<!-- Routes Table -->
+<div class="card shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="fas fa-route me-2"></i>Transport Routes</h6>
+        <span class="text-muted small">Showing <span id="showingCount">0</span> routes</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0" id="routesTable">
+                <thead class="table-light">
                     <tr>
                         <th>Route</th>
                         <th>Vehicle</th>
@@ -93,29 +79,26 @@
                     </tr>
                 </thead>
                 <tbody id="routesTableBody">
-                    <!-- Data loaded dynamically -->
+                    <tr><td colspan="6" class="text-center text-muted py-4">Loading routes...</td></tr>
                 </tbody>
             </table>
-
-            <div class="table-footer">
-                <span class="page-info">Showing <span id="showingCount">0</span> routes</span>
-            </div>
         </div>
-    </main>
+    </div>
 </div>
 
-<!-- Add Route Modal -->
+<!-- Add/Edit Route Modal -->
 <div class="modal fade" id="routeModal" tabindex="-1">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Add Route</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 <form id="routeForm">
+                    <input type="hidden" id="routeId">
                     <div class="mb-3">
-                        <label class="form-label">Route Name</label>
+                        <label class="form-label">Route Name *</label>
                         <input type="text" class="form-control" id="routeName" required>
                     </div>
                     <div class="mb-3">
@@ -130,101 +113,129 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button class="btn btn-primary" id="saveRouteBtn">Save</button>
+                <button class="btn btn-primary" id="saveRouteBtn">Save Route</button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
+(function () {
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userInitial').textContent = (user.name || 'M').charAt(0).toUpperCase();
-        }
-
         loadRoutes();
         loadStats();
-        initEventListeners();
+        document.getElementById('filterStatus').addEventListener('change', applyFilters);
+        document.getElementById('searchRoute').addEventListener('input', debounce(applyFilters, 300));
+        document.getElementById('saveRouteBtn').addEventListener('click', saveRoute);
     });
 
     async function loadRoutes() {
         try {
             const response = await API.transport.getRoutes();
-            if (response.success) {
-                renderRoutesTable(response.data);
+            if (response?.success || Array.isArray(response?.data)) {
+                renderRoutesTable(response.data || []);
             }
         } catch (error) {
-            console.error('Error loading routes:', error);
+            document.getElementById('routesTableBody').innerHTML =
+                '<tr><td colspan="6" class="text-center text-danger py-3">Failed to load routes.</td></tr>';
         }
     }
 
     async function loadStats() {
         try {
             const response = await API.transport.getStats();
-            if (response.success) {
-                document.getElementById('totalRoutes').textContent = response.data.routes || 0;
-                document.getElementById('totalVehicles').textContent = response.data.vehicles || 0;
-                document.getElementById('studentsCount').textContent = response.data.students || 0;
+            if (response?.success) {
+                document.getElementById('totalRoutes').textContent = response.data?.routes || 0;
+                document.getElementById('totalVehicles').textContent = response.data?.vehicles || 0;
+                document.getElementById('studentsCount').textContent = response.data?.students || 0;
             }
-        } catch (error) {
-            console.error('Error loading stats:', error);
-        }
-    }
-
-    function initEventListeners() {
-        document.getElementById('filterStatus').addEventListener('change', applyFilters);
-        document.getElementById('searchRoute').addEventListener('input', debounce(applyFilters, 300));
-        document.getElementById('saveRouteBtn').addEventListener('click', saveRoute);
+        } catch (e) { /* stats are optional */ }
     }
 
     function applyFilters() {
         const search = document.getElementById('searchRoute').value.toLowerCase();
-        document.querySelectorAll('#routesTableBody tr').forEach(row => {
-            row.style.display = row.textContent.toLowerCase().includes(search) ? '' : 'none';
+        const status = document.getElementById('filterStatus').value;
+        let shown = 0;
+        document.querySelectorAll('#routesTableBody tr[data-status]').forEach(function (row) {
+            const matchText = row.textContent.toLowerCase().includes(search);
+            const matchStatus = !status || row.dataset.status === status;
+            row.style.display = (matchText && matchStatus) ? '' : 'none';
+            if (matchText && matchStatus) shown++;
         });
+        document.getElementById('showingCount').textContent = shown;
     }
 
     function renderRoutesTable(routes) {
         const tbody = document.getElementById('routesTableBody');
-        tbody.innerHTML = '';
-
-        if (routes.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" class="text-center p-4">No routes found</td></tr>';
+        if (!routes.length) {
+            tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No routes found.</td></tr>';
+            document.getElementById('showingCount').textContent = 0;
             return;
         }
-
-        routes.forEach(r => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
-            <td><strong>${escapeHtml(r.name)}</strong></td>
-            <td>${escapeHtml(r.vehicle_reg || '-')}</td>
-            <td>${escapeHtml(r.driver_name || '-')}</td>
-            <td>${r.student_count || 0}</td>
-            <td><span class="status-badge status-${r.status}">${r.status}</span></td>
-            <td class="manager-row-actions">
-                <button class="action-btn" onclick="viewRoute(${r.id})">👁</button>
-                <button class="action-btn" onclick="editRoute(${r.id})">✏️</button>
-            </td>
-        `;
-            tbody.appendChild(row);
-        });
-
+        tbody.innerHTML = routes.map(function (r) {
+            const status = r.status || 'active';
+            return `<tr data-status="${esc(status)}">
+                <td><strong>${esc(r.name)}</strong></td>
+                <td>${esc(r.vehicle_reg || '—')}</td>
+                <td>${esc(r.driver_name || '—')}</td>
+                <td>${r.student_count || 0}</td>
+                <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${esc(status)}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="viewRoute(${r.id})"><i class="fas fa-eye"></i></button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="editRoute(${r.id})"><i class="fas fa-edit"></i></button>
+                </td>
+            </tr>`;
+        }).join('');
         document.getElementById('showingCount').textContent = routes.length;
     }
 
-    function showAddRouteModal() {
+    window.showAddRouteModal = function () {
         document.getElementById('routeForm').reset();
+        document.getElementById('routeId').value = '';
+        document.querySelector('#routeModal .modal-title').textContent = 'Add Route';
         new bootstrap.Modal(document.getElementById('routeModal')).show();
+    };
+
+    window.viewRoute = function (id) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=my_routes&id=' + id;
+    };
+
+    window.editRoute = async function (id) {
+        // Open modal pre-populated
+        document.querySelector('#routeModal .modal-title').textContent = 'Edit Route';
+        document.getElementById('routeId').value = id;
+        new bootstrap.Modal(document.getElementById('routeModal')).show();
+    };
+
+    async function saveRoute() {
+        const name = document.getElementById('routeName').value.trim();
+        if (!name) { alert('Route name is required.'); return; }
+        const id = document.getElementById('routeId').value;
+        const data = {
+            name,
+            vehicle_id: document.getElementById('vehicleId').value || null,
+            driver_id: document.getElementById('driverId').value || null,
+        };
+        try {
+            if (id) {
+                await API.transport.updateRoute(id, data);
+            } else {
+                await API.transport.createRoute(data);
+            }
+            bootstrap.Modal.getInstance(document.getElementById('routeModal'))?.hide();
+            await loadRoutes();
+            await loadStats();
+        } catch (e) {
+            alert('Failed to save route: ' + (e.message || 'Error'));
+        }
     }
 
-    async function saveRoute() { console.log('Save route'); }
-    function viewRoute(id) { console.log('View:', id); }
-    function editRoute(id) { console.log('Edit:', id); }
-
-    function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
-    function debounce(fn, d) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), d); }; }
+    function esc(s) {
+        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function debounce(fn, d) {
+        let t;
+        return function () { clearTimeout(t); t = setTimeout(fn, d); };
+    }
+})();
 </script>

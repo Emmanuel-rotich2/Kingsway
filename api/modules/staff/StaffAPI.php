@@ -1451,7 +1451,7 @@ class StaffAPI extends BaseAPI {
     public function viewPayslip($staffId, $month, $year) {
         try {
             $result = $this->service->getPayrollManager()->viewPayslip($staffId, $month, $year);
-            return formatResponse('success', 'Payslip retrieved successfully', $result);
+            return formatResponse(true, $result, 'Payslip retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1463,7 +1463,7 @@ class StaffAPI extends BaseAPI {
     public function getPayrollHistory($staffId, $startDate = null, $endDate = null) {
         try {
             $result = $this->service->getPayrollManager()->getPayrollHistory($staffId, $startDate, $endDate);
-            return formatResponse('success', 'Payroll history retrieved successfully', $result);
+            return formatResponse(true, $result, 'Payroll history retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1475,7 +1475,7 @@ class StaffAPI extends BaseAPI {
     public function viewAllowances($staffId) {
         try {
             $result = $this->service->getPayrollManager()->viewAllowances($staffId);
-            return formatResponse('success', 'Allowances retrieved successfully', $result);
+            return formatResponse(true, $result, 'Allowances retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1487,7 +1487,7 @@ class StaffAPI extends BaseAPI {
     public function viewDeductions($staffId) {
         try {
             $result = $this->service->getPayrollManager()->viewDeductions($staffId);
-            return formatResponse('success', 'Deductions retrieved successfully', $result);
+            return formatResponse(true, $result, 'Deductions retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1499,7 +1499,7 @@ class StaffAPI extends BaseAPI {
     public function getLoanDetails($staffId, $loanId = null) {
         try {
             $result = $this->service->getPayrollManager()->getLoanDetails($staffId, $loanId);
-            return formatResponse('success', 'Loan details retrieved successfully', $result);
+            return formatResponse(true, $result, 'Loan details retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1511,7 +1511,7 @@ class StaffAPI extends BaseAPI {
     public function requestAdvance($staffId, $userId, $data) {
         try {
             $result = $this->service->getPayrollManager()->requestAdvance($staffId, $userId, $data);
-            return formatResponse('success', 'Advance request submitted successfully', $result);
+            return formatResponse(true, $result, 'Advance request submitted successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1523,7 +1523,7 @@ class StaffAPI extends BaseAPI {
     public function applyForLoan($staffId, $userId, $data) {
         try {
             $result = $this->service->getPayrollManager()->applyForLoan($staffId, $userId, $data);
-            return formatResponse('success', 'Loan application submitted successfully', $result);
+            return formatResponse(true, $result, 'Loan application submitted successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1535,7 +1535,7 @@ class StaffAPI extends BaseAPI {
     public function downloadP9Form($staffId, $year) {
         try {
             $result = $this->service->getPayrollManager()->downloadP9Form($staffId, $year);
-            return formatResponse('success', 'P9 form generated successfully', $result);
+            return formatResponse(true, $result, 'P9 form generated successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1547,7 +1547,7 @@ class StaffAPI extends BaseAPI {
     public function downloadPayslip($staffId, $month, $year) {
         try {
             $result = $this->service->getPayrollManager()->downloadPayslip($staffId, $month, $year);
-            return formatResponse('success', 'Payslip downloaded successfully', $result);
+            return formatResponse(true, $result, 'Payslip downloaded successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1559,7 +1559,7 @@ class StaffAPI extends BaseAPI {
     public function exportPayrollHistory($staffId, $startDate = null, $endDate = null) {
         try {
             $result = $this->service->getPayrollManager()->exportPayrollHistory($staffId, $startDate, $endDate);
-            return formatResponse('success', 'Payroll history exported successfully', $result);
+            return formatResponse(true, $result, 'Payroll history exported successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1670,7 +1670,7 @@ class StaffAPI extends BaseAPI {
     public function getReviewHistory($staffId) {
         try {
             $result = $this->service->getPerformanceManager()->getReviewHistory($staffId);
-            return formatResponse('success', 'Review history retrieved successfully', $result);
+            return formatResponse(true, $result, 'Review history retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1682,7 +1682,7 @@ class StaffAPI extends BaseAPI {
     public function generatePerformanceReport($reviewId) {
         try {
             $result = $this->service->getPerformanceManager()->generatePerformanceReport($reviewId);
-            return formatResponse('success', 'Performance report generated successfully', $result);
+            return formatResponse(true, $result, 'Performance report generated successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1694,7 +1694,7 @@ class StaffAPI extends BaseAPI {
     public function getAcademicKPISummary($staffId, $academicYearId = null) {
         try {
             $result = $this->service->getPerformanceManager()->getAcademicKPISummary($staffId, $academicYearId);
-            return formatResponse('success', 'Academic KPI summary retrieved successfully', $result);
+            return formatResponse(true, $result, 'Academic KPI summary retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1710,7 +1710,7 @@ class StaffAPI extends BaseAPI {
     public function getStaffAssignments($staffId, $academicYearId = null, $includeHistory = false) {
         try {
             $result = $this->service->getAssignmentManager()->getStaffAssignments($staffId, $academicYearId, $includeHistory);
-            return formatResponse('success', 'Assignments retrieved successfully', $result);
+            return formatResponse(true, $result, 'Assignments retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1722,7 +1722,7 @@ class StaffAPI extends BaseAPI {
     public function getStaffWorkload($staffId, $academicYearId = null) {
         try {
             $result = $this->service->getAssignmentManager()->getStaffWorkload($staffId, $academicYearId);
-            return formatResponse('success', 'Workload summary retrieved successfully', $result);
+            return formatResponse(true, $result, 'Workload summary retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1734,7 +1734,7 @@ class StaffAPI extends BaseAPI {
     public function getCurrentAssignments($staffId) {
         try {
             $result = $this->service->getAssignmentManager()->getCurrentAssignments($staffId);
-            return formatResponse('success', 'Current assignments retrieved successfully', $result);
+            return formatResponse(true, $result, 'Current assignments retrieved successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1750,7 +1750,7 @@ class StaffAPI extends BaseAPI {
     public function initiateLeaveRequest($staffId, $userId, $data) {
         try {
             $result = $this->service->getLeaveWorkflow()->initiateLeaveRequest($staffId, $userId, $data);
-            return formatResponse('success', 'Leave request submitted successfully', $result);
+            return formatResponse(true, $result, 'Leave request submitted successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }
@@ -1764,7 +1764,7 @@ class StaffAPI extends BaseAPI {
             $result = $this->service->getAssignmentWorkflow()->initiateAssignment(
                 $staffId, $classStreamId, $academicYearId, $userId, $data
             );
-            return formatResponse('success', 'Assignment request submitted successfully', $result);
+            return formatResponse(true, $result, 'Assignment request submitted successfully');
         } catch (Exception $e) {
             $this->handleException($e);
         }

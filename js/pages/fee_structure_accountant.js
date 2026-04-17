@@ -1659,6 +1659,62 @@ class FeeStructureAccountantController {
       timeout = setTimeout(later, wait);
     };
   }
+
+  // ============================================================
+  // FEE BUNDLE WORKFLOW METHODS
+  // ============================================================
+
+  /** Load bundle statuses and update badges in the table */
+  async loadBundleStatuses() {
+    try {
+      const resp = await window.API.apiCall('/finance/fees-bundle-list', 'GET');
+      const bundles = resp?.data?.bundles || resp?.data || [];
+      this.renderBundleBanners(bundles);
+    } catch (e) {
+      console.warn('Could not load bundle statuses', e);
+    }
+  }
+
+  renderBundleBanners(bundles) {
+    const pending = bundles.filter(b => ['submitted','reviewed'].includes(b.status));
+    const banner = document.getElementById('pendingBundlesBanner');
+    const count  = document.getElementById('pendingBundleCount');
+    const summary = document.getElementById('pendingBundleSummary');
+    if (!banner) return;
+    if (pending.length > 0) {
+      if (count)   count.textContent = pending.length;
+      if (summary) summary.textContent = pending.map(b => `${b.level_name} / ${b.term_name}`).join(', ');
+      banner.classList.remove('d-none');
+    } else {
+      banner.classList.add('d-none');
+    }
+  }
+
+  /** Open the "Submit for Director Review" modal */
+  openSubmitBundleModal(levelId, academicYear, termId, studentTypeId) {
+    if (!confirm(`Submit this fee structure bundle for Director review?\n\nLevel ID: ${levelId} | Year: ${academicYear} | Term: ${termId} | Type: ${studentTypeId}\n\nThis will lock the draft lines for approval.`)) return;
+    this.submitBundle(levelId, academicYear, termId, studentTypeId);
+  }
+
+  async submitBundle(levelId, academicYear, termId, studentTypeId) {
+    try {
+      const resp = await window.API.apiCall('/finance/fees-bundle-submit', 'POST', {
+        level_id: levelId,
+        academic_year: academicYear,
+        term_id: termId,
+        student_type_id: studentTypeId,
+      });
+      if (resp?.status === 'success' || resp?.data) {
+        alert('Bundle submitted for Director review successfully.');
+        this.loadBundleStatuses();
+        if (typeof this.loadFeeStructures === 'function') this.loadFeeStructures();
+      } else {
+        alert('Submit failed: ' + (resp?.message || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Submit error: ' + (e.message || 'Unknown error'));
+    }
+  }
 }
 
 if (document.readyState === "loading") {

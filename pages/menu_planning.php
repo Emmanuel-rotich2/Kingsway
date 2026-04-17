@@ -266,5 +266,5 @@
     }
 </style>
 
-<script src="js/pages/menu_planning.js"></script>
+<script src="<?= $appBase ?>js/pages/menu_planning.js"></script>
 </script>

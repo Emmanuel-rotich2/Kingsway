@@ -265,6 +265,7 @@ const StudentFeesController = {
     this.ui.tableBody.innerHTML = this.data.rows
       .map((row) => {
         const status = this.formatPaymentStatus(row.payment_status);
+        const safeName = (row.student_name || "").replace(/'/g, "\\'");
         return `
           <tr>
             <td>${row.admission_no || "-"}</td>
@@ -275,8 +276,11 @@ const StudentFeesController = {
             <td>${this.formatCurrency(row.current_balance || 0)}</td>
             <td><span class="badge ${status.badge}">${status.label}</span></td>
             <td>
-              <button class="btn btn-sm btn-outline-primary" data-action="view" data-student-id="${row.id}">
+              <button class="btn btn-sm btn-outline-primary me-1" data-action="view" data-student-id="${row.id}">
                 View
+              </button>
+              <button class="btn btn-sm btn-outline-secondary" data-action="history" data-student-id="${row.id}" data-student-name="${safeName}">
+                <i class="fas fa-history"></i> Full History
               </button>
             </td>
           </tr>
@@ -290,6 +294,16 @@ const StudentFeesController = {
         btn.addEventListener("click", (event) => {
           const studentId = event.currentTarget.getAttribute("data-student-id");
           this.openFeeDetails(studentId);
+        });
+      });
+
+    this.ui.tableBody
+      .querySelectorAll("button[data-action='history']")
+      .forEach((btn) => {
+        btn.addEventListener("click", (event) => {
+          const studentId = event.currentTarget.getAttribute("data-student-id");
+          const studentName = event.currentTarget.getAttribute("data-student-name");
+          this.openBillingHistory(studentId, studentName);
         });
       });
   },
@@ -680,6 +694,75 @@ const StudentFeesController = {
     if (Array.isArray(resp.data?.data)) return resp.data.data;
     if (Array.isArray(resp.data?.data?.items)) return resp.data.data.items;
     return [];
+  },
+
+  openBillingHistory: function(studentId, studentName) {
+    document.getElementById('historyStudentName').textContent = studentName;
+    document.getElementById('billingHistoryContent').innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+    var modal = new bootstrap.Modal(document.getElementById('studentBillingHistoryModal'));
+    modal.show();
+
+    window.API.apiCall('/finance/students-billing-history/' + studentId, 'GET')
+      .then(function(resp) {
+        var data = resp.data || resp;
+        StudentFeesController.renderBillingHistory(data, studentId);
+      })
+      .catch(function() {
+        document.getElementById('billingHistoryContent').innerHTML = '<div class="alert alert-danger">Failed to load billing history.</div>';
+      });
+  },
+
+  renderBillingHistory: function(data, studentId) {
+    // data.academic_years is array of { year, terms: [{ term_id, term_name, obligations: [...], payments: [...], total_due, total_paid, balance }] }
+    var years = data.academic_years || data || [];
+    if (!years.length) {
+      document.getElementById('billingHistoryContent').innerHTML = '<div class="alert alert-info">No billing history found.</div>';
+      return;
+    }
+
+    var html = '';
+    years.forEach(function(yr) {
+      html += '<div class="card mb-3">';
+      html += '<div class="card-header fw-bold bg-light">Academic Year ' + yr.year + '</div>';
+      html += '<div class="card-body p-0">';
+
+      // Tabs for terms
+      html += '<ul class="nav nav-tabs px-3 pt-2" id="tabs-' + yr.year + '">';
+      (yr.terms || []).forEach(function(term, i) {
+        html += '<li class="nav-item"><a class="nav-link' + (i === 0 ? ' active' : '') + '" data-bs-toggle="tab" href="#term-' + yr.year + '-' + term.term_id + '">' + term.term_name + '</a></li>';
+      });
+      html += '</ul>';
+
+      html += '<div class="tab-content p-3">';
+      (yr.terms || []).forEach(function(term, i) {
+        html += '<div class="tab-pane fade' + (i === 0 ? ' show active' : '') + '" id="term-' + yr.year + '-' + term.term_id + '">';
+
+        // Obligations table
+        html += '<h6 class="text-muted mb-2">Fee Obligations</h6>';
+        html += '<table class="table table-sm table-bordered mb-3"><thead class="table-light"><tr><th>Fee Type</th><th>Amount Due</th><th>Paid</th><th>Waived</th><th>Balance</th><th>Status</th></tr></thead><tbody>';
+        (term.obligations || []).forEach(function(o) {
+          var statusClass = o.payment_status === 'paid' ? 'success' : o.payment_status === 'partial' ? 'warning' : 'danger';
+          html += '<tr><td>' + (o.fee_type_name || '') + '</td><td>KES ' + Number(o.amount_due || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_paid || 0).toLocaleString() + '</td><td>KES ' + Number(o.amount_waived || 0).toLocaleString() + '</td><td><strong>KES ' + Number(o.balance || 0).toLocaleString() + '</strong></td><td><span class="badge bg-' + statusClass + '">' + (o.payment_status || 'pending') + '</span></td></tr>';
+        });
+        html += '<tr class="table-light fw-bold"><td>TOTAL</td><td>KES ' + Number(term.total_due || 0).toLocaleString() + '</td><td>KES ' + Number(term.total_paid || 0).toLocaleString() + '</td><td>—</td><td>KES ' + Number(term.balance || 0).toLocaleString() + '</td><td></td></tr>';
+        html += '</tbody></table>';
+
+        // Payments table
+        if ((term.payments || []).length > 0) {
+          html += '<h6 class="text-muted mb-2">Payments Received</h6>';
+          html += '<table class="table table-sm table-bordered"><thead class="table-light"><tr><th>Date</th><th>Method</th><th>Amount</th><th>Receipt #</th><th>Reference</th></tr></thead><tbody>';
+          (term.payments || []).forEach(function(p) {
+            html += '<tr><td>' + (p.payment_date || '').substring(0, 10) + '</td><td>' + (p.payment_method || '') + '</td><td>KES ' + Number(p.amount_paid || 0).toLocaleString() + '</td><td>' + (p.receipt_no || '—') + '</td><td>' + (p.reference_no || '—') + '</td></tr>';
+          });
+          html += '</tbody></table>';
+        }
+
+        html += '</div>'; // tab-pane
+      });
+      html += '</div></div></div>';
+    });
+
+    document.getElementById('billingHistoryContent').innerHTML = html;
   },
 
   debounce: function (fn, delay) {

@@ -49,8 +49,8 @@ const accountantMpesaDashboardController = Object.assign(
     loadAllData: async function () {
       var self = this;
       var results = await Promise.all([
-        self.fetchJSON("/Kingsway/api/dashboard/accountant/mpesa"),
-        self.fetchJSON("/Kingsway/api/payments/mpesa"),
+        self.fetchJSON((window.APP_BASE || '') + '/api/dashboard/accountant/mpesa'),
+        self.fetchJSON((window.APP_BASE || '') + '/api/payments/mpesa'),
       ]);
       if (results[0] && results[0].data) {
         self.renderMpesaSummary(results[0].data);
@@ -129,7 +129,7 @@ const accountantMpesaDashboardController = Object.assign(
       if (!studentId) {
         return;
       }
-      fetch("/Kingsway/api/payments/mpesa/match", {
+      fetch((window.APP_BASE || '') + '/api/payments/mpesa/match', {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ payment_id: id, student_id: studentId }),

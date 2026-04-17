@@ -106,6 +106,9 @@ class SystemController extends BaseController
     // GET /api/system/logs
     public function getLogs($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->readLogs($data);
         return $this->handleResponse($result);
     }
@@ -127,6 +130,9 @@ class SystemController extends BaseController
     // GET /api/system/school-config
     public function getSchoolConfig($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->getSchoolConfig($id);
         return $this->handleResponse($result);
     }
@@ -134,6 +140,9 @@ class SystemController extends BaseController
     // POST /api/system/school-config
     public function postSchoolConfig($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
         $result = $this->api->setSchoolConfig($data);
         return $this->handleResponse($result);
     }
@@ -146,13 +155,87 @@ class SystemController extends BaseController
     }
 
     /**
+     * GET /api/system/activity-audit-logs
+     * Returns activity audit log entries with filtering and pagination
+     */
+    public function getActivityAuditLogs($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+            return $auth;
+        }
+        $filters = array_merge($_GET, $data ?? []);
+        $limit   = min((int)($filters['limit'] ?? 100), 500);
+        $offset  = (int)($filters['offset'] ?? 0);
+        $search  = $filters['search'] ?? '';
+        $level   = $filters['severity'] ?? '';
+        $from    = $filters['date_from'] ?? '';
+        $to      = $filters['date_to'] ?? '';
+
+        $where  = ['1=1'];
+        $params = [];
+
+        if ($search !== '') {
+            $where[]  = '(message LIKE ? OR source LIKE ? OR user LIKE ?)';
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+            $params[] = "%$search%";
+        }
+        if ($level !== '') {
+            $where[]  = 'level = ?';
+            $params[] = $level;
+        }
+        if ($from !== '') {
+            $where[]  = 'created_at >= ?';
+            $params[] = $from . ' 00:00:00';
+        }
+        if ($to !== '') {
+            $where[]  = 'created_at <= ?';
+            $params[] = $to . ' 23:59:59';
+        }
+
+        $whereClause = implode(' AND ', $where);
+
+        try {
+            $countStmt = $this->db->prepare("SELECT COUNT(*) FROM activity_logs WHERE $whereClause");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+
+            $stmt = $this->db->prepare(
+                "SELECT id, level, message, source, user, ip_address, created_at
+                 FROM activity_logs
+                 WHERE $whereClause
+                 ORDER BY created_at DESC
+                 LIMIT ? OFFSET ?"
+            );
+            $stmt->execute(array_merge($params, [$limit, $offset]));
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+            $errors   = count(array_filter($rows, fn($r) => ($r['level'] ?? '') === 'error'));
+            $warnings = count(array_filter($rows, fn($r) => ($r['level'] ?? '') === 'warning'));
+            $today    = count(array_filter($rows, fn($r) => str_starts_with($r['created_at'] ?? '', date('Y-m-d'))));
+
+            return $this->success([
+                'data'  => $rows,
+                'stats' => ['total' => $total, 'errors' => $errors, 'warnings' => $warnings, 'today' => $today],
+                'pagination' => ['limit' => $limit, 'offset' => $offset, 'total' => $total],
+            ]);
+        } catch (\Throwable $e) {
+            // Table may not exist — return empty gracefully
+            return $this->success([
+                'data'  => [],
+                'stats' => ['total' => 0, 'errors' => 0, 'warnings' => 0, 'today' => 0],
+                'pagination' => ['limit' => $limit, 'offset' => $offset, 'total' => 0],
+            ]);
+        }
+    }
+
+    /**
      * GET /api/system/auth-events
      * Returns authentication events (logins/logouts) for audit trail
-     * SECURITY: System Admin only
      */
     public function getAuthEvents($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 
@@ -211,11 +294,10 @@ class SystemController extends BaseController
     /**
      * GET /api/system/active-sessions
      * Returns currently active user sessions
-     * SECURITY: System Admin only
      */
     public function getActiveSessions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 
@@ -605,6 +687,44 @@ class SystemController extends BaseController
                     LEFT JOIN staff s ON s.id = po.created_by
                     LEFT JOIN users su ON su.id = s.user_id
                     WHERE po.status = 'pending'
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('payroll-', sp.id) AS id,
+                        'payroll' AS type,
+                        CONCAT('Payroll ', sp.payroll_period, ' awaiting approval') AS description,
+                        sp.net_salary AS amount,
+                        sp.status AS status,
+                        'high' AS priority,
+                        NULL AS created_by,
+                        NULL AS first_name,
+                        NULL AS last_name,
+                        sp.created_at AS submitted_at,
+                        NULL AS due_by
+                    FROM staff_payroll sp
+                    WHERE sp.status IN ('pending', 'verification')
+
+                    UNION ALL
+
+                    SELECT
+                        CONCAT('expense-', e.id) AS id,
+                        'expense' AS type,
+                        CONCAT('Expense: ', COALESCE(e.description, e.expense_category)) AS description,
+                        e.amount AS amount,
+                        e.status AS status,
+                        CASE
+                            WHEN e.amount >= 50000 THEN 'high'
+                            ELSE 'medium'
+                        END AS priority,
+                        e.created_by AS created_by,
+                        u4.first_name,
+                        u4.last_name,
+                        e.created_at AS submitted_at,
+                        NULL AS due_by
+                    FROM expenses e
+                    LEFT JOIN users u4 ON u4.id = e.created_by
+                    WHERE e.status = 'pending'
                 ) approvals
                 ORDER BY
                     CASE approvals.priority
@@ -688,6 +808,51 @@ class SystemController extends BaseController
         }
 
         return $this->forbidden('System Administrator access required');
+    }
+
+    /** Returns true if the current user is a School Administrator (school-scope, not system). */
+    private function isSchoolAdmin(): bool
+    {
+        return $this->userHasRole('School Administrator') && !$this->userHasRole('System Administrator');
+    }
+
+    /** Returns true if the current user is a System Administrator. */
+    private function isSystemAdmin(): bool
+    {
+        return $this->userHasRole('System Administrator') || $this->userHasPermission('*');
+    }
+
+    /**
+     * Allows system admin full access; allows school admin read/scoped access.
+     * Returns forbidden response for everyone else.
+     */
+    private function ensureRoleManagementAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+        if ($this->isSystemAdmin() || $this->isSchoolAdmin()) {
+            return null;
+        }
+        return $this->forbidden('Access denied');
+    }
+
+    /**
+     * Allow System Admin, Director, or any user with wildcard permission.
+     * School owner (Director) has the same visibility as System Admin for
+     * operational endpoints such as audit logs, sessions, and school config.
+     */
+    private function ensureSystemOrDirectorAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if ($this->userHasPermission('*') || $this->userHasAny([], [], ['System Administrator', 'Director'])) {
+            return null;
+        }
+
+        return $this->forbidden('System Administrator or Director access required');
     }
 
     private function ensureDirectorOrSchoolAdminAccess()
@@ -906,30 +1071,30 @@ class SystemController extends BaseController
      */
     public function getRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
         try {
             $db = Database::getInstance();
+            $schoolAdminOnly = $this->isSchoolAdmin();
 
             if ($id) {
-                // Get single role
-                $query = "SELECT * FROM roles WHERE id = ?";
-                $result = $db->query($query, [$id]);
-                $role = $result->fetch();
-
+                $query = $schoolAdminOnly
+                    ? "SELECT * FROM roles WHERE id = ? AND (scope='school' OR scope IS NULL)"
+                    : "SELECT * FROM roles WHERE id = ?";
+                $role = $db->query($query, [$id])->fetch();
                 if (!$role) {
                     return $this->badRequest('Role not found');
                 }
-
                 return $this->success($role, 'Role retrieved');
             }
 
-            // Get all roles
-            $query = "SELECT * FROM roles ORDER BY name";
-            $result = $db->query($query, []);
-            $roles = $result->fetchAll() ?? [];
+            // System admin sees all; school admin sees only school-scope roles
+            $query = $schoolAdminOnly
+                ? "SELECT * FROM roles WHERE (scope='school' OR scope IS NULL) ORDER BY name"
+                : "SELECT * FROM roles ORDER BY name";
+            $roles = $db->query($query, [])->fetchAll() ?? [];
 
             return $this->success($roles, 'Roles retrieved');
 
@@ -943,35 +1108,36 @@ class SystemController extends BaseController
      */
     public function postRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
         try {
             $db = Database::getInstance();
 
-            // Validate required fields
             if (empty($data['name'])) {
                 return $this->badRequest('Role name is required');
             }
 
-            // Check for duplicate name
             $check = $db->query("SELECT id FROM roles WHERE name = ?", [$data['name']]);
             if ($check->fetch()) {
                 return $this->badRequest('A role with this name already exists');
             }
 
-            // Roles table is simple (name, description, created_at). Use a compatible insert to avoid schema mismatch.
-            $query = "INSERT INTO roles (name, description, created_at) VALUES (?, ?, NOW())";
+            // School admin can only create school-scope, non-system roles
+            $scope    = 'school';
+            $isSystem = 0;
+            if ($this->isSystemAdmin()) {
+                $scope    = in_array($data['scope'] ?? '', ['system', 'school']) ? $data['scope'] : 'school';
+                $isSystem = (int)(bool)($data['is_system'] ?? false);
+            }
 
-            $db->query($query, [
-                $data['name'],
-                $data['description'] ?? null
-            ]);
+            $db->query(
+                "INSERT INTO roles (name, description, scope, is_system, created_at) VALUES (?, ?, ?, ?, NOW())",
+                [$data['name'], $data['description'] ?? null, $scope, $isSystem]
+            );
 
-            $newId = $db->lastInsertId();
-
-            return $this->success(['id' => $newId], 'Role created successfully');
+            return $this->success(['id' => (int)$db->lastInsertId(), 'scope' => $scope], 'Role created successfully');
 
         } catch (Exception $e) {
             return $this->badRequest('Failed to create role: ' . $e->getMessage());
@@ -983,7 +1149,7 @@ class SystemController extends BaseController
      */
     public function putRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
@@ -995,16 +1161,26 @@ class SystemController extends BaseController
                 return $this->badRequest('Role ID is required');
             }
 
-            // Check role exists
-            $check = $db->query("SELECT id FROM roles WHERE id = ?", [$roleId]);
-            if (!$check->fetch()) {
+            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            if (!$role) {
                 return $this->badRequest('Role not found');
+            }
+
+            // School admin cannot edit system-scoped or is_system=1 roles
+            if ($this->isSchoolAdmin() && ($role['is_system'] || ($role['scope'] ?? 'school') === 'system')) {
+                return $this->forbidden('Cannot modify system roles');
+            }
+
+            $allowedFields = ['name', 'description'];
+            // Only system admin can change scope/is_system
+            if ($this->isSystemAdmin()) {
+                $allowedFields[] = 'scope';
+                $allowedFields[] = 'is_system';
             }
 
             $fields = [];
             $values = [];
-
-            foreach (['name', 'description'] as $field) {
+            foreach ($allowedFields as $field) {
                 if (array_key_exists($field, $data)) {
                     $fields[] = "$field = ?";
                     $values[] = $data[$field];
@@ -1015,11 +1191,9 @@ class SystemController extends BaseController
                 return $this->badRequest('No fields to update');
             }
 
-            $fields[] = "updated_at = NOW()";
-            $values[] = $roleId;
-
-            $query = "UPDATE roles SET " . implode(', ', $fields) . " WHERE id = ?";
-            $db->query($query, $values);
+            $fields[]  = "updated_at = NOW()";
+            $values[]  = $roleId;
+            $db->query("UPDATE roles SET " . implode(', ', $fields) . " WHERE id = ?", $values);
 
             return $this->success(null, 'Role updated successfully');
 
@@ -1033,7 +1207,7 @@ class SystemController extends BaseController
      */
     public function deleteRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
@@ -1045,9 +1219,19 @@ class SystemController extends BaseController
                 return $this->badRequest('Role ID is required');
             }
 
-            // Prevent deletion of system roles (id <= 2)
-            if ((int) $roleId <= 2) {
+            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            if (!$role) {
+                return $this->badRequest('Role not found');
+            }
+
+            // No one can delete is_system=1 roles
+            if ($role['is_system']) {
                 return $this->badRequest('Cannot delete system roles');
+            }
+
+            // School admin cannot delete system-scope roles
+            if ($this->isSchoolAdmin() && ($role['scope'] ?? 'school') === 'system') {
+                return $this->forbidden('Cannot delete system-scope roles');
             }
 
             $db->query("DELETE FROM roles WHERE id = ?", [$roleId]);
@@ -1064,7 +1248,7 @@ class SystemController extends BaseController
      */
     public function postRolesToggle($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
@@ -1105,7 +1289,8 @@ class SystemController extends BaseController
      */
     public function getPermissions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        // Both system admin and school admin can read permissions (school admin cannot create them)
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
@@ -1113,8 +1298,7 @@ class SystemController extends BaseController
             $db = Database::getInstance();
 
             $query = "SELECT * FROM permissions ORDER BY entity, action, code";
-            $result = $db->query($query, []);
-            $permissions = $result->fetchAll() ?? [];
+            $permissions = $db->query($query, [])->fetchAll() ?? [];
 
             return $this->success($permissions, 'Permissions retrieved');
 
@@ -1124,11 +1308,50 @@ class SystemController extends BaseController
     }
 
     /**
+     * POST /api/system/permissions - Create a new permission (System Admin only)
+     */
+    public function postPermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            if (empty($data['code'])) {
+                return $this->badRequest('Permission code is required');
+            }
+
+            $check = $db->query("SELECT id FROM permissions WHERE code = ?", [$data['code']])->fetch();
+            if ($check) {
+                return $this->badRequest('A permission with this code already exists');
+            }
+
+            $db->query(
+                "INSERT INTO permissions (code, name, description, entity, action, created_at) VALUES (?,?,?,?,?,NOW())",
+                [
+                    $data['code'],
+                    $data['name'] ?? $data['code'],
+                    $data['description'] ?? null,
+                    $data['entity'] ?? null,
+                    $data['action'] ?? null,
+                ]
+            );
+
+            return $this->success(['id' => (int)$db->lastInsertId()], 'Permission created');
+
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to create permission: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * GET /api/system/role-permissions - Get permissions for a role
      */
     public function getRolePermissions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess()) {
             return $auth;
         }
 
@@ -1140,17 +1363,114 @@ class SystemController extends BaseController
                 return $this->badRequest('Role ID is required');
             }
 
-            $query = "SELECT p.* FROM permissions p 
-                      JOIN role_permissions rp ON p.id = rp.permission_id 
-                      WHERE rp.role_id = ? 
-                      ORDER BY p.entity, p.action, p.code";
-            $result = $db->query($query, [$roleId]);
-            $permissions = $result->fetchAll() ?? [];
+            // School admin can only inspect school-scope roles
+            if ($this->isSchoolAdmin()) {
+                $role = $db->query("SELECT scope, is_system FROM roles WHERE id = ?", [$roleId])->fetch();
+                if (!$role || $role['is_system'] || ($role['scope'] ?? 'school') === 'system') {
+                    return $this->forbidden('Cannot inspect system roles');
+                }
+            }
+
+            $permissions = $db->query(
+                "SELECT p.* FROM permissions p
+                 JOIN role_permissions rp ON p.id = rp.permission_id
+                 WHERE rp.role_id = ?
+                 ORDER BY p.entity, p.action, p.code",
+                [$roleId]
+            )->fetchAll() ?? [];
 
             return $this->success($permissions, 'Role permissions retrieved');
 
         } catch (Exception $e) {
             return $this->badRequest('Failed to load role permissions: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/system/role-permissions - Assign existing permissions to a role
+     * School admin can assign to school-scope roles only; cannot create new permissions.
+     */
+    public function postRolePermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureRoleManagementAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            $roleId        = $id ?? $data['role_id'] ?? null;
+            $permissionIds = $data['permission_ids'] ?? [];
+
+            if (!$roleId) {
+                return $this->badRequest('role_id is required');
+            }
+            if (empty($permissionIds) || !is_array($permissionIds)) {
+                return $this->badRequest('permission_ids array is required');
+            }
+
+            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            if (!$role) {
+                return $this->badRequest('Role not found');
+            }
+
+            if ($this->isSchoolAdmin() && ($role['is_system'] || ($role['scope'] ?? 'school') === 'system')) {
+                return $this->forbidden('Cannot modify system roles');
+            }
+
+            $ins = $db->getConnection()->prepare(
+                "INSERT IGNORE INTO role_permissions (role_id, permission_id, created_at) VALUES (?,?,NOW())"
+            );
+            $count = 0;
+            foreach ($permissionIds as $pid) {
+                $ins->execute([(int)$roleId, (int)$pid]);
+                $count++;
+            }
+
+            return $this->success(['assigned' => $count], 'Permissions assigned to role');
+
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to assign permissions: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * DELETE /api/system/role-permissions - Remove a permission from a role
+     */
+    public function deleteRolePermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureRoleManagementAccess()) {
+            return $auth;
+        }
+
+        try {
+            $db = Database::getInstance();
+
+            $roleId       = $data['role_id'] ?? null;
+            $permissionId = $id ?? $data['permission_id'] ?? null;
+
+            if (!$roleId || !$permissionId) {
+                return $this->badRequest('role_id and permission_id are required');
+            }
+
+            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            if (!$role) {
+                return $this->badRequest('Role not found');
+            }
+
+            if ($this->isSchoolAdmin() && ($role['is_system'] || ($role['scope'] ?? 'school') === 'system')) {
+                return $this->forbidden('Cannot modify system roles');
+            }
+
+            $db->query(
+                "DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?",
+                [(int)$roleId, (int)$permissionId]
+            );
+
+            return $this->success(null, 'Permission removed from role');
+
+        } catch (Exception $e) {
+            return $this->badRequest('Failed to remove permission: ' . $e->getMessage());
         }
     }
 
@@ -1222,7 +1542,7 @@ class SystemController extends BaseController
      */
     public function getModules($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemAdminAccess()) {
+        if ($auth = $this->ensureSystemOrDirectorAccess()) {
             return $auth;
         }
 

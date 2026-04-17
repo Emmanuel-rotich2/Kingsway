@@ -726,13 +726,13 @@
                     </a>
                 </div>
                 <div class="col-md-3 col-sm-6">
-                    <a href="#" data-route="manage_users" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
+                    <a href="#" data-route="activity_audit_logs" class="card border-0 shadow-sm text-decoration-none h-100 toolbox-card">
                         <div class="card-body text-center py-4">
                             <div class="rounded-circle bg-secondary bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-3" style="width: 60px; height: 60px;">
                                 <i class="bi-terminal fs-2 text-secondary"></i>
                             </div>
-                            <h6 class="mb-1">System Logs</h6>
-                            <small class="text-muted">Audit trails & activities</small>
+                            <h6 class="mb-1">Audit Logs</h6>
+                            <small class="text-muted">Audit trails & activity logs</small>
                         </div>
                     </a>
                 </div>
@@ -788,7 +788,7 @@
                 
                 if (route && route !== '#') {
                     // Navigate using the same pattern as sidebar
-                    window.location.href = `/Kingsway/home.php?route=${route}`;
+                    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(route)}`;
                 }
             });
         });

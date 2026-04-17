@@ -1,53 +1,111 @@
 <?php
-// School Counselor/Chaplain Dashboard
-include 'components/charts/chart.php';
-include 'components/tables/table.php';
-include 'components/cards/card_component.php';
-
-$summaryCards = [
-    [
-        'title' => 'Overview',
-        'count' => 0,
-        'percent' => 100,
-        'days' => 1,
-        'icon' => 'bi-heart-pulse',
-        'bgColor' => '#e91e63',
-        'iconColor' => 'text-white',
-        'iconSize' => 'fs-3',
-        'textColor' => 'text-white',
-        'subTextColor' => 'text-white-50',
-        'cardClass' => 'card-rounded small-card shadow-sm',
-        'iconPosition' => 'start'
-    ]
-];
+/**
+ * School Counselor/Chaplain Dashboard
+ * Role: Chaplain (ID 24) — counseling sessions, chapel services, pastoral care
+ */
 ?>
+<div class="container-fluid py-3" id="counselor-dashboard">
 
-<div class="container-fluid py-4">
-    <div class="row mb-4">
-        <div class="col-12">
-            <h2 class="mb-0"><i class="bi-heart-pulse me-2"></i>School Counselor/Chaplain Dashboard</h2>
-            <p class="text-muted">Welcome to your dashboard</p>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-1"><i class="bi bi-heart-pulse me-2 text-danger"></i>Pastoral Care Dashboard</h4>
+            <p class="text-muted mb-0">Counseling, chapel services, and student welfare</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-danger btn-sm" onclick="counselorDashboardController.showNewSessionModal()">
+                <i class="bi bi-plus me-1"></i>Record Session
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="counselorDashboardController.refresh()">
+                <i class="bi bi-arrow-clockwise"></i>
+            </button>
         </div>
     </div>
 
-    <!-- Summary Cards -->
+    <!-- Stat Cards -->
     <div class="row g-3 mb-4">
-        <?php foreach ($summaryCards as $card): ?>
-            <div class="col-md-6 col-lg-3">
-                <?php renderCard($card); ?>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 mb-1">💬</div>
+                    <h4 class="mb-0 text-primary" id="sessionsThisWeek">0</h4>
+                    <small class="text-muted">Sessions This Week</small>
+                </div>
             </div>
-        <?php endforeach; ?>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 mb-1">👤</div>
+                    <h4 class="mb-0 text-success" id="studentsSeen">0</h4>
+                    <small class="text-muted">Students Seen</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 mb-1">📋</div>
+                    <h4 class="mb-0 text-warning" id="pendingReferrals">0</h4>
+                    <small class="text-muted">Pending Referrals</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card border-0 shadow-sm text-center">
+                <div class="card-body py-3">
+                    <div class="fs-2 mb-1">⛪</div>
+                    <h4 class="mb-0 text-danger" id="chapelServices">0</h4>
+                    <small class="text-muted">Chapel Services</small>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="row g-4">
-        <div class="col-12">
+    <div class="row g-3">
+        <!-- Recent Sessions -->
+        <div class="col-md-7">
             <div class="card shadow-sm">
-                <div class="card-header" style="background-color: #e91e63; color: white;">
-                    <h5 class="mb-0"><i class="bi-heart-pulse me-2"></i>Dashboard Content</h5>
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-chat-square-text me-2"></i>Recent Counseling Sessions</h6>
+                    <a href="#" onclick="counselorDashboardController.navigate('counseling_records')" class="btn btn-sm btn-outline-primary">View All</a>
                 </div>
-                <div class="card-body">
-                    <p class="text-muted">Dashboard content and tools will be displayed here.</p>
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr><th>Student</th><th>Type</th><th>Date</th><th>Follow-up</th></tr>
+                        </thead>
+                        <tbody id="sessionsTableBody">
+                            <tr><td colspan="4" class="text-center text-muted py-3">Loading sessions...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upcoming Chapel & Actions -->
+        <div class="col-md-5">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0"><i class="bi bi-calendar-heart me-2"></i>Chapel Schedule</h6>
+                    <a href="#" onclick="counselorDashboardController.navigate('chapel_services')" class="btn btn-sm btn-outline-danger">View All</a>
+                </div>
+                <div class="list-group list-group-flush" id="chapelScheduleList">
+                    <div class="text-center text-muted py-3">Loading schedule...</div>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3">
+                <div class="card-header bg-white"><h6 class="mb-0">Quick Actions</h6></div>
+                <div class="card-body d-grid gap-2">
+                    <button class="btn btn-outline-primary btn-sm" onclick="counselorDashboardController.navigate('student_counseling')">
+                        <i class="bi bi-person-check me-1"></i>Student Counseling Records
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="counselorDashboardController.navigate('parent_meetings')">
+                        <i class="bi bi-people me-1"></i>Parent Meetings
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="counselorDashboardController.navigate('conduct_reports')">
+                        <i class="bi bi-file-text me-1"></i>Conduct Reports
+                    </button>
                 </div>
             </div>
         </div>

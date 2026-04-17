@@ -1343,6 +1343,151 @@ class InventoryController extends BaseController
         return $this->success($result);
     }
 
+    // ================================================================
+    // UNIFORM SALES PAYMENT ENDPOINTS
+    // ================================================================
+
+    /**
+     * POST /api/inventory/uniform-sales-record-payment/{id}
+     * Records a (partial) payment against a uniform sale
+     */
+    public function postUniformSalesRecordPayment($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('sale_id required');
+        $amountPaid  = (float)($data['amount_paid']    ?? 0);
+        $method      = $data['payment_method'] ?? 'cash';
+        $referenceNo = $data['reference_no']   ?? null;
+        $notes       = $data['notes']          ?? null;
+        $receivedBy  = $this->user['user_id'] ?? $this->user['id'] ?? null;
+
+        if ($amountPaid <= 0) return $this->badRequest('amount_paid must be positive');
+
+        try {
+            $db   = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("SELECT * FROM uniform_sales WHERE id = :id LIMIT 1");
+            $stmt->execute([':id' => $id]);
+            $sale = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$sale) return $this->notFound('Sale not found');
+
+            $currentPaid = (float)($sale['amount_paid'] ?? 0);
+            $totalAmount = (float)($sale['total_amount'] ?? 0);
+            $newPaid     = $currentPaid + $amountPaid;
+            $newBalance  = $totalAmount - $newPaid;
+            $newStatus   = $newBalance <= 0 ? 'paid' : ($newPaid > 0 ? 'partial' : 'pending');
+
+            // Record in uniform_sale_payments
+            $db->prepare("
+                INSERT INTO uniform_sale_payments
+                  (sale_id, amount_paid, payment_date, payment_method, reference_no, received_by, notes)
+                VALUES (:sid, :amt, NOW(), :meth, :ref, :by, :notes)
+            ")->execute([
+                ':sid' => $id, ':amt' => $amountPaid, ':meth' => $method,
+                ':ref' => $referenceNo, ':by' => $receivedBy, ':notes' => $notes,
+            ]);
+
+            // Update sale totals
+            $db->prepare(
+                "UPDATE uniform_sales SET amount_paid = :ap, payment_status = :ps, updated_at = NOW() WHERE id = :id"
+            )->execute([':ap' => $newPaid, ':ps' => $newStatus, ':id' => $id]);
+
+            return $this->success([
+                'sale_id'        => (int)$id,
+                'amount_paid'    => $newPaid,
+                'balance'        => max(0.0, $newBalance),
+                'payment_status' => $newStatus,
+            ], 'Payment recorded');
+        } catch (\Exception $e) {
+            return $this->serverError('Payment recording failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/inventory/uniform-sales-student-invoice/{id}
+     * All uniform purchases for a student with running balances
+     */
+    public function getUniformSalesStudentInvoice($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('student_id required');
+        try {
+            $db   = \App\Database\Database::getInstance();
+            $stmt = $db->prepare("
+                SELECT us.*, ui.name AS item_name, ui.code AS item_code,
+                       COALESCE(us.amount_paid, 0) AS amount_paid,
+                       (us.total_amount - COALESCE(us.amount_paid, 0)) AS outstanding
+                FROM uniform_sales us
+                LEFT JOIN uniform_items ui ON us.item_id = ui.id
+                WHERE us.student_id = :sid
+                ORDER BY us.sale_date DESC
+            ");
+            $stmt->execute([':sid' => $id]);
+            $rows       = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $totalBilled = array_sum(array_column($rows, 'total_amount'));
+            $totalPaid   = array_sum(array_column($rows, 'amount_paid'));
+            $totalOwed   = array_sum(array_column($rows, 'outstanding'));
+            return $this->success([
+                'student_id'   => (int)$id,
+                'items'        => $rows,
+                'total_billed' => $totalBilled,
+                'total_paid'   => $totalPaid,
+                'total_owed'   => $totalOwed,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to load student invoice: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/inventory/uniform-sales-summary
+     * Overall + per-item sales summary; supports from_date, to_date, payment_status filters
+     */
+    public function getUniformSalesSummary($id = null, $data = [], $segments = [])
+    {
+        $fromDate = $_GET['from_date']      ?? $data['from_date']      ?? null;
+        $toDate   = $_GET['to_date']        ?? $data['to_date']        ?? null;
+        $status   = $_GET['payment_status'] ?? $data['payment_status'] ?? null;
+
+        try {
+            $db     = \App\Database\Database::getInstance();
+            $where  = ['1=1'];
+            $params = [];
+            if ($fromDate) { $where[] = 'us.sale_date >= :fd'; $params[':fd'] = $fromDate; }
+            if ($toDate)   { $where[] = 'us.sale_date <= :td'; $params[':td'] = $toDate; }
+            if ($status)   { $where[] = 'us.payment_status = :ps'; $params[':ps'] = $status; }
+            $ws = implode(' AND ', $where);
+
+            $stmt = $db->prepare("
+                SELECT COUNT(*) AS total_sales, SUM(us.total_amount) AS total_revenue,
+                       SUM(COALESCE(us.amount_paid,0)) AS total_collected,
+                       SUM(us.total_amount - COALESCE(us.amount_paid,0)) AS total_outstanding
+                FROM uniform_sales us WHERE {$ws}
+            ");
+            foreach ($params as $k => $v) $stmt->bindValue($k, $v);
+            $stmt->execute();
+            $totals = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            $stmt2 = $db->prepare("
+                SELECT ui.name AS item_name, ui.code AS item_code,
+                       COUNT(*) AS qty_sold, SUM(us.quantity) AS units_sold,
+                       SUM(us.total_amount) AS revenue,
+                       SUM(COALESCE(us.amount_paid,0)) AS collected
+                FROM uniform_sales us
+                LEFT JOIN uniform_items ui ON us.item_id = ui.id
+                WHERE {$ws}
+                GROUP BY us.item_id, ui.name, ui.code ORDER BY revenue DESC
+            ");
+            foreach ($params as $k => $v) $stmt2->bindValue($k, $v);
+            $stmt2->execute();
+
+            return $this->success([
+                'totals'  => $totals,
+                'by_item' => $stmt2->fetchAll(\PDO::FETCH_ASSOC),
+                'filters' => ['from_date' => $fromDate, 'to_date' => $toDate, 'status' => $status],
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError('Failed to load summary: ' . $e->getMessage());
+        }
+    }
+
     /**
      * Get current authenticated user ID
      */

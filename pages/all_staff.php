@@ -1,51 +1,60 @@
 <?php
 /**
- * All Staff Page - Role-Based Router
- * Routes to role-specific templates based on user's role category
- * 
- * Role-based templates:
- * - admin:    Full access (Director, System Administrator, School Administrator)
- * - manager:  Department view (Deputy Heads, HODs, Headteacher)
- * - operator: Directory view (Class Teacher, Subject Teacher)
- * - viewer:   Key contacts only (Students, Parents)
+ * All Staff Page — JWT-Based Role Router
+ *
+ * Uses PageShell.loadRoleTemplate() to select the correct sub-template
+ * based on the current user's permissions. Fully stateless (no PHP session).
  */
-
-require_once __DIR__ . '/../config/permissions.php';
-
-// Determine role from session
-$role = '';
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-$role = strtolower($_SESSION['role'] ?? $_SESSION['user_role'] ?? '');
-
-// Map roles to template files
-$adminRoles = ['director', 'director/owner', 'system administrator', 'school administrator', 'school administrative officer'];
-$managerRoles = [
-    'headteacher',
-    'deputy head - academics',
-    'deputy head - discipline',
-    'deputy head - boarding',
-    'hod - languages',
-    'hod - sciences',
-    'hod - humanities',
-    'hod - mathematics',
-    'hod - talent development',
-    'hod - food & nutrition',
-    'dean of studies'
-];
-$operatorRoles = ['class teacher', 'subject teacher', 'teacher', 'games teacher'];
-// Everyone else gets viewer
-
-if (in_array($role, $adminRoles)) {
-    $templatePath = __DIR__ . '/staff/admin_staff.php';
-} elseif (in_array($role, $managerRoles)) {
-    $templatePath = __DIR__ . '/staff/manager_staff.php';
-} elseif (in_array($role, $operatorRoles)) {
-    $templatePath = __DIR__ . '/staff/operator_staff.php';
-} else {
-    $templatePath = __DIR__ . '/staff/viewer_staff.php';
-}
-
-include $templatePath;
 ?>
+
+<!-- Loading state while determining user role -->
+<div id="staff-list-loading" style="padding: 40px; text-align: center;">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <p class="mt-3">Loading staff directory...</p>
+</div>
+
+<!-- Container where the correct template will be injected -->
+<div id="staff-list-content" style="display: none;"></div>
+
+<script>
+(function () {
+    PageShell.loadRoleTemplate({
+        loadingId:   'staff-list-loading',
+        contentId:   'staff-list-content',
+        templateDir: '/pages/staff/',
+        module:      'Staff',
+        levels: [
+            {
+                file: 'admin_staff.php',
+                test: function () {
+                    return PageShell.hasAny(['staff_manage', 'staff_admin', 'staff_delete', 'staff_view_all']) ||
+                           PageShell.hasRole(['system_administrator', 'director', 'director_owner', 'school_administrator', 'school_administrative_officer']);
+                },
+            },
+            {
+                file: 'manager_staff.php',
+                test: function () {
+                    return PageShell.hasAny(['staff_edit', 'staff_view_department']) ||
+                           PageShell.hasRole(['headteacher', 'deputy_head_academic', 'deputy_head_discipline', 'hod_talent_development']);
+                },
+            },
+            {
+                file: 'operator_staff.php',
+                test: function () {
+                    return PageShell.hasAny(['staff_view', 'staff_view_directory']) ||
+                           PageShell.hasRole(['class_teacher', 'subject_teacher', 'intern_student_teacher']);
+                },
+            },
+            {
+                file: 'viewer_staff.php',
+                test: function () {
+                    return PageShell.hasAny(['staff_view_own', 'staff_view_contacts']) ||
+                           PageShell.hasRole(['parent', 'student', 'support_staff']);
+                },
+            },
+        ],
+    });
+})();
+</script>

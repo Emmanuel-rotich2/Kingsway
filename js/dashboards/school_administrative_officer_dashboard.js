@@ -69,7 +69,7 @@ const schoolAdminDashboardController = {
   // Configuration
   config: {
     refreshInterval: 900000, // 15 minutes
-    apiBase: "/Kingsway/api/",
+    apiBase: (window.APP_BASE || '') + '/api/',
     debug: true,
   },
 
@@ -82,7 +82,7 @@ const schoolAdminDashboardController = {
     // Check authentication
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       this.log("❌ User not authenticated, redirecting...");
-      window.location.href = "/Kingsway/index.php";
+      window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
 

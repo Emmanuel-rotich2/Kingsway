@@ -45,7 +45,7 @@ const sysAdminDashboardController = {
     
     config: {
         refreshInterval: 30000, // 30 seconds
-        apiBasePath: '/Kingsway/api'
+        apiBasePath: (window.APP_BASE || '') + '/api'
     },
     
     /**
@@ -58,7 +58,7 @@ const sysAdminDashboardController = {
         if (typeof AuthContext !== 'undefined' && typeof AuthContext.isAuthenticated === 'function') {
             if (!AuthContext.isAuthenticated()) {
                 console.warn('User not authenticated, redirecting...');
-                window.location.href = '/Kingsway/index.php';
+                window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
             }
         }

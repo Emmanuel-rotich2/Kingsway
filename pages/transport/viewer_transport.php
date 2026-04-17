@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Transport - Viewer Layout
  * Read-only for Students and Parents
- * 
+ *
  * Features:
  * - No sidebar
  * - Transport info card
@@ -10,29 +11,13 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
-
-<div class="viewer-layout">
-    <!-- Header -->
-    <header class="viewer-header">
-        <a href="/pages/dashboard.php" class="back-link">← Dashboard</a>
-        <h1 class="page-title">🚌 Transport Info</h1>
-    </header>
-
-    <!-- Main Content -->
-    <main class="viewer-main">
-        <!-- Transport Cards -->
-        <div class="viewer-transport-container" id="transportContainer">
-            <!-- Loaded dynamically -->
-        </div>
-    </main>
+<!-- Transport Cards -->
+<div class="viewer-transport-container" id="transportContainer">
+    <!-- Loaded dynamically -->
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         loadTransportInfo();
     });
 
@@ -81,7 +66,7 @@
                     ${transport.student_name ? `<span class="student-name">${escapeHtml(transport.student_name)}</span>` : ''}
                 </div>
             </div>
-            
+
             <div class="transport-body">
                 <div class="transport-section">
                     <h4>Schedule</h4>
@@ -102,7 +87,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="transport-section">
                     <h4>Pickup Point</h4>
                     <div class="pickup-info">
@@ -110,7 +95,7 @@
                         <span class="pickup-name">${escapeHtml(transport.stop_name || 'Not assigned')}</span>
                     </div>
                 </div>
-                
+
                 <div class="transport-section">
                     <h4>Vehicle & Driver</h4>
                     <div class="vehicle-info">

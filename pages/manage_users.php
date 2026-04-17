@@ -16,6 +16,9 @@
         </div>
     </div>
     <div class="card-body">
+        <!-- Scope info banner — populated by JS based on admin role -->
+        <div id="scopeInfoBanner" style="display:none;"></div>
+
         <!-- Navigation Tabs -->
         <ul class="nav nav-tabs mb-4" role="tablist">
             <li class="nav-item">

@@ -130,4 +130,4 @@
     </div>
 </div>
 
-<script src="js/pages/conduct_reports.js"></script>
+<script src="<?= $appBase ?>js/pages/conduct_reports.js"></script>

@@ -2,152 +2,110 @@
 /**
  * Fees - Manager Layout
  * For Accountant, Bursar
- * 
+ *
  * Features:
- * - Collapsible sidebar (80px → 240px)
  * - 4 stat cards
  * - 1 chart (collection trend)
  * - Full data table
  * - Actions: Record Payment, Export
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
-<link rel="stylesheet" href="<?= $appBase ?>css/roles/manager-theme.css">
-
-<div class="manager-layout">
-    <!-- Collapsible Sidebar -->
-    <aside class="manager-sidebar collapsed" id="managerSidebar">
-        <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
-
-        <nav class="sidebar-nav">
-            <a href="<?= $appBase ?>home.php?route=school_accountant_dashboard" class="nav-item" title="Dashboard">
-                <span class="nav-icon">🏠</span>
-                <span class="nav-text">Dashboard</span>
-            </a>
-            <a href="<?= $appBase ?>home.php?route=manage_finance" class="nav-item" title="Finance">
-                <span class="nav-icon">💰</span>
-                <span class="nav-text">Finance</span>
-            </a>
-            <a href="<?= $appBase ?>home.php?route=manage_fees" class="nav-item active" title="Fees">
-                <span class="nav-icon">🧾</span>
-                <span class="nav-text">Student Fees</span>
-            </a>
-            <a href="<?= $appBase ?>home.php?route=fee_defaulters" class="nav-item" title="Defaulters">
-                <span class="nav-icon">⚠️</span>
-                <span class="nav-text">Defaulters</span>
-            </a>
-        </nav>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="manager-main">
-        <!-- Header -->
-        <header class="manager-header">
-            <div class="header-left">
-                <h1 class="page-title">🧾 Student Fees & Payments</h1>
-                <p class="page-subtitle">Record and track student payments</p>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-outline" onclick="exportFees()">📥 Export</button>
-                <button class="btn btn-primary" onclick="showRecordPaymentModal()">➕ Record Payment</button>
-            </div>
-        </header>
-
-        <!-- Stats Row - 4 cards -->
-        <div class="manager-stats-grid" style="grid-template-columns: repeat(4, 1fr);">
-            <div class="stat-card">
-                <div class="stat-icon bg-info">📋</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalExpected">KES 0</span>
-                    <span class="stat-label">Expected</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-success">💵</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalCollected">KES 0</span>
-                    <span class="stat-label">Collected</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-warning">⏳</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="outstandingBalance">KES 0</span>
-                    <span class="stat-label">Outstanding</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-danger">⚠️</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="overdueCount">0</span>
-                    <span class="stat-label">Overdue</span>
-                </div>
-            </div>
+<!-- Stats Row - 4 cards -->
+<div class="manager-stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+    <div class="stat-card">
+        <div class="stat-icon bg-info">📋</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalExpected">KES 0</span>
+            <span class="stat-label">Expected</span>
         </div>
-
-        <!-- Chart -->
-        <div class="manager-charts-grid">
-            <div class="chart-card">
-                <h3>📈 Collection Trend</h3>
-                <div class="chart-container">
-                    <canvas id="collectionChart"></canvas>
-                </div>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-success">💵</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalCollected">KES 0</span>
+            <span class="stat-label">Collected</span>
         </div>
-
-        <!-- Filters Section -->
-        <div class="manager-filters">
-            <input type="text" class="form-input" id="studentSearch" placeholder="Search student/admission no...">
-            <select class="form-select" id="classFilter">
-                <option value="">All Classes</option>
-            </select>
-            <select class="form-select" id="termFilter">
-                <option value="">All Terms</option>
-                <option value="1">Term 1</option>
-                <option value="2">Term 2</option>
-                <option value="3">Term 3</option>
-            </select>
-            <select class="form-select" id="statusFilter">
-                <option value="">All Status</option>
-                <option value="paid">Paid</option>
-                <option value="partial">Partial</option>
-                <option value="outstanding">Outstanding</option>
-                <option value="overdue">Overdue</option>
-            </select>
-            <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-warning">⏳</div>
+        <div class="stat-content">
+            <span class="stat-value" id="outstandingBalance">KES 0</span>
+            <span class="stat-label">Outstanding</span>
         </div>
-
-        <!-- Data Table -->
-        <div class="manager-table-container">
-            <table class="manager-data-table" id="feesTable">
-                <thead>
-                    <tr>
-                        <th>Admission No.</th>
-                        <th>Student Name</th>
-                        <th>Class</th>
-                        <th>Term</th>
-                        <th class="text-end">Expected</th>
-                        <th class="text-end">Paid</th>
-                        <th class="text-end">Balance</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="feesTableBody">
-                    <tr>
-                        <td colspan="9" class="loading-row">Loading fees...</td>
-                    </tr>
-                </tbody>
-            </table>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-danger">⚠️</div>
+        <div class="stat-content">
+            <span class="stat-value" id="overdueCount">0</span>
+            <span class="stat-label">Overdue</span>
         </div>
+    </div>
+</div>
 
-        <!-- Pagination -->
-        <div class="manager-pagination">
-            <span class="pagination-info" id="paginationInfo">Showing 0 of 0</span>
-            <div class="pagination-controls" id="paginationControls"></div>
+<!-- Chart -->
+<div class="manager-charts-grid">
+    <div class="chart-card">
+        <h3>📈 Collection Trend</h3>
+        <div class="chart-container">
+            <canvas id="collectionChart"></canvas>
         </div>
-    </main>
+    </div>
+</div>
+
+<!-- Filters Section -->
+<div class="manager-filters">
+    <input type="text" class="form-input" id="studentSearch" placeholder="Search student/admission no...">
+    <select class="form-select" id="classFilter">
+        <option value="">All Classes</option>
+    </select>
+    <select class="form-select" id="termFilter">
+        <option value="">All Terms</option>
+        <option value="1">Term 1</option>
+        <option value="2">Term 2</option>
+        <option value="3">Term 3</option>
+    </select>
+    <select class="form-select" id="statusFilter">
+        <option value="">All Status</option>
+        <option value="paid">Paid</option>
+        <option value="partial">Partial</option>
+        <option value="outstanding">Outstanding</option>
+        <option value="overdue">Overdue</option>
+    </select>
+    <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
+    <button class="btn btn-outline" onclick="exportFees()">📥 Export</button>
+    <button class="btn btn-primary" onclick="showRecordPaymentModal()">➕ Record Payment</button>
+</div>
+
+<!-- Data Table -->
+<div class="manager-table-container">
+    <table class="manager-data-table" id="feesTable">
+        <thead>
+            <tr>
+                <th>Admission No.</th>
+                <th>Student Name</th>
+                <th>Class</th>
+                <th>Term</th>
+                <th class="text-end">Expected</th>
+                <th class="text-end">Paid</th>
+                <th class="text-end">Balance</th>
+                <th>Status</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="feesTableBody">
+            <tr>
+                <td colspan="9" class="loading-row">Loading fees...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+<div class="manager-pagination">
+    <span class="pagination-info" id="paginationInfo">Showing 0 of 0</span>
+    <div class="pagination-controls" id="paginationControls"></div>
 </div>
 
 <!-- Record Payment Modal -->
@@ -215,19 +173,13 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
-<script src="/js/pages/studentFees.js"></script>
+<script src="<?= $appBase ?>js/pages/studentFees.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         if (typeof FeesController !== 'undefined') {
             FeesController.init({ view: 'manager' });
         }
     });
-
-    function toggleSidebar() {
-        document.getElementById('managerSidebar').classList.toggle('collapsed');
-    }
 
     function showRecordPaymentModal() {
         document.getElementById('paymentForm').reset();

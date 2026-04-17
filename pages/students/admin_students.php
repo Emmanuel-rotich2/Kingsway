@@ -2,200 +2,146 @@
 /**
  * Students - Admin Layout
  * Full featured for System Administrator, Director, Headteacher, School Admin
- * 
+ *
  * Features:
- * - Full sidebar
  * - 4 stat cards with trends
  * - 3 charts (enrollment, gender, class distribution)
  * - Full data table with all columns
  * - All actions: View, Edit, Delete, Transfer, Graduate, Export
  * - Bulk operations
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="<?= $appBase ?>css/school-theme.css">
-<link rel="stylesheet" href="<?= $appBase ?>css/roles/admin-theme.css">
-
-<div class="admin-layout">
-    <!-- Full Sidebar -->
-    <aside class="admin-sidebar" id="adminSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
-            <h3>Kingsway Academy</h3>
+<!-- Stats Row - 4 cards -->
+<div class="admin-stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon bg-primary">👨‍🎓</div>
+        <div class="stat-content">
+            <span class="stat-value" id="totalStudents">0</span>
+            <span class="stat-label">Total Students</span>
+            <span class="stat-trend up" id="enrollmentTrend">+0%</span>
         </div>
-
-        <nav class="sidebar-nav">
-            <div class="nav-section">
-                <span class="nav-section-title">Main</span>
-                <a href="/pages/dashboard.php" class="nav-item">🏠 Dashboard</a>
-                <a href="/pages/all_students.php" class="nav-item active">👨‍🎓 Students</a>
-                <a href="/pages/all_teachers.php" class="nav-item">👩‍🏫 Teachers</a>
-                <a href="/pages/all_staff.php" class="nav-item">👥 Staff</a>
-            </div>
-            <div class="nav-section">
-                <span class="nav-section-title">Academic</span>
-                <a href="/pages/all_classes.php" class="nav-item">📚 Classes</a>
-                <a href="/pages/academic_years.php" class="nav-item">📅 Academic Years</a>
-                <a href="/pages/assessments_exams.php" class="nav-item">📝 Assessments</a>
-            </div>
-            <div class="nav-section">
-                <span class="nav-section-title">Operations</span>
-                <a href="/pages/manage_communications.php" class="nav-item">📧 Communications</a>
-                <a href="/pages/manage_activities.php" class="nav-item">🏆 Activities</a>
-                <a href="/pages/manage_transport.php" class="nav-item">🚌 Transport</a>
-            </div>
-        </nav>
-
-        <div class="user-info" id="userInfo">
-            <img src="/images/default-avatar.png" alt="User" class="user-avatar">
-            <div class="user-details">
-                <span class="user-name" id="userName"></span>
-                <span class="user-role" id="userRole"></span>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-success">✅</div>
+        <div class="stat-content">
+            <span class="stat-value" id="activeStudents">0</span>
+            <span class="stat-label">Active</span>
+            <span class="stat-trend" id="activeTrend">-</span>
         </div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="admin-main">
-        <!-- Header -->
-        <header class="admin-header">
-            <div class="header-left">
-                <h1 class="page-title">👨‍🎓 Student Management</h1>
-                <p class="page-subtitle">View, manage, and analyze student data</p>
-            </div>
-            <div class="header-actions">
-                <button class="btn btn-outline" onclick="exportStudents()">📥 Export</button>
-                <button class="btn btn-primary" onclick="showAddStudentModal()">➕ Add Student</button>
-            </div>
-        </header>
-
-        <!-- Stats Row - 4 cards -->
-        <div class="admin-stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon bg-primary">👨‍🎓</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="totalStudents">0</span>
-                    <span class="stat-label">Total Students</span>
-                    <span class="stat-trend up" id="enrollmentTrend">+0%</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-success">✅</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="activeStudents">0</span>
-                    <span class="stat-label">Active</span>
-                    <span class="stat-trend" id="activeTrend">-</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-warning">🆕</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="newAdmissions">0</span>
-                    <span class="stat-label">New This Term</span>
-                    <span class="stat-trend" id="newTrend">-</span>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon bg-info">🎓</div>
-                <div class="stat-content">
-                    <span class="stat-value" id="graduatingCount">0</span>
-                    <span class="stat-label">Graduating</span>
-                    <span class="stat-trend" id="gradTrend">-</span>
-                </div>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-warning">🆕</div>
+        <div class="stat-content">
+            <span class="stat-value" id="newAdmissions">0</span>
+            <span class="stat-label">New This Term</span>
+            <span class="stat-trend" id="newTrend">-</span>
         </div>
-
-        <!-- Charts Row -->
-        <div class="admin-charts-row">
-            <div class="chart-card chart-wide">
-                <div class="chart-header">
-                    <h3>Enrollment Trend</h3>
-                    <select class="chart-filter" id="enrollmentPeriod">
-                        <option value="year">This Year</option>
-                        <option value="5years">5 Years</option>
-                    </select>
-                </div>
-                <canvas id="enrollmentChart" height="200"></canvas>
-            </div>
-            <div class="chart-card chart-narrow">
-                <div class="chart-header">
-                    <h3>Gender Distribution</h3>
-                </div>
-                <canvas id="genderChart" height="200"></canvas>
-            </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon bg-info">🎓</div>
+        <div class="stat-content">
+            <span class="stat-value" id="graduatingCount">0</span>
+            <span class="stat-label">Graduating</span>
+            <span class="stat-trend" id="gradTrend">-</span>
         </div>
+    </div>
+</div>
 
-        <!-- Tabs for different views -->
-        <div class="admin-tabs">
-            <button class="tab-btn active" data-tab="all">All Students</button>
-            <button class="tab-btn" data-tab="boarders">Boarders</button>
-            <button class="tab-btn" data-tab="dayScholars">Day Scholars</button>
-            <button class="tab-btn" data-tab="specialNeeds">Special Needs</button>
+<!-- Charts Row -->
+<div class="admin-charts-row">
+    <div class="chart-card chart-wide">
+        <div class="chart-header">
+            <h3>Enrollment Trend</h3>
+            <select class="chart-filter" id="enrollmentPeriod">
+                <option value="year">This Year</option>
+                <option value="5years">5 Years</option>
+            </select>
         </div>
-
-        <!-- Filters -->
-        <div class="admin-filters">
-            <div class="filter-row">
-                <select class="filter-select" id="filterClass">
-                    <option value="">All Classes</option>
-                </select>
-                <select class="filter-select" id="filterStream">
-                    <option value="">All Streams</option>
-                </select>
-                <select class="filter-select" id="filterStatus">
-                    <option value="">All Status</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                    <option value="graduated">Graduated</option>
-                    <option value="transferred">Transferred</option>
-                </select>
-                <select class="filter-select" id="filterGender">
-                    <option value="">All Genders</option>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                </select>
-                <input type="text" class="filter-search" id="searchStudent"
-                    placeholder="🔍 Search by name or admission no...">
-            </div>
-            <div class="bulk-actions" id="bulkActions" style="display:none;">
-                <span class="selected-count"><span id="selectedCount">0</span> selected</span>
-                <button class="btn btn-sm" onclick="bulkExport()">📥 Export</button>
-                <button class="btn btn-sm" onclick="bulkMessage()">📧 Message</button>
-                <button class="btn btn-sm btn-danger" onclick="bulkDelete()">🗑️ Delete</button>
-            </div>
+        <canvas id="enrollmentChart" height="200"></canvas>
+    </div>
+    <div class="chart-card chart-narrow">
+        <div class="chart-header">
+            <h3>Gender Distribution</h3>
         </div>
+        <canvas id="genderChart" height="200"></canvas>
+    </div>
+</div>
 
-        <!-- Data Table - All columns -->
-        <div class="admin-table-card">
-            <table class="admin-data-table" id="studentsTable">
-                <thead>
-                    <tr>
-                        <th class="checkbox-col"><input type="checkbox" id="selectAll"></th>
-                        <th>Photo</th>
-                        <th>Adm No</th>
-                        <th>Name</th>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>Gender</th>
-                        <th>DOB</th>
-                        <th>Type</th>
-                        <th>Status</th>
-                        <th>Parent Contact</th>
-                        <th>Fee Balance</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="studentsTableBody">
-                    <!-- Data loaded dynamically -->
-                </tbody>
-            </table>
+<!-- Tabs for different views -->
+<div class="admin-tabs">
+    <button class="tab-btn active" data-tab="all">All Students</button>
+    <button class="tab-btn" data-tab="boarders">Boarders</button>
+    <button class="tab-btn" data-tab="dayScholars">Day Scholars</button>
+    <button class="tab-btn" data-tab="specialNeeds">Special Needs</button>
+</div>
 
-            <div class="table-footer">
-                <div class="page-info">Showing <span id="showingCount">0</span> of <span id="totalCount">0</span></div>
-                <div class="pagination" id="pagination"></div>
-            </div>
-        </div>
-    </main>
+<!-- Filters -->
+<div class="admin-filters">
+    <div class="filter-row">
+        <select class="filter-select" id="filterClass">
+            <option value="">All Classes</option>
+        </select>
+        <select class="filter-select" id="filterStream">
+            <option value="">All Streams</option>
+        </select>
+        <select class="filter-select" id="filterStatus">
+            <option value="">All Status</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="graduated">Graduated</option>
+            <option value="transferred">Transferred</option>
+        </select>
+        <select class="filter-select" id="filterGender">
+            <option value="">All Genders</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+        </select>
+        <input type="text" class="filter-search" id="searchStudent"
+            placeholder="🔍 Search by name or admission no...">
+    </div>
+    <div class="bulk-actions" id="bulkActions" style="display:none;">
+        <span class="selected-count"><span id="selectedCount">0</span> selected</span>
+        <button class="btn btn-sm" onclick="bulkExport()">📥 Export</button>
+        <button class="btn btn-sm" onclick="bulkMessage()">📧 Message</button>
+        <button class="btn btn-sm btn-danger" onclick="bulkDelete()">🗑️ Delete</button>
+    </div>
+    <div class="filter-actions">
+        <button class="btn btn-outline" onclick="exportStudents()">📥 Export</button>
+        <button class="btn btn-primary" onclick="showAddStudentModal()">➕ Add Student</button>
+    </div>
+</div>
+
+<!-- Data Table - All columns -->
+<div class="admin-table-card">
+    <table class="admin-data-table" id="studentsTable">
+        <thead>
+            <tr>
+                <th class="checkbox-col"><input type="checkbox" id="selectAll"></th>
+                <th>Photo</th>
+                <th>Adm No</th>
+                <th>Name</th>
+                <th>Class</th>
+                <th>Stream</th>
+                <th>Gender</th>
+                <th>DOB</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Parent Contact</th>
+                <th>Fee Balance</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="studentsTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
+
+    <div class="table-footer">
+        <div class="page-info">Showing <span id="showingCount">0</span> of <span id="totalCount">0</span></div>
+        <div class="pagination" id="pagination"></div>
+    </div>
 </div>
 
 <!-- Add/Edit Student Modal -->
@@ -287,18 +233,8 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/components/RoleBasedUI.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userName').textContent = user.name;
-            document.getElementById('userRole').textContent = user.role;
-        }
-
         loadStudents();
         loadStats();
         loadFilters();

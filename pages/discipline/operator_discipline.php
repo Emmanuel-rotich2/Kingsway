@@ -2,91 +2,59 @@
 /**
  * Discipline - Operator Layout
  * Minimal layout for Class Teachers, Subject Teachers
- * 
+ *
  * Features:
- * - Mini sidebar (icons only)
  * - 2 stat cards
  * - No charts
  * - Simple table (4 columns)
  * - Can report cases, view own reports only
  */
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/operator-theme.css">
-
-<div class="operator-layout">
-    <!-- Mini Sidebar -->
-    <aside class="operator-sidebar" id="operatorSidebar">
-        <div class="logo-section">
-            <img src="/images/logo.png" alt="KA">
+<!-- Stats - 2 columns -->
+<div class="operator-stats">
+    <div class="operator-stat-card">
+        <div class="stat-icon">📋</div>
+        <div class="stat-info">
+            <div class="stat-value" id="myCases">0</div>
+            <div class="stat-label">My Reports</div>
         </div>
-
-        <nav class="operator-nav">
-            <a href="/pages/dashboard.php" class="operator-nav-item" data-tooltip="Dashboard">🏠</a>
-            <a href="/pages/all_students.php" class="operator-nav-item" data-tooltip="Students">👨‍🎓</a>
-            <a href="/pages/discipline_cases.php" class="operator-nav-item active" data-tooltip="Discipline">⚖️</a>
-            <a href="/pages/my_classes.php" class="operator-nav-item" data-tooltip="My Classes">📚</a>
-        </nav>
-
-        <div class="user-avatar" id="userAvatar">T</div>
-    </aside>
-
-    <!-- Main Content -->
-    <main class="operator-main">
-        <!-- Header -->
-        <header class="operator-header">
-            <h1 class="page-title">⚖️ My Reported Cases</h1>
-            <button class="btn btn-warning btn-sm" id="reportBtn">📋 Report Case</button>
-        </header>
-
-        <!-- Content -->
-        <div class="operator-content">
-            <!-- Stats - 2 columns -->
-            <div class="operator-stats">
-                <div class="operator-stat-card">
-                    <div class="stat-icon">📋</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="myCases">0</div>
-                        <div class="stat-label">My Reports</div>
-                    </div>
-                </div>
-                <div class="operator-stat-card">
-                    <div class="stat-icon">🔴</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="pendingCases">0</div>
-                        <div class="stat-label">Pending</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Search -->
-            <div class="operator-filters">
-                <input type="text" class="search-input form-control" id="searchCase" placeholder="Search cases...">
-            </div>
-
-            <!-- Table - 4 essential columns -->
-            <div class="operator-table-card">
-                <div class="operator-table-header">
-                    <span class="table-title">Cases I Reported</span>
-                </div>
-
-                <table class="operator-data-table" id="casesTable">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th>Student</th>
-                            <th>Category</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="casesTableBody">
-                        <!-- Data loaded dynamically -->
-                    </tbody>
-                </table>
-            </div>
+    </div>
+    <div class="operator-stat-card">
+        <div class="stat-icon">🔴</div>
+        <div class="stat-info">
+            <div class="stat-value" id="pendingCases">0</div>
+            <div class="stat-label">Pending</div>
         </div>
-    </main>
+    </div>
+</div>
+
+<!-- Search -->
+<div class="operator-filters">
+    <input type="text" class="search-input form-control" id="searchCase" placeholder="Search cases...">
+    <button class="btn btn-warning btn-sm" id="reportBtn">📋 Report Case</button>
+</div>
+
+<!-- Table - 4 essential columns -->
+<div class="operator-table-card">
+    <div class="operator-table-header">
+        <span class="table-title">Cases I Reported</span>
+    </div>
+
+    <table class="operator-data-table" id="casesTable">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Student</th>
+                <th>Category</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody id="casesTableBody">
+            <!-- Data loaded dynamically -->
+        </tbody>
+    </table>
 </div>
 
 <!-- Simple Report Modal -->
@@ -127,16 +95,8 @@
     </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
-
-        const user = AuthContext.getUser();
-        if (user) {
-            document.getElementById('userAvatar').textContent = (user.name || 'T').charAt(0).toUpperCase();
-        }
-
         loadMyCases();
         loadMyClassStudents();
 

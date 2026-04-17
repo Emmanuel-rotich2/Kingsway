@@ -309,9 +309,4 @@
     </div>
 </div>
 
-<script>
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement myVehicleController in js/pages/my_vehicle.js
-        console.log('My Vehicle page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/my_vehicle.js"></script>

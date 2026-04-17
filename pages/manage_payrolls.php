@@ -391,4 +391,4 @@
     </div>
 </div>
 
-<script src="js/pages/payroll_manager.js"></script>
+<script src="<?= $appBase ?>js/pages/payroll_manager.js"></script>

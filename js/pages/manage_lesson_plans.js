@@ -401,4 +401,3 @@ const lessonPlansController = (() => {
 document.addEventListener("DOMContentLoaded", () =>
   lessonPlansController.init(),
 );
-);

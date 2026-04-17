@@ -1410,14 +1410,14 @@ const studentsManagementController = {
 
   exportStudents: async function () {
     try {
-      window.open("/Kingsway/api/?route=students/export&format=csv", "_blank");
+      window.open((window.APP_BASE || '') + '/api/?route=students/export&format=csv', "_blank");
     } catch (error) {
       this.showError("Failed to export students");
     }
   },
 
   downloadTemplate: function () {
-    window.open("/Kingsway/templates/student_import_template.csv", "_blank");
+    window.open((window.APP_BASE || '') + '/templates/student_import_template.csv', "_blank");
   },
 
   renderBulkImportResults: function (result, isError = false) {

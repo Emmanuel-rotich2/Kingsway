@@ -99,4 +99,4 @@
     </div>
 </div>
 
-<script src="js/pages/school_events.js"></script>
+<script src="<?= $appBase ?>js/pages/school_events.js"></script>

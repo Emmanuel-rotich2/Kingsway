@@ -1501,12 +1501,85 @@ class FeeStructureAdminController {
       timeout = setTimeout(later, wait);
     };
   }
+
+  // ============================================================
+  // BUNDLE APPROVAL WORKFLOW METHODS
+  // ============================================================
+
+  async loadPendingApprovals() {
+    const tbody = document.getElementById('pendingApprovalsBody');
+    const badge = document.getElementById('pendingApprovalsBadge');
+    if (!tbody) return;
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-3"><div class="spinner-border spinner-border-sm text-warning"></div></td></tr>';
+    try {
+      const resp = await window.API.apiCall('/finance/fees-bundle-list?status=submitted', 'GET');
+      const bundles = resp?.data?.bundles || resp?.data || [];
+      if (badge) badge.textContent = bundles.length;
+      if (!bundles.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No bundles pending approval</td></tr>';
+        return;
+      }
+      tbody.innerHTML = bundles.map(b => `
+        <tr>
+          <td>${b.level_name || b.level_id}</td>
+          <td>${b.academic_year}</td>
+          <td>${b.term_name || b.term_id}</td>
+          <td>${b.student_type_name || b.student_type_id}</td>
+          <td class="text-end fw-bold">KES ${Number(b.total_amount || 0).toLocaleString()}</td>
+          <td>${b.submitted_by_name || '—'}</td>
+          <td>${b.submitted_at ? b.submitted_at.substring(0,10) : '—'}</td>
+          <td>
+            <button class="btn btn-sm btn-success me-1" onclick="window.adminController && window.adminController.approveBundle(${b.id})">
+              <i class="bi bi-check-lg"></i> Approve
+            </button>
+            <button class="btn btn-sm btn-danger" onclick="window.adminController && window.adminController.rejectBundle(${b.id})">
+              <i class="bi bi-x-lg"></i> Reject
+            </button>
+          </td>
+        </tr>`).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">Failed to load: ${e.message || ''}</td></tr>`;
+    }
+  }
+
+  async approveBundle(approvalId) {
+    if (!confirm('Approve this fee structure bundle? This will immediately generate fee obligations for all affected students.')) return;
+    const notes = prompt('Approval notes (optional):') || '';
+    try {
+      const resp = await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
+        action: 'approve', notes
+      });
+      const d = resp?.data || {};
+      alert(`Bundle approved successfully.\nStudents billed: ${d.students_processed || 0}\nObligations created: ${d.obligations_created || 0}`);
+      this.loadPendingApprovals();
+      if (typeof this.loadFeeStructures === 'function') this.loadFeeStructures();
+    } catch (e) {
+      alert('Approval failed: ' + (e.message || 'Unknown error'));
+    }
+  }
+
+  async rejectBundle(approvalId) {
+    const reason = prompt('Rejection reason (required):');
+    if (!reason) return;
+    try {
+      await window.API.apiCall(`/finance/fees-bundle-approve/${approvalId}`, 'POST', {
+        action: 'reject', notes: reason
+      });
+      alert('Bundle rejected. Accountant can revise and resubmit.');
+      this.loadPendingApprovals();
+    } catch (e) {
+      alert('Reject failed: ' + (e.message || 'Unknown error'));
+    }
+  }
 }
 
+// Expose for inline onclick handlers
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () =>
-    FeeStructureAdminController.init(),
-  );
+  document.addEventListener("DOMContentLoaded", () => {
+    FeeStructureAdminController.init();
+    window.adminController = FeeStructureAdminController;
+  });
 } else {
   FeeStructureAdminController.init();
+  window.adminController = FeeStructureAdminController;
 }

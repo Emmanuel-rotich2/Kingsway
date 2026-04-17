@@ -282,26 +282,10 @@ async function authorizeRouteAccess(route) {
     }
 }
 
-function setRouteGuardPending(isPending, message = "Loading page...") {
-    const root = document.documentElement;
-    const loading = document.getElementById("route-guard-loading");
-    if (loading) {
-        const messageNode = loading.querySelector("[data-route-guard-message]");
-        if (messageNode) {
-            messageNode.textContent = message;
-        }
-    }
-
-    if (isPending) {
-        root.classList.add("route-guard-pending");
-    } else {
-        root.classList.remove("route-guard-pending");
-    }
-}
-
-function revealProtectedContent() {
-    setRouteGuardPending(false);
-}
+// Route guard overlay removed — PHP serves the correct page directly.
+// These stubs keep existing callers from throwing.
+function setRouteGuardPending(_isPending, _message) { /* no-op */ }
+function revealProtectedContent() { /* no-op */ }
 
 async function redirectToAllowedRoute(disallowedRoute) {
     const normalizedRoute = getRouteFromUrl(disallowedRoute);

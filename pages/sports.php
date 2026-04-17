@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="js/pages/sports.js"></script>
+<script src="<?= $appBase ?>js/pages/sports.js"></script>

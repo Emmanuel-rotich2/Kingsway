@@ -426,11 +426,26 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/exams/approve-results - Approve exam results
+     * POST /api/academic/exams/approve-results - Approve exam results (Director/academic_approve)
+     * Body: { instance_id, approved (bool, default true), comments }
      */
     public function postExamsApproveResults($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->approveExamResults($data['instance_id'] ?? null, $data);
+        if (!$this->userHasAny(
+            ['academic_approve', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to approve exam results');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $approved = isset($data['action'])
+            ? (strtolower($data['action']) === 'approve')
+            : (bool) ($data['approved'] ?? true);
+        $remarks = $data['comments'] ?? ($data['remarks'] ?? '');
+
+        $result = $this->api->approveExamResults($instanceId, $approved, $remarks);
         return $this->handleResponse($result);
     }
 
@@ -520,11 +535,21 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/promotions/execute - Execute promotions
+     * POST /api/academic/promotions/execute - Execute promotions (Director or students_promote)
+     * Body: { instance_id, apply_immediately (bool), effective_date (optional) }
      */
     public function postPromotionsExecute($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->executePromotions($data['instance_id'] ?? null, $data['promotion_data'] ?? [], $data);
+        if (!$this->userHasAny(
+            ['students_promote', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to execute student promotions');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $result = $this->api->executePromotions($instanceId, $data);
         return $this->handleResponse($result);
     }
 
@@ -722,21 +747,46 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum
+     * POST /api/academic/curriculum/review-and-approve - Review and approve curriculum (Director only)
+     * Body: { instance_id, action (approve|reject), comments }
      */
     public function postCurriculumReviewAndApprove($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->reviewAndApproveCurriculum($data['instance_id'] ?? null, $data['decision'] ?? null, $data);
+        if (!$this->userHasAny(
+            ['academic_approve', 'curriculum_approve', 'academic_manage'],
+            [1, 3],
+            ['director', 'principal']
+        )) {
+            return $this->forbidden('You do not have permission to approve curriculum changes');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $action = strtolower($data['action'] ?? ($data['decision'] ?? 'approve'));
+        $review = array_merge($data, [
+            'approved' => ($action === 'approve'),
+            'feedback' => $data['comments'] ?? ($data['feedback'] ?? []),
+        ]);
+
+        $result = $this->api->reviewAndApproveCurriculum($instanceId, $review);
         return $this->handleResponse($result);
     }
 
     // ==================== YEAR TRANSITION WORKFLOW ====================
 
     /**
-     * POST /api/academic/year-transition/start-workflow - Start year transition workflow
+     * POST /api/academic/year-transition/start-workflow - Start year transition workflow (Director only)
+     * Body: { from_year, to_year, year_start_date, year_end_date, terms[] }
      */
     public function postYearTransitionStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can start year transition workflows');
+        }
+
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startYearTransitionWorkflow($payload);
         return $this->handleResponse($result);
@@ -761,11 +811,22 @@ class AcademicController extends BaseController
     }
 
     /**
-     * POST /api/academic/year-transition/setup-new-year - Setup new academic year
+     * POST /api/academic/year-transition/setup-new-year - Setup new academic year (Director only)
+     * Body: { instance_id, year_id (optional), class_structures[], clone_subjects, clone_staff_assignments }
      */
     public function postYearTransitionSetupNewYear($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->setupNewAcademicYear($data['instance_id'] ?? null, $data['year_config'] ?? [], $data);
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can setup new academic year');
+        }
+
+        $instanceId = $data['instance_id'] ?? ($id ?? null);
+        $yearConfig = $data['year_config'] ?? $data;
+        $result = $this->api->setupNewAcademicYear($instanceId, $yearConfig);
         return $this->handleResponse($result);
     }
 
@@ -877,12 +938,26 @@ class AcademicController extends BaseController
     }
 
     /**
-     * PUT /api/academic/years/set-current/{id} - Set year as current
+     * PUT /api/academic/years/set-current - Set year as current (Director/System Admin only)
+     * Accepts year_id from URL segment (/set-current/5) or from request body (year_id or id)
      */
     public function putYearsSetCurrent($id = null, $data = [], $segments = [])
     {
-        $yearId = $id ?? ($data['id'] ?? null);
-        $result = $this->api->setCurrentAcademicYear($yearId);
+        // Only Director (role_id=3) or System Admin (role_id=1) may change the current year
+        if (!$this->userHasAny(
+            ['academic_year_manage', 'system_admin'],
+            [1, 3],
+            ['director', 'system admin', 'systemadmin']
+        )) {
+            return $this->forbidden('Only Director or System Admin can set the current academic year');
+        }
+
+        $yearId = $id ?? ($data['year_id'] ?? ($data['id'] ?? null));
+        if (!$yearId) {
+            return $this->badRequest('year_id is required');
+        }
+
+        $result = $this->api->setCurrentAcademicYear((int) $yearId);
         return $this->handleResponse($result);
     }
 
@@ -1569,4 +1644,433 @@ class AcademicController extends BaseController
         );
         return $this->handleResponse($result);
     }
+
+    // ==================== CBC: FORMATIVE ASSESSMENTS ====================
+
+    /**
+     * GET  /api/academic/formative-assessments         → list formative assessments
+     * POST /api/academic/formative-assessments         → create formative assessment
+     */
+    public function getFormativeAssessments($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db     = $this->db;
+            $where  = ["a.assessment_type_id IS NOT NULL"];
+            $params = [];
+
+            // Join to assessment_types and filter is_formative=1
+            $where[] = "at.is_formative = 1";
+
+            if (!empty($_GET['class_id']))    { $where[] = "a.class_id=:cid";     $params[':cid'] = (int)$_GET['class_id']; }
+            if (!empty($_GET['subject_id']))  { $where[] = "a.subject_id=:sid";   $params[':sid'] = (int)$_GET['subject_id']; }
+            if (!empty($_GET['term_id']))     { $where[] = "a.term_id=:tid";      $params[':tid'] = (int)$_GET['term_id']; }
+            if (!empty($_GET['type_id']))     { $where[] = "a.assessment_type_id=:atid"; $params[':atid'] = (int)$_GET['type_id']; }
+
+            $stmt = $db->query(
+                "SELECT a.*,
+                        at.name AS type_name, at.is_formative, at.is_summative,
+                        la.name AS subject_name, la.code AS subject_code,
+                        c.name AS class_name,
+                        t.name AS term_name,
+                        CONCAT(st.first_name,' ',st.last_name) AS assigned_by_name
+                 FROM assessments a
+                 JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN learning_areas la ON la.id = a.subject_id
+                 LEFT JOIN classes c ON c.id = a.class_id
+                 LEFT JOIN academic_terms t ON t.id = a.term_id
+                 LEFT JOIN staff st ON st.user_id = a.assigned_by
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY a.assessment_date DESC
+                 LIMIT 500",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    public function postFormativeAssessments($id = null, $data = [], $segments = [])
+    {
+        try {
+            $required = ['class_id','subject_id','term_id','title','assessment_type_id','max_marks'];
+            foreach ($required as $f) {
+                if (empty($data[$f])) return $this->badRequest("$f is required");
+            }
+            // Verify type is formative
+            $typeCheck = $this->db->query("SELECT is_formative FROM assessment_types WHERE id=:id LIMIT 1", [':id' => (int)$data['assessment_type_id']]);
+            $type = $typeCheck->fetch(\PDO::FETCH_ASSOC);
+            if (!$type || !$type['is_formative']) return $this->badRequest('assessment_type_id must refer to a formative type');
+
+            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+            $this->db->query(
+                "INSERT INTO assessments
+                    (class_id, subject_id, term_id, title, max_marks, assessment_date, assigned_by, assessment_type_id, learning_outcome_id, status)
+                 VALUES
+                    (:cid, :sid, :tid, :title, :marks, :dt, :aby, :atid, :loid, 'pending_submission')",
+                [
+                    ':cid'   => (int)$data['class_id'],
+                    ':sid'   => (int)$data['subject_id'],
+                    ':tid'   => (int)$data['term_id'],
+                    ':title' => trim($data['title']),
+                    ':marks' => (float)$data['max_marks'],
+                    ':dt'    => $data['assessment_date'] ?? date('Y-m-d'),
+                    ':aby'   => $userId,
+                    ':atid'  => (int)$data['assessment_type_id'],
+                    ':loid'  => !empty($data['learning_outcome_id']) ? (int)$data['learning_outcome_id'] : null,
+                ]
+            );
+            return $this->created(['id' => (int)$this->db->lastInsertId()], 'Formative assessment created');
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/academic/formative-assessments/{id}/marks → bulk mark entry
+     */
+    /**
+     * GET /api/academic/formative-assessment-marks?assessment_id=X
+     * Returns all students for the assessment's class with their existing scores (or null).
+     */
+    public function getFormativeAssessmentMarks($id = null, $data = [], $segments = [])
+    {
+        try {
+            $id = $id ?? (int)($_GET['assessment_id'] ?? 0);
+            if (!$id) return $this->badRequest('assessment_id is required');
+
+            // Get assessment + class info
+            $aStmt = $this->db->query(
+                "SELECT a.id, a.class_id, a.max_marks, a.title,
+                        c.name AS class_name
+                 FROM assessments a
+                 LEFT JOIN classes c ON c.id = a.class_id
+                 WHERE a.id=:id LIMIT 1",
+                [':id' => (int)$id]
+            );
+            $assessment = $aStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$assessment) return $this->notFound('Assessment not found');
+
+            // Get all active students in the class
+            $sStmt = $this->db->query(
+                "SELECT s.id AS student_id, s.first_name, s.last_name, s.admission_no,
+                        fs.score, fs.max_score, fs.percentage, fs.cbc_grade, fs.remarks
+                 FROM students s
+                 JOIN class_streams cs ON cs.id = s.stream_id AND cs.class_id = :cid
+                 LEFT JOIN formative_scores fs ON fs.student_id = s.id AND fs.assessment_id = :aid
+                 WHERE s.status = 'active'
+                 ORDER BY s.last_name, s.first_name",
+                [':cid' => (int)$assessment['class_id'], ':aid' => (int)$id]
+            );
+            return $this->success($sStmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/academic/formative-assessment-marks
+     * Bulk upsert marks for an assessment. Payload: { assessment_id, marks: [{student_id, score, remarks}] }
+     */
+    public function postFormativeAssessmentMarks($id = null, $data = [], $segments = [])
+    {
+        try {
+            $assessmentId = $id ?? (int)($data['assessment_id'] ?? 0);
+            if (!$assessmentId) return $this->badRequest('assessment_id is required');
+            $id = $assessmentId;
+            // Accept both 'marks' and 'scores' keys for compatibility
+            $scores = $data['marks'] ?? $data['scores'] ?? [];
+            if (empty($scores)) return $this->badRequest('marks array is required');
+
+            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+
+            // Get max_marks for this assessment
+            $maxStmt = $this->db->query("SELECT max_marks FROM assessments WHERE id=:id LIMIT 1", [':id' => (int)$id]);
+            $asmnt = $maxStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$asmnt) return $this->notFound('Assessment not found');
+            $maxMarks = (float)$asmnt['max_marks'];
+
+            $this->db->beginTransaction();
+            $ins = $this->db->getConnection()->prepare(
+                "INSERT INTO formative_scores (assessment_id, student_id, score, max_score, remarks, entered_by)
+                 VALUES (:aid, :sid, :score, :max, :rmk, :eby)
+                 ON DUPLICATE KEY UPDATE score=:score, max_score=:max, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
+            );
+            foreach ($scores as $entry) {
+                $ins->execute([
+                    ':aid'   => (int)$id,
+                    ':sid'   => (int)$entry['student_id'],
+                    ':score' => min((float)($entry['score'] ?? 0), $maxMarks),
+                    ':max'   => $maxMarks,
+                    ':rmk'   => $entry['remarks'] ?? null,
+                    ':eby'   => $userId,
+                ]);
+            }
+            $this->db->commit();
+            return $this->success(['saved' => count($scores)], 'Marks saved successfully');
+        } catch (\Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollback();
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/academic/formative-summary?class_id=&subject_id=&term_id=
+     * Returns per-student per-learning-area formative averages
+     */
+    public function getFormativeSummary($id = null, $data = [], $segments = [])
+    {
+        try {
+            $classId   = (int)($_GET['class_id']   ?? 0);
+            $subjectId = (int)($_GET['subject_id']  ?? 0);
+            $termId    = (int)($_GET['term_id']     ?? 0);
+            if (!$classId || !$termId) return $this->success([], 'No filters selected — specify class_id and term_id');
+
+            $stmt = $this->db->query(
+                "SELECT
+                    s.id AS student_id,
+                    CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                    s.admission_no,
+                    la.id AS learning_area_id,
+                    la.name AS learning_area_name,
+                    COUNT(fs.id) AS assessment_count,
+                    ROUND(AVG(fs.percentage),2) AS formative_avg_pct,
+                    CASE
+                        WHEN AVG(fs.percentage) >= 75 THEN 'EE'
+                        WHEN AVG(fs.percentage) >= 60 THEN 'ME'
+                        WHEN AVG(fs.percentage) >= 40 THEN 'AE'
+                        ELSE 'BE'
+                    END AS formative_grade
+                 FROM students s
+                 JOIN class_streams cs ON cs.id = s.stream_id
+                 JOIN formative_scores fs ON fs.student_id = s.id
+                 JOIN assessments a ON a.id = fs.assessment_id AND a.term_id = :tid
+                 JOIN assessment_types at ON at.id = a.assessment_type_id AND at.is_formative = 1
+                 JOIN learning_areas la ON la.id = a.subject_id
+                 WHERE cs.class_id = :cid
+                   AND (:sid1 = 0 OR la.id = :sid2)
+                   AND s.status = 'active'
+                 GROUP BY s.id, la.id
+                 ORDER BY s.last_name, la.name",
+                [':tid' => $termId, ':cid' => $classId, ':sid1' => $subjectId, ':sid2' => $subjectId]
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: ASSESSMENT TYPES ====================
+
+    /**
+     * GET /api/academic/assessment-types → list all CBC assessment types
+     */
+    public function getAssessmentTypes($id = null, $data = [], $segments = [])
+    {
+        try {
+            $filter = $_GET['filter'] ?? 'all'; // all | formative | summative | national
+            $where  = ["status='active'"];
+            if ($filter === 'formative')  $where[] = "is_formative=1";
+            if ($filter === 'summative')  $where[] = "is_summative=1";
+            if ($filter === 'national')   $where[] = "name IN ('KNEC Grade 3 Assessment','KPSEA','KJSEA')";
+
+            $stmt = $this->db->query("SELECT * FROM assessment_types WHERE " . implode(' AND ', $where) . " ORDER BY is_formative DESC, name");
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/academic/core-competencies-list → CBC 8 core competencies from DB
+     */
+    public function getCoreCompetenciesList($id = null, $data = [], $segments = [])
+    {
+        try {
+            $stmt = $this->db->query("SELECT id, code, name, description FROM core_competencies WHERE status='active' ORDER BY sort_order, id");
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: COMPETENCY RATINGS ====================
+
+    /**
+     * GET  /api/academic/competency-ratings?class_id=&term_id=&student_id=
+     * POST /api/academic/competency-ratings  → bulk upsert
+     */
+    public function getCompetencyRatings($id = null, $data = [], $segments = [])
+    {
+        try {
+            $termId    = (int)($_GET['term_id']    ?? 0);
+            $classId   = (int)($_GET['class_id']   ?? 0);
+            $studentId = (int)($_GET['student_id'] ?? 0);
+            if (!$termId) return $this->badRequest('term_id is required');
+
+            $where  = ['lc.term_id = :tid'];
+            $params = [':tid' => $termId];
+            if ($studentId) { $where[] = 'lc.student_id=:sid'; $params[':sid'] = $studentId; }
+            elseif ($classId) {
+                $where[] = 's.id IN (SELECT st.id FROM students st JOIN class_streams cs2 ON cs2.id=st.stream_id WHERE cs2.class_id=:cid)';
+                $params[':cid'] = $classId;
+            }
+
+            $stmt = $this->db->query(
+                "SELECT lc.*,
+                        cc.code AS competency_code, cc.name AS competency_name,
+                        plc.code AS level_code, plc.name AS level_name,
+                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                        s.admission_no
+                 FROM learner_competencies lc
+                 JOIN core_competencies cc ON cc.id = lc.competency_id
+                 LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
+                 JOIN students s ON s.id = lc.student_id
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY s.last_name, cc.sort_order",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    public function postCompetencyRatings($id = null, $data = [], $segments = [])
+    {
+        try {
+            $ratings = $data['ratings'] ?? []; // [{student_id, competency_id, level_code, evidence, notes}]
+            $termId  = (int)($data['term_id'] ?? 0);
+            $acadYear = $data['academic_year'] ?? date('Y');
+            if (!$termId || empty($ratings)) return $this->badRequest('term_id and ratings are required');
+
+            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+
+            // Map level_code to performance_level_id
+            $lvlStmt = $this->db->query("SELECT id, code FROM performance_levels_cbc");
+            $lvlMap  = [];
+            foreach ($lvlStmt->fetchAll(\PDO::FETCH_ASSOC) as $lv) $lvlMap[$lv['code']] = $lv['id'];
+
+            $this->db->beginTransaction();
+            $ins = $this->db->getConnection()->prepare(
+                "INSERT INTO learner_competencies
+                    (student_id, competency_id, academic_year, term_id, performance_level_id, evidence, teacher_notes, assessed_by, assessed_date)
+                 VALUES (:sid, :cid, :yr, :tid, :lvl, :ev, :notes, :aby, CURDATE())
+                 ON DUPLICATE KEY UPDATE performance_level_id=:lvl, evidence=:ev, teacher_notes=:notes, assessed_by=:aby, updated_at=NOW()"
+            );
+            foreach ($ratings as $r) {
+                $levelId = $lvlMap[$r['level_code'] ?? ''] ?? null;
+                $ins->execute([
+                    ':sid'   => (int)$r['student_id'],
+                    ':cid'   => (int)$r['competency_id'],
+                    ':yr'    => $acadYear,
+                    ':tid'   => $termId,
+                    ':lvl'   => $levelId,
+                    ':ev'    => $r['evidence']     ?? null,
+                    ':notes' => $r['notes']        ?? null,
+                    ':aby'   => $userId,
+                ]);
+            }
+            $this->db->commit();
+            return $this->success(['saved' => count($ratings)], 'Competency ratings saved');
+        } catch (\Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollback();
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: NATIONAL EXAMS ====================
+
+    /**
+     * GET  /api/academic/national-exams?exam_type=KPSEA_G6&exam_year=2024
+     * POST /api/academic/national-exams → enter results
+     */
+    public function getNationalExams($id = null, $data = [], $segments = [])
+    {
+        try {
+            $where  = ['1=1'];
+            $params = [];
+            foreach (['exam_type','exam_year'] as $f) {
+                if (!empty($_GET[$f])) { $where[] = "ne.$f=:$f"; $params[":$f"] = $_GET[$f]; }
+            }
+            if (!empty($_GET['student_id'])) { $where[] = 'ne.student_id=:sid'; $params[':sid'] = (int)$_GET['student_id']; }
+            if (!empty($_GET['class_id'])) {
+                $where[] = 'ne.student_id IN (SELECT s.id FROM students s JOIN class_streams cs ON cs.id=s.stream_id WHERE cs.class_id=:cid)';
+                $params[':cid'] = (int)$_GET['class_id'];
+            }
+
+            $stmt = $this->db->query(
+                "SELECT ne.*,
+                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                        s.admission_no,
+                        la.name AS learning_area_name
+                 FROM national_exam_results ne
+                 JOIN students s ON s.id = ne.student_id
+                 LEFT JOIN learning_areas la ON la.id = ne.learning_area_id
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY s.last_name, ne.learning_area_id",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    public function postNationalExams($id = null, $data = [], $segments = [])
+    {
+        try {
+            $results  = $data['results'] ?? []; // [{student_id, learning_area_id, score, max_score, raw_grade, points, pathway}]
+            $examType = $data['exam_type'] ?? '';
+            $examYear = (int)($data['exam_year'] ?? date('Y'));
+            if (!$examType || empty($results)) return $this->badRequest('exam_type and results are required');
+
+            $validTypes = ['KNEC_G3','KPSEA_G6','KJSEA_G9'];
+            if (!in_array($examType, $validTypes)) return $this->badRequest('Invalid exam_type');
+
+            $userId = $this->user['user_id'] ?? $this->user['id'] ?? null;
+
+            $this->db->beginTransaction();
+            $ins = $this->db->getConnection()->prepare(
+                "INSERT INTO national_exam_results
+                    (student_id, exam_type, exam_year, learning_area_id, score, max_score, percentage,
+                     cbc_grade, raw_grade, points, pathway, remarks, entered_by, academic_year_id)
+                 VALUES (:sid, :et, :ey, :la, :sc, :mx, :pct, :cg, :rg, :pt, :pw, :rmk, :eby, :ayid)
+                 ON DUPLICATE KEY UPDATE
+                    score=:sc, max_score=:mx, percentage=:pct, cbc_grade=:cg,
+                    raw_grade=:rg, points=:pt, pathway=:pw, remarks=:rmk, entered_by=:eby, updated_at=NOW()"
+            );
+            foreach ($results as $r) {
+                $score   = (float)($r['score']     ?? 0);
+                $max     = (float)($r['max_score'] ?? 100);
+                $pct     = $max > 0 ? round(($score / $max) * 100, 2) : 0;
+                $grade   = $pct >= 75 ? 'EE' : ($pct >= 60 ? 'ME' : ($pct >= 40 ? 'AE' : 'BE'));
+                $ins->execute([
+                    ':sid'  => (int)$r['student_id'],
+                    ':et'   => $examType,
+                    ':ey'   => $examYear,
+                    ':la'   => (int)$r['learning_area_id'],
+                    ':sc'   => $score,
+                    ':mx'   => $max,
+                    ':pct'  => $pct,
+                    ':cg'   => $grade,
+                    ':rg'   => $r['raw_grade']  ?? null,
+                    ':pt'   => !empty($r['points']) ? (float)$r['points'] : null,
+                    ':pw'   => $r['pathway']    ?? null,
+                    ':rmk'  => $r['remarks']    ?? null,
+                    ':eby'  => $userId,
+                    ':ayid' => !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null,
+                ]);
+            }
+            $this->db->commit();
+            return $this->success(['saved' => count($results)], 'National exam results saved');
+        } catch (\Exception $e) {
+            if ($this->db->inTransaction()) $this->db->rollback();
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== HELPERS ====================
+
+
 }

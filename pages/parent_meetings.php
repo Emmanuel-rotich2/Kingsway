@@ -149,4 +149,4 @@
     </div>
 </div>
 
-<script src="js/pages/parent_meetings.js"></script>
+<script src="<?= $appBase ?>js/pages/parent_meetings.js"></script>

@@ -110,4 +110,4 @@
     </div>
 </div>
 
-<script src="js/pages/counseling_records.js"></script>
+<script src="<?= $appBase ?>js/pages/counseling_records.js"></script>

@@ -1,8 +1,9 @@
 <?php
+/* PARTIAL — no DOCTYPE/html/head/body. Injected into app shell via fetch. */
 /**
  * Discipline - Viewer Layout
  * Read-only for Students and Parents
- * 
+ *
  * Features:
  * - No sidebar
  * - Summary card
@@ -11,48 +12,32 @@
  */
 ?>
 
-<link rel="stylesheet" href="/css/school-theme.css">
-<link rel="stylesheet" href="/css/roles/viewer-theme.css">
-
-<div class="viewer-layout">
-    <!-- Header -->
-    <header class="viewer-header">
-        <a href="/pages/dashboard.php" class="back-link">← Dashboard</a>
-        <h1 class="page-title">⚖️ Discipline Records</h1>
-    </header>
-
-    <!-- Main Content -->
-    <main class="viewer-main">
-        <!-- Summary Card -->
-        <div class="viewer-summary-card">
-            <div class="summary-icon">⚖️</div>
-            <div class="summary-stat">
-                <span class="summary-value" id="totalCases">0</span>
-                <span class="summary-label">Cases</span>
-            </div>
-            <div class="summary-stat">
-                <span class="summary-value" id="resolvedCases">0</span>
-                <span class="summary-label">Resolved</span>
-            </div>
-        </div>
-
-        <!-- Cases List -->
-        <div class="viewer-list-container" id="casesContainer">
-            <div class="list-header">
-                <span class="list-title">Discipline History</span>
-            </div>
-
-            <div class="viewer-list" id="casesList">
-                <!-- Loaded dynamically -->
-            </div>
-        </div>
-    </main>
+<!-- Summary Card -->
+<div class="viewer-summary-card">
+    <div class="summary-icon">⚖️</div>
+    <div class="summary-stat">
+        <span class="summary-value" id="totalCases">0</span>
+        <span class="summary-label">Cases</span>
+    </div>
+    <div class="summary-stat">
+        <span class="summary-value" id="resolvedCases">0</span>
+        <span class="summary-label">Resolved</span>
+    </div>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<!-- Cases List -->
+<div class="viewer-list-container" id="casesContainer">
+    <div class="list-header">
+        <span class="list-title">Discipline History</span>
+    </div>
+
+    <div class="viewer-list" id="casesList">
+        <!-- Loaded dynamically -->
+    </div>
+</div>
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        RoleBasedUI.applyLayout();
         loadDisciplineRecords();
     });
 

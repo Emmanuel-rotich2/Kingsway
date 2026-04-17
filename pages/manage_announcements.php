@@ -195,10 +195,4 @@
     </div>
 </div>
 
-<script>
-    // Initialize announcements management when page loads
-    document.addEventListener('DOMContentLoaded', function () {
-        // TODO: Implement announcementsManagementController in js/pages/announcements.js
-        console.log('Announcements Management page loaded');
-    });
-</script>
+<script src="<?= $appBase ?>js/pages/manage_announcements.js?v=<?php echo time(); ?>"></script>

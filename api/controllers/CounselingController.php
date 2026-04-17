@@ -136,6 +136,59 @@ class CounselingController extends BaseController
     }
 
     /**
+     * GET /api/counseling/stats
+     * Returns counseling statistics for dashboards
+     */
+    public function getStats($id = null, $data = [], $segments = [])
+    {
+        $db    = \App\Database\Database::getInstance();
+        $stats = ['sessions_this_week' => 0, 'students_seen' => 0, 'pending_referrals' => 0];
+        try {
+            $stmt = $db->query(
+                "SELECT COUNT(*) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+            $stats['sessions_this_week'] = (int)($stmt->fetchColumn() ?: 0);
+        } catch (\Exception $e) {}
+        try {
+            $stmt = $db->query(
+                "SELECT COUNT(DISTINCT student_id) FROM counseling_sessions WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)"
+            );
+            $stats['students_seen'] = (int)($stmt->fetchColumn() ?: 0);
+        } catch (\Exception $e) {}
+        try {
+            $stmt = $db->query(
+                "SELECT COUNT(*) FROM counseling_referrals WHERE status = 'pending'"
+            );
+            $stats['pending_referrals'] = (int)($stmt->fetchColumn() ?: 0);
+        } catch (\Exception $e) {}
+        return $this->success($stats);
+    }
+
+    /**
+     * GET /api/counseling/sessions?limit=N&sort=recent
+     * Returns a list of counseling sessions
+     */
+    public function getSessions($id = null, $data = [], $segments = [])
+    {
+        $limit = min((int)($_GET['limit'] ?? 20), 100);
+        $sort  = ($_GET['sort'] ?? 'recent') === 'recent' ? 'DESC' : 'ASC';
+        try {
+            $db   = \App\Database\Database::getInstance();
+            $stmt = $db->prepare(
+                "SELECT cs.*, s.first_name, s.last_name FROM counseling_sessions cs
+                 LEFT JOIN students s ON s.id = cs.student_id
+                 ORDER BY cs.session_date {$sort} LIMIT :lim"
+            );
+            $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows ?: []);
+        } catch (\Exception $e) {
+            return $this->success([]);
+        }
+    }
+
+    /**
      * Handle API response and convert to controller response format
      */
     private function handleResponse($result)

@@ -35,7 +35,7 @@ const DashboardRouter = {
     4: {
       name: "School Administrator",
       controller: "schoolAdminDashboardController",
-      file: "school_administrator_dashboard.js",
+      file: "school_administrative_officer_dashboard.js",
       scope: "operational",
       description: "Operations, Activities, Communications, Admissions",
     },
@@ -48,7 +48,7 @@ const DashboardRouter = {
     },
     6: {
       name: "Deputy Head - Academic",
-      controller: "deputyHeadAcademicDashboardController",
+      controller: "deputyAcademicDashboard",
       file: "deputy_head_academic_dashboard.js",
       scope: "academic",
       description: "Academic Support, Admissions, Timetabling",
@@ -84,29 +84,29 @@ const DashboardRouter = {
     },
     14: {
       name: "Inventory Manager",
-      controller: "inventoryDashboardController",
-      file: "inventory_dashboard.js",
+      controller: "storeDashboardController",
+      file: "store_manager_dashboard.js",
       scope: "logistics",
       description: "Inventory, Stock, Requisitions, Orders",
     },
     16: {
       name: "Cateress",
-      controller: "cateressDashboardController",
-      file: "catering_dashboard.js",
+      controller: "cateringDashboardController",
+      file: "catering_manager_cook_lead_dashboard.js",
       scope: "catering",
       description: "Kitchen, Menu Planning, Food Inventory",
     },
     18: {
       name: "Boarding Master",
-      controller: "boardingMasterDashboardController",
-      file: "boarding_master_dashboard.js",
+      controller: "boardingDashboardController",
+      file: "matron_housemother_dashboard.js",
       scope: "boarding",
       description: "Boarding, Student Welfare, Health, Discipline",
     },
     21: {
       name: "Talent Development Manager",
-      controller: "talentDevelopmentDashboardController",
-      file: "talent_development_dashboard.js",
+      controller: "hodDashboardController",
+      file: "hod_talent_development_dashboard.js",
       scope: "activities",
       description: "Sports, Music, Activities, Talent Development",
     },
@@ -119,35 +119,35 @@ const DashboardRouter = {
     },
     24: {
       name: "Chaplain",
-      controller: "chaplainDashboardController",
-      file: "chaplain_dashboard.js",
+      controller: "counselorDashboardController",
+      file: "school_counselor_chaplain_dashboard.js",
       scope: "support",
       description: "Spiritual Care, Counseling, Pastoral",
     },
     32: {
       name: "Kitchen Staff",
-      controller: "readOnlyDashboardController",
-      file: "read_only_dashboard.js",
+      controller: "supportStaffDashboardController",
+      file: "support_staff_dashboard.js",
       scope: "readonly",
       description: "Personal Info, Schedule, Contact",
     },
     33: {
       name: "Security Staff",
-      controller: "readOnlyDashboardController",
-      file: "read_only_dashboard.js",
+      controller: "supportStaffDashboardController",
+      file: "support_staff_dashboard.js",
       scope: "readonly",
       description: "Personal Info, Schedule, Contact",
     },
     34: {
       name: "Janitor",
-      controller: "readOnlyDashboardController",
-      file: "read_only_dashboard.js",
+      controller: "supportStaffDashboardController",
+      file: "support_staff_dashboard.js",
       scope: "readonly",
       description: "Personal Info, Schedule, Contact",
     },
     63: {
       name: "Deputy Head - Discipline",
-      controller: "deputyHeadDisciplineDashboardController",
+      controller: "deputyDisciplineDashboard",
       file: "deputy_head_discipline_dashboard.js",
       scope: "academic",
       description: "Discipline, Student Management, Communications",
@@ -271,14 +271,28 @@ const DashboardRouter = {
   },
 
   /**
+   * Retrieve a controller object by name.
+   * Handles both `var` (window property) and `const`/`let` (global scope, not on window).
+   */
+  getController: function (controllerName) {
+    if (typeof window[controllerName] !== "undefined") {
+      return window[controllerName];
+    }
+    // const/let at top-level are in global scope but NOT on window — use indirect eval
+    try {
+      // eslint-disable-next-line no-eval
+      return (0, eval)(controllerName);
+    } catch (e) {
+      return null;
+    }
+  },
+
+  /**
    * Check if dashboard controller is loaded and callable
    */
   isControllerLoaded: function (controllerName) {
-    return (
-      typeof window[controllerName] !== "undefined" &&
-      window[controllerName] !== null &&
-      typeof window[controllerName].init === "function"
-    );
+    const ctrl = this.getController(controllerName);
+    return ctrl != null && typeof ctrl.init === "function";
   },
 
   /**
@@ -312,7 +326,7 @@ const DashboardRouter = {
       const userRoles = this.getCurrentUserRoles();
       if (!userRoles) {
         console.warn("❌ User not authenticated");
-        window.location.href = "/Kingsway/index.php";
+        window.location.href = (window.APP_BASE || '') + '/index.php';
         return;
       }
 
@@ -336,7 +350,7 @@ const DashboardRouter = {
       console.log(`📄 Loading dashboard: ${dashboardConfig.file}`);
 
       // 3. Load dashboard script
-      const scriptPath = `/Kingsway/js/dashboards/${dashboardConfig.file}`;
+      const scriptPath = `${window.APP_BASE || ''}/js/dashboards/${dashboardConfig.file}`;
       try {
         await this.loadDashboardScript(scriptPath);
       } catch (error) {
@@ -362,7 +376,7 @@ const DashboardRouter = {
 
       // 6. Initialize dashboard
       console.log(`🚀 Initializing ${dashboardConfig.name} dashboard...`);
-      const controller = window[dashboardConfig.controller];
+      const controller = this.getController(dashboardConfig.controller);
       controller.init();
 
       // 7. Add role switcher if user has multiple roles
@@ -445,7 +459,7 @@ const DashboardRouter = {
 
     try {
       // Load script
-      await this.loadDashboardScript(`/Kingsway/js/dashboards/${config.file}`);
+      await this.loadDashboardScript(`${window.APP_BASE || ''}/js/dashboards/${config.file}`);
 
       // Update global context
       window.CURRENT_DASHBOARD_ROLE = roleId;
@@ -461,7 +475,7 @@ const DashboardRouter = {
       }
 
       // Initialize new controller
-      const controller = window[config.controller];
+      const controller = this.getController(config.controller);
       if (this.isControllerLoaded(config.controller)) {
         controller.init();
         console.log(`✓ Switched to ${config.name}`);
@@ -482,8 +496,8 @@ const DashboardRouter = {
                     <p>${message}</p>
                     <hr>
                     <p class="mb-0">
-                        <a href="/Kingsway/home.php" class="btn btn-primary btn-sm">Back to Home</a>
-                        <a href="/Kingsway/me.php" class="btn btn-secondary btn-sm">My Profile</a>
+                        <a href="${window.APP_BASE || ''}/home.php" class="btn btn-primary btn-sm">Back to Home</a>
+                        <a href="${window.APP_BASE || ''}/me.php" class="btn btn-secondary btn-sm">My Profile</a>
                     </p>
                 </div>
             </div>
