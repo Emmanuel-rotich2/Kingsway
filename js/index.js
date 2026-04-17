@@ -1,32 +1,3 @@
-// Sidebar toggle (desktop & mobile)
-function toggleSidebar() {
-    const sidebar = document.querySelector('.sidebar');
-    const mainFlex = document.querySelector('.main-flex-layout');
-    sidebar.classList.toggle('sidebar-collapsed');
-    const logo = document.querySelector('.sidebar .logo');
-
-    // Hide all submenus and dropdown arrows when collapsed
-    if (sidebar.classList.contains('sidebar-collapsed')) {
-        document.querySelectorAll('.sidebar .collapse').forEach(c => c.classList.remove('show'));
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
-        // Hide logo name/text
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
-        mainFlex.style.marginLeft = '60px';
-        logo.style.width = '60px';
-    } else {
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = '');
-        // Show logo name/text
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
-        mainFlex.style.marginLeft = '250px';
-        logo.style.width = '250px';
-    }
-    // For mobile
-    if (window.innerWidth < 992) {
-        sidebar.classList.toggle('sidebar-visible-mobile');
-        mainFlex.style.marginLeft = '0';
-    }
-}
-
 // Sidebar UI re-initializer for dynamic sidebar
 window.initSidebarUI = function() {
     // Sidebar submenu accordion (open/close on click)
@@ -147,8 +118,6 @@ window.addEventListener('resize', function () {
     }
 });
 
-window.toggleSidebar = toggleSidebar;
-
 function getRouteFromUrl(url) {
     if (!url) return '';
     const value = String(url).trim();
@@ -257,6 +226,19 @@ async function authorizeRouteAccess(route) {
     const userId = user.id || user.user_id || null;
     const roleIds = getCurrentUserRoleIds();
 
+    // Client-side fallback: grant access if route is in user's sidebar or is their dashboard
+    function clientSideFallback(normalizedRoute, fallbackReason) {
+        const allowedRoutes = getAllowedRoutes();
+        const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
+        const clientAuthorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
+        return {
+            authorized: clientAuthorized,
+            route: normalizedRoute,
+            source: "client_fallback",
+            reason: clientAuthorized ? "sidebar_match" : fallbackReason || "not_in_sidebar",
+        };
+    }
+
     try {
         const response = await API.systemconfig.authorizeRoute(normalizedRoute, {
             userId,
@@ -270,15 +252,21 @@ async function authorizeRouteAccess(route) {
             route: normalizedRoute,
             ...(response || { authorized: false }),
         };
+
+        // If the DB says the route isn't registered yet (route_not_found) or the role
+        // hasn't been mapped in role_routes, fall back to sidebar membership rather than
+        // hard-denying — this prevents legitimate users being locked out of their own
+        // dashboard when the DB config is incomplete.
+        const incompleteDbReasons = ["route_not_found", "not_in_role_whitelist", "not_authorized_by_route_permissions"];
+        if (!authorization.authorized && incompleteDbReasons.includes(authorization.reason)) {
+            console.warn("DB authorization incomplete for route, falling back to sidebar check:", normalizedRoute, authorization.reason);
+            return clientSideFallback(normalizedRoute, authorization.reason);
+        }
+
         return authorization;
     } catch (error) {
-        console.warn("Route authorization API failed, denying route:", normalizedRoute, error);
-        return {
-            authorized: false,
-            route: normalizedRoute,
-            source: "api_error",
-            reason: "authorization_check_failed",
-        };
+        console.warn("Route authorization API failed, falling back to client-side check:", normalizedRoute, error);
+        return clientSideFallback(normalizedRoute, "api_error");
     }
 }
 

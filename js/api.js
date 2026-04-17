@@ -753,7 +753,11 @@ function validatePermission(endpoint, method) {
 
   // Skip permission check if user is not authenticated (will fail at backend)
   if (!AuthContext.isAuthenticated()) {
-    console.warn("API call attempted without authentication");
+    // Only warn for endpoints that actually require auth — public endpoints (login, etc.) have no required permission
+    const requiredForWarn = getRequiredPermission(endpoint, method);
+    if (requiredForWarn) {
+      console.warn("API call attempted without authentication:", endpoint);
+    }
     return;
   }
 
@@ -837,17 +841,14 @@ async function refreshAccessToken() {
   refreshTokenPromise = (async () => {
     try {
       const refreshToken = localStorage.getItem("refresh_token");
-      if (!refreshToken) {
-        console.warn("No refresh token available, redirecting to login");
-        AuthContext.clearUser();
-        _showSessionExpiredAndRedirect();
-        return false;
-      }
+      // NOTE: Do NOT early-exit here when refreshToken is null.
+      // The server sets the refresh token as an HttpOnly cookie at login.
+      // When credentials:"include" is sent, the browser sends that cookie
+      // automatically and the server reads it from $_COOKIE['refresh_token'].
+      // Only log out if the server itself rejects the refresh attempt.
 
       console.log("Attempting to refresh access token...");
 
-      // Prefer the HttpOnly refresh cookie set at login; keep the body token as
-      // a backward-compatible fallback for older sessions.
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin

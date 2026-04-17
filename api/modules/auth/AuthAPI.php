@@ -31,6 +31,7 @@ class AuthAPI extends BaseAPI
     private ?SystemConfigService $configService = null;
 
     // Feature flag: use database-driven config (set to true when migration is complete)
+    // TEMPORARILY DISABLED due to performance issues in buildLoginResponseFromDatabase
     private bool $useDatabaseConfig = false;
 
     public function __construct()
@@ -44,7 +45,7 @@ class AuthAPI extends BaseAPI
         $this->communicationsApi = new CommunicationsAPI();
 
         // Check if database-driven config is available
-        $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
+        // DISABLED: $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
     }
 
     /**
@@ -506,30 +507,34 @@ class AuthAPI extends BaseAPI
                 }
             }
 
-            // Add dashboard as first menu item
-            $dashboardMenuItem = [
-                'id' => 'dashboard_' . $primaryRoleId,
-                'label' => $resolvedLabel,
-                'icon' => 'bi-house-door',
-                'url' => $resolvedUrl,
-                'route_url' => $resolvedUrl,
-                'domain' => 'SCHOOL',
-                'display_order' => -200,
-                'subitems' => [],
-                'show_badge' => false,
-                'badge_source' => null,
-                'badge_color' => 'danger',
-                'open_in_new_tab' => false,
-                'requires_confirmation' => false,
-                'confirmation_message' => null,
-                'css_class' => null,
-                'tooltip' => null
-            ];
-            array_unshift($sidebarItems, $dashboardMenuItem);
-
             // Final normalization of dashboard key
             if (preg_match('/[?&]route=([^&]*)/', $resolvedKey, $matches)) {
                 $resolvedKey = $matches[1];
+            }
+
+            // Only prepend a dashboard item if no sidebar item already links to this route.
+            // This prevents duplicate "Dashboard" / "Director Dashboard" entries when the
+            // DB sidebar menus already contain a home/dashboard link for this role.
+            if (!$this->sidebarAlreadyHasRoute($sidebarItems, $resolvedKey)) {
+                $dashboardMenuItem = [
+                    'id' => 'dashboard_' . $primaryRoleId,
+                    'label' => $resolvedLabel,
+                    'icon' => 'bi-house-door',
+                    'url' => $resolvedKey,
+                    'route_url' => $resolvedKey,
+                    'domain' => 'SCHOOL',
+                    'display_order' => -200,
+                    'subitems' => [],
+                    'show_badge' => false,
+                    'badge_source' => null,
+                    'badge_color' => 'danger',
+                    'open_in_new_tab' => false,
+                    'requires_confirmation' => false,
+                    'confirmation_message' => null,
+                    'css_class' => null,
+                    'tooltip' => null
+                ];
+                array_unshift($sidebarItems, $dashboardMenuItem);
             }
 
             return [
@@ -542,7 +547,7 @@ class AuthAPI extends BaseAPI
                     'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                     'dashboard' => [
                         'key' => $resolvedKey,
-                        'url' => $resolvedUrl,
+                        'url' => $resolvedKey,
                         'label' => $resolvedLabel
                     ],
                     'delegated_permissions' => array_values(array_unique($delegatedPermissions)),
@@ -734,30 +739,32 @@ class AuthAPI extends BaseAPI
             )
         );
 
-        // Add dashboard as first menu item
-        $dashboardMenuItem = [
-            'id' => 'dashboard_' . $primaryRoleId,
-            'label' => $dashboardLabel,
-            'icon' => 'bi-house-door',
-            'url' => '?route=' . $dashboardKeyResolved,
-            'route_url' => '?route=' . $dashboardKeyResolved,
-            'domain' => 'SCHOOL',
-            'display_order' => -200,
-            'subitems' => [],
-            'show_badge' => false,
-            'badge_source' => null,
-            'badge_color' => 'danger',
-            'open_in_new_tab' => false,
-            'requires_confirmation' => false,
-            'confirmation_message' => null,
-            'css_class' => null,
-            'tooltip' => null
-        ];
-        array_unshift($sidebarItems, $dashboardMenuItem);
-
         // Final normalization of dashboard key
         if (preg_match('/[?&]route=([^&]*)/', $dashboardKeyResolved, $matches)) {
             $dashboardKeyResolved = $matches[1];
+        }
+
+        // Only prepend a dashboard item if no sidebar item already links to this route.
+        if (!$this->sidebarAlreadyHasRoute($sidebarItems, $dashboardKeyResolved)) {
+            $dashboardMenuItem = [
+                'id' => 'dashboard_' . $primaryRoleId,
+                'label' => $dashboardLabel,
+                'icon' => 'bi-house-door',
+                'url' => $dashboardKeyResolved,
+                'route_url' => $dashboardKeyResolved,
+                'domain' => 'SCHOOL',
+                'display_order' => -200,
+                'subitems' => [],
+                'show_badge' => false,
+                'badge_source' => null,
+                'badge_color' => 'danger',
+                'open_in_new_tab' => false,
+                'requires_confirmation' => false,
+                'confirmation_message' => null,
+                'css_class' => null,
+                'tooltip' => null
+            ];
+            array_unshift($sidebarItems, $dashboardMenuItem);
         }
 
         return [
@@ -770,7 +777,7 @@ class AuthAPI extends BaseAPI
                 'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                 'dashboard' => [
                     'key' => $dashboardKeyResolved,
-                    'url' => '?route=' . $dashboardKeyResolved,
+                    'url' => $dashboardKeyResolved,
                     'label' => $dashboardLabel
                 ],
                 'config_source' => 'file'
@@ -982,6 +989,30 @@ class AuthAPI extends BaseAPI
         $codes = array_values(array_filter(array_unique($codes)));
         $userData['permissions'] = $codes;
         return $userData;
+    }
+
+    /**
+     * Check if the sidebar already contains a top-level item pointing to a given route name.
+     * Used to avoid duplicating the dashboard entry when DB sidebar menus already include it.
+     */
+    private function sidebarAlreadyHasRoute(array $items, string $routeName): bool
+    {
+        foreach ($items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $url = $item['url'] ?? '';
+            // Normalize to bare route name for comparison
+            if (strpos($url, 'route=') !== false) {
+                $pos = strpos($url, 'route=');
+                $url = substr($url, $pos + strlen('route='));
+                $url = strtok($url, '&');
+            }
+            if ($url === $routeName) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
