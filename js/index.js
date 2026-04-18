@@ -212,62 +212,32 @@ function getBestAllowedRoute(excludedRoute = "") {
     return allowed[0] || dashboardRoute || "";
 }
 
-async function authorizeRouteAccess(route) {
+function authorizeRouteAccess(route) {
     const normalizedRoute = getRouteFromUrl(route);
+
+    // Loading placeholder and empty routes are always allowed
     if (!normalizedRoute || normalizedRoute === "loading") {
-        return { authorized: true, route: normalizedRoute, source: "shell" };
+        return Promise.resolve({ authorized: true, route: normalizedRoute, source: "shell" });
     }
 
+    // Must be authenticated
     if (typeof AuthContext === "undefined" || !AuthContext.isAuthenticated()) {
-        return { authorized: false, route: normalizedRoute, reason: "unauthenticated" };
+        return Promise.resolve({ authorized: false, route: normalizedRoute, reason: "unauthenticated" });
     }
 
-    const user = AuthContext.getUser() || {};
-    const userId = user.id || user.user_id || null;
-    const roleIds = getCurrentUserRoleIds();
+    // Source of truth: the sidebar items stored in localStorage at login.
+    // These were built from config/role_sidebars.php — every route the user
+    // can access is already in their sidebar. No DB query needed.
+    const allowedRoutes = getAllowedRoutes();
+    const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
+    const authorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
 
-    // Client-side fallback: grant access if route is in user's sidebar or is their dashboard
-    function clientSideFallback(normalizedRoute, fallbackReason) {
-        const allowedRoutes = getAllowedRoutes();
-        const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
-        const clientAuthorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
-        return {
-            authorized: clientAuthorized,
-            route: normalizedRoute,
-            source: "client_fallback",
-            reason: clientAuthorized ? "sidebar_match" : fallbackReason || "not_in_sidebar",
-        };
-    }
-
-    try {
-        const response = await API.systemconfig.authorizeRoute(normalizedRoute, {
-            userId,
-            roleIds,
-        });
-        if (response && response.success === false) {
-            throw new Error(response.message || "Route authorization failed");
-        }
-
-        const authorization = {
-            route: normalizedRoute,
-            ...(response || { authorized: false }),
-        };
-
-        // If the DB says the route isn't registered yet (route_not_found) or the role
-        // hasn't been mapped in role_routes, fall back to sidebar membership rather than
-        // hard-denying — this prevents legitimate users being locked out of their own
-        // dashboard when the DB config is incomplete.
-        const incompleteDbReasons = ["route_not_found", "not_in_role_whitelist", "not_authorized_by_route_permissions"];
-        if (!authorization.authorized && incompleteDbReasons.includes(authorization.reason)) {
-            console.warn("DB authorization incomplete for route, falling back to sidebar check:", normalizedRoute, authorization.reason);
-            return clientSideFallback(normalizedRoute, authorization.reason);
-        }
-
-        return authorization;
-    } catch (error) {
-        console.warn("Route authorization API failed, falling back to client-side check:", normalizedRoute, error);
-        return clientSideFallback(normalizedRoute, "api_error");
-    }
+    return Promise.resolve({
+        authorized,
+        route: normalizedRoute,
+        source: "sidebar",
+        reason: authorized ? "in_sidebar" : "not_in_sidebar",
+    });
 }
 
 // Route guard overlay removed — PHP serves the correct page directly.

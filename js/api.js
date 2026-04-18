@@ -3852,51 +3852,6 @@ window.API = {
   },
 
   // School Config endpoints (match SchoolConfigController)
-  systemconfig: {
-    authorizeRoute: async (route, options = {}) => {
-      let normalizedRoute = String(route || "").trim();
-      if (normalizedRoute.includes("route=")) {
-        try {
-          const parsedUrl = new URL(
-            normalizedRoute,
-            window.location?.origin || "http://localhost"
-          );
-          const routeParam = parsedUrl.searchParams.get("route");
-          if (routeParam) {
-            normalizedRoute = routeParam.trim();
-          }
-        } catch (error) {
-          const queryString = normalizedRoute.split("?")[1] || "";
-          const params = new URLSearchParams(queryString);
-          const routeParam = params.get("route");
-          if (routeParam) {
-            normalizedRoute = routeParam.trim();
-          }
-        }
-      }
-
-      const payload = {
-        route: normalizedRoute,
-      };
-
-      if (options.userId) {
-        payload.user_id = options.userId;
-      }
-
-      if (Array.isArray(options.roleIds) && options.roleIds.length > 0) {
-        payload.role_ids = options.roleIds;
-      } else if (options.roleId) {
-        payload.role_id = options.roleId;
-      }
-
-      const response = await apiCall("/systemconfig/authorize", "POST", payload, {}, {
-        checkPermission: false,
-      });
-      return response?.data ?? response;
-    },
-  },
-
-  // School Config endpoints (match SchoolConfigController)
   schoolconfig: {
     index: async () => apiCall("/school-config/index", "GET"),
 

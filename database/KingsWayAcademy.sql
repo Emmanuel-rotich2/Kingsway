@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Apr 17, 2026 at 09:09 PM
+-- Generation Time: Apr 18, 2026 at 11:26 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -21813,7 +21813,7 @@ ALTER TABLE `assessment_tools`
 -- AUTO_INCREMENT for table `assessment_types`
 --
 ALTER TABLE `assessment_types`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
 
 --
 -- AUTO_INCREMENT for table `assessment_type_classifications`
@@ -21921,7 +21921,7 @@ ALTER TABLE `core_competencies`
 -- AUTO_INCREMENT for table `core_values`
 --
 ALTER TABLE `core_values`
-  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=23;
+  MODIFY `id` int(10) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
 
 --
 -- AUTO_INCREMENT for table `csl_activities`

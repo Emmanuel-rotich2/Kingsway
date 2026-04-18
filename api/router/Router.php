@@ -1,6 +1,6 @@
 <?php
 
-namespace App\API\router;
+namespace App\API\Router;
 
 use App\API\Middleware\CORSMiddleware;
 use App\API\Middleware\AuthMiddleware;
