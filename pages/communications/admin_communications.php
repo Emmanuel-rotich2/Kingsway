@@ -295,15 +295,19 @@
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
     });
 
+    let _allMessages = [];
+
     async function loadMessages() {
+        const tbody = document.getElementById('messagesTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></td></tr>';
         try {
-            const response = await API.communications.getAll();
-            if (response.success) {
-                renderMessagesTable(response.data);
-                updateStats(response.data);
-            }
+            const response = await callAPI('/communications/list?limit=200', 'GET');
+            _allMessages = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderMessagesTable(_allMessages);
+            if (typeof updateStats === 'function') updateStats(_allMessages);
         } catch (error) {
             console.error('Error loading messages:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-danger text-center py-4">Failed to load messages.</td></tr>';
         }
     }
 
@@ -384,9 +388,43 @@
         });
     }
 
-    function viewMessage(id) { console.log('View message:', id); }
-    function resendMessage(id) { console.log('Resend message:', id); }
-    function deleteMessage(id) { if (confirm('Delete this message?')) console.log('Delete:', id); }
+    function viewMessage(id) {
+        const msg = _allMessages.find(m => m.id == id);
+        if (!msg) return;
+        const body = `
+            <dl class="row mb-0">
+                <dt class="col-4">From</dt><dd class="col-8">${escapeHtml(msg.sender_name || msg.sender || '—')}</dd>
+                <dt class="col-4">To</dt><dd class="col-8">${escapeHtml(msg.recipients_summary || msg.recipient_name || '—')}</dd>
+                <dt class="col-4">Channel</dt><dd class="col-8"><span class="badge bg-secondary">${msg.channel || msg.type || '—'}</span></dd>
+                <dt class="col-4">Status</dt><dd class="col-8"><span class="badge bg-${msg.status === 'delivered' ? 'success' : msg.status === 'failed' ? 'danger' : 'warning'}">${msg.status || '—'}</span></dd>
+                <dt class="col-4">Sent</dt><dd class="col-8">${formatDateTime(msg.sent_at || msg.created_at)}</dd>
+                <dt class="col-4">Subject</dt><dd class="col-8">${escapeHtml(msg.subject || '—')}</dd>
+                <dt class="col-4">Message</dt><dd class="col-8">${escapeHtml(msg.body || msg.message || msg.content || '—')}</dd>
+            </dl>`;
+        const el = document.getElementById('messagePreviewContent') || document.createElement('div');
+        el.innerHTML = body;
+        const modal = document.getElementById('messagePreviewModal');
+        if (modal) { bootstrap.Modal.getOrCreateInstance(modal).show(); }
+        else { alert(msg.subject + '\n\n' + (msg.body || msg.message || '')); }
+    }
+
+    async function resendMessage(id) {
+        if (!confirm('Resend this message?')) return;
+        try {
+            await callAPI('/communications/resend', 'POST', { id });
+            showNotification('Message queued for resend', 'success');
+            loadMessages();
+        } catch (e) { showNotification('Resend failed: ' + (e.message || e), 'error'); }
+    }
+
+    async function deleteMessage(id) {
+        if (!confirm('Delete this message record?')) return;
+        try {
+            await callAPI('/communications/delete/' + id, 'DELETE');
+            showNotification('Message deleted', 'success');
+            loadMessages();
+        } catch (e) { showNotification('Delete failed: ' + (e.message || e), 'error'); }
+    }
 
     function escapeHtml(str) {
         if (!str) return '';

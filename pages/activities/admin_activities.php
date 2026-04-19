@@ -455,8 +455,7 @@
     }
 
     function editActivity(id) {
-        // Open modal with activity data
-        console.log('Edit activity:', id);
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&edit=' + id;
     }
 
     async function deleteActivity(id) {

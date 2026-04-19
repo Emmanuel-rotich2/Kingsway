@@ -111,7 +111,7 @@
     }
 
     function viewStudent(id) {
-        console.log('View student:', id);
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=student_profile&id=' + id;
     }
 
     function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }

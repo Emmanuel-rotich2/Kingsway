@@ -32,7 +32,7 @@ const markAttendanceController = {
   },
 
   async configureSharedActions() {
-    if (!window.API?.systemconfig?.authorizeRoute) {
+    if (!window.AppRouteAccess?.authorizeRoute) {
       return;
     }
 
@@ -40,13 +40,13 @@ const markAttendanceController = {
     const viewAttendanceLink = document.getElementById("viewAttendanceLink");
     try {
       const [boardingAccess, viewAttendanceAccess] = await Promise.all([
-        window.API.systemconfig.authorizeRoute("boarding_roll_call"),
-        window.API.systemconfig.authorizeRoute("view_attendance"),
+        window.AppRouteAccess.authorizeRoute("boarding_roll_call"),
+        window.AppRouteAccess.authorizeRoute("view_attendance"),
       ]);
-      if (boardingLink && boardingAccess?.allowed === false) {
+      if (boardingLink && boardingAccess?.authorized === false) {
         boardingLink.classList.add("d-none");
       }
-      if (viewAttendanceLink && viewAttendanceAccess?.allowed === false) {
+      if (viewAttendanceLink && viewAttendanceAccess?.authorized === false) {
         viewAttendanceLink.classList.add("d-none");
       }
     } catch (error) {

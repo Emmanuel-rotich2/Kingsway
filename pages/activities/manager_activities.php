@@ -278,8 +278,8 @@
         });
     }
 
-    function viewActivity(id) { window.location.href = `/pages/view_activity.php?id=${id}`; }
-    function editActivity(id) { console.log('Edit activity:', id); }
+    function viewActivity(id) { window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&view=' + id; }
+    function editActivity(id) { window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&edit=' + id; }
 
     function escapeHtml(str) {
         if (!str) return '';
