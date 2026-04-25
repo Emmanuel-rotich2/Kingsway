@@ -17,6 +17,8 @@ const markAttendanceController = {
   selectedSessionId: null,
   selectedDate: null,
   isSchoolDay: true,
+  _context: null,          // register context from /attendance/register-context
+  _registerType: 'class',  // 'class' | 'boarding' | 'activity'
 
   init: function () {
     console.log("Mark Attendance Controller initialized");
@@ -108,36 +110,109 @@ const markAttendanceController = {
   },
 
   async checkSchoolDay(date) {
-    try {
-      const response = await window.API.apiCall(
-        `/attendance/is-school-day`,
-        "GET",
-        null,
-        { date: date },
-      );
-      // handleApiResponse returns data directly: { date, is_school_day, day_type, reason }
-      if (response) {
-        this.isSchoolDay = response.is_school_day;
-        const alertEl = document.getElementById("schoolDayAlert");
-        if (!alertEl) return;
+    // Load full register context (replaces the old is-school-day call)
+    await this._loadRegisterContext(date);
+  },
 
-        if (!this.isSchoolDay && response.calendar_event) {
-          alertEl.classList.remove("d-none");
-          const titleEl = document.getElementById("schoolDayAlertTitle");
-          const textEl = document.getElementById("schoolDayAlertText");
-          if (titleEl)
-            titleEl.textContent =
-              response.calendar_event.event_type || "Non-School Day";
-          if (textEl)
-            textEl.textContent =
-              response.calendar_event.event_name || "No classes scheduled";
-        } else {
-          alertEl.classList.add("d-none");
-        }
+  async _loadRegisterContext(date) {
+    try {
+      const streamId  = this.selectedStreamId  || document.getElementById("classSelect")?.value || '';
+      const sessionId = this.selectedSessionId || document.getElementById("sessionSelect")?.value || '';
+      const params    = `?date=${date}${streamId ? '&stream_id=' + streamId : ''}${sessionId ? '&session_id=' + sessionId : ''}`;
+
+      const r = await window.API.apiCall(`/attendance/register-context${params}`, "GET");
+      if (!r) return;
+      this._context     = r;
+      this.isSchoolDay  = r.is_class_day;
+
+      // Update session dropdown to only show sessions applicable today
+      if (r.applicable_sessions?.length) {
+        this._updateSessionsFromContext(r.applicable_sessions);
       }
-    } catch (error) {
-      console.warn("Could not check school day status:", error);
+
+      // Show/hide the school day alert
+      const alertEl = document.getElementById("schoolDayAlert");
+      if (!alertEl) return;
+      if (r.blocked_reason) {
+        alertEl.classList.remove("d-none");
+        alertEl.className = alertEl.className.replace(/alert-\w+/g, '') + (r.is_boarding_day ? ' alert-info' : ' alert-warning');
+        const titleEl = document.getElementById("schoolDayAlertTitle");
+        const textEl  = document.getElementById("schoolDayAlertText");
+        if (titleEl) titleEl.textContent = r.day_type === 'public_holiday' ? 'Public Holiday' : (r.day_type === 'weekend' ? 'Weekend' : 'School Holiday');
+        if (textEl)  textEl.textContent  = r.blocked_reason;
+
+        // If boarding is still active (boarders in school), show boarding option
+        if (r.is_boarding_day && r.applicable_sessions?.some(s => s.session_type === 'boarding')) {
+          const boardingNote = document.getElementById("boardingNote") || this._createBoardingNote(alertEl);
+          if (boardingNote) boardingNote.style.display = '';
+        }
+      } else {
+        alertEl.classList.add("d-none");
+        const bn = document.getElementById("boardingNote");
+        if (bn) bn.style.display = 'none';
+      }
+
+      // Update header with current term/year info
+      const termInfo = r.current_term;
+      if (termInfo) {
+        const termBadge = document.getElementById("currentTermBadge");
+        if (termBadge) termBadge.textContent = `${termInfo.year_code} – ${termInfo.term_name}`;
+      }
+
+      // Show existing marks count
+      if (r.existing_marks && r.total_students > 0) {
+        const classMarked = r.existing_marks.class || 0;
+        const info = document.getElementById("marksProgressInfo");
+        if (info) info.textContent = `${classMarked}/${r.total_students} students marked`;
+      }
+    } catch (err) {
+      console.warn('Register context load failed:', err);
     }
+  },
+
+  _createBoardingNote(alertEl) {
+    const div = document.createElement('div');
+    div.id = 'boardingNote';
+    div.className = 'mt-2';
+    div.innerHTML = '<i class="bi bi-house-door me-1"></i><strong>Boarders are present:</strong> Boarding roll call sessions are still active today.';
+    alertEl.appendChild(div);
+    return div;
+  },
+
+  _updateSessionsFromContext(applicableSessions) {
+    const select = document.getElementById("sessionSelect");
+    if (!select) return;
+
+    // Re-populate dropdown with only today's applicable sessions
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">-- Select Session --</option>';
+
+    // Separate class vs boarding sessions visually
+    const classOpts    = applicableSessions.filter(s => s.session_type === 'academic');
+    const boardingOpts = applicableSessions.filter(s => s.session_type === 'boarding');
+    const activityOpts = applicableSessions.filter(s => s.session_type === 'activity');
+
+    const addGroup = (label, list) => {
+      if (!list.length) return;
+      const og = document.createElement('optgroup');
+      og.label = label;
+      list.forEach(s => {
+        const o = document.createElement('option');
+        o.value = s.id;
+        o.textContent = `${s.name} (${s.start_time?.slice(0,5)} – ${s.end_time?.slice(0,5)})`;
+        o.dataset.code = s.code;
+        o.dataset.type = s.session_type;
+        og.appendChild(o);
+      });
+      select.appendChild(og);
+    };
+    addGroup('Class Sessions', classOpts);
+    addGroup('Boarding Sessions', boardingOpts);
+    addGroup('Activity Sessions', activityOpts);
+
+    // Restore previous selection or auto-select
+    if (currentVal) select.value = currentVal;
+    if (!select.value) this.autoSelectSession();
   },
 
   loadClasses: async function () {
@@ -158,17 +233,14 @@ const markAttendanceController = {
   loadSessions: async function () {
     try {
       const response = await window.API.apiCall("/attendance/sessions", "GET");
-      // response is the data array: [{id, code, name, session_type, start_time, end_time, ...}, ...]
       if (response && Array.isArray(response)) {
-        // Filter to academic sessions only (for class teachers)
-        this.sessions = response.filter((s) =>
-          ["MORNING_CLASS", "AFTERNOON_CLASS", "SATURDAY_CLASS"].includes(
-            s.code,
-          ),
-        );
+        // Store all sessions; the register context will filter to applicable ones for today
+        this.sessions = response;
         this.renderSessionDropdown();
-      } else {
-        console.error("Failed to load sessions:", response);
+        // Re-apply context filter now that sessions are loaded
+        if (this._context?.applicable_sessions?.length) {
+          this._updateSessionsFromContext(this._context.applicable_sessions);
+        }
       }
     } catch (error) {
       console.error("Error loading sessions:", error);
@@ -242,9 +314,36 @@ const markAttendanceController = {
       return;
     }
 
-    this.selectedStreamId = streamId;
+    this.selectedStreamId  = streamId;
     this.selectedSessionId = sessionId;
-    this.selectedDate = date;
+    this.selectedDate      = date;
+
+    // Refresh context now that we have stream + session selected
+    await this._loadRegisterContext(date);
+
+    // If it's not a class day and the session is academic, show a prompt
+    const sessionType = document.getElementById("sessionSelect")?.selectedOptions[0]?.dataset?.type || 'academic';
+    if (!this.isSchoolDay && sessionType === 'academic') {
+      const isBoardingDay = this._context?.is_boarding_day;
+      const boardingActive = isBoardingDay && this._context?.applicable_sessions?.some(s => s.session_type === 'boarding');
+      if (!boardingActive) {
+        // Nothing to mark today — show info
+        const emptyEl = document.getElementById("emptyState");
+        if (emptyEl) {
+          emptyEl.innerHTML = `<div class="text-center py-5 text-muted">
+            <i class="bi bi-calendar-x fs-1 d-block mb-2"></i>
+            <h5>${this._context?.blocked_reason || 'Not a school day'}</h5>
+            <p>Class register is not required. No students need to be marked.</p>
+          </div>`;
+          emptyEl.style.display = "block";
+        }
+        const loadingEl = document.getElementById("loadingState");
+        const attendanceCard = document.getElementById("attendanceCard");
+        if (loadingEl) loadingEl.style.display = "none";
+        if (attendanceCard) attendanceCard.style.display = "none";
+        return;
+      }
+    }
 
     // Show loading
     const loadingEl = document.getElementById("loadingState");
@@ -517,16 +616,29 @@ const markAttendanceController = {
         '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
     }
 
+    // Guard: if not a school day and selected session is academic → warn but allow boarding
+    const sessionSelect = document.getElementById("sessionSelect");
+    const sessionType   = sessionSelect?.selectedOptions[0]?.dataset?.type || 'academic';
+    if (!this.isSchoolDay && sessionType === 'academic') {
+      const force = confirm(
+        (this._context?.blocked_reason || 'This is not a regular school day') +
+        '\n\nAre you sure you want to mark class attendance today?'
+      );
+      if (!force) { if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Submit Attendance'; } return; }
+    }
+    // Determine register_type from selected session
+    this._registerType = sessionType === 'boarding' ? 'boarding' : (sessionType === 'activity' ? 'activity' : 'class');
+
     try {
-      // Use session-aware endpoint
       const response = await window.API.apiCall(
         "/attendance/mark-session",
         "POST",
         {
-          stream_id: this.selectedStreamId,
-          session_id: this.selectedSessionId,
-          date: this.selectedDate,
-          attendance: attendance,
+          stream_id:     this.selectedStreamId,
+          session_id:    this.selectedSessionId,
+          date:          this.selectedDate,
+          register_type: this._registerType,
+          attendance:    attendance,
         },
       );
 

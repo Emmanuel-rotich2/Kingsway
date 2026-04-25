@@ -1,0 +1,5 @@
+student_admission_no,subject,assessment_type,term,year,score,max_score,date,remarks
+ADM001,Mathematics,Assignment,1,2025,18,20,2025-02-10,
+ADM001,Mathematics,Quiz,1,2025,15,20,2025-02-20,Good
+ADM001,English,Oral Presentation,1,2025,17,20,2025-03-01,Excellent presentation
+ADM002,Mathematics,Project,1,2025,14,20,2025-02-28,

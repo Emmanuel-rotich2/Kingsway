@@ -1,0 +1,5 @@
+item_code,item_name,category,quantity,unit,unit_price,location,reorder_level,supplier,notes
+INV001,Exercise Books (80 pages),Stationery,500,pieces,35,Storeroom A,100,Kamau Stationery,
+INV002,Ball-point Pens (box),Stationery,50,boxes,250,Storeroom A,10,,
+INV003,Classroom Chairs,Furniture,200,pieces,1500,Various,20,City Furniture,
+INV004,Football,Sports,15,pieces,2500,Sports Store,5,,

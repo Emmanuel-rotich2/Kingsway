@@ -370,6 +370,7 @@ return [
         ['label' => 'Library',        'url' => null, 'icon' => 'fas fa-book',        'subitems' => [['label' => 'Manage Library', 'url' => 'manage_library']]],
         ['label' => 'Health Records', 'url' => null, 'icon' => 'fas fa-heartbeat',   'subitems' => [['label' => 'Student Health', 'url' => 'student_health'], ['label' => 'Sick Bay Log', 'url' => 'sick_bay']]],
         
+        
     ],
 
     // =========================================================================

@@ -1071,8 +1071,43 @@ class AcademicController extends BaseController
      */
     public function getAssessmentsList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getAssessmentsList($data);
-        return $this->handleResponse($result);
+        try {
+            $where  = ['1=1'];
+            $params = [];
+            if (!empty($_GET['class_id']))           { $where[] = 'a.class_id=:cid';     $params[':cid']  = (int)$_GET['class_id']; }
+            if (!empty($_GET['term_id']))             { $where[] = 'a.term_id=:tid';      $params[':tid']  = (int)$_GET['term_id']; }
+            if (!empty($_GET['subject_id']))          { $where[] = 'a.subject_id=:sid';   $params[':sid']  = (int)$_GET['subject_id']; }
+            if (!empty($_GET['status']))              { $where[] = 'a.status=:st';        $params[':st']   = $_GET['status']; }
+            if (!empty($_GET['assessment_type_id'])) { $where[] = 'a.assessment_type_id=:atid'; $params[':atid'] = (int)$_GET['assessment_type_id']; }
+
+            $stmt = $this->db->query(
+                "SELECT a.id, a.class_id, a.subject_id, a.term_id, a.title, a.max_marks,
+                        a.assessment_date, a.status, a.assessment_type_id,
+                        c.name  AS class_name,
+                        la.name AS learning_area_name, la.code AS learning_area_code,
+                        at.name AS type_name, at.is_formative, at.is_summative,
+                        t.name  AS term_name, t.term_number,
+                        COUNT(DISTINCT fs.student_id) AS graded_count,
+                        COUNT(DISTINCT ce.student_id) AS total_students,
+                        ROUND(AVG(fs.percentage), 2)  AS average_pct
+                 FROM assessments a
+                 LEFT JOIN classes c           ON c.id  = a.class_id
+                 LEFT JOIN learning_areas la   ON la.id = a.subject_id
+                 LEFT JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN academic_terms t    ON t.id  = a.term_id
+                 LEFT JOIN formative_scores fs ON fs.assessment_id = a.id
+                 LEFT JOIN class_enrollments ce ON ce.class_id = a.class_id
+                        AND ce.enrollment_status IN ('active','completed')
+                 WHERE " . implode(' AND ', $where) . "
+                 GROUP BY a.id
+                 ORDER BY a.assessment_date DESC, a.id DESC
+                 LIMIT 500",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
     }
 
     /**
@@ -1800,7 +1835,7 @@ class AcademicController extends BaseController
                 $ins->execute([
                     ':aid'   => (int)$id,
                     ':sid'   => (int)$entry['student_id'],
-                    ':score' => min((float)($entry['score'] ?? 0), $maxMarks),
+                    ':score' => min((float)($entry['marks_obtained'] ?? $entry['score'] ?? 0), $maxMarks),
                     ':max'   => $maxMarks,
                     ':rmk'   => $entry['remarks'] ?? null,
                     ':eby'   => $userId,
@@ -2070,7 +2105,1065 @@ class AcademicController extends BaseController
         }
     }
 
+    // ==================== CBC: STRANDS ====================
+
+    /**
+     * GET /api/academic/strands?learning_area_id=X
+     */
+    public function getStrands($id = null, $data = [], $segments = [])
+    {
+        try {
+            $laId  = (int)($_GET['learning_area_id'] ?? 0);
+            $where = $laId ? 'WHERE learning_area_id=:la' : '';
+            $stmt  = $this->db->query(
+                "SELECT s.id, s.code, s.name, s.level_range, s.sort_order,
+                        la.id AS learning_area_id, la.name AS learning_area_name
+                 FROM strands s
+                 LEFT JOIN learning_areas la ON la.id = s.learning_area_id
+                 $where
+                 ORDER BY s.sort_order, s.id",
+                $laId ? [':la' => $laId] : []
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: CLASS STUDENTS ====================
+
+    /**
+     * GET /api/academic/class-students?class_id=X
+     * Returns active enrolled students for a class.
+     */
+    public function getClassStudents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $classId = (int)($_GET['class_id'] ?? 0);
+            if (!$classId) return $this->badRequest('class_id is required');
+
+            $stmt = $this->db->query(
+                "SELECT DISTINCT s.id, s.first_name, s.last_name, s.admission_no, s.stream_id
+                 FROM students s
+                 JOIN class_enrollments ce ON ce.student_id = s.id AND ce.class_id = :cid
+                    AND ce.enrollment_status IN ('active','completed')
+                 WHERE s.status = 'active'
+                 ORDER BY s.last_name, s.first_name",
+                [':cid' => $classId]
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: COMPUTE TERM SCORES ====================
+
+    /**
+     * POST /api/academic/compute-term-scores
+     * Computes formative/summative aggregates from formative_scores → term_subject_scores.
+     * Body: { class_id, term_id, subject_id? }  OR  { assessment_id }
+     */
+    public function postComputeTermScores($id = null, $data = [], $segments = [])
+    {
+        try {
+            $classId   = (int)($data['class_id']   ?? 0);
+            $termId    = (int)($data['term_id']     ?? 0);
+            $subjectId = (int)($data['subject_id']  ?? 0);
+            $asmtId    = (int)($data['assessment_id'] ?? 0);
+
+            // If only assessment_id given, derive class/term/subject from it
+            if ($asmtId && (!$classId || !$termId)) {
+                $r = $this->db->query(
+                    "SELECT class_id, term_id, subject_id FROM assessments WHERE id=:id LIMIT 1",
+                    [':id' => $asmtId]
+                )->fetch(\PDO::FETCH_ASSOC);
+                if (!$r) return $this->notFound('Assessment not found');
+                $classId   = $classId   ?: (int)$r['class_id'];
+                $termId    = $termId    ?: (int)$r['term_id'];
+                $subjectId = $subjectId ?: (int)$r['subject_id'];
+            }
+            if (!$classId || !$termId) return $this->badRequest('class_id and term_id are required');
+
+            // Build list of (student_id, subject_id) pairs to compute
+            $where  = ['a.class_id=:cid', 'a.term_id=:tid'];
+            $params = [':cid' => $classId, ':tid' => $termId];
+            if ($subjectId) { $where[] = 'a.subject_id=:sid'; $params[':sid'] = $subjectId; }
+
+            $rows = $this->db->query(
+                "SELECT DISTINCT fs.student_id, a.subject_id,
+                        at.is_formative, at.is_summative
+                 FROM formative_scores fs
+                 JOIN assessments a       ON a.id  = fs.assessment_id
+                 JOIN assessment_types at ON at.id = a.assessment_type_id
+                 WHERE " . implode(' AND ', $where),
+                $params
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            if (empty($rows)) return $this->success(['computed' => 0], 'No scored assessments found for these filters');
+
+            // Aggregate per student per subject
+            $combos = [];
+            foreach ($rows as $r) {
+                $key = $r['student_id'] . '_' . $r['subject_id'];
+                $combos[$key] = ['student_id' => (int)$r['student_id'], 'subject_id' => (int)$r['subject_id']];
+            }
+
+            $upsert = $this->db->getConnection()->prepare(
+                "INSERT INTO term_subject_scores
+                    (student_id, term_id, subject_id,
+                     formative_total, formative_max, formative_percentage, formative_grade, formative_count,
+                     summative_total, summative_max, summative_percentage, summative_grade, summative_count,
+                     overall_score, overall_percentage, overall_grade, overall_points, assessment_count, calculated_at)
+                 VALUES
+                    (:sid, :tid, :subid,
+                     :ft, :fm, :fp, :fg, :fc,
+                     :st, :sm, :sp, :sg, :sc,
+                     :ov, :op, :og, :opts, :ac, NOW())
+                 ON DUPLICATE KEY UPDATE
+                     formative_total=:ft, formative_max=:fm, formative_percentage=:fp,
+                     formative_grade=:fg, formative_count=:fc,
+                     summative_total=:st, summative_max=:sm, summative_percentage=:sp,
+                     summative_grade=:sg, summative_count=:sc,
+                     overall_score=:ov, overall_percentage=:op, overall_grade=:og,
+                     overall_points=:opts, assessment_count=:ac, calculated_at=NOW()"
+            );
+
+            $computed = 0;
+            foreach ($combos as $combo) {
+                $stu  = $combo['student_id'];
+                $subj = $combo['subject_id'];
+
+                $agg = $this->db->query(
+                    "SELECT
+                        SUM(CASE WHEN at.is_formative=1 THEN fs.score ELSE 0 END)     AS ft,
+                        SUM(CASE WHEN at.is_formative=1 THEN fs.max_score ELSE 0 END) AS fm,
+                        COUNT(CASE WHEN at.is_formative=1 THEN 1 END)                 AS fc,
+                        SUM(CASE WHEN at.is_summative=1 THEN fs.score ELSE 0 END)     AS st,
+                        SUM(CASE WHEN at.is_summative=1 THEN fs.max_score ELSE 0 END) AS sm,
+                        COUNT(CASE WHEN at.is_summative=1 THEN 1 END)                 AS sc,
+                        COUNT(fs.id) AS ac
+                     FROM formative_scores fs
+                     JOIN assessments a ON a.id = fs.assessment_id
+                        AND a.term_id=:tid AND a.subject_id=:subid
+                     JOIN assessment_types at ON at.id = a.assessment_type_id
+                     WHERE fs.student_id=:stu",
+                    [':tid' => $termId, ':subid' => $subj, ':stu' => $stu]
+                )->fetch(\PDO::FETCH_ASSOC);
+
+                $ft = (float)($agg['ft'] ?? 0);
+                $fm = (float)($agg['fm'] ?? 0);
+                $fc = (int)  ($agg['fc'] ?? 0);
+                $fp = $fm > 0 ? round(($ft / $fm) * 100, 2) : 0;
+                $fg = $fp >= 75 ? 'EE' : ($fp >= 60 ? 'ME' : ($fp >= 40 ? 'AE' : 'BE'));
+
+                $st = (float)($agg['st'] ?? 0);
+                $sm = (float)($agg['sm'] ?? 0);
+                $sc = (int)  ($agg['sc'] ?? 0);
+                $sp = $sm > 0 ? round(($st / $sm) * 100, 2) : 0;
+                $sg = $sp >= 75 ? 'EE' : ($sp >= 60 ? 'ME' : ($sp >= 40 ? 'AE' : 'BE'));
+
+                // CBC: 40% formative + 60% summative
+                $op = round(($fp * 0.4) + ($sp * 0.6), 2);
+                $og = $op >= 75 ? 'EE' : ($op >= 60 ? 'ME' : ($op >= 40 ? 'AE' : 'BE'));
+                $opts = $og === 'EE' ? 4.0 : ($og === 'ME' ? 3.0 : ($og === 'AE' ? 2.0 : 1.0));
+                $ov = round(($ft + $st), 2);
+
+                $upsert->execute([
+                    ':sid'   => $stu,  ':tid' => $termId, ':subid' => $subj,
+                    ':ft'    => $ft,   ':fm'  => $fm,  ':fp' => $fp,  ':fg' => $fg,  ':fc' => $fc,
+                    ':st'    => $st,   ':sm'  => $sm,  ':sp' => $sp,  ':sg' => $sg,  ':sc' => $sc,
+                    ':ov'    => $ov,   ':op'  => $op,  ':og' => $og,  ':opts' => $opts,
+                    ':ac'    => (int)($agg['ac'] ?? 0),
+                ]);
+                $computed++;
+            }
+            return $this->success(['computed' => $computed], "$computed student-subject scores recomputed");
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: REPORT CARD DATA ====================
+
+    /**
+     * GET /api/academic/report-card-data/{student_id}?term_id=
+     * Consolidated CBC report card: term_subject_scores + competency ratings + attendance + values.
+     */
+    public function getReportCardData($id = null, $data = [], $segments = [])
+    {
+        try {
+            $studentId = $id ?? (int)($_GET['student_id'] ?? 0);
+            if (!$studentId) return $this->badRequest('student_id is required');
+            $termId    = (int)($_GET['term_id'] ?? 0);
+
+            // Student info
+            $student = $this->db->query(
+                "SELECT s.id, s.first_name, s.last_name, s.admission_no,
+                        c.name AS class_name, cs.stream_name
+                 FROM students s
+                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                 LEFT JOIN classes c        ON c.id  = cs.class_id
+                 WHERE s.id=:id LIMIT 1",
+                [':id' => $studentId]
+            )->fetch(\PDO::FETCH_ASSOC);
+            if (!$student) return $this->notFound('Student not found');
+
+            // Term info
+            $termWhere  = $termId ? 'WHERE id=:tid LIMIT 1' : "WHERE status='current' LIMIT 1";
+            $termParams = $termId ? [':tid' => $termId] : [];
+            $term = $this->db->query("SELECT id, name, term_number, year FROM academic_terms $termWhere", $termParams)
+                             ->fetch(\PDO::FETCH_ASSOC);
+            $resolvedTermId = $term ? (int)$term['id'] : $termId;
+
+            // Subject scores
+            $scores = $this->db->query(
+                "SELECT tss.*,
+                        la.name AS subject_name, la.code AS subject_code
+                 FROM term_subject_scores tss
+                 JOIN learning_areas la ON la.id = tss.subject_id
+                 WHERE tss.student_id=:sid AND tss.term_id=:tid
+                 ORDER BY la.name",
+                [':sid' => $studentId, ':tid' => $resolvedTermId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Core competency ratings
+            $competencies = $this->db->query(
+                "SELECT lc.competency_id, lc.performance_level_id, lc.evidence, lc.notes,
+                        cc.code, cc.name AS competency_name,
+                        plc.code AS level_code, plc.name AS level_name
+                 FROM learner_competencies lc
+                 JOIN core_competencies cc ON cc.id = lc.competency_id
+                 LEFT JOIN performance_levels_cbc plc ON plc.id = lc.performance_level_id
+                 WHERE lc.student_id=:sid AND lc.term_id=:tid",
+                [':sid' => $studentId, ':tid' => $resolvedTermId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Core values
+            $values = $this->db->query(
+                "SELECT sv.value_id, sv.rating, sv.evidence,
+                        cv.name AS value_name
+                 FROM student_core_values sv
+                 JOIN core_values cv ON cv.id = sv.value_id
+                 WHERE sv.student_id=:sid AND sv.term_id=:tid",
+                [':sid' => $studentId, ':tid' => $resolvedTermId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Attendance summary
+            $attendance = $this->db->query(
+                "SELECT
+                    COUNT(*) AS total_days,
+                    SUM(CASE WHEN status='present' THEN 1 ELSE 0 END) AS days_present,
+                    SUM(CASE WHEN status='absent'  THEN 1 ELSE 0 END) AS days_absent,
+                    SUM(CASE WHEN status='late'    THEN 1 ELSE 0 END) AS days_late
+                 FROM student_attendance
+                 WHERE student_id=:sid AND term_id=:tid",
+                [':sid' => $studentId, ':tid' => $resolvedTermId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            return $this->success([
+                'student'      => $student,
+                'term'         => $term,
+                'scores'       => $scores,
+                'competencies' => $competencies,
+                'values'       => $values,
+                'attendance'   => $attendance,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== CBC: STUDENT GROWTH ====================
+
+    /**
+     * GET /api/academic/student-assessment-history?student_id=X&term_id=&subject_id=
+     * Returns all graded assessments for a student with their scores.
+     */
+    public function getStudentAssessmentHistory($id = null, $data = [], $segments = [])
+    {
+        try {
+            $studentId = (int)($_GET['student_id'] ?? 0);
+            if (!$studentId) return $this->badRequest('student_id is required');
+
+            $where  = ['fs.student_id=:sid'];
+            $params = [':sid' => $studentId];
+            if (!empty($_GET['term_id']))    { $where[] = 'a.term_id=:tid';    $params[':tid']  = (int)$_GET['term_id']; }
+            if (!empty($_GET['subject_id'])) { $where[] = 'a.subject_id=:sub'; $params[':sub']  = (int)$_GET['subject_id']; }
+
+            $stmt = $this->db->query(
+                "SELECT a.id AS assessment_id, a.title, a.assessment_date, a.max_marks,
+                        fs.score, fs.percentage, fs.cbc_grade,
+                        at.name AS type_name, at.is_formative, at.is_summative,
+                        la.name AS subject_name, la.code AS subject_code,
+                        t.name AS term_name, t.term_number, t.year
+                 FROM formative_scores fs
+                 JOIN assessments a       ON a.id  = fs.assessment_id
+                 JOIN assessment_types at ON at.id = a.assessment_type_id
+                 LEFT JOIN learning_areas la ON la.id = a.subject_id
+                 LEFT JOIN academic_terms t  ON t.id  = a.term_id
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY a.assessment_date ASC, a.id ASC",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/academic/student-growth-trend?student_id=X&learning_area_id=Y
+     * Returns per-term average scores for a student in a learning area (for charting).
+     */
+    public function getStudentGrowthTrend($id = null, $data = [], $segments = [])
+    {
+        try {
+            $studentId = (int)($_GET['student_id']       ?? 0);
+            $laId      = (int)($_GET['learning_area_id'] ?? 0);
+            if (!$studentId) return $this->badRequest('student_id is required');
+
+            $where  = ['tss.student_id=:sid'];
+            $params = [':sid' => $studentId];
+            if ($laId) { $where[] = 'tss.subject_id=:la'; $params[':la'] = $laId; }
+
+            $stmt = $this->db->query(
+                "SELECT t.id AS term_id, t.name AS term_name, t.term_number, t.year,
+                        la.id AS subject_id, la.name AS subject_name,
+                        tss.formative_percentage, tss.summative_percentage,
+                        tss.overall_percentage, tss.overall_grade, tss.overall_points
+                 FROM term_subject_scores tss
+                 JOIN academic_terms t  ON t.id  = tss.term_id
+                 JOIN learning_areas la ON la.id = tss.subject_id
+                 WHERE " . implode(' AND ', $where) . "
+                 ORDER BY t.year ASC, t.term_number ASC, la.name ASC",
+                $params
+            );
+            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
     // ==================== HELPERS ====================
 
+    // ==================== STUDENT TIMELINE ====================
 
+    /**
+     * GET /api/academic/student-timeline/{student_id}
+     * Full academic, finance, discipline, attendance history across all years.
+     */
+    public function getStudentTimeline($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? ($segments[0] ?? null);
+        if (!$studentId) return $this->error('student_id required');
+
+        try {
+            $db = $this->db;
+
+            // Core student record
+            $student = $db->query(
+                "SELECT s.id, s.admission_no, s.first_name, s.middle_name, s.last_name,
+                        s.date_of_birth, s.gender, s.admission_date, s.status,
+                        s.is_sponsored, s.sponsor_name, s.sponsor_type, s.sponsor_waiver_percentage,
+                        s.photo_url, s.nemis_number,
+                        c.name AS current_class, cs.stream_name AS current_stream,
+                        st.type_name AS student_type
+                 FROM students s
+                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                 LEFT JOIN classes c ON c.id = cs.class_id
+                 LEFT JOIN student_types st ON st.id = s.student_type_id
+                 WHERE s.id = ?",
+                [$studentId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$student) return $this->error('Student not found', 404);
+
+            // Academic history per year
+            $academics = $db->query(
+                "SELECT ce.academic_year_id, ay.year_code, ay.year_name,
+                        c.name AS class_name, cs.stream_name,
+                        ce.term1_average, ce.term2_average, ce.term3_average,
+                        ce.year_average, ce.overall_grade, ce.class_rank,
+                        ce.attendance_percentage, ce.days_present, ce.days_absent,
+                        ce.promotion_status,
+                        pc.name AS promoted_to_class,
+                        ce.teacher_comments, ce.head_teacher_comments
+                 FROM class_enrollments ce
+                 JOIN academic_years ay ON ay.id = ce.academic_year_id
+                 JOIN classes c ON c.id = ce.class_id
+                 LEFT JOIN class_streams cs ON cs.id = ce.stream_id
+                 LEFT JOIN classes pc ON pc.id = ce.promoted_to_class_id
+                 WHERE ce.student_id = ?
+                 ORDER BY ay.start_date ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Term-level subject scores per year
+            $subjectScores = $db->query(
+                "SELECT tss.academic_year_id, ay.year_code, t.term_number, t.name AS term_name,
+                        la.name AS subject_name, la.code AS subject_code,
+                        tss.formative_percentage, tss.summative_percentage,
+                        tss.overall_percentage, tss.overall_grade
+                 FROM term_subject_scores tss
+                 JOIN academic_years ay ON ay.id = tss.academic_year_id
+                 JOIN academic_terms t ON t.id = tss.term_id
+                 JOIN learning_areas la ON la.id = tss.subject_id
+                 WHERE tss.student_id = ?
+                 ORDER BY ay.start_date ASC, t.term_number ASC, la.name ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Payment / finance history
+            $payments = $db->query(
+                "SELECT pt.academic_year, at2.term_number, at2.name AS term_name,
+                        pt.amount_paid, pt.payment_date, pt.payment_method,
+                        pt.receipt_no, pt.reference_no, pt.status
+                 FROM payment_transactions pt
+                 LEFT JOIN academic_terms at2 ON at2.id = pt.term_id
+                 WHERE pt.student_id = ?
+                 ORDER BY pt.payment_date ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Outstanding fee balances per year
+            $feeObligations = $db->query(
+                "SELECT o.academic_year, t.term_number, t.name AS term_name,
+                        ft.fee_name,
+                        o.amount_due, o.amount_paid, o.amount_waived, o.balance,
+                        o.payment_status
+                 FROM student_fee_obligations o
+                 JOIN academic_terms t ON t.id = o.term_id
+                 JOIN fee_structure_details fsd ON fsd.id = o.fee_structure_detail_id
+                 JOIN fee_types ft ON ft.id = fsd.fee_type_id
+                 WHERE o.student_id = ?
+                 ORDER BY o.academic_year ASC, t.term_number ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Discipline history
+            $discipline = $db->query(
+                "SELECT dc.incident_date, dc.incident_type, dc.severity,
+                        dc.description, dc.action_taken, dc.status,
+                        ay.year_code AS academic_year,
+                        t.term_number
+                 FROM discipline_cases dc
+                 LEFT JOIN academic_years ay ON ay.id = dc.academic_year_id
+                 LEFT JOIN academic_terms t ON t.id = dc.term_id
+                 WHERE dc.student_id = ?
+                 ORDER BY dc.incident_date ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Attendance summary per term
+            $attendance = $db->query(
+                "SELECT ay.year_code AS academic_year, t.term_number, t.name AS term_name,
+                        COUNT(CASE WHEN sa.status = 'present' THEN 1 END) AS days_present,
+                        COUNT(CASE WHEN sa.status = 'absent' THEN 1 END) AS days_absent,
+                        COUNT(CASE WHEN sa.status = 'late' THEN 1 END) AS days_late,
+                        COUNT(sa.id) AS total_recorded
+                 FROM student_attendance sa
+                 JOIN academic_years ay ON ay.id = sa.academic_year_id
+                 JOIN academic_terms t ON t.id = sa.term_id
+                 WHERE sa.student_id = ?
+                 GROUP BY ay.id, t.id
+                 ORDER BY ay.start_date ASC, t.term_number ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Fee credit notes
+            $creditNotes = $db->query(
+                "SELECT credit_number, academic_year, credit_amount, credit_reason,
+                        status, applied_amount, remaining_amount, created_at
+                 FROM fee_credit_notes
+                 WHERE student_id = ? ORDER BY academic_year ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Transfer history
+            $transfers = $db->query(
+                "SELECT str.request_number, str.request_date, str.transfer_type,
+                        str.destination_school, str.reason, str.status,
+                        str.fee_balance_at_request, str.completed_at
+                 FROM student_transfer_requests str
+                 WHERE str.student_id = ? ORDER BY str.request_date ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Summary stats
+            $totalPaid = array_sum(array_column($payments, 'amount_paid'));
+            $totalOwed = array_sum(array_column($feeObligations, 'amount_due'));
+            $totalOutstanding = array_sum(array_column($feeObligations, 'balance'));
+
+            return $this->success([
+                'student'        => $student,
+                'academics'      => $academics,
+                'subject_scores' => $subjectScores,
+                'payments'       => $payments,
+                'fee_obligations' => $feeObligations,
+                'discipline'     => $discipline,
+                'attendance'     => $attendance,
+                'credit_notes'   => $creditNotes,
+                'transfers'      => $transfers,
+                'summary' => [
+                    'years_enrolled'   => count($academics),
+                    'total_fees_billed' => $totalOwed,
+                    'total_fees_paid'  => $totalPaid,
+                    'current_balance'  => $totalOutstanding,
+                    'discipline_cases' => count($discipline),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/academic/staff-timeline/{staff_id}
+     */
+    public function getStaffTimeline($id = null, $data = [], $segments = [])
+    {
+        $staffId = $id ?? ($segments[0] ?? null);
+        if (!$staffId) return $this->error('staff_id required');
+
+        try {
+            $db = $this->db;
+
+            $staff = $db->query(
+                "SELECT s.id, s.employee_number, s.first_name, s.last_name, s.email,
+                        s.phone, s.gender, s.date_of_birth, s.hire_date, s.employment_status,
+                        s.basic_salary, s.photo_url,
+                        d.name AS department_name, sc.name AS staff_category,
+                        p.title AS position_title
+                 FROM staff s
+                 LEFT JOIN departments d ON d.id = s.department_id
+                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
+                 LEFT JOIN positions p ON p.id = s.position_id
+                 WHERE s.id = ?",
+                [$staffId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$staff) return $this->error('Staff not found', 404);
+
+            $assignments = $db->query(
+                "SELECT ay.year_code AS academic_year, c.name AS class_name,
+                        cs.stream_name, sca.role, la.name AS subject_name,
+                        sca.status, sca.start_date, sca.end_date
+                 FROM staff_class_assignments sca
+                 JOIN academic_years ay ON ay.id = sca.academic_year_id
+                 JOIN classes c ON c.id = sca.class_id
+                 LEFT JOIN class_streams cs ON cs.id = sca.stream_id
+                 LEFT JOIN learning_areas la ON la.id = sca.subject_id
+                 WHERE sca.staff_id = ?
+                 ORDER BY ay.start_date ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $promotions = $db->query(
+                "SELECT sp.promotion_type, sp.from_position, sp.to_position,
+                        sp.from_salary, sp.to_salary, sp.effective_date, sp.status, sp.reason,
+                        fd.name AS from_department, td.name AS to_department
+                 FROM staff_promotions sp
+                 LEFT JOIN departments fd ON fd.id = sp.from_department_id
+                 LEFT JOIN departments td ON td.id = sp.to_department_id
+                 WHERE sp.staff_id = ? ORDER BY sp.effective_date ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $payrollHistory = $db->query(
+                "SELECT payroll_month, basic_salary, total_allowances, total_deductions,
+                        paye_tax, nssf_deduction, nhif_deduction, net_pay, status,
+                        payment_date
+                 FROM staff_payroll
+                 WHERE staff_id = ? ORDER BY payroll_month ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $advances = $db->query(
+                "SELECT advance_number, requested_amount, approved_amount,
+                        request_date, deduction_schedule, amount_deducted, balance_remaining, status
+                 FROM staff_salary_advances
+                 WHERE staff_id = ? ORDER BY request_date ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $leaves = $db->query(
+                "SELECT leave_type, start_date, end_date, days_taken, reason, status
+                 FROM staff_leaves WHERE staff_id = ? ORDER BY start_date ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $performance = $db->query(
+                "SELECT review_period, overall_rating, strengths, areas_for_improvement,
+                        goals_set, reviewer_comments, status, review_date
+                 FROM staff_performance_reviews
+                 WHERE staff_id = ? ORDER BY review_date ASC",
+                [$staffId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->success([
+                'staff'       => $staff,
+                'assignments' => $assignments,
+                'promotions'  => $promotions,
+                'payroll'     => $payrollHistory,
+                'advances'    => $advances,
+                'leaves'      => $leaves,
+                'performance' => $performance,
+                'summary' => [
+                    'years_of_service'   => count(array_unique(array_column($assignments, 'academic_year'))),
+                    'total_promotions'   => count($promotions),
+                    'leave_days_taken'   => array_sum(array_column($leaves, 'days_taken')),
+                    'active_advance'     => count(array_filter($advances, fn($a) => $a['status'] === 'active')),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== TRANSFER REQUESTS ====================
+
+    /**
+     * GET /api/academic/transfer-requests
+     * POST /api/academic/transfer-requests
+     */
+    public function getTransferRequests($id = null, $data = [], $segments = [])
+    {
+        try {
+            if ($id) {
+                $row = $this->db->query(
+                    "SELECT tr.*, s.first_name, s.last_name, s.admission_no,
+                            c.name AS class_name, u.name AS requested_by_name,
+                            au.name AS approved_by_name
+                     FROM student_transfer_requests tr
+                     JOIN students s ON s.id = tr.student_id
+                     LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                     LEFT JOIN classes c ON c.id = cs.class_id
+                     LEFT JOIN users u ON u.id = tr.requested_by
+                     LEFT JOIN users au ON au.id = tr.approved_by
+                     WHERE tr.id = ?",
+                    [$id]
+                )->fetch(\PDO::FETCH_ASSOC);
+
+                // also get clearances
+                $clearances = $this->db->query(
+                    "SELECT sc.*, u.name AS checked_by_name
+                     FROM student_clearances sc
+                     LEFT JOIN users u ON u.id = sc.checked_by
+                     WHERE sc.transfer_request_id = ?",
+                    [$id]
+                )->fetchAll(\PDO::FETCH_ASSOC);
+
+                return $this->success(['request' => $row, 'clearances' => $clearances]);
+            }
+
+            $rows = $this->db->query(
+                "SELECT tr.id, tr.request_number, tr.request_date, tr.transfer_type,
+                        tr.destination_school, tr.clearance_status, tr.status,
+                        tr.fee_balance_at_request,
+                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                        s.admission_no, c.name AS class_name
+                 FROM student_transfer_requests tr
+                 JOIN students s ON s.id = tr.student_id
+                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                 LEFT JOIN classes c ON c.id = cs.class_id
+                 ORDER BY tr.created_at DESC"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->success($rows);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    public function postTransferRequests($id = null, $data = [], $segments = [])
+    {
+        $studentId = $data['student_id'] ?? null;
+        if (!$studentId) return $this->error('student_id required');
+
+        try {
+            $db = $this->db;
+
+            // GUARD: Check for outstanding fees before allowing transfer
+            $feeCheck = $db->query(
+                "SELECT COALESCE(SUM(balance),0) AS outstanding
+                 FROM student_fee_obligations
+                 WHERE student_id = ? AND academic_year = YEAR(CURDATE())",
+                [$studentId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            $outstanding = (float)($feeCheck['outstanding'] ?? 0);
+
+            // Log the business rule check
+            if ($outstanding > 0) {
+                $db->query(
+                    "INSERT INTO business_rule_violations_log
+                     (rule_code, rule_description, entity_type, entity_id,
+                      triggered_by, action_attempted, violation_data)
+                     VALUES ('TRANS_FEE_BLOCK','Student has outstanding fees — transfer blocked',
+                             'student', ?, ?, 'initiate_transfer',
+                             JSON_OBJECT('outstanding', ?, 'student_id', ?))",
+                    [
+                        $studentId,
+                        $this->user['id'] ?? null,
+                        $outstanding,
+                        $studentId,
+                    ]
+                );
+
+                return $this->error(
+                    "Cannot initiate transfer: student has outstanding fees of KES " .
+                    number_format($outstanding, 2) .
+                    ". Fees must be paid or waived before transfer can proceed.",
+                    422
+                );
+            }
+
+            // Generate request number
+            $reqNumber = 'TRF-' . date('Ymd') . '-' . str_pad(rand(1, 999), 3, '0', STR_PAD_LEFT);
+
+            $db->query(
+                "INSERT INTO student_transfer_requests
+                 (request_number, student_id, academic_year_id, request_date, requested_by,
+                  transfer_type, destination_school, reason, fee_balance_at_request, status)
+                 SELECT ?, ?, ay.id, CURDATE(), ?, ?, ?, ?, ?, 'pending_clearance'
+                 FROM academic_years ay WHERE ay.is_current = 1 LIMIT 1",
+                [
+                    $reqNumber,
+                    $studentId,
+                    $this->user['id'] ?? null,
+                    $data['transfer_type'] ?? 'inter_school',
+                    $data['destination_school'] ?? null,
+                    $data['reason'] ?? null,
+                    $outstanding,
+                ]
+            );
+            $requestId = $db->lastInsertId();
+
+            // Auto-create clearance items
+            foreach (['finance', 'library', 'uniform', 'property', 'academic'] as $type) {
+                $db->query(
+                    "INSERT INTO student_clearances (student_id, transfer_request_id, clearance_type, status)
+                     VALUES (?, ?, ?, 'pending')",
+                    [$studentId, $requestId, $type]
+                );
+            }
+
+            return $this->success(['request_id' => $requestId, 'request_number' => $reqNumber], 201);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * PUT /api/academic/transfer-requests/{id}
+     * Update clearance status or approve/reject transfer
+     */
+    public function putTransferRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->error('id required');
+        $action = $data['action'] ?? null;
+
+        try {
+            $db = $this->db;
+
+            if ($action === 'update_clearance') {
+                $db->query(
+                    "UPDATE student_clearances SET status = ?, checked_by = ?, checked_at = NOW(),
+                            amount_outstanding = ?, notes = ?
+                     WHERE transfer_request_id = ? AND clearance_type = ?",
+                    [
+                        $data['status'],
+                        $this->user['id'] ?? null,
+                        $data['amount_outstanding'] ?? 0,
+                        $data['notes'] ?? null,
+                        $id,
+                        $data['clearance_type'],
+                    ]
+                );
+
+                // Check if all clearances are done
+                $pending = $db->query(
+                    "SELECT COUNT(*) FROM student_clearances
+                     WHERE transfer_request_id = ? AND status != 'cleared'",
+                    [$id]
+                )->fetchColumn();
+
+                $blocked = $db->query(
+                    "SELECT COUNT(*) FROM student_clearances
+                     WHERE transfer_request_id = ? AND status = 'blocked'",
+                    [$id]
+                )->fetchColumn();
+
+                if ($blocked > 0) {
+                    $db->query("UPDATE student_transfer_requests SET clearance_status = 'blocked' WHERE id = ?", [$id]);
+                } elseif ($pending == 0) {
+                    $db->query(
+                        "UPDATE student_transfer_requests SET clearance_status = 'fully_cleared', status = 'clearance_passed' WHERE id = ?",
+                        [$id]
+                    );
+                }
+
+                return $this->success(['updated' => true]);
+            }
+
+            if ($action === 'approve') {
+                $db->query(
+                    "UPDATE student_transfer_requests SET status = 'approved', approved_by = ?, approval_date = NOW() WHERE id = ?",
+                    [$this->user['id'] ?? null, $id]
+                );
+                // Update student status
+                $req = $db->query("SELECT student_id FROM student_transfer_requests WHERE id = ?", [$id])->fetch();
+                if ($req) {
+                    $db->query("UPDATE students SET status = 'transferred' WHERE id = ?", [$req['student_id']]);
+                }
+                return $this->success(['approved' => true]);
+            }
+
+            if ($action === 'reject') {
+                $db->query(
+                    "UPDATE student_transfer_requests SET status = 'rejected', rejection_reason = ? WHERE id = ?",
+                    [$data['reason'] ?? null, $id]
+                );
+                return $this->success(['rejected' => true]);
+            }
+
+            return $this->error('Unknown action');
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ==================== YEAR-END ROLLOVER ====================
+
+    /**
+     * GET /api/academic/year-rollover-status
+     * Returns the current state of the rollover checklist.
+     */
+    public function getYearRolloverStatus($id = null, $data = [], $segments = [])
+    {
+        try {
+            $db = $this->db;
+
+            $currentYear = $db->query(
+                "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$currentYear) return $this->error('No active academic year');
+
+            // Check each prerequisite
+            $termsStatus = $db->query(
+                "SELECT term_number, name, status FROM academic_terms
+                 WHERE academic_year_id = ? ORDER BY term_number",
+                [$currentYear['id']]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $pendingResults = $db->query(
+                "SELECT COUNT(*) FROM class_enrollments
+                 WHERE academic_year_id = ? AND year_average IS NULL",
+                [$currentYear['id']]
+            )->fetchColumn();
+
+            $pendingPromotions = $db->query(
+                "SELECT COUNT(*) FROM class_enrollments
+                 WHERE academic_year_id = ? AND promotion_status IS NULL",
+                [$currentYear['id']]
+            )->fetchColumn();
+
+            $outstandingFees = $db->query(
+                "SELECT COUNT(DISTINCT student_id) FROM student_fee_obligations
+                 WHERE academic_year = ? AND balance > 0",
+                [$currentYear['year_code']]
+            )->fetchColumn();
+
+            $rolloverLog = $db->query(
+                "SELECT step, status, students_promoted, students_retained, fee_balances_carried,
+                        credit_notes_created, performed_at
+                 FROM academic_year_rollover_log
+                 WHERE from_year_id = ?
+                 ORDER BY performed_at DESC LIMIT 20",
+                [$currentYear['id']]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $allTermsComplete = !array_filter($termsStatus, fn($t) => $t['status'] !== 'completed');
+
+            return $this->success([
+                'current_year'        => $currentYear,
+                'terms'               => $termsStatus,
+                'all_terms_complete'  => $allTermsComplete,
+                'pending_results'     => (int)$pendingResults,
+                'pending_promotions'  => (int)$pendingPromotions,
+                'students_with_fees'  => (int)$outstandingFees,
+                'ready_for_rollover'  => $allTermsComplete && $pendingResults == 0 && $pendingPromotions == 0,
+                'rollover_log'        => $rolloverLog,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/academic/year-rollover
+     * Executes one step of the year-end rollover process.
+     * Body: { step: 'fee_carryover' | 'staff_reassignment' | 'create_new_year' | ... }
+     */
+    public function postYearRollover($id = null, $data = [], $segments = [])
+    {
+        $step = $data['step'] ?? null;
+        if (!$step) return $this->error('step required');
+
+        try {
+            $db = $this->db;
+            $userId = $this->user['id'] ?? null;
+
+            $currentYear = $db->query(
+                "SELECT * FROM academic_years WHERE is_current = 1 LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$currentYear) return $this->error('No active academic year');
+
+            $rolloverRef = 'ROL-' . date('Ymd');
+            $result = ['step' => $step, 'status' => 'completed'];
+
+            if ($step === 'fee_carryover') {
+                // For each student with outstanding balance, set previous_year_balance on new year obligations
+                // For students with surplus (credit), create fee_credit_notes
+                $students = $db->query(
+                    "SELECT student_id,
+                            SUM(balance) AS outstanding,
+                            SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) AS surplus
+                     FROM student_fee_obligations
+                     WHERE academic_year = ?
+                     GROUP BY student_id",
+                    [$currentYear['year_code']]
+                )->fetchAll(\PDO::FETCH_ASSOC);
+
+                $carried = 0; $credits = 0;
+                foreach ($students as $s) {
+                    if ((float)$s['outstanding'] > 0) {
+                        // Record carryover
+                        $db->query(
+                            "INSERT INTO student_fee_carryover
+                             (student_id, academic_year, previous_balance, action_taken, notes)
+                             VALUES (?, ?, ?, 'add_to_current', 'Year-end carryover')
+                             ON DUPLICATE KEY UPDATE previous_balance = VALUES(previous_balance)",
+                            [$s['student_id'], (int)$currentYear['year_code'] + 1, $s['outstanding']]
+                        );
+                        $carried++;
+                    }
+                    if ((float)$s['surplus'] > 0) {
+                        $creditNum = 'CRD-' . date('Ymd') . '-' . str_pad($credits + 1, 4, '0', STR_PAD_LEFT);
+                        $db->query(
+                            "INSERT INTO fee_credit_notes
+                             (credit_number, student_id, academic_year, credit_amount, credit_reason, expiry_date, created_by)
+                             VALUES (?, ?, ?, ?, 'overpayment', DATE_ADD(CURDATE(), INTERVAL 2 YEAR), ?)",
+                            [$creditNum, $s['student_id'], $currentYear['year_code'], $s['surplus'], $userId]
+                        );
+                        $credits++;
+                    }
+                }
+                $result['fee_balances_carried'] = $carried;
+                $result['credit_notes_created'] = $credits;
+
+            } elseif ($step === 'staff_reassignment') {
+                // Copy active staff_class_assignments to new year (admin adjusts class/stream after)
+                $count = $db->query(
+                    "SELECT COUNT(*) FROM staff_class_assignments WHERE academic_year_id = ? AND status = 'active'",
+                    [$currentYear['id']]
+                )->fetchColumn();
+                $result['staff_to_reassign'] = (int)$count;
+                $result['note'] = 'Use Manage Staff → Class Assignments to confirm new year assignments';
+
+            } elseif ($step === 'create_new_year') {
+                $newYearCode = (int)$currentYear['year_code'] + 1;
+                // Create new academic year
+                $existing = $db->query("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch();
+                if ($existing) {
+                    $result['note'] = "Academic year $newYearCode already exists";
+                    $result['new_year_id'] = $existing['id'];
+                } else {
+                    $db->query(
+                        "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status, created_by)
+                         VALUES (?, ?, ?, ?, 'planning', ?)",
+                        [
+                            $newYearCode,
+                            "$newYearCode Academic Year",
+                            "$newYearCode-01-06",
+                            "$newYearCode-11-28",
+                            $userId,
+                        ]
+                    );
+                    $newYearId = $db->lastInsertId();
+
+                    // Create 3 terms
+                    $terms = [
+                        [1, "$newYearCode-01-06", "$newYearCode-04-04"],
+                        [2, "$newYearCode-04-28", "$newYearCode-08-01"],
+                        [3, "$newYearCode-08-25", "$newYearCode-11-28"],
+                    ];
+                    foreach ($terms as [$termNo, $start, $end]) {
+                        $db->query(
+                            "INSERT INTO academic_terms (academic_year_id, name, start_date, end_date, year, term_number, status)
+                             VALUES (?, ?, ?, ?, ?, ?, 'upcoming')",
+                            [$newYearId, "Term $termNo", $start, $end, $newYearCode, $termNo]
+                        );
+                    }
+                    $result['new_year_id'] = $newYearId;
+                    $result['new_year_code'] = $newYearCode;
+                    $result['terms_created'] = 3;
+                }
+
+            } elseif ($step === 'archive_old_year') {
+                $db->query(
+                    "UPDATE academic_years SET status = 'archived', is_current = 0 WHERE id = ?",
+                    [$currentYear['id']]
+                );
+                $db->query(
+                    "INSERT INTO academic_year_archives
+                     (academic_year, status, closure_initiated_by, closure_date)
+                     VALUES (?, 'archived', ?, NOW())
+                     ON DUPLICATE KEY UPDATE status = 'archived', archived_at = NOW()",
+                    [$currentYear['year_code'], $userId]
+                );
+                $result['archived_year'] = $currentYear['year_code'];
+
+            } elseif ($step === 'activate_new_year') {
+                $newYearCode = (int)$currentYear['year_code'] + 1;
+                $newYear = $db->query("SELECT id FROM academic_years WHERE year_code = ?", [$newYearCode])->fetch();
+                if (!$newYear) return $this->error("New year $newYearCode not created yet. Run 'create_new_year' first.");
+
+                $db->query("UPDATE academic_years SET is_current = 0");
+                $db->query(
+                    "UPDATE academic_years SET is_current = 1, status = 'active' WHERE id = ?",
+                    [$newYear['id']]
+                );
+                $db->query(
+                    "UPDATE academic_terms SET status = 'current' WHERE academic_year_id = ? AND term_number = 1",
+                    [$newYear['id']]
+                );
+                $result['activated_year'] = $newYearCode;
+            }
+
+            // Log the rollover step
+            $db->query(
+                "INSERT INTO academic_year_rollover_log
+                 (rollover_id, from_year_id, step, status, fee_balances_carried,
+                  credit_notes_created, staff_reassigned, performed_by)
+                 VALUES (?, ?, ?, 'completed', ?, ?, ?, ?)",
+                [
+                    $rolloverRef,
+                    $currentYear['id'],
+                    $step,
+                    $result['fee_balances_carried'] ?? 0,
+                    $result['credit_notes_created'] ?? 0,
+                    $result['staff_to_reassign'] ?? 0,
+                    $userId,
+                ]
+            );
+
+            return $this->success($result);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
 }

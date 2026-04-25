@@ -380,68 +380,69 @@ class AttendanceController extends BaseController
     public function postMarkBulk($id = null, $data = [], $segments = [])
     {
         try {
-            $streamId = $data['stream_id'] ?? null;
-            $date = $data['date'] ?? date('Y-m-d');
-            $attendance = $data['attendance'] ?? [];
-            $termId = $data['term_id'] ?? 7; // Current term
+            $streamId    = $data['stream_id']    ?? null;
+            $date        = $data['date']         ?? date('Y-m-d');
+            $attendance  = $data['attendance']   ?? [];
+            $sessionId   = $data['session_id']   ?? null;
+            $registerType = $data['register_type'] ?? 'class';
 
-            if (!$streamId) {
-                return $this->badRequest('Missing stream_id');
-            }
-            if (empty($attendance)) {
-                return $this->badRequest('No attendance data provided');
-            }
+            if (!$streamId)       return $this->badRequest('Missing stream_id');
+            if (empty($attendance)) return $this->badRequest('No attendance data provided');
+
+            // Resolve current term + year dynamically (never hardcode)
+            $termRow = $this->_resolveTermForDate($date);
+            $termId        = $termRow['term_id']  ?? null;
+            $academicYearId = $termRow['year_id'] ?? null;
 
             // Get class_id from stream
-            $classQuery = $this->db->query("SELECT class_id FROM class_streams WHERE id = ?", [$streamId]);
-            $classRow = $classQuery->fetch(\PDO::FETCH_ASSOC);
-            $classId = $classRow['class_id'] ?? null;
+            $classRow = $this->db->query("SELECT class_id FROM class_streams WHERE id = ?", [$streamId])->fetch(\PDO::FETCH_ASSOC);
+            $classId  = $classRow['class_id'] ?? null;
+
+            // Determine register_type from session if session given
+            if ($sessionId) {
+                $sess = $this->db->query("SELECT session_type FROM attendance_sessions WHERE id = ?", [$sessionId])->fetch(\PDO::FETCH_ASSOC);
+                if ($sess) $registerType = $sess['session_type'] === 'boarding' ? 'boarding' : ($sess['session_type'] === 'activity' ? 'activity' : 'class');
+            }
 
             $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
-            $created = 0;
-            $updated = 0;
+            $created = 0; $updated = 0;
 
             foreach ($attendance as $record) {
                 $studentId = $record['student_id'] ?? null;
-                $status = $record['status'] ?? 'present';
+                if (!$studentId) continue;
+                $status = in_array($record['status'] ?? '', ['present','absent','late']) ? $record['status'] : 'present';
 
-                if (!$studentId)
-                    continue;
-                if (!in_array($status, ['present', 'absent', 'late'])) {
-                    $status = 'present';
-                }
-
-                // Check if record exists
-                $existsQuery = $this->db->query(
-                    "SELECT id FROM student_attendance WHERE student_id = ? AND date = ?",
-                    [$studentId, $date]
-                );
-                $existing = $existsQuery->fetch(\PDO::FETCH_ASSOC);
+                // Use unique key: student + date + session + register_type
+                $existing = $this->db->query(
+                    "SELECT id FROM student_attendance WHERE student_id = ? AND date = ? AND session_id <=> ? AND register_type = ?",
+                    [$studentId, $date, $sessionId, $registerType]
+                )->fetch(\PDO::FETCH_ASSOC);
 
                 if ($existing) {
-                    // Update
                     $this->db->query(
-                        "UPDATE student_attendance SET status = ? WHERE id = ?",
-                        [$status, $existing['id']]
+                        "UPDATE student_attendance SET status = ?, marked_by = ? WHERE id = ?",
+                        [$status, $markedBy, $existing['id']]
                     );
                     $updated++;
                 } else {
-                    // Insert
                     $this->db->query(
-                        "INSERT INTO student_attendance (student_id, date, status, class_id, term_id, marked_by, created_at)
-                         VALUES (?, ?, ?, ?, ?, ?, NOW())",
-                        [$studentId, $date, $status, $classId, $termId, $markedBy]
+                        "INSERT INTO student_attendance
+                         (student_id, date, status, class_id, term_id, academic_year_id,
+                          session_id, register_type, marked_by, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                        [$studentId, $date, $status, $classId, $termId, $academicYearId,
+                         $sessionId, $registerType, $markedBy]
                     );
                     $created++;
                 }
             }
 
             return $this->success([
-                'created' => $created,
-                'updated' => $updated,
+                'created' => $created, 'updated' => $updated,
                 'total' => $created + $updated,
-                'date' => $date,
-                'stream_id' => $streamId
+                'date' => $date, 'stream_id' => $streamId,
+                'term_id' => $termId, 'academic_year_id' => $academicYearId,
+                'register_type' => $registerType,
             ], 'Attendance marked successfully');
         } catch (\Exception $e) {
             return $this->error('Failed to mark attendance: ' . $e->getMessage());
@@ -575,11 +576,22 @@ class AttendanceController extends BaseController
     {
         try {
             $sessionId = $data['session_id'] ?? null;
-            $streamId = $data['stream_id'] ?? null;
-            $date = $data['date'] ?? date('Y-m-d');
+            $streamId  = $data['stream_id']  ?? null;
+            $date      = $data['date']       ?? date('Y-m-d');
             $attendance = $data['attendance'] ?? [];
-            $termId = $data['term_id'] ?? 7;
-            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
+            $markedBy  = $_SERVER['auth_user']['user_id'] ?? 1;
+
+            // Resolve term + year dynamically for this date
+            $termRow       = $this->_resolveTermForDate($date);
+            $termId        = $termRow['term_id']  ?? null;
+            $academicYearId = $termRow['year_id'] ?? null;
+
+            // Determine register_type from session
+            $registerType = 'class';
+            if ($sessionId) {
+                $sess = $this->db->query("SELECT session_type FROM attendance_sessions WHERE id = ?", [$sessionId])->fetch(\PDO::FETCH_ASSOC);
+                if ($sess) $registerType = $sess['session_type'] === 'boarding' ? 'boarding' : ($sess['session_type'] === 'activity' ? 'activity' : 'class');
+            }
 
             if (!$sessionId) {
                 return $this->badRequest('Session ID is required');
@@ -640,37 +652,31 @@ class AttendanceController extends BaseController
                     }
                 }
 
-                // Check existing
+                // Check existing (unique: student + date + session + register_type)
                 $existsQuery = $this->db->query(
-                    "SELECT id FROM student_attendance WHERE student_id = ? AND date = ? AND session_id = ?",
-                    [$studentId, $date, $sessionId]
+                    "SELECT id FROM student_attendance WHERE student_id = ? AND date = ? AND session_id = ? AND register_type = ?",
+                    [$studentId, $date, $sessionId, $registerType]
                 );
                 $existing = $existsQuery->fetch(\PDO::FETCH_ASSOC);
 
                 if ($existing) {
                     $this->db->query(
-                        "UPDATE student_attendance SET status = ?, absence_reason = ?, 
+                        "UPDATE student_attendance SET status = ?, absence_reason = ?,
                          permission_id = ?, notes = ?, check_in_time = CURTIME() WHERE id = ?",
                         [$status, $absenceReason, $permissionId, $notes, $existing['id']]
                     );
                     $updated++;
                 } else {
                     $this->db->query(
-                        "INSERT INTO student_attendance 
-                         (student_id, date, status, session_id, class_id, term_id, 
-                          check_in_time, absence_reason, permission_id, notes, marked_by, created_at)
-                         VALUES (?, ?, ?, ?, ?, ?, CURTIME(), ?, ?, ?, ?, NOW())",
+                        "INSERT INTO student_attendance
+                         (student_id, date, status, session_id, class_id, term_id, academic_year_id,
+                          register_type, check_in_time, absence_reason, permission_id, notes, marked_by, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURTIME(), ?, ?, ?, ?, NOW())",
                         [
-                            $studentId,
-                            $date,
-                            $status,
-                            $sessionId,
-                            $classId,
-                            $termId,
-                            $absenceReason,
-                            $permissionId,
-                            $notes,
-                            $markedBy
+                            $studentId, $date, $status, $sessionId,
+                            $classId, $termId, $academicYearId,
+                            $registerType,
+                            $absenceReason, $permissionId, $notes, $markedBy
                         ]
                     );
                     $created++;
@@ -1596,108 +1602,263 @@ class AttendanceController extends BaseController
     public function postMarkStaff($id = null, $data = [], $segments = [])
     {
         try {
-            $date = $data['date'] ?? date('Y-m-d');
-            $attendance = $data['attendance'] ?? [];
-            $markedBy = $_SERVER['auth_user']['user_id'] ?? 1;
-            $scope = $this->getAccessibleStaffScope();
+            $date        = $data['date']       ?? date('Y-m-d');
+            $shift       = $data['shift']      ?? 'full_day';
+            $attendance  = $data['attendance'] ?? [];
+            $markedBy    = $_SERVER['auth_user']['user_id'] ?? 1;
+            $scope       = $this->getAccessibleStaffScope();
 
-            if (empty($attendance)) {
-                return $this->badRequest('No attendance data provided');
-            }
+            if (empty($attendance))                                   return $this->badRequest('No attendance data provided');
+            if ($scope['restricted'] && empty($scope['staff_ids']))   return $this->forbidden('You are not allowed to mark staff attendance');
 
-            if ($scope['restricted'] && empty($scope['staff_ids'])) {
-                return $this->forbidden('You are not allowed to mark staff attendance');
-            }
+            // Resolve academic year for this date
+            $yearRow = $this->db->query(
+                "SELECT id FROM academic_years WHERE YEAR(?) = year_code LIMIT 1", [$date]
+            )->fetch(\PDO::FETCH_ASSOC);
+            $academicYearId = $yearRow['id'] ?? null;
 
-            $created = 0;
-            $updated = 0;
-            $skipped = 0;
+            $dayName = date('l', strtotime($date)); // Monday, Tuesday, ...
+
+            $created = 0; $updated = 0; $autoMarked = 0;
 
             foreach ($attendance as $record) {
-                $staffId = $record['staff_id'] ?? null;
-                $status = strtolower((string) ($record['status'] ?? 'present'));
-                $checkIn = $record['check_in_time'] ?? null;
+                $staffId  = $record['staff_id'] ?? null;
+                $status   = strtolower((string)($record['status'] ?? 'present'));
+                $checkIn  = $record['check_in_time']  ?? null;
                 $checkOut = $record['check_out_time'] ?? null;
-                $notes = $record['notes'] ?? null;
+                $notes    = $record['notes']          ?? null;
 
-                if (!$staffId)
-                    continue;
+                if (!$staffId) continue;
+                if (!$this->isStaffInScope((int)$staffId, $scope)) {
+                    return $this->forbidden('Not allowed to mark attendance for one or more staff members');
+                }
+                if (!in_array($status, ['present','absent','late'], true)) $status = 'present';
 
-                if (!$this->isStaffInScope((int) $staffId, $scope)) {
-                    return $this->forbidden('You are not allowed to mark attendance for one or more staff members');
+                // Get staff expected check-in for late detection
+                $staffRow = $this->db->query(
+                    "SELECT work_start_time, late_threshold_minutes FROM staff WHERE id = ?", [$staffId]
+                )->fetch(\PDO::FETCH_ASSOC);
+                $expectedCheckIn = $staffRow['work_start_time'] ?? null;
+                $lateThresh      = (int)($staffRow['late_threshold_minutes'] ?? 15);
+
+                // Auto-detect late: if check_in provided and > expected + threshold → override to late
+                if ($status === 'present' && $checkIn && $expectedCheckIn) {
+                    $expectedPlus = date('H:i:s', strtotime($expectedCheckIn) + $lateThresh * 60);
+                    if ($checkIn > $expectedPlus) $status = 'late';
                 }
 
-                if (!in_array($status, ['present', 'absent', 'late'], true)) {
-                    $status = 'present';
-                }
-
-                // Check if staff is on approved leave
-                $leaveQuery = $this->db->query(
-                    "SELECT id FROM staff_leaves 
-                     WHERE staff_id = ? AND ? BETWEEN start_date AND end_date AND status = 'approved'",
+                // Check if on approved leave — record it (don't skip silently)
+                $leave = $this->db->query(
+                    "SELECT id FROM staff_leaves WHERE staff_id = ? AND ? BETWEEN start_date AND end_date AND status = 'approved'",
                     [$staffId, $date]
-                );
-                $leave = $leaveQuery->fetch(\PDO::FETCH_ASSOC);
+                )->fetch(\PDO::FETCH_ASSOC);
 
-                $leaveId = null;
-                $absenceReason = null;
-
-                if ($leave) {
-                    $leaveId = $leave['id'];
-                    $absenceReason = 'leave';
-                    $skipped++;
-                    continue; // Skip marking - they're on leave
-                }
-
-                // Check if off-day
-                $offDayQuery = $this->db->query(
+                // Check off-day: BOTH duty roster AND recurring pattern
+                $rosterOff = $this->db->query(
                     "SELECT sdr.id FROM staff_duty_roster sdr
-                     JOIN staff_duty_types sdt ON sdr.duty_type_id = sdt.id
-                     WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF', 'WEEKEND_OFF')",
+                     JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id
+                     WHERE sdr.staff_id = ? AND sdr.date = ? AND sdt.code IN ('OFF','WEEKEND_OFF')",
                     [$staffId, $date]
-                );
-                $offDay = $offDayQuery->fetch(\PDO::FETCH_ASSOC);
+                )->fetch(\PDO::FETCH_ASSOC);
 
-                if ($offDay) {
+                $patternOff = $this->db->query(
+                    "SELECT id FROM staff_off_day_patterns
+                     WHERE staff_id = ? AND day_of_week = ? AND is_off = 1
+                       AND ? >= effective_from AND (effective_to IS NULL OR ? <= effective_to)",
+                    [$staffId, $dayName, $date, $date]
+                )->fetch(\PDO::FETCH_ASSOC);
+
+                $isOffDay  = ($rosterOff || $patternOff);
+                $isOnLeave = (bool)$leave;
+
+                // Override status for leave/off-day unless explicitly overridden by marker
+                $absenceReason = null;
+                if ($isOnLeave && $record['status'] !== 'present') {
+                    // Marker hasn't explicitly set present (unusual override) — auto-mark as absent+leave
+                    $status        = 'absent';
+                    $absenceReason = 'leave';
+                    $autoMarked++;
+                } elseif ($isOffDay && $record['status'] !== 'present') {
+                    $status        = 'absent';
                     $absenceReason = 'off_day';
-                    $skipped++;
-                    continue; // Skip marking - it's their off day
+                    $autoMarked++;
+                } elseif ($status === 'absent') {
+                    $absenceReason = $record['absence_reason'] ?? 'unexcused';
+                    // If no reason given and no leave, flag as unauthorized
+                    if (!$absenceReason || !in_array($absenceReason, ['leave','sick','off_day','unauthorized','other'])) {
+                        $absenceReason = 'unauthorized';
+                    }
                 }
 
-                // Check existing
-                $existsQuery = $this->db->query(
-                    "SELECT id FROM staff_attendance WHERE staff_id = ? AND date = ?",
-                    [$staffId, $date]
-                );
-                $existing = $existsQuery->fetch(\PDO::FETCH_ASSOC);
+                // Check existing (unique: staff_id + date + shift)
+                $existing = $this->db->query(
+                    "SELECT id FROM staff_attendance WHERE staff_id = ? AND date = ? AND shift = ?",
+                    [$staffId, $date, $shift]
+                )->fetch(\PDO::FETCH_ASSOC);
 
                 if ($existing) {
                     $this->db->query(
-                        "UPDATE staff_attendance SET status = ?, check_in_time = ?, 
-                         check_out_time = ?, notes = ? WHERE id = ?",
-                        [$status, $checkIn, $checkOut, $notes, $existing['id']]
+                        "UPDATE staff_attendance
+                         SET status = ?, check_in_time = ?, check_out_time = ?,
+                             absence_reason = ?, leave_id = ?,
+                             notes = ?, marked_by = ?
+                         WHERE id = ?",
+                        [$status, $checkIn, $checkOut, $absenceReason,
+                         $isOnLeave ? $leave['id'] : null, $notes, $markedBy, $existing['id']]
                     );
                     $updated++;
                 } else {
                     $this->db->query(
-                        "INSERT INTO staff_attendance 
-                         (staff_id, date, status, check_in_time, check_out_time, notes, marked_by, created_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
-                        [$staffId, $date, $status, $checkIn, $checkOut, $notes, $markedBy]
+                        "INSERT INTO staff_attendance
+                         (staff_id, date, academic_year_id, shift, status,
+                          check_in_time, expected_check_in, check_out_time,
+                          absence_reason, leave_id, notes, marked_by, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                        [
+                            $staffId, $date, $academicYearId, $shift, $status,
+                            $checkIn, $expectedCheckIn, $checkOut,
+                            $absenceReason, $isOnLeave ? $leave['id'] : null,
+                            $notes, $markedBy,
+                        ]
                     );
                     $created++;
                 }
             }
 
             return $this->success([
-                'created' => $created,
-                'updated' => $updated,
-                'skipped' => $skipped,
+                'created' => $created, 'updated' => $updated,
+                'auto_marked' => $autoMarked,
                 'total' => $created + $updated,
-                'date' => $date
+                'date' => $date, 'shift' => $shift,
             ], 'Staff attendance marked successfully');
         } catch (\Exception $e) {
             return $this->error('Failed to mark staff attendance: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/attendance/staff-register-context?date=X&department_id=Y
+     * Returns full pre-computed register for a date: who is on leave, off, duty, expected time.
+     */
+    public function getStaffRegisterContext($id = null, $data = [], $segments = [])
+    {
+        try {
+            $date         = $_GET['date']          ?? date('Y-m-d');
+            $departmentId = $_GET['department_id'] ?? null;
+            $shift        = $_GET['shift']         ?? 'full_day';
+
+            $dayName   = date('l', strtotime($date));
+            $dayNumber = (int)date('N', strtotime($date)); // 1=Mon 7=Sun
+
+            // Calendar check
+            $calEntry = $this->db->query(
+                "SELECT day_type, title, affects_day_students, affects_boarders FROM school_calendar WHERE date = ?",
+                [$date]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            $dayType   = $calEntry['day_type'] ?? ($dayNumber >= 6 ? 'weekend' : 'school_day');
+            $eventName = $calEntry['title']    ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Working Day'));
+
+            $isWorkingDay = !in_array($dayType, ['public_holiday','school_holiday']);
+            // On public holidays, only staff on explicit duty roster work
+            $onlyRosterStaff = in_array($dayType, ['public_holiday']);
+
+            $where  = ["s.status = 'active'"];
+            $params = [$date, $date, $date, $dayName, $date, $date];
+
+            if ($departmentId) { $where[] = "s.department_id = ?"; $params[] = (int)$departmentId; }
+
+            $sql = "SELECT
+              s.id AS staff_id, s.staff_no,
+              CONCAT(s.first_name,' ',s.last_name) AS staff_name,
+              s.position, s.work_start_time, s.late_threshold_minutes,
+              d.id AS department_id, d.name AS department_name,
+              sc.category_name AS staff_category,
+              -- Attendance record for this date+shift
+              sa.id AS attendance_id, sa.status AS marked_status,
+              sa.shift AS marked_shift,
+              sa.check_in_time, sa.expected_check_in, sa.check_out_time,
+              sa.absence_reason, sa.notes AS attendance_notes,
+              -- Leave
+              sl.id AS leave_id, lt.name AS leave_type,
+              sl.start_date AS leave_start, sl.end_date AS leave_end,
+              CONCAT(rs.first_name,' ',rs.last_name) AS relief_staff_name,
+              -- Duty roster assignment today
+              sdr.id AS roster_id, sdt.code AS duty_code, sdt.name AS duty_name,
+              sdr.shift AS duty_shift, sdr.start_time AS duty_start, sdr.end_time AS duty_end,
+              sdr.location AS duty_location,
+              -- Off-day pattern
+              sop.id AS pattern_off_id,
+              -- Effective status
+              CASE
+                WHEN sl.id IS NOT NULL AND sl.status='approved'     THEN 'on_leave'
+                WHEN sdr.id IS NOT NULL AND sdt.code IN ('OFF','WEEKEND_OFF') THEN 'off_day'
+                WHEN sop.id IS NOT NULL                             THEN 'off_day'
+                WHEN sa.status IS NOT NULL                          THEN sa.status
+                ELSE 'not_marked'
+              END AS effective_status,
+              -- Can be manually overridden? (no, if on leave/off_day)
+              CASE
+                WHEN sl.id IS NOT NULL AND sl.status='approved'     THEN 0
+                WHEN sdr.id IS NOT NULL AND sdt.code IN ('OFF','WEEKEND_OFF') THEN 0
+                WHEN sop.id IS NOT NULL                             THEN 0
+                ELSE 1
+              END AS can_mark
+            FROM staff s
+            LEFT JOIN departments d ON d.id = s.department_id
+            LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
+            LEFT JOIN staff_attendance sa ON sa.staff_id = s.id AND sa.date = ? AND sa.shift = '$shift'
+            LEFT JOIN staff_leaves sl ON sl.staff_id = s.id
+              AND ? BETWEEN sl.start_date AND sl.end_date AND sl.status = 'approved'
+            LEFT JOIN leave_types lt ON lt.id = sl.leave_type_id
+            LEFT JOIN staff rs ON rs.id = sl.relief_staff_id
+            LEFT JOIN staff_duty_roster sdr ON sdr.staff_id = s.id AND sdr.date = ?
+            LEFT JOIN staff_duty_types sdt ON sdt.id = sdr.duty_type_id
+            LEFT JOIN staff_off_day_patterns sop ON sop.staff_id = s.id
+              AND sop.day_of_week = ?
+              AND sop.is_off = 1
+              AND ? >= sop.effective_from
+              AND (sop.effective_to IS NULL OR ? <= sop.effective_to)
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY d.name, s.last_name, s.first_name";
+
+            $staff = $this->db->query($sql, $params)->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Summary
+            $summary = ['total'=>0,'present'=>0,'absent'=>0,'late'=>0,
+                        'on_leave'=>0,'off_day'=>0,'not_marked'=>0,'on_duty'=>0];
+            foreach ($staff as $s) {
+                $summary['total']++;
+                $st = $s['effective_status'] ?? 'not_marked';
+                if (isset($summary[$st])) $summary[$st]++;
+                if ($s['duty_code'] && !in_array($s['duty_code'], ['OFF','WEEKEND_OFF'])) $summary['on_duty']++;
+            }
+
+            // Available shifts (for boarding shift selector)
+            $shifts = ['full_day' => 'Full Day (08:00–17:00)'];
+            if ($dayNumber >= 6 || !$isWorkingDay) {
+                $shifts = [
+                    'morning'   => 'Morning Shift (06:00–14:00)',
+                    'afternoon' => 'Afternoon Shift (14:00–22:00)',
+                    'night'     => 'Night Shift (22:00–06:00)',
+                    'full_day'  => 'Full Day',
+                ];
+            }
+
+            return $this->success([
+                'date'            => $date,
+                'day_name'        => $dayName,
+                'day_type'        => $dayType,
+                'event_name'      => $eventName,
+                'is_working_day'  => $isWorkingDay,
+                'only_roster'     => $onlyRosterStaff,
+                'available_shifts' => $shifts,
+                'current_shift'   => $shift,
+                'staff'           => $staff,
+                'summary'         => $summary,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
         }
     }
 
@@ -2551,6 +2712,225 @@ class AttendanceController extends BaseController
             return $this->success($result);
         }
         return $this->success($result);
+    }
+
+    // ========================================================================
+    // REGISTER CONTEXT — calendar + session awareness for a given date
+    // ========================================================================
+
+    /**
+     * GET /api/attendance/register-context?date=2026-04-26&stream_id=3&session_id=1
+     *
+     * Returns everything the frontend needs to decide:
+     * - Is today a school day? A boarding day?
+     * - Which sessions apply today?
+     * - How many students already marked?
+     * - What is the current academic term + year?
+     */
+    public function getRegisterContext($id = null, $data = [], $segments = [])
+    {
+        try {
+            $date     = $_GET['date']       ?? date('Y-m-d');
+            $streamId = $_GET['stream_id']  ?? null;
+            $sessionId = $_GET['session_id'] ?? null;
+
+            $dayName    = date('l', strtotime($date));      // Monday, Tuesday...
+            $dayNumber  = (int)date('N', strtotime($date)); // 1=Mon, 7=Sun
+
+            // 1. Check school_calendar for this date
+            $calEntry = $this->db->query(
+                "SELECT day_type, title, affects_day_students, affects_boarders, requires_attendance, term_id
+                 FROM school_calendar WHERE date = ?",
+                [$date]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            // Determine day type if not in calendar
+            $dayType = $calEntry['day_type'] ?? ($dayNumber === 7 ? 'weekend' : ($dayNumber === 6 ? 'weekend' : 'school_day'));
+            $eventName = $calEntry['title'] ?? ($dayNumber === 7 ? 'Sunday' : ($dayNumber === 6 ? 'Saturday' : 'Regular School Day'));
+
+            // 2. Is it a class register day? Boarding day?
+            $isClassDay    = !in_array($dayType, ['public_holiday','school_holiday','weekend']) && $dayNumber < 7;
+            // Saturday: only if school has Saturday classes configured
+            if ($dayNumber === 6) {
+                $swc = $this->db->query(
+                    "SELECT saturday_classes FROM school_week_config WHERE academic_year_id = (SELECT id FROM academic_years WHERE is_current=1 LIMIT 1)"
+                )->fetchColumn();
+                $isClassDay = (bool)$swc;
+            }
+            $isBoardingDay = !in_array($dayType, ['school_holiday']); // boarding runs every day except holiday breaks
+
+            $blockedReason = null;
+            if (!$isClassDay) {
+                if ($dayType === 'public_holiday')  $blockedReason = "Public Holiday: $eventName — class register not required";
+                elseif ($dayType === 'school_holiday') $blockedReason = "School Holiday/Break: $eventName — class register closed";
+                elseif ($dayType === 'weekend')     $blockedReason = $dayNumber === 7 ? "Sunday — class register not required" : "Saturday — no scheduled classes";
+                else $blockedReason = $eventName;
+            }
+
+            // 3. Get applicable sessions for this date
+            $sessions = $this->db->query(
+                "SELECT id, code, name, session_type, applies_to, start_time, end_time, applicable_days
+                 FROM attendance_sessions WHERE status = 'active' ORDER BY display_order"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $applicableSessions = array_values(array_filter($sessions, function ($s) use ($dayName, $isClassDay, $isBoardingDay) {
+                $days = json_decode($s['applicable_days'] ?? '[]', true) ?: [];
+                if (!in_array($dayName, $days)) return false; // session doesn't run today
+
+                if ($s['session_type'] === 'academic' && !$isClassDay) return false;
+                if ($s['session_type'] === 'boarding'  && !$isBoardingDay) return false;
+                return true;
+            }));
+
+            // 4. Resolve current term + year for this date
+            $termRow = $this->_resolveTermForDate($date);
+
+            // 5. Count existing marks (class register and boarding separately)
+            $existingCounts = ['class' => 0, 'boarding' => 0, 'activity' => 0];
+            if ($streamId) {
+                $classId = $this->db->query("SELECT class_id FROM class_streams WHERE id = ?", [$streamId])->fetchColumn();
+                $markParams = $sessionId ? [$date, $classId, $sessionId] : [$date, $classId];
+                $markRows = $this->db->query(
+                    "SELECT register_type, COUNT(DISTINCT student_id) AS cnt
+                     FROM student_attendance
+                     WHERE date = ? AND class_id = ?" . ($sessionId ? " AND session_id = ?" : "") . "
+                     GROUP BY register_type",
+                    $markParams
+                )->fetchAll(\PDO::FETCH_ASSOC);
+                foreach ($markRows as $r) $existingCounts[$r['register_type']] = (int)$r['cnt'];
+            }
+
+            // 6. Total students in the stream
+            $totalStudents = $streamId
+                ? (int)$this->db->query("SELECT COUNT(*) FROM students WHERE stream_id = ? AND status='active'", [$streamId])->fetchColumn()
+                : 0;
+
+            return $this->success([
+                'date'               => $date,
+                'day_name'           => $dayName,
+                'day_number'         => $dayNumber,
+                'day_type'           => $dayType,
+                'event_name'         => $eventName,
+                'is_class_day'       => $isClassDay,
+                'is_boarding_day'    => $isBoardingDay,
+                'blocked_reason'     => $blockedReason,
+                'affects_day_students' => (bool)($calEntry['affects_day_students'] ?? 1),
+                'affects_boarders'   => (bool)($calEntry['affects_boarders'] ?? 1),
+                'applicable_sessions' => $applicableSessions,
+                'current_term'       => $termRow,
+                'existing_marks'     => $existingCounts,
+                'total_students'     => $totalStudents,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/attendance/student-history-by-year/{student_id}
+     * Returns attendance records grouped by academic year → term
+     * with clear differentiation even if student repeated a class
+     */
+    public function getStudentHistoryByYear($id = null, $data = [], $segments = [])
+    {
+        $studentId = $id ?? ($segments[0] ?? null);
+        if (!$studentId) return $this->error('student_id required');
+
+        try {
+            $rows = $this->db->query(
+                "SELECT
+                   sa.academic_year_id,
+                   ay.year_code,
+                   ay.year_name,
+                   sa.term_id,
+                   at2.term_number,
+                   at2.name   AS term_name,
+                   sa.class_id,
+                   c.name     AS class_name,
+                   sa.register_type,
+                   sa.date,
+                   sa.status,
+                   sa.absence_reason,
+                   sa.session_id,
+                   ass.name   AS session_name,
+                   ass.session_type
+                 FROM student_attendance sa
+                 LEFT JOIN academic_years     ay  ON ay.id  = sa.academic_year_id
+                 LEFT JOIN academic_terms     at2 ON at2.id = sa.term_id
+                 LEFT JOIN classes            c   ON c.id   = sa.class_id
+                 LEFT JOIN attendance_sessions ass ON ass.id = sa.session_id
+                 WHERE sa.student_id = ?
+                 ORDER BY sa.date ASC, sa.session_id ASC",
+                [$studentId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Group by year → term → register_type → summary
+            $grouped = [];
+            foreach ($rows as $r) {
+                $yk  = $r['year_code'] ?? 'unknown';
+                $tk  = $r['term_id']   ?? 0;
+                $rt  = $r['register_type'];
+                if (!isset($grouped[$yk])) $grouped[$yk] = ['year_name' => $r['year_name'], 'year_code' => $r['year_code'], 'terms' => []];
+                if (!isset($grouped[$yk]['terms'][$tk])) $grouped[$yk]['terms'][$tk] = [
+                    'term_name' => $r['term_name'], 'term_number' => $r['term_number'],
+                    'class_name' => $r['class_name'], 'records' => [],
+                    'summary' => ['class' => ['present'=>0,'absent'=>0,'late'=>0,'total'=>0],
+                                  'boarding' => ['present'=>0,'absent'=>0,'late'=>0,'total'=>0]],
+                ];
+                $grouped[$yk]['terms'][$tk]['records'][] = $r;
+                if (isset($grouped[$yk]['terms'][$tk]['summary'][$rt])) {
+                    $grouped[$yk]['terms'][$tk]['summary'][$rt][$r['status'] ?? 'absent']++;
+                    $grouped[$yk]['terms'][$tk]['summary'][$rt]['total']++;
+                }
+            }
+
+            // Convert nested terms to arrays
+            foreach ($grouped as &$y) {
+                ksort($y['terms']);
+                $y['terms'] = array_values($y['terms']);
+            }
+
+            return $this->success([
+                'student_id' => $studentId,
+                'by_year'    => array_values($grouped),
+                'total_rows' => count($rows),
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // ========================================================================
+    // PRIVATE HELPERS
+    // ========================================================================
+
+    /**
+     * Look up which term and academic year a given date belongs to.
+     * Falls back to current active term if date not in any term range.
+     */
+    private function _resolveTermForDate(string $date): array
+    {
+        $row = $this->db->query(
+            "SELECT t.id AS term_id, t.academic_year_id AS year_id, t.name AS term_name,
+                    t.term_number, ay.year_code
+             FROM academic_terms t
+             JOIN academic_years ay ON ay.id = t.academic_year_id
+             WHERE ? BETWEEN t.start_date AND t.end_date
+             LIMIT 1",
+            [$date]
+        )->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row) return $row;
+
+        // Fallback: current active term
+        return $this->db->query(
+            "SELECT t.id AS term_id, t.academic_year_id AS year_id, t.name AS term_name,
+                    t.term_number, ay.year_code
+             FROM academic_terms t
+             JOIN academic_years ay ON ay.id = t.academic_year_id
+             WHERE ay.is_current = 1 AND t.status = 'current'
+             LIMIT 1"
+        )->fetch(\PDO::FETCH_ASSOC) ?: ['term_id' => null, 'year_id' => null, 'term_name' => null, 'term_number' => null, 'year_code' => null];
     }
 
 }
