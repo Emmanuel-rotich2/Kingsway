@@ -14,7 +14,7 @@
       <h2 class="mb-0"><i class="bi bi-cloud-upload me-2 text-primary"></i>Upload Teaching Resource</h2>
       <small class="text-muted">Share worksheets, notes, presentations, past papers, and more</small>
     </div>
-    <a href="<?= $appBase ?>home.php?route=teaching_materials" class="btn btn-outline-secondary">
+    <a href="<?= $appBase ?>/home.php?route=teaching_materials" class="btn btn-outline-secondary">
       <i class="bi bi-arrow-left me-1"></i> Back to Materials
     </a>
   </div>
@@ -138,5 +138,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/upload_teaching_resource.js"></script>
+<script src="<?= $appBase ?>/js/pages/upload_teaching_resource.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => uploadResourceController.init());</script>

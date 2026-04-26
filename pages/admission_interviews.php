@@ -153,5 +153,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/admission_interviews.js"></script>
+<script src="<?= $appBase ?>/js/pages/admission_interviews.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => admissionInterviewsController.init());</script>

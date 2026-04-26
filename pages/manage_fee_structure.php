@@ -19,7 +19,7 @@
 <div id="fee-structure-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'fee-structure-loading',
         contentId:   'fee-structure-content',
@@ -49,5 +49,5 @@
             },
         ],
     });
-})();
+});
 </script>

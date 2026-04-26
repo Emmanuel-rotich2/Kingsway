@@ -267,4 +267,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/student_counseling.js"></script>
+<script src="<?= $appBase ?>/js/pages/student_counseling.js"></script>

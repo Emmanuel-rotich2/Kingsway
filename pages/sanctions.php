@@ -193,5 +193,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/sanctions.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/sanctions.js?v=<?= time() ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => sanctionsController.init());</script>

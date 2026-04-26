@@ -12,5 +12,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-stethoscope me-2"></i>System Diagnostics Details</h6></div><div class="card-body"><div id="monitorContent" class="text-center text-muted py-4">Loading monitoring data...</div></div></div>
 </div>
-<script src="<?= $appBase ?>js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._monCtrl = new MonitoringController({ title: 'System Diagnostics', apiEndpoint: '/system/diagnostics', refreshInterval: 30000 });</script>

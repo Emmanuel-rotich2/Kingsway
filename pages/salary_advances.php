@@ -195,5 +195,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/salary_advances.js"></script>
+<script src="<?= $appBase ?>/js/pages/salary_advances.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => salaryAdvancesController.init());</script>

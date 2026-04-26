@@ -85,5 +85,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/year_rollover.js"></script>
+<script src="<?= $appBase ?>/js/pages/year_rollover.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => yearRolloverController.init());</script>

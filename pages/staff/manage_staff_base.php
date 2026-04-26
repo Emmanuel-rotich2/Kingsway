@@ -1180,4 +1180,4 @@
 </div>
 
 <!-- Link Controller Script -->
-<script src="<?= $appBase ?>js/pages/staff.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff.js"></script>

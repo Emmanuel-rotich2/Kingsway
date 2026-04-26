@@ -272,5 +272,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/expenses.js"></script>
+<script src="<?= $appBase ?>/js/pages/expenses.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => expensesController.init());</script>

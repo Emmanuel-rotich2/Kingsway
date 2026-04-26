@@ -20,4 +20,4 @@
     <div id="teacher-dashboard-fragment"></div>
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/teacher_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/teacher_dashboard.js?v=<?php echo time(); ?>"></script>

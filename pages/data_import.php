@@ -291,5 +291,5 @@
 .di-type-btn.selected { background:#e7f0ff !important; border-color:#0d6efd !important; }
 </style>
 
-<script src="<?= $appBase ?>js/pages/data_import.js"></script>
+<script src="<?= $appBase ?>/js/pages/data_import.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => dataImportController.init());</script>

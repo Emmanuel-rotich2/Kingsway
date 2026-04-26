@@ -6,7 +6,6 @@ use App\API\Middleware\CORSMiddleware;
 use App\API\Middleware\AuthMiddleware;
 use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\RBACMiddleware;
-use App\API\Middleware\EnhancedRBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
 use Exception;
 
@@ -34,11 +33,6 @@ class Router
 
             // 4. RBAC - Resolve user permissions from database
             RBACMiddleware::handle();
-
-            // 4.5. Enhanced RBAC - Module, workflow, and data scope context
-            EnhancedRBACMiddleware::resolvePermissionsWithContext(
-                $_SERVER['auth_user']['user_id'] ?? $_SERVER['auth_user']['sub'] ?? null
-            );
 
             // 5. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();

@@ -54,4 +54,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/import_existing_students.js"></script>
+<script src="<?= $appBase ?>/js/pages/import_existing_students.js"></script>

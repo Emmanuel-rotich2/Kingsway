@@ -171,5 +171,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/placement_tests.js"></script>
+<script src="<?= $appBase ?>/js/pages/placement_tests.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => placementTestsController.init());</script>

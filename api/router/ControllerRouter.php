@@ -8,15 +8,7 @@ class ControllerRouter
 {
     public function __construct()
     {
-        if (php_sapi_name() !== 'cli') {
-            $logFile = $this->ensureLogDir() . '/router_debug.log';
-            try {
-                $entry = json_encode(['router_debug_test' => 'init', 'ts' => date('c')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
-            } catch (\JsonException $e) {
-                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
-            }
-            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
-        }
+        // Debug logging only in DEBUG mode
     }
     public function route()
     {
@@ -56,16 +48,10 @@ class ControllerRouter
             }
 
             // Load controller class
-            $controller = $this->loadController($controllerName);            // Special case: if resource is 'index', call index() directly
+            $controller = $this->loadController($controllerName);
+
+            // Special case: if resource is 'index', call index() directly
             if ($resource === 'index' && method_exists($controller, 'index')) {
-                $this->writeRouterDebugLog([
-                    'timestamp' => date('c'),
-                    'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-                    'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
-                    'controller' => $controllerName,
-                    'resource' => $resource,
-                    'resolved_method' => 'index (special case)'
-                ]);
                 return $controller->index();
             }
 
@@ -73,36 +59,19 @@ class ControllerRouter
             $methodName = $this->buildMethodName($method, $resource);
             $candidates = [];
             if ($resource) {
-                $candidates[] = $methodName; // e.g., getReportsCompareYearlyCollections
+                $candidates[] = $methodName;
             }
-            // Controller-specific method: e.g., getUsers, getUser
             $ctrlCamel = ucfirst($controllerName);
             $httpLower = strtolower($method);
             $isPlural = (substr($ctrlCamel, -1) === 's');
             $singular = $isPlural ? substr($ctrlCamel, 0, -1) : $ctrlCamel;
-            // Try plural and singular forms
-            $candidates[] = $httpLower . $ctrlCamel; // getUsers
+            $candidates[] = $httpLower . $ctrlCamel;
             if ($isPlural) {
-                $candidates[] = $httpLower . $singular; // getUser
+                $candidates[] = $httpLower . $singular;
             }
-            // Generic HTTP method (get, post, etc.)
             $candidates[] = $httpLower;
-            // Common index method
             $candidates[] = 'index';
-            // Remove duplicates, preserve order
             $candidates = array_values(array_unique($candidates));
-
-
-            // DEBUG: Log what we're about to try, and all available methods on the controller
-            $this->writeRouterDebugLog([
-                'timestamp' => date('c'),
-                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
-                'controller' => $controllerName,
-                'resource' => $resource,
-                'method_candidates' => $candidates,
-                'controller_methods' => get_class_methods($controller)
-            ]);
 
             // Find the first method that exists
             $found = null;
@@ -113,42 +82,12 @@ class ControllerRouter
                 }
             }
 
-            // DEBUG: Log what we found
-            $this->writeRouterDebugLog([
-                'timestamp' => date('c'),
-                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
-                'controller' => $controllerName,
-                'resource' => $resource,
-                'method_candidates' => $candidates,
-                'resolved_method' => $found
-            ]);
-
             if ($found) {
                 $methodName = $found;
             } else {
-                // Log diagnostic info before aborting
-                $this->writeRouterDebugLog([
-                    'timestamp' => date('c'),
-                    'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-                    'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
-                    'controller' => $controllerName,
-                    'initial_method' => $methodName,
-                    'candidates' => $candidates,
-                    'found' => null
-                ]);
-
+                $this->debugLog(['unresolved' => $methodName, 'uri' => $_SERVER['REQUEST_URI'] ?? '', 'candidates' => $candidates]);
                 return $this->abort(404, "Method '{$methodName}' not found on controller '{$controllerName}'");
             }
-
-            // Log successful resolution
-            $this->writeRouterDebugLog([
-                'timestamp' => date('c'),
-                'request_uri' => $_SERVER['REQUEST_URI'] ?? '',
-                'request_method' => $_SERVER['REQUEST_METHOD'] ?? '',
-                'controller' => $controllerName,
-                'resolved_method' => $methodName
-            ]);
 
             // Get request data
             $data = $this->getRequestBody($method);
@@ -197,19 +136,11 @@ class ControllerRouter
             $controllerMap = [];
             $controllersDir = dirname(__DIR__) . '/controllers';
             foreach (glob($controllersDir . '/*Controller.php') as $file) {
-                $base = basename($file, '.php'); // e.g., UsersController
+                $base = basename($file, '.php');
                 if (preg_match('/^(.*)Controller$/i', $base, $m)) {
-                    $key = strtolower($m[1]);
-                    $controllerMap[$key] = 'App\\API\\Controllers\\' . $base;
+                    $controllerMap[strtolower($m[1])] = 'App\\API\\Controllers\\' . $base;
                 }
             }
-            $logFile = $this->ensureLogDir() . '/router_debug.log';
-            try {
-                $entry = json_encode(['controllerMap' => $controllerMap, 'ts' => date('c')], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
-            } catch (\JsonException $e) {
-                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
-            }
-            @file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
         }
         $key = strtolower($controllerName);
         // Try plural, then singular if not found
@@ -329,26 +260,16 @@ class ControllerRouter
         return $logDir;
     }
 
-    private function writeRouterDebugLog(array $data)
+    private function debugLog(array $data): void
     {
+        if (!defined('DEBUG') || !DEBUG) {
+            return;
+        }
         try {
-            $logDir = $this->ensureLogDir();
-            $logFile = $logDir . '/router_debug.log';
-            $errFile = $logDir . '/errors.log';
-            try {
-                $entry = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
-            } catch (\JsonException $e) {
-                $entry = json_encode(['error' => 'log_encode_failed', 'msg' => $e->getMessage()]) . "\n";
-            }
-            // Always try to write to both logs
-            file_put_contents($logFile, $entry, FILE_APPEND | LOCK_EX);
-            file_put_contents($errFile, '[ROUTER_DEBUG] ' . $entry, FILE_APPEND | LOCK_EX);
-        } catch (Exception $e) {
-            // Log to errors.log if anything fails
-            $logDir = dirname(__DIR__, 2) . '/logs';
-            $errFile = $logDir . '/errors.log';
-            $errEntry = json_encode(['router_debug_log_exception' => $e->getMessage(), 'ts' => date('c')]) . "\n";
-            @file_put_contents($errFile, $errEntry, FILE_APPEND | LOCK_EX);
+            $entry = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
+            @file_put_contents($this->ensureLogDir() . '/router_debug.log', $entry, FILE_APPEND | LOCK_EX);
+        } catch (\Throwable $e) {
+            // Silently ignore log failures in production
         }
     }
 

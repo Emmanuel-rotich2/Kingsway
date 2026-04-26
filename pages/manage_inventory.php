@@ -201,4 +201,4 @@
         </a>
     </div>
 </div>
-<script src="<?= $appBase ?>js/pages/manage_inventory.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_inventory.js"></script>

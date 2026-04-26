@@ -14,7 +14,7 @@
       <h2 class="mb-0"><i class="bi bi-folder2-open me-2 text-primary"></i>Teaching Materials</h2>
       <small class="text-muted">Worksheets · Notes · Presentations · Videos · Shared resources</small>
     </div>
-    <a href="<?= $appBase ?>home.php?route=upload_teaching_resource" class="btn btn-primary">
+    <a href="<?= $appBase ?>/home.php?route=upload_teaching_resource" class="btn btn-primary">
       <i class="bi bi-upload me-1"></i> Upload Material
     </a>
   </div>
@@ -66,5 +66,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/teaching_materials.js"></script>
+<script src="<?= $appBase ?>/js/pages/teaching_materials.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => teachingMaterialsController.init());</script>

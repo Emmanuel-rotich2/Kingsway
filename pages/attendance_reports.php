@@ -147,4 +147,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>js/pages/attendance_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/attendance_reports.js"></script>

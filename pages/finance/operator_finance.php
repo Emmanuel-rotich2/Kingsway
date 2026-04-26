@@ -106,7 +106,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/finance.js"></script>
+<script src="<?= $appBase ?>/js/pages/finance.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         if (typeof FinanceController !== 'undefined') {

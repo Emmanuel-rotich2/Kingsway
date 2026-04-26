@@ -100,5 +100,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/exception_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/exception_reports.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => exceptionReportsController.init());</script>

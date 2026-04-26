@@ -94,5 +94,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/transaction_approvals.js"></script>
+<script src="<?= $appBase ?>/js/pages/transaction_approvals.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => transactionApprovalsController.init());</script>

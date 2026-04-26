@@ -233,7 +233,7 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/headteacher_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/headteacher_dashboard.js"></script>
 <script>
     (function () {
         const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;

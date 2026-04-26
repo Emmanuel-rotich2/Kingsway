@@ -169,4 +169,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/performance_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/performance_reports.js"></script>

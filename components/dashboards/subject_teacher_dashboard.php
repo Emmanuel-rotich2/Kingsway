@@ -72,4 +72,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/subject_teacher_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/subject_teacher_dashboard.js"></script>

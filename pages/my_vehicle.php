@@ -309,4 +309,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/my_vehicle.js"></script>
+<script src="<?= $appBase ?>/js/pages/my_vehicle.js"></script>

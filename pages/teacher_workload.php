@@ -115,4 +115,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/teacher_workload.js"></script>
+<script src="<?= $appBase ?>/js/pages/teacher_workload.js"></script>

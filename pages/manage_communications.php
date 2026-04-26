@@ -19,7 +19,7 @@
 <div id="communications-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'communications-loading',
         contentId:   'communications-content',
@@ -57,5 +57,5 @@
             },
         ],
     });
-})();
+});
 </script>

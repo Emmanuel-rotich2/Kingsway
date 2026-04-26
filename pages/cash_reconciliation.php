@@ -222,4 +222,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/cash_reconciliation.js"></script>
+<script src="<?= $appBase ?>/js/pages/cash_reconciliation.js"></script>

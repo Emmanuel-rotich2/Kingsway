@@ -166,5 +166,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/student_rewards.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/student_rewards.js?v=<?= time() ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => studentRewardsController.init());</script>

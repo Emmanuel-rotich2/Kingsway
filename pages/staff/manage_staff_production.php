@@ -401,7 +401,7 @@
 <div class="page-header">
     <nav aria-label="breadcrumb">
         <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="<?= $appBase ?>pages/home.php"><i class="material-icons" style="font-size: 18px; vertical-align: middle;">home</i> Home</a></li>
+            <li class="breadcrumb-item"><a href="<?= $appBase ?>/pages/home.php"><i class="material-icons" style="font-size: 18px; vertical-align: middle;">home</i> Home</a></li>
             <li class="breadcrumb-item"><a href="#">HR Management</a></li>
             <li class="breadcrumb-item active" aria-current="page">Staff Management</li>
         </ol>
@@ -966,7 +966,7 @@
                             <div class="row g-3">
                                 <div class="col-12 text-center mb-3">
                                     <div class="position-relative d-inline-block">
-                                        <img src="<?= $appBase ?>images/avatar-placeholder.png" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
+                                        <img src="<?= $appBase ?>/images/avatar-placeholder.png" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
                                         <label for="staffAvatar" class="btn btn-primary btn-sm position-absolute" style="bottom: 0; right: 0; border-radius: 50%; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;">
                                             <i class="material-icons" style="font-size: 20px;">camera_alt</i>
                                         </label>
@@ -1302,10 +1302,10 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
 <!-- Load Core Staff Controller -->
-<script src="<?= $appBase ?>js/pages/staff.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff.js"></script>
 
 <!-- Production-Level UI Enhancements Script -->
-<script src="<?= $appBase ?>js/pages/staff_production_ui.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>
 
 <script>
     // Initialize on page load

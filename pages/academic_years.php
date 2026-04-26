@@ -142,4 +142,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/academic_years.js"></script>
+<script src="<?= $appBase ?>/js/pages/academic_years.js"></script>

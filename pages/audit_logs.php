@@ -119,5 +119,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/audit_logs.js"></script>
+<script src="<?= $appBase ?>/js/pages/audit_logs.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => auditLogsController.init());</script>

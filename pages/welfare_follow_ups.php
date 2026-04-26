@@ -118,5 +118,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/welfare_follow_ups.js"></script>
+<script src="<?= $appBase ?>/js/pages/welfare_follow_ups.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => welfareFUController.init());</script>

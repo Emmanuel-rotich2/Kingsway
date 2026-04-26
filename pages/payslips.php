@@ -88,4 +88,4 @@
   </div>
 
 </div>
-<script src="<?= $appBase ?>js/pages/payslips.js"></script>
+<script src="<?= $appBase ?>/js/pages/payslips.js"></script>

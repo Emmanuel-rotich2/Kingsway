@@ -433,7 +433,7 @@
 
 
 <!-- Dashboard Controller Script -->
-<script src="<?= $appBase ?>js/dashboards/school_administrative_officer_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/school_administrative_officer_dashboard.js?v=<?php echo time(); ?>"></script>
 <script>
     // Initialize the dashboard controller when DOM is ready
     document.addEventListener('DOMContentLoaded', function () {

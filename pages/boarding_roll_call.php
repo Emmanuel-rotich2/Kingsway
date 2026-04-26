@@ -84,7 +84,7 @@
                     <p class="text-muted mb-0">Mark dormitory attendance for morning and evening sessions</p>
                 </div>
                 <div class="d-flex gap-2">
-                    <a href="<?= $appBase ?>home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary d-none" id="viewAttendanceHistoryLink">
+                    <a href="<?= $appBase ?>/home.php?route=view_attendance&type=boarding" class="btn btn-outline-secondary d-none" id="viewAttendanceHistoryLink">
                         <i class="bi bi-clock-history me-1"></i> View History
                     </a>
                 </div>
@@ -242,4 +242,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/boarding_roll_call.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/boarding_roll_call.js?v=<?php echo time(); ?>"></script>

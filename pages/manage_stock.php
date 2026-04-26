@@ -257,4 +257,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_stock.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_stock.js"></script>

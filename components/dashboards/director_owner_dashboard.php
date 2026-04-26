@@ -789,4 +789,4 @@
 </div>
 
 <!-- Director Dashboard Controller -->
-<script src="<?= $appBase ?>js/dashboards/director_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/director_dashboard.js?v=<?php echo time(); ?>"></script>

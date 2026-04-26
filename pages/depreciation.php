@@ -99,5 +99,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/depreciation.js"></script>
+<script src="<?= $appBase ?>/js/pages/depreciation.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => depreciationController.init());</script>

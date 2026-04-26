@@ -958,31 +958,20 @@ async function apiCall(
       url.searchParams.append(key, params[key])
     );
 
-    console.log("API Call:", method, url.toString());
-
-    // Check if token exists for debugging
+    // Check if token exists
     const token = localStorage.getItem("token");
     if (!token) {
-      console.warn(
-        "⚠️ No JWT token found in localStorage - API call will fail with 401"
-      );
-      console.warn(
-        "Please log in through " + (window.APP_BASE || '') + "/index.php to obtain a JWT token"
-      );
-    } else {
-      console.log("✓ Token found, length:", token.length);
+      console.warn("⚠️ No JWT token found - API call will fail with 401");
     }
 
     // Request options
     const fetchOptions = {
       method: method,
-      // Include credentials to ensure proper session handling
       credentials:
         options.credentials ||
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
-        // Add Authorization header if token exists
         ...(token && {
           Authorization: "Bearer " + token,
         }),
@@ -998,12 +987,6 @@ async function apiCall(
         fetchOptions.body = JSON.stringify(data);
       }
     }
-
-    console.log("Fetch options:", fetchOptions);
-    console.log(
-      "Request headers:",
-      JSON.stringify(fetchOptions.headers, null, 2)
-    );
 
     let response = await fetch(url, fetchOptions);
 
@@ -4428,3 +4411,6 @@ window.API = {
     },
   },
 };
+
+// Expose apiCall globally as callAPI — many page controllers use this name
+window.callAPI = apiCall;

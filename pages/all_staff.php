@@ -19,7 +19,7 @@
 <div id="staff-list-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'staff-list-loading',
         contentId:   'staff-list-content',
@@ -56,5 +56,5 @@
             },
         ],
     });
-})();
+});
 </script>

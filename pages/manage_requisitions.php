@@ -215,4 +215,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_requisitions.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_requisitions.js"></script>

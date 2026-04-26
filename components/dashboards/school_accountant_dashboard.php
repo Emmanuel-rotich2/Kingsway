@@ -941,9 +941,9 @@
 <!-- ======================== END MODALS ======================== -->
 
 <!-- Load the Dashboard Base Controller first -->
-<script src="<?= $appBase ?>js/dashboards/dashboard_base_controller.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/dashboard_base_controller.js"></script>
 <!-- Load the School Accountant Dashboard Controller -->
-<script src="<?= $appBase ?>js/dashboards/school_accountant_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/school_accountant_dashboard.js"></script>
 <script>
     // Initialize the dashboard when DOM is ready
     document.addEventListener('DOMContentLoaded', function () {

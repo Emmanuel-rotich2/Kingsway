@@ -74,5 +74,5 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/pages/at_risk_students.js"></script>
+<script src="<?= $appBase ?>/js/pages/at_risk_students.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => atRiskController.init());</script>

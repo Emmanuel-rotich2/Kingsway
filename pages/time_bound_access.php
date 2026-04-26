@@ -11,5 +11,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-hourglass me-2"></i>Time-Bound Access Settings</h6></div><div class="card-body" id="settingsContainer"><div class="text-center text-muted py-4">Loading settings...</div></div></div>
 </div>
-<script src="<?= $appBase ?>js/pages/system/toggle_config_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/system/toggle_config_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._toggleCtrl = new ToggleConfigController({ title: 'Time-Bound Access', apiEndpoint: '/system/time-bound-access' });</script>

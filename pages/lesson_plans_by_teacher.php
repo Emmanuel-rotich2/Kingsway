@@ -115,4 +115,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/lesson_plans_by_teacher.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/lesson_plans_by_teacher.js?v=<?php echo time(); ?>"></script>

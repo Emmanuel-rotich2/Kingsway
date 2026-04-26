@@ -336,5 +336,5 @@
 
 
 <!-- Load the System Admin Dashboard helper -->
-<script src="<?= $appBase ?>js/dashboards/system_administrator_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/system_administrator_dashboard.js"></script>
 

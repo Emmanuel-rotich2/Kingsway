@@ -306,4 +306,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/asset_purchases.js"></script>
+<script src="<?= $appBase ?>/js/pages/asset_purchases.js"></script>

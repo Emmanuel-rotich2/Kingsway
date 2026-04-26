@@ -47,7 +47,7 @@
             <img id="tlPhoto" src="" alt="Photo"
                  class="rounded-circle border border-2"
                  style="width:80px;height:80px;object-fit:cover"
-                 onerror="this.src='<?= $appBase ?>assets/images/avatar.png'">
+                 onerror="this.src='<?= $appBase ?>/assets/images/avatar.png'">
           </div>
           <div class="col">
             <h4 class="mb-1" id="tlStudentName">—</h4>
@@ -262,5 +262,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/student_timeline.js"></script>
+<script src="<?= $appBase ?>/js/pages/student_timeline.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => studentTimelineController.init());</script>

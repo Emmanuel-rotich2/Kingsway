@@ -180,4 +180,4 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/petty_cash.js"></script>
+<script src="<?= $appBase ?>/js/pages/petty_cash.js"></script>

@@ -218,13 +218,13 @@
         <h4 class="fw-bold text-success">Term 2 is Now Active!</h4>
         <p class="text-muted">All systems have been updated. Teachers can now start creating lesson plans and the timetable is live.</p>
         <div class="d-flex justify-content-center gap-3 mt-3">
-          <a href="<?= $appBase ?>home.php?route=manage_timetable" class="btn btn-primary">
+          <a href="<?= $appBase ?>/home.php?route=manage_timetable" class="btn btn-primary">
             <i class="bi bi-calendar3 me-1"></i> View Timetable
           </a>
-          <a href="<?= $appBase ?>home.php?route=manage_lesson_plans" class="btn btn-outline-primary">
+          <a href="<?= $appBase ?>/home.php?route=manage_lesson_plans" class="btn btn-outline-primary">
             <i class="bi bi-journal-plus me-1"></i> Start Lesson Plans
           </a>
-          <a href="<?= $appBase ?>home.php?route=exam_schedule" class="btn btn-outline-secondary">
+          <a href="<?= $appBase ?>/home.php?route=exam_schedule" class="btn btn-outline-secondary">
             <i class="bi bi-calendar-event me-1"></i> Plan Exams
           </a>
         </div>
@@ -246,5 +246,5 @@
 .tt-step.done .tt-lbl { color:#198754; }
 </style>
 
-<script src="<?= $appBase ?>js/pages/term_transition.js"></script>
+<script src="<?= $appBase ?>/js/pages/term_transition.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => termTransitionController.init());</script>

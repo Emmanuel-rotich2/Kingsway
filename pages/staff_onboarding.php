@@ -388,5 +388,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/staff_onboarding.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_onboarding.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>

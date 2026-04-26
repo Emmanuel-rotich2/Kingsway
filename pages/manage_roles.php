@@ -316,4 +316,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_roles.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_roles.js"></script>

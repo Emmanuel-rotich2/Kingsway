@@ -234,7 +234,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/mpesa_settlements.js"></script>
+<script src="<?= $appBase ?>/js/pages/mpesa_settlements.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof MpesaSettlementsController !== 'undefined') {

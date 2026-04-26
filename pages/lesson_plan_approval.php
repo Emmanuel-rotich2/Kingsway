@@ -160,4 +160,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/lesson_plan_approval.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/lesson_plan_approval.js?v=<?php echo time(); ?>"></script>

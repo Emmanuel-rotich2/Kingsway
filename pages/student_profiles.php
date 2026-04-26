@@ -188,4 +188,4 @@
 
 </div><!-- /.container-fluid -->
 
-<script src="<?= $appBase ?>js/pages/student_profiles.js"></script>
+<script src="<?= $appBase ?>/js/pages/student_profiles.js"></script>

@@ -386,4 +386,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/uniform_sales.js"></script>
+<script src="<?= $appBase ?>/js/pages/uniform_sales.js"></script>

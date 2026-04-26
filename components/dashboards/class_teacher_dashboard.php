@@ -165,7 +165,7 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/class_teacher_dashboard.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/class_teacher_dashboard.js?v=<?php echo time(); ?>"></script>
 <script>
     (function () {
         const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;

@@ -84,5 +84,5 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/term_dates.js"></script>
+<script src="<?= $appBase ?>/js/pages/term_dates.js"></script>
 <script>document.addEventListener('DOMContentLoaded', () => termDatesController.init());</script>

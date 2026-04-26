@@ -143,7 +143,7 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/matron_housemother_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/matron_housemother_dashboard.js"></script>
 <script>
     (function () {
         const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;

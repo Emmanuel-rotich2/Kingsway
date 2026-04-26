@@ -276,7 +276,7 @@
 
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/deputy_head_discipline_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/deputy_head_discipline_dashboard.js"></script>
 <script>
     (function () {
         const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;
