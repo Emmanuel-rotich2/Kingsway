@@ -483,24 +483,34 @@ return [
 
     // =========================================================================
     // 6 — Deputy Head (Academic)
-    // Workflow roles:
-    //   Admissions: assess academic requirements + recommend class placement
-    //   Timetable: REVIEW + ASSIGN TEACHERS
-    //   Lesson Plans: REVIEW
-    //   Exams: setup + schedule + results analysis
+    // DUAL ROLE: still a classroom teacher + academic administrator.
+    // As teacher     : marks own class attendance, creates lesson plans, enters marks, views own timetable.
+    // As DH Academic : reviews lesson plans, assigns teachers to timetable, manages exam cycle,
+    //                  handles class placement for admissions, manages curriculum/academic calendar.
+    // Sidebar ordering: MY TEACHING first (daily tasks) → ADMIN duties below.
     // =========================================================================
     6 => [
         ['label' => 'Dashboard', 'url' => 'deputy_head_academic_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // ADMISSIONS — Deputy assesses academic requirements, recommends class
+        // ── MY TEACHING (daily teacher tasks) ────────────────────────────────
+        ['label' => 'My Teaching', 'url' => null, 'icon' => 'fas fa-chalkboard', 'subitems' => [
+            ['label' => 'My Timetable',            'url' => 'timetable'],                  // view personal teaching schedule
+            ['label' => 'My Class',                'url' => 'my_students_list'],           // if assigned a home class
+            ['label' => 'Mark Attendance',         'url' => 'mark_attendance'],            // daily class register
+            ['label' => 'My Lesson Plans',         'url' => 'manage_lesson_plans'],        // CREATE own plans (not just review)
+            ['label' => 'Schemes of Work',         'url' => 'schemes_of_work'],            // plan the term
+            ['label' => 'Enter Assessment Marks',  'url' => 'formative_assessments'],      // grade own students
+            ['label' => 'Competency Ratings',      'url' => 'competencies_sheet'],         // CBC competency entries
+        ]],
+
+        // ── ADMIN: ADMISSIONS ─────────────────────────────────────────────────
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
             ['label' => 'All Applications',        'url' => 'manage_students_admissions'],
-            ['label' => 'Academic Assessment',     'url' => 'manage_students_admissions'], // assess academic level
             ['label' => 'Class Placement',         'url' => 'manage_classes'],             // recommend which class
             ['label' => 'Placement Tests',         'url' => 'placement_tests'],
         ]],
 
-        // ACADEMIC — Deputy's core domain
+        // ── ADMIN: ACADEMIC MANAGEMENT ────────────────────────────────────────
         ['label' => 'Academic', 'url' => null, 'icon' => 'fas fa-graduation-cap', 'subitems' => [
             ['label' => 'Manage Classes',          'url' => 'manage_classes'],
             ['label' => 'Class Streams',           'url' => 'class_streams'],
@@ -511,39 +521,36 @@ return [
             ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
-        // TIMETABLE — Deputy reviews and ASSIGNS TEACHERS (key workflow step)
-        ['label' => 'Timetable', 'url' => null, 'icon' => 'fas fa-calendar-alt', 'subitems' => [
+        // ── ADMIN: TIMETABLE (Deputy ASSIGNS teachers — key workflow step) ────
+        ['label' => 'Timetable Management', 'url' => null, 'icon' => 'fas fa-calendar-alt', 'subitems' => [
             ['label' => 'All Timetables',          'url' => 'manage_timetable'],
-            ['label' => 'Review & Assign Teachers','url' => 'manage_timetable'],           // WORKFLOW: Deputy assigns teachers
-            ['label' => 'Class Timetables',        'url' => 'timetable'],
+            ['label' => 'Assign Teachers',         'url' => 'manage_timetable'],           // WORKFLOW: Deputy assigns teachers
             ['label' => 'Teacher Timetables',      'url' => 'timetable'],
             ['label' => 'Supervision Roster',      'url' => 'supervision_roster'],
         ]],
 
-        // LESSON PLANS — Deputy reviews (between teacher creation and HT approval)
-        ['label' => 'Lesson Plans', 'url' => null, 'icon' => 'fas fa-book-open', 'subitems' => [
-            ['label' => 'All Lesson Plans',        'url' => 'manage_lesson_plans'],
-            ['label' => 'Pending Review',          'url' => 'lesson_plan_approval'],       // REVIEW before HT approves
-            ['label' => 'By Class',                'url' => 'manage_lesson_plans'],
-            ['label' => 'By Teacher',              'url' => 'manage_lesson_plans'],
-            ['label' => 'Schemes of Work',         'url' => 'schemes_of_work'],
+        // ── ADMIN: LESSON PLAN REVIEW (Deputy reviews before HT approves) ────
+        ['label' => 'Lesson Plan Review', 'url' => null, 'icon' => 'fas fa-book-open', 'subitems' => [
+            ['label' => 'All Lesson Plans',        'url' => 'all_lesson_plans'],
+            ['label' => 'Pending My Review',       'url' => 'lesson_plan_approval'],       // WORKFLOW: Deputy → HT
+            ['label' => 'Approved Plans',          'url' => 'manage_lesson_plans'],
+            ['label' => 'By Class',                'url' => 'lesson_plans_by_class'],
+            ['label' => 'By Teacher',              'url' => 'lesson_plans_by_teacher'],
         ]],
 
-        // ASSESSMENTS & EXAMS — Deputy manages the exam cycle
+        // ── ADMIN: ASSESSMENTS & EXAMS ────────────────────────────────────────
         ['label' => 'Assessments & Exams', 'url' => null, 'icon' => 'fas fa-file-alt', 'subitems' => [
             ['label' => 'Exam Setup',              'url' => 'exam_setup'],
             ['label' => 'Exam Schedule',           'url' => 'exam_schedule'],
-            ['label' => 'Grading Status',          'url' => 'grading_status'],
-            ['label' => 'View Results',            'url' => 'view_results'],
+            ['label' => 'Grading Status',          'url' => 'grading_status'],             // track which teachers have graded
+            ['label' => 'View All Results',        'url' => 'view_results'],
             ['label' => 'Results Analysis',        'url' => 'results_analysis'],
             ['label' => 'Report Cards',            'url' => 'report_cards'],
-            ['label' => 'Formative (CATs)',        'url' => 'formative_assessments'],
-            ['label' => 'Competency Ratings',      'url' => 'competencies_sheet'],
             ['label' => 'National Exams',          'url' => 'national_exams'],
         ]],
 
-        // TEACHERS — Deputy manages teacher assignments and workload
-        ['label' => 'Teachers', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
+        // ── ADMIN: TEACHER MANAGEMENT ─────────────────────────────────────────
+        ['label' => 'Teacher Management', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Teachers',            'url' => 'all_teachers'],
             ['label' => 'Assign Class Teachers',   'url' => 'assign_class_teachers'],
             ['label' => 'Subject Allocation',      'url' => 'assign_subjects_to_teachers'],
@@ -551,28 +558,42 @@ return [
             ['label' => 'Performance Reviews',     'url' => 'teacher_performance_reviews'],
         ]],
 
-        // STUDENTS
+        // ── STUDENTS ──────────────────────────────────────────────────────────
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
+            ['label' => 'All Students',            'url' => 'all_students'],
             ['label' => 'Performance Overview',    'url' => 'student_performance'],
             ['label' => 'Student Promotion',       'url' => 'student_promotion'],
+            ['label' => 'Special Needs',           'url' => 'special_needs'],
         ]],
 
+        // ── ATTENDANCE (school-wide oversight, not just own class) ────────────
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
-            ['label' => 'View Attendance',         'url' => 'view_attendance'],
+            ['label' => 'Daily Overview',          'url' => 'view_attendance'],
+            ['label' => 'Submit Attendance',       'url' => 'submit_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
+            ['label' => 'Attendance Trends',       'url' => 'attendance_trends'],
         ]],
 
+        // ── REPORTS ───────────────────────────────────────────────────────────
         ['label' => 'Reports', 'url' => null, 'icon' => 'fas fa-chart-bar', 'subitems' => [
             ['label' => 'Academic Reports',        'url' => 'academic_reports'],
-            ['label' => 'Performance',             'url' => 'performance_reports'],
+            ['label' => 'Performance Analysis',    'url' => 'performance_analysis'],
             ['label' => 'Term Reports',            'url' => 'term_reports'],
-            ['label' => 'Comparative',             'url' => 'comparative_reports'],
+            ['label' => 'Comparative Reports',     'url' => 'comparative_reports'],
+            ['label' => 'Enrollment Trends',       'url' => 'enrollment_trends'],
+        ]],
+
+        // ── HR (personal) ────────────────────────────────────────────────────
+        ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
+            ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
+            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 
         ['label' => 'Communications', 'url' => null, 'icon' => 'fas fa-comments', 'subitems' => [
             ['label' => 'Messages',                'url' => 'manage_communications'],
             ['label' => 'Announcements',           'url' => 'manage_announcements'],
+            ['label' => 'Parent Messaging',        'url' => 'manage_email'],
         ]],
 
         ['label' => 'Library', 'url' => null, 'icon' => 'fas fa-book', 'subitems' => [['label' => 'Library', 'url' => 'manage_library']]],
@@ -1168,50 +1189,71 @@ return [
 
     // =========================================================================
     // 63 — Deputy Head (Discipline)
-    // Full discipline cycle: log → investigate → sanctions → referral to counselor
-    // Also owns truancy and absenteeism oversight
+    // DUAL ROLE: still a classroom teacher + discipline administrator.
+    // As teacher       : marks own class attendance, creates lesson plans, enters marks.
+    // As DH Discipline : manages discipline cases, truancy, conduct, parent meetings.
+    // Sidebar ordering: MY TEACHING first (daily) → ADMIN duties below.
     // =========================================================================
     63 => [
         ['label' => 'Dashboard', 'url' => 'deputy_head_discipline_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // DISCIPLINE — primary domain
+        // ── MY TEACHING (daily teacher tasks) ────────────────────────────────
+        ['label' => 'My Teaching', 'url' => null, 'icon' => 'fas fa-chalkboard', 'subitems' => [
+            ['label' => 'My Timetable',            'url' => 'timetable'],                  // personal teaching schedule
+            ['label' => 'My Class',                'url' => 'my_students_list'],           // if assigned a home class
+            ['label' => 'Mark Attendance',         'url' => 'mark_attendance'],            // daily class register
+            ['label' => 'My Lesson Plans',         'url' => 'manage_lesson_plans'],        // create own plans
+            ['label' => 'Schemes of Work',         'url' => 'schemes_of_work'],
+            ['label' => 'Enter Assessment Marks',  'url' => 'formative_assessments'],      // grade own students
+            ['label' => 'Competency Ratings',      'url' => 'competencies_sheet'],         // CBC competency entries
+        ]],
+
+        // ── ADMIN: DISCIPLINE (primary domain) ───────────────────────────────
         ['label' => 'Discipline', 'url' => null, 'icon' => 'fas fa-gavel', 'subitems' => [
-            ['label' => 'All Cases',               'url' => 'all_discipline_cases'],
-            ['label' => 'Log New Case',            'url' => 'log_discipline_case'],
-            ['label' => 'Pending Cases',           'url' => 'pending_discipline_cases'],
-            ['label' => 'Resolved Cases',          'url' => 'resolved_discipline_cases'],
-            ['label' => 'Suspensions/Expulsions',  'url' => 'discipline_cases'],
-            ['label' => 'Sanctions',               'url' => 'sanctions'],
+            ['label' => 'All Cases',               'url' => 'discipline_cases'],
+            ['label' => 'Log New Case',            'url' => 'student_discipline'],
+            ['label' => 'Open Cases',              'url' => 'discipline_cases'],
+            ['label' => 'Suspensions / Expulsions','url' => 'discipline_cases'],
+            ['label' => 'Sanctions',               'url' => 'policy_violations'],
             ['label' => 'Policy Violations',       'url' => 'policy_violations'],
         ]],
 
-        // STUDENT CONDUCT
+        // ── ADMIN: STUDENT CONDUCT ────────────────────────────────────────────
         ['label' => 'Student Conduct', 'url' => null, 'icon' => 'fas fa-user-check', 'subitems' => [
-            ['label' => 'Behavior Logs',           'url' => 'behavior_logs'],
-            ['label' => 'Conduct Grades',          'url' => 'conduct_grades'],
-            ['label' => 'Rewards & Recognition',   'url' => 'student_rewards'],
-            ['label' => 'Refer to Counseling',     'url' => 'counseling_referrals'],       // refer to Chaplain/Counselor
+            ['label' => 'Behavior Logs',           'url' => 'conduct_reports'],
+            ['label' => 'Conduct Grades',          'url' => 'conduct_reports'],
+            ['label' => 'Rewards & Recognition',   'url' => 'conduct_reports'],
+            ['label' => 'Refer to Counseling',     'url' => 'student_counseling'],         // → Chaplain/Counselor workflow
+            ['label' => 'At-Risk Students',        'url' => 'all_students'],
         ]],
 
-        // ATTENDANCE — truancy is a discipline matter
-        ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
-            ['label' => 'Daily Overview',          'url' => 'daily_attendance'],
-            ['label' => 'Truancy Cases',           'url' => 'truancy_cases'],
-            ['label' => 'Late Arrivals',           'url' => 'late_arrivals'],
-            ['label' => 'Chronic Absenteeism',     'url' => 'chronic_absenteeism'],
-            ['label' => 'Parent Alerts',           'url' => 'manage_communications'],
+        // ── ADMIN: ATTENDANCE (truancy is a discipline matter) ────────────────
+        ['label' => 'Truancy & Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
+            ['label' => 'Daily Attendance Overview','url' => 'view_attendance'],
+            ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
+            ['label' => 'Absenteeism Trends',      'url' => 'attendance_trends'],
+            ['label' => 'Parent Alerts (Truancy)', 'url' => 'manage_communications'],
         ]],
 
-        ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
-            ['label' => 'At-Risk Students',        'url' => 'at_risk_students'],
-        ]],
-
-        // PARENT COMMUNICATION — notify parents of incidents
+        // ── ADMIN: PARENT COMMUNICATION ───────────────────────────────────────
         ['label' => 'Parent Communication', 'url' => null, 'icon' => 'fas fa-users', 'subitems' => [
-            ['label' => 'Schedule Meetings',       'url' => 'schedule_parent_meetings'],
-            ['label' => 'Send Notifications',      'url' => 'send_parent_notifications'],
-            ['label' => 'Meeting Records',         'url' => 'parent_meeting_records'],
+            ['label' => 'Parent Meetings',         'url' => 'parent_meetings'],
+            ['label' => 'Send Notifications',      'url' => 'manage_communications'],
+            ['label' => 'Meeting Records',         'url' => 'parent_meetings'],
+        ]],
+
+        // ── STUDENTS ──────────────────────────────────────────────────────────
+        ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
+            ['label' => 'All Students',            'url' => 'all_students'],
+            ['label' => 'Student Profiles',        'url' => 'all_students'],
+            ['label' => 'Special Needs',           'url' => 'special_needs'],
+        ]],
+
+        // ── HR (personal) ────────────────────────────────────────────────────
+        ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
+            ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
+            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 
         ['label' => 'Communications', 'url' => null, 'icon' => 'fas fa-comments', 'subitems' => [
@@ -1220,12 +1262,13 @@ return [
         ]],
 
         ['label' => 'Reports', 'url' => null, 'icon' => 'fas fa-chart-bar', 'subitems' => [
-            ['label' => 'Discipline Reports',      'url' => 'discipline_cases'],
+            ['label' => 'Discipline Reports',      'url' => 'conduct_reports'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
             ['label' => 'Conduct Reports',         'url' => 'conduct_reports'],
-            ['label' => 'Weekly Summary',          'url' => 'weekly_discipline_report'],
-            ['label' => 'Monthly Summary',         'url' => 'monthly_discipline_report'],
+            ['label' => 'Term Summary',            'url' => 'term_reports'],
         ]],
+
+        ['label' => 'Library', 'url' => null, 'icon' => 'fas fa-book', 'subitems' => [['label' => 'Library', 'url' => 'manage_library']]],
     ],
 
     // =========================================================================

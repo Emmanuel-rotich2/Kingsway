@@ -3166,4 +3166,414 @@ class AcademicController extends BaseController
             return $this->serverError($e->getMessage());
         }
     }
+
+    // =========================================================================
+    // DEPUTY HEADTEACHER — shared "My Teaching Today" panel
+    // GET /api/academic/my-teaching-today
+    // Returns the current user's class assignment, today's lessons, attendance,
+    // and pending lesson plans — same data shown on both deputy dashboards.
+    // =========================================================================
+    public function getMyTeachingToday($id = null, $data = [], $segments = [])
+    {
+        try {
+            $userId  = $this->user['user_id'] ?? null;
+            $today   = date('Y-m-d');
+            $dayName = date('l'); // Monday … Sunday
+
+            // Resolve current staff record
+            $staff = $this->db->query(
+                "SELECT s.id AS staff_id, s.first_name, s.last_name
+                 FROM staff s WHERE s.user_id = ? LIMIT 1",
+                [$userId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$staff) {
+                return $this->success([
+                    'class_name' => null, 'my_students' => 0,
+                    'my_attendance_rate' => null, 'my_lessons_today' => 0,
+                    'my_pending_plans' => 0, 'today_schedule' => [],
+                ]);
+            }
+
+            $staffId = $staff['staff_id'];
+
+            // Resolve current term
+            $term = $this->db->query(
+                "SELECT t.id, t.name, t.academic_year_id
+                 FROM academic_terms t
+                 JOIN academic_years ay ON ay.id = t.academic_year_id
+                 WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            $termId = $term['id'] ?? null;
+
+            // Class assignment — is the deputy a class teacher for a stream?
+            $classAssign = $this->db->query(
+                "SELECT cs.id AS stream_id, cs.stream_name, c.name AS class_name, c.id AS class_id
+                 FROM class_streams cs
+                 JOIN classes c ON c.id = cs.class_id
+                 JOIN class_teacher_assignments cta ON cta.stream_id = cs.id
+                 WHERE cta.staff_id = ? AND cta.academic_year_id = ?
+                 LIMIT 1",
+                [$staffId, $term['academic_year_id'] ?? 0]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            $streamId = $classAssign['stream_id'] ?? null;
+
+            // Student count in assigned class
+            $myStudents = 0;
+            if ($streamId) {
+                $myStudents = (int)$this->db->query(
+                    "SELECT COUNT(*) FROM class_enrollments
+                     WHERE stream_id = ? AND academic_year_id = ? AND status = 'active'",
+                    [$streamId, $term['academic_year_id'] ?? 0]
+                )->fetchColumn();
+            }
+
+            // Today's attendance for this class
+            $myAttendanceRate = null;
+            $myPresent = 0;
+            $myAbsent  = 0;
+            if ($streamId && $myStudents > 0) {
+                $attRow = $this->db->query(
+                    "SELECT
+                       SUM(sa.status = 'present') AS present_count,
+                       SUM(sa.status = 'absent')  AS absent_count
+                     FROM student_attendance sa
+                     JOIN class_enrollments ce ON ce.student_id = sa.student_id
+                     WHERE ce.stream_id = ? AND ce.academic_year_id = ?
+                       AND sa.date = ? AND sa.register_type = 'class'",
+                    [$streamId, $term['academic_year_id'] ?? 0, $today]
+                )->fetch(\PDO::FETCH_ASSOC);
+
+                $myPresent = (int)($attRow['present_count'] ?? 0);
+                $myAbsent  = (int)($attRow['absent_count'] ?? 0);
+                if ($myStudents > 0) {
+                    $myAttendanceRate = round(($myPresent / $myStudents) * 100);
+                }
+            }
+
+            // Today's teaching schedule (from timetable)
+            $todaySchedule = $this->db->query(
+                "SELECT ts.start_time, ts.end_time, subj.name AS subject, c.name AS class_name
+                 FROM timetable_sessions ts
+                 JOIN subjects subj ON subj.id = ts.subject_id
+                 JOIN classes c ON c.id = ts.class_id
+                 WHERE ts.staff_id = ? AND ts.day_of_week = ? AND ts.term_id = ?
+                 ORDER BY ts.start_time",
+                [$staffId, $dayName, $termId ?? 0]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $schedule = array_map(function ($row) {
+                return [
+                    'time'       => substr($row['start_time'] ?? '', 0, 5) . '–' . substr($row['end_time'] ?? '', 0, 5),
+                    'subject'    => $row['subject'],
+                    'class_name' => $row['class_name'],
+                ];
+            }, $todaySchedule);
+
+            // Pending lesson plans (created, not yet submitted)
+            $pendingPlans = (int)$this->db->query(
+                "SELECT COUNT(*) FROM lesson_plans
+                 WHERE staff_id = ? AND term_id = ?
+                   AND status IN ('draft', 'created')",
+                [$staffId, $termId ?? 0]
+            )->fetchColumn();
+
+            return $this->success([
+                'class_name'         => $classAssign['class_name'] ?? null,
+                'stream_name'        => $classAssign['stream_name'] ?? null,
+                'my_students'        => $myStudents,
+                'my_attendance_rate' => $myAttendanceRate,
+                'my_present'         => $myPresent,
+                'my_absent'          => $myAbsent,
+                'my_lessons_today'   => count($schedule),
+                'my_pending_plans'   => $pendingPlans,
+                'today_schedule'     => $schedule,
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // DEPUTY HEAD (ACADEMIC) — admin summary
+    // GET /api/academic/deputy-academic-summary
+    // =========================================================================
+    public function getDeputyAcademicSummary($id = null, $data = [], $segments = [])
+    {
+        try {
+            $term = $this->db->query(
+                "SELECT t.id, t.academic_year_id, t.name
+                 FROM academic_terms t WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+            $termId   = $term['id'] ?? 0;
+            $yearId   = $term['academic_year_id'] ?? 0;
+            $today    = date('Y-m-d');
+
+            // Pending admissions
+            $pendingAdm = (int)$this->db->query(
+                "SELECT COUNT(*) FROM student_admissions WHERE status IN ('pending','reviewing')"
+            )->fetchColumn();
+
+            // Lesson plans pending deputy review
+            $lpPending = (int)$this->db->query(
+                "SELECT COUNT(*) FROM lesson_plans WHERE status = 'submitted' AND term_id = ?",
+                [$termId]
+            )->fetchColumn();
+
+            // Exams scheduled this term
+            $examsScheduled = (int)$this->db->query(
+                "SELECT COUNT(*) FROM exam_schedules WHERE term_id = ?", [$termId]
+            )->fetchColumn();
+
+            // Teachers who haven't submitted results yet
+            $gradingPending = (int)$this->db->query(
+                "SELECT COUNT(DISTINCT sa.staff_id)
+                 FROM staff_assignments sa
+                 WHERE sa.term_id = ?
+                   AND NOT EXISTS (
+                     SELECT 1 FROM student_results sr WHERE sr.term_id = ? AND sr.staff_id = sa.staff_id
+                   )",
+                [$termId, $termId]
+            )->fetchColumn();
+
+            // Active timetable sessions
+            $activeTimetables = (int)$this->db->query(
+                "SELECT COUNT(*) FROM timetable_sessions WHERE term_id = ?", [$termId]
+            )->fetchColumn();
+
+            // School attendance today
+            $attRow = $this->db->query(
+                "SELECT SUM(status = 'present') AS p, SUM(status = 'absent') AS a,
+                        COUNT(*) AS total
+                 FROM student_attendance WHERE date = ? AND register_type = 'class'",
+                [$today]
+            )->fetch(\PDO::FETCH_ASSOC);
+            $present = (int)($attRow['p'] ?? 0);
+            $absent  = (int)($attRow['a'] ?? 0);
+            $total   = (int)($attRow['total'] ?? 0);
+            $attPct  = $total > 0 ? round(($present / $total) * 100) : null;
+
+            // Attendance trend (last 7 days)
+            $attTrend = $this->db->query(
+                "SELECT date, ROUND(AVG(status = 'present') * 100) AS pct
+                 FROM student_attendance
+                 WHERE date >= DATE_SUB(?, INTERVAL 7 DAY) AND register_type = 'class'
+                 GROUP BY date ORDER BY date",
+                [$today]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Class performance (avg score per class this term)
+            $classPerf = $this->db->query(
+                "SELECT c.name AS class_name, ROUND(AVG(sr.total_score), 1) AS avg_score
+                 FROM student_results sr
+                 JOIN class_enrollments ce ON ce.student_id = sr.student_id AND ce.academic_year_id = ?
+                 JOIN class_streams cs ON cs.id = ce.stream_id
+                 JOIN classes c ON c.id = cs.class_id
+                 WHERE sr.term_id = ?
+                 GROUP BY c.id ORDER BY c.name LIMIT 12",
+                [$yearId, $termId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Pending admissions table (first 10)
+            $admRows = $this->db->query(
+                "SELECT CONCAT(first_name,' ',last_name) AS name,
+                        requested_class AS class, DATE(created_at) AS date, status
+                 FROM student_admissions WHERE status IN ('pending','reviewing')
+                 ORDER BY created_at DESC LIMIT 10"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Lesson plans pending review table (first 10)
+            $lpRows = $this->db->query(
+                "SELECT lp.id,
+                        CONCAT(s.first_name,' ',s.last_name) AS teacher_name,
+                        c.name AS class_name,
+                        subj.name AS subject,
+                        lp.week_label
+                 FROM lesson_plans lp
+                 JOIN staff s ON s.id = lp.staff_id
+                 LEFT JOIN classes c ON c.id = lp.class_id
+                 LEFT JOIN subjects subj ON subj.id = lp.subject_id
+                 WHERE lp.status = 'submitted' AND lp.term_id = ?
+                 ORDER BY lp.created_at ASC LIMIT 10",
+                [$termId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Upcoming events (next 5)
+            $events = $this->db->query(
+                "SELECT title, DATE(start_date) AS date FROM school_events
+                 WHERE start_date >= CURDATE() ORDER BY start_date LIMIT 5"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->success([
+                'cards' => [
+                    'pending_admissions'          => ['count' => $pendingAdm, 'details' => 'Awaiting placement'],
+                    'lesson_plans_pending_review' => $lpPending,
+                    'exams_scheduled'             => $examsScheduled,
+                    'grading_pending'             => $gradingPending,
+                    'active_timetables'           => $activeTimetables,
+                    'school_attendance'           => $attPct,
+                    'present'                     => $present,
+                    'absent'                      => $absent,
+                ],
+                'charts' => [
+                    'attendance_trend' => [
+                        'labels' => array_column($attTrend, 'date'),
+                        'values' => array_column($attTrend, 'pct'),
+                    ],
+                    'class_performance' => [
+                        'labels' => array_column($classPerf, 'class_name'),
+                        'values' => array_column($classPerf, 'avg_score'),
+                    ],
+                ],
+                'tables' => [
+                    'pending_admissions'   => $admRows,
+                    'lesson_plans_pending' => $lpRows,
+                    'upcoming_events'      => $events,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
+
+    // =========================================================================
+    // DEPUTY HEAD (DISCIPLINE) — admin summary
+    // GET /api/academic/deputy-discipline-summary
+    // =========================================================================
+    public function getDeputyDisciplineSummary($id = null, $data = [], $segments = [])
+    {
+        try {
+            $term = $this->db->query(
+                "SELECT t.id, t.academic_year_id
+                 FROM academic_terms t WHERE CURDATE() BETWEEN t.start_date AND t.end_date LIMIT 1"
+            )->fetch(\PDO::FETCH_ASSOC);
+            $termId = $term['id'] ?? 0;
+            $yearId = $term['academic_year_id'] ?? 0;
+            $today  = date('Y-m-d');
+
+            // Open discipline cases
+            $openCases = (int)$this->db->query(
+                "SELECT COUNT(*) FROM discipline_cases WHERE status IN ('open','investigating')"
+            )->fetchColumn();
+
+            // Suspensions this term
+            $suspensions = (int)$this->db->query(
+                "SELECT COUNT(*) FROM discipline_cases
+                 WHERE action_taken LIKE '%suspend%' AND term_id = ?",
+                [$termId]
+            )->fetchColumn();
+
+            // Chronic absenteeism / truancy (students absent > 5 days this term)
+            $truancy = (int)$this->db->query(
+                "SELECT COUNT(DISTINCT student_id) FROM student_attendance
+                 WHERE status = 'absent' AND academic_year_id = ? AND register_type = 'class'
+                 GROUP BY student_id HAVING COUNT(*) > 5",
+                [$yearId]
+            )->fetchColumn();
+
+            // Pending parent meetings
+            $parentMeetings = (int)$this->db->query(
+                "SELECT COUNT(*) FROM parent_meetings WHERE status = 'scheduled' AND meeting_date >= CURDATE()"
+            )->fetchColumn();
+
+            // Open counseling referrals
+            $counselingReferrals = (int)$this->db->query(
+                "SELECT COUNT(*) FROM counseling_sessions WHERE status = 'open'"
+            )->fetchColumn();
+
+            // School attendance today
+            $attRow = $this->db->query(
+                "SELECT SUM(status = 'present') AS p, SUM(status = 'absent') AS a, COUNT(*) AS t
+                 FROM student_attendance WHERE date = ? AND register_type = 'class'",
+                [$today]
+            )->fetch(\PDO::FETCH_ASSOC);
+            $present = (int)($attRow['p'] ?? 0);
+            $absent  = (int)($attRow['a'] ?? 0);
+            $total   = (int)($attRow['t'] ?? 0);
+            $attPct  = $total > 0 ? round(($present / $total) * 100) : null;
+
+            // Discipline trend (cases per week, last 8 weeks)
+            $discTrend = $this->db->query(
+                "SELECT YEARWEEK(created_at, 1) AS yw, COUNT(*) AS cases
+                 FROM discipline_cases
+                 WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK)
+                 GROUP BY yw ORDER BY yw"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Attendance trend (last 7 days)
+            $attTrend = $this->db->query(
+                "SELECT date,
+                        ROUND(AVG(status = 'present') * 100) AS present_pct,
+                        ROUND(AVG(status = 'absent') * 100) AS absent_pct
+                 FROM student_attendance
+                 WHERE date >= DATE_SUB(?, INTERVAL 7 DAY) AND register_type = 'class'
+                 GROUP BY date ORDER BY date",
+                [$today]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Open discipline cases table (first 10)
+            $caseRows = $this->db->query(
+                "SELECT CONCAT(st.first_name,' ',st.last_name) AS student,
+                        c.name AS class, dc.offence AS issue,
+                        DATE(dc.incident_date) AS date, dc.status
+                 FROM discipline_cases dc
+                 JOIN students st ON st.id = dc.student_id
+                 LEFT JOIN class_enrollments ce ON ce.student_id = dc.student_id AND ce.academic_year_id = ?
+                 LEFT JOIN class_streams cs ON cs.id = ce.stream_id
+                 LEFT JOIN classes c ON c.id = cs.class_id
+                 WHERE dc.status IN ('open','investigating')
+                 ORDER BY dc.incident_date DESC LIMIT 10",
+                [$yearId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            // Pending parent meetings (next 5)
+            $meetingRows = $this->db->query(
+                "SELECT pm.meeting_date, CONCAT(p.first_name,' ',p.last_name) AS parent_name,
+                        CONCAT(s.first_name,' ',s.last_name) AS student_name, pm.purpose AS reason
+                 FROM parent_meetings pm
+                 JOIN parents p ON p.id = pm.parent_id
+                 JOIN students s ON s.id = pm.student_id
+                 WHERE pm.status = 'scheduled' AND pm.meeting_date >= CURDATE()
+                 ORDER BY pm.meeting_date LIMIT 5"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $events = $this->db->query(
+                "SELECT title, DATE(start_date) AS date FROM school_events
+                 WHERE start_date >= CURDATE() ORDER BY start_date LIMIT 5"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->success([
+                'cards' => [
+                    'open_cases'                => $openCases,
+                    'suspensions_this_term'     => $suspensions,
+                    'truancy_cases'             => $truancy,
+                    'parent_meetings_pending'   => $parentMeetings,
+                    'counseling_referrals_open' => $counselingReferrals,
+                    'school_attendance'         => $attPct,
+                    'present'                   => $present,
+                    'absent'                    => $absent,
+                ],
+                'charts' => [
+                    'discipline_trend' => [
+                        'labels' => array_map(fn($r) => 'Wk ' . substr($r['yw'], -2), $discTrend),
+                        'values' => array_column($discTrend, 'cases'),
+                    ],
+                    'attendance_trend' => [
+                        'labels'  => array_column($attTrend, 'date'),
+                        'present' => array_column($attTrend, 'present_pct'),
+                        'absent'  => array_column($attTrend, 'absent_pct'),
+                    ],
+                ],
+                'tables' => [
+                    'discipline_cases' => $caseRows,
+                    'parent_meetings'  => $meetingRows,
+                    'upcoming_events'  => $events,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return $this->serverError($e->getMessage());
+        }
+    }
 }
