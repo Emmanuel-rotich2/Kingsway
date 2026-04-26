@@ -171,7 +171,7 @@ img { max-width: 100%; height: auto; display: block; }
   100% { transform: translateY(-100px) rotate(360deg); opacity: 0; }
 }
 
-.hero-content { position: relative; z-index: 2; padding: 120px 0 80px; }
+.hero-content { position: relative; z-index: 2; padding: 60px 0 80px; }
 
 .hero-badge {
   display: inline-flex;
@@ -268,6 +268,7 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* ─── Announcement Ticker ───────────────────────────────────────────────────── */
 .ticker-bar {
+  margin-top: 74px; /* clear the fixed navbar */
   background: var(--gold);
   color: var(--green-dark);
   padding: 10px 0;
@@ -923,7 +924,8 @@ img { max-width: 100%; height: auto; display: block; }
 @media (max-width: 991px) {
   .section { padding: 60px 0; }
   .site-nav { background: var(--green-dark); }
-  .hero-content { padding: 100px 0 60px; }
+  .hero-content { padding: 40px 0 60px; }
+  .ticker-bar   { margin-top: 62px; } /* smaller navbar when collapsed */
   .gallery-grid { grid-template-rows: repeat(2, 160px); }
 }
 @media (max-width: 767px) {
