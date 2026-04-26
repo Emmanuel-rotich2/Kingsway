@@ -142,7 +142,7 @@ const UniformSalesController = {
                 container.innerHTML = `
                     <div class="col-12">
                         <div class="alert alert-warning text-center">
-                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <i class="bi bi-exclamation-triangle me-2"></i>
                             Failed to load uniform items
                         </div>
                     </div>
@@ -153,7 +153,7 @@ const UniformSalesController = {
             container.innerHTML = `
                 <div class="col-12">
                     <div class="alert alert-danger text-center">
-                        <i class="fas fa-exclamation-circle me-2"></i>
+                        <i class="bi bi-exclamation-circle me-2"></i>
                         Error loading uniform inventory
                     </div>
                 </div>
@@ -171,7 +171,7 @@ const UniformSalesController = {
             container.innerHTML = `
                 <div class="col-12">
                     <div class="alert alert-info text-center">
-                        <i class="fas fa-info-circle me-2"></i>
+                        <i class="bi bi-info-circle me-2"></i>
                         No uniform items found in inventory
                     </div>
                 </div>
@@ -232,17 +232,17 @@ const UniformSalesController = {
                             <div class="d-flex gap-2">
                                 <button class="btn btn-outline-primary btn-sm flex-fill" 
                                         onclick="UniformSalesController.viewSizes(${item.id})">
-                                    <i class="fas fa-eye me-1"></i>View Sizes
+                                    <i class="bi bi-eye me-1"></i>View Sizes
                                 </button>
                                 <button class="btn btn-success btn-sm" 
                                         onclick="UniformSalesController.showRestockModal(${item.id})"
                                         title="Restock">
-                                    <i class="fas fa-plus"></i>
+                                    <i class="bi bi-plus"></i>
                                 </button>
                                 <button class="btn btn-primary btn-sm" 
                                         onclick="UniformSalesController.showNewSaleModal(${item.id})"
                                         title="Quick Sale">
-                                    <i class="fas fa-shopping-cart"></i>
+                                    <i class="bi bi-cart"></i>
                                 </button>
                             </div>
                         </div>
@@ -303,7 +303,7 @@ const UniformSalesController = {
                                             <td>
                                                 <button class="btn btn-success btn-sm" 
                                                         onclick="UniformSalesController.showRestockModal(${itemId}, '${size.size}')">
-                                                    <i class="fas fa-plus"></i>
+                                                    <i class="bi bi-plus"></i>
                                                 </button>
                                             </td>
                                         </tr>
@@ -640,7 +640,7 @@ const UniformSalesController = {
             tbody.innerHTML = `
                 <tr>
                     <td colspan="8" class="text-center py-4 text-muted">
-                        <i class="fas fa-receipt fa-2x mb-2"></i><br>
+                        <i class="bi bi-receipt fs-1 mb-2 d-block"></i><br>
                         No sales found
                     </td>
                 </tr>
@@ -672,12 +672,12 @@ const UniformSalesController = {
                             ${sale.payment_status !== 'paid' ? `
                                 <button class="btn btn-outline-success" title="Record Payment"
                                         onclick="UniformSalesController.openUniformPayment(${sale.id}, '${(sale.student_name || '').replace(/'/g, "\\'")}', ${sale.total_amount || 0})">
-                                    <i class="fas fa-money-bill-wave"></i>
+                                    <i class="bi bi-cash-coin"></i>
                                 </button>
                             ` : ''}
                             <button class="btn btn-outline-danger" title="Delete"
                                     onclick="UniformSalesController.deleteSale(${sale.id})">
-                                <i class="fas fa-trash"></i>
+                                <i class="bi bi-trash"></i>
                             </button>
                         </div>
                     </td>
@@ -777,7 +777,7 @@ const UniformSalesController = {
         const saveBtn = document.getElementById('upSaveBtn');
         saveBtn.disabled = true;
         try {
-            const response = await window.API.apiCall('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
+            const response = await callAPI('/inventory/uniform-sales/' + saleId + '/record-payment', 'POST', {
                 amount_paid: amount,
                 payment_method: document.getElementById('upMethod').value,
                 reference_no: document.getElementById('upReference').value || null,
@@ -802,9 +802,9 @@ const UniformSalesController = {
         if (!confirm('Are you sure you want to delete this sale? Stock will be restored.')) return;
 
         try {
-            const response = await API.inventory.deleteUniformSale ?
-                await API.inventory.deleteUniformSale(saleId) :
-                await apiCall(`/inventory/uniform-sales/${saleId}`, 'DELETE');
+            const response = await (API.inventory.deleteUniformSale
+                ? API.inventory.deleteUniformSale(saleId)
+                : callAPI(`/inventory/uniform-sales/${saleId}`, 'DELETE'));
 
             if (response.success) {
                 this.showSuccess('Sale deleted and stock restored');
@@ -837,7 +837,7 @@ const UniformSalesController = {
                     tbody.innerHTML = `
                         <tr>
                             <td colspan="7" class="text-center py-4 text-success">
-                                <i class="fas fa-check-circle fa-2x mb-2"></i><br>
+                                <i class="bi bi-check-circle fs-1 mb-2 d-block"></i><br>
                                 All uniforms are well stocked!
                             </td>
                         </tr>
@@ -863,7 +863,7 @@ const UniformSalesController = {
                             <td>
                                 <button class="btn btn-success btn-sm"
                                         onclick="UniformSalesController.showRestockModal(${item.item_id}, '${item.size}')">
-                                    <i class="fas fa-plus me-1"></i>Restock
+                                    <i class="bi bi-plus me-1"></i>Restock
                                 </button>
                             </td>
                         </tr>
@@ -958,7 +958,7 @@ const UniformSalesController = {
                 <div class="col-md-8">
                     <div class="card">
                         <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Sales by Item</h6>
+                            <h6 class="mb-0"><i class="bi bi-bar-chart me-2"></i>Sales by Item</h6>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive">
@@ -993,7 +993,7 @@ const UniformSalesController = {
                 <div class="col-md-4">
                     <div class="card">
                         <div class="card-header">
-                            <h6 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Sales by Size</h6>
+                            <h6 class="mb-0"><i class="bi bi-pie-chart me-2"></i>Sales by Size</h6>
                         </div>
                         <div class="card-body p-0">
                             <div class="table-responsive">
@@ -1050,41 +1050,13 @@ const UniformSalesController = {
         });
     },
 
-    /**
-     * Show success message
-     */
     showSuccess: function(message) {
-        this.showToast(message, 'success');
+        if (typeof showNotification === 'function') showNotification(message, 'success');
     },
 
-    /**
-     * Show error message
-     */
     showError: function(message) {
-        this.showToast(message, 'danger');
+        if (typeof showNotification === 'function') showNotification(message, 'danger');
     },
-
-    /**
-     * Show toast notification
-     */
-    showToast: function(message, type = 'info') {
-        // Remove existing toasts
-        document.querySelectorAll('.toast-notification').forEach(t => t.remove());
-
-        const toast = document.createElement('div');
-        toast.className = `toast-notification alert alert-${type} position-fixed`;
-        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
-        toast.innerHTML = `
-            <div class="d-flex align-items-center">
-                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'danger' ? 'exclamation-circle' : 'info-circle'} me-2"></i>
-                <span>${message}</span>
-                <button type="button" class="btn-close ms-auto" onclick="this.parentElement.parentElement.remove()"></button>
-            </div>
-        `;
-        document.body.appendChild(toast);
-
-        setTimeout(() => toast.remove(), 4000);
-    }
 };
 
 // Initialize when DOM is ready
