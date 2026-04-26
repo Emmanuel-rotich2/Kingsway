@@ -5,77 +5,6 @@
  */
 ?>
 
-<style>
-    .dashboard-card {
-        transition: all 0.3s ease;
-        border-radius: 12px;
-        border: none;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    }
-
-    .stat-card {
-        padding: 1.25rem;
-        border-radius: 12px;
-        color: white;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .stat-card .value {
-        font-size: 1.8rem;
-        font-weight: 700;
-        line-height: 1;
-    }
-
-    .stat-card .label {
-        font-size: 0.9rem;
-        opacity: 0.9;
-        margin-top: 0.35rem;
-    }
-
-    .stat-card .secondary {
-        font-size: 0.8rem;
-        opacity: 0.75;
-        margin-top: 0.35rem;
-    }
-
-    .chart-container {
-        position: relative;
-        height: 280px;
-    }
-
-    .quick-link {
-        display: flex;
-        align-items: center;
-        padding: 0.75rem 1rem;
-        border-radius: 10px;
-        background: #f8f9fa;
-        text-decoration: none;
-        color: #2d2d2d;
-        transition: all 0.2s;
-    }
-
-    .quick-link:hover {
-        background: #e9ecef;
-        transform: translateX(4px);
-    }
-
-    .quick-link i {
-        width: 34px;
-        height: 34px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        margin-right: 0.75rem;
-        font-size: 1rem;
-    }
-
-    .refresh-indicator {
-        font-size: 0.8rem;
-        color: #6c757d;
-    }
-</style>
 
 <div class="container-fluid py-4">
     <div class="row mb-4">
@@ -248,4 +177,4 @@
     </div>
 </div>
 
-<script src="js/dashboards/deputy_head_academic_dashboard.js"></script>
+<script src="<?= $appBase ?>js/dashboards/deputy_head_academic_dashboard.js"></script>

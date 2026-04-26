@@ -27,7 +27,6 @@
  * 1. Pending Assessments
  * 2. Exam Schedule
  */
-require_once __DIR__ . '/../../components/global/dashboard_base.php';
 ?>
 
 <div class="container-fluid py-4" id="subject-teacher-dashboard">

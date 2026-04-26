@@ -27,7 +27,6 @@
  * 2. Observations
  * 3. Competencies
  */
-require_once __DIR__ . '/../../components/global/dashboard_base.php';
 ?>
 
 <div class="container-fluid py-4" id="intern-dashboard">

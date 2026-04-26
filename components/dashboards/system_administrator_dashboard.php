@@ -14,9 +14,6 @@
  */
 
 // Include required components
-include_once __DIR__ . '/../charts/chart.php';
-include_once __DIR__ . '/../tables/table.php';
-include_once __DIR__ . '/../cards/card_component.php';
 ?>
 
 <div class="container-fluid py-4">
@@ -337,26 +334,6 @@ include_once __DIR__ . '/../cards/card_component.php';
     </div>
 </div>
 
-<style>
-.icon-circle {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-@keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-}
-
-.spin {
-    animation: spin 1s linear infinite;
-}
-</style>
 
 <!-- Load the System Admin Dashboard helper -->
 <script src="<?= $appBase ?>js/dashboards/system_administrator_dashboard.js"></script>

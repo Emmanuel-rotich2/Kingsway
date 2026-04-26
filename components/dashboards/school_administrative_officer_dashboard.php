@@ -22,9 +22,6 @@
  */
 
 // Include required components
-include_once __DIR__ . '/../charts/chart.php';
-include_once __DIR__ . '/../tables/table.php';
-include_once __DIR__ . '/../cards/card_component.php';
 ?>
 
 <div class="container-fluid py-4">
@@ -434,64 +431,6 @@ include_once __DIR__ . '/../cards/card_component.php';
     </div>
 </div>
 
-<style>
-/* Dashboard-specific styles */
-.icon-circle {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.card {
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-
-.nav-tabs .nav-link {
-    color: #6c757d;
-    border: none;
-    border-bottom: 2px solid transparent;
-}
-
-.nav-tabs .nav-link.active {
-    color: #0d6efd;
-    background: transparent;
-    border-bottom: 2px solid #0d6efd;
-}
-
-.nav-tabs .nav-link:hover:not(.active) {
-    border-bottom: 2px solid #dee2e6;
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-    .icon-circle {
-        width: 40px;
-        height: 40px;
-    }
-    
-    .icon-circle i {
-        font-size: 1rem !important;
-    }
-    
-    .card-body h3 {
-        font-size: 1.25rem;
-    }
-}
-
-/* Text teal color helper */
-.text-teal {
-    color: teal !important;
-}
-</style>
 
 <!-- Dashboard Controller Script -->
 <script src="<?= $appBase ?>js/dashboards/school_administrative_officer_dashboard.js?v=<?php echo time(); ?>"></script>

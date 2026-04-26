@@ -1,10 +1,7 @@
 <?php
 /**
- * Unified Teacher Dashboard
- * Decides whether to show Class Teacher or Subject Teacher dashboard
- * and loads the appropriate component client-side.
+ * Unified Teacher Dashboard — decides class vs subject teacher client-side.
  */
-require_once __DIR__ . '/../../components/global/dashboard_base.php';
 ?>
 
 <div class="container-fluid py-4" id="teacher-dashboard-container">

@@ -1,8 +1,6 @@
 <div id="school-accountant-dashboard">
 
     <?php
-    error_reporting(E_ALL);
-    ini_set('display_errors', 1);
     ?>
 
     <!-- Header -->
@@ -183,7 +181,7 @@
             <div class="card mb-3 shadow-sm">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="card-title mb-0">📈 Monthly Fee Collection Trends</h6>
+                        <h6 class="card-title mb-0"><i class="bi bi-graph-up me-1"></i>Monthly Fee Collection Trends</h6>
                         <div class="btn-group btn-group-sm" role="group">
                             <button type="button" class="btn btn-outline-secondary" id="chartExportPng"
                                 title="Export as PNG">
@@ -238,7 +236,7 @@
             <div class="card shadow-sm">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="card-title mb-0">💳 Recent Transactions</h6>
+                        <h6 class="card-title mb-0"><i class="bi bi-credit-card me-1"></i>Recent Transactions</h6>
                         <div class="btn-group btn-group-sm" role="group">
                             <button type="button" class="btn btn-outline-secondary" id="tableExportCsv"
                                 title="Export as CSV">
@@ -314,7 +312,7 @@
             <div class="card mb-3 shadow-sm">
                 <div class="card-body">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="card-title mb-0">🚨 Finance Alerts</h6>
+                        <h6 class="card-title mb-0"><i class="bi bi-exclamation-triangle me-1 text-danger"></i>Finance Alerts</h6>
                         <button class="btn btn-sm btn-outline-secondary" id="configureAlerts"
                             title="Configure Alert Rules">
                             <i class="bi bi-gear"></i>
@@ -329,7 +327,7 @@
             <!-- Accounts & Cash: populated by JS (bank accounts list + balances) -->
             <div class="card mb-3 shadow-sm">
                 <div class="card-body">
-                    <h6 class="card-title">🏦 Accounts & Cash</h6>
+                    <h6 class="card-title"><i class="bi bi-bank me-1"></i>Accounts & Cash</h6>
                     <div id="bankAccountsList" class="small text-muted">Loading bank accounts…</div>
                     <div id="accountBalances" class="mt-2 small text-muted">Select a bank account to view balances</div>
                 </div>
@@ -949,7 +947,7 @@
 <script>
     // Initialize the dashboard when DOM is ready
     document.addEventListener('DOMContentLoaded', function () {
-        console.log('🎯 Initializing School Accountant Dashboard...');
+        console.log('Initializing School Accountant Dashboard...');
 
         // Check if controller exists
         if (typeof schoolAccountantDashboardController !== 'undefined') {
@@ -960,282 +958,3 @@
     });
 </script>
 
-<style>
-    /* Spinner animation for refresh button */
-    .btn i.spinner {
-        display: inline-block;
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        from {
-            transform: rotate(0deg);
-        }
-
-        to {
-            transform: rotate(360deg);
-        }
-    }
-
-    /* Dashboard card styling */
-    #school-accountant-dashboard .card {
-        transition: box-shadow 0.3s ease;
-    }
-
-    #school-accountant-dashboard .card:hover {
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-    }
-
-    /* Table row hover effect */
-    #school-accountant-dashboard .table-hover tbody tr:hover {
-        background-color: rgba(0, 0, 0, 0.02);
-    }
-
-    /* KPI card styling */
-    #summaryCards .card {
-        border-left: 4px solid transparent;
-    }
-
-    #summaryCards .card:nth-child(1) {
-        border-left-color: #dc3545;
-    }
-
-    #summaryCards .card:nth-child(2) {
-        border-left-color: #28a745;
-    }
-
-    #summaryCards .card:nth-child(3) {
-        border-left-color: #ffc107;
-    }
-
-    #summaryCards .card:nth-child(4) {
-        border-left-color: #6c757d;
-    }
-
-    #summaryCards .card:nth-child(5) {
-        border-left-color: #17a2b8;
-    }
-
-    #summaryCards .card:nth-child(6) {
-        border-left-color: #007bff;
-    }
-
-    /* Enhancement Features Styling */
-
-    /* Export Buttons */
-    .btn-group .btn-outline-secondary:hover {
-        background-color: #6c757d;
-        border-color: #6c757d;
-        color: white;
-    }
-
-    /* Filter Controls */
-    .form-control-sm,
-    .form-select-sm {
-        font-size: 0.875rem;
-        height: 31px;
-    }
-
-    #customDateRangeFields {
-        display: flex;
-        gap: 0.5rem;
-        align-items: flex-start;
-    }
-
-    #customDateRangeFields input {
-        width: auto;
-    }
-
-    /* Filter Row Responsive */
-    @media (max-width: 768px) {
-        .row.mb-3.g-2 {
-            flex-direction: column;
-        }
-
-        .row.mb-3.g-2>.col-auto {
-            width: 100% !important;
-        }
-
-        .form-control-sm,
-        .form-select-sm {
-            width: 100%;
-        }
-    }
-
-    /* Modal Styling */
-    .modal-header {
-        background-color: #f8f9fa;
-        border-bottom: 1px solid #dee2e6;
-    }
-
-    .modal-body {
-        max-height: 70vh;
-        overflow-y: auto;
-    }
-
-    .modal .table-responsive {
-        border: 1px solid #dee2e6;
-        border-radius: 0.25rem;
-    }
-
-    /* Chart Container */
-    #chart_monthly_trends {
-        max-height: 300px;
-        min-height: 250px;
-    }
-
-    /* Table Styling */
-    .table-responsive {
-        border-radius: 0.25rem;
-    }
-
-    .table tbody tr:hover {
-        background-color: #f8f9fa;
-    }
-
-    .table-sm td {
-        padding: 0.4rem 0.75rem;
-        vertical-align: middle;
-    }
-
-    /* Badge Styling */
-    .badge {
-        font-size: 0.75rem;
-        padding: 0.35rem 0.65rem;
-    }
-
-    /* Button Styling */
-    .btn-sm {
-        font-size: 0.75rem;
-        padding: 0.25rem 0.5rem;
-    }
-
-    .btn-outline-primary:hover {
-        background-color: #0d6efd;
-        border-color: #0d6efd;
-        color: white;
-    }
-
-    /* Spinner Animation */
-    .spinner {
-        animation: spin 1s linear infinite;
-    }
-
-    @keyframes spin {
-        from {
-            transform: rotate(0deg);
-        }
-
-        to {
-            transform: rotate(360deg);
-        }
-    }
-
-    /* Alert Alert Styling */
-    .alert {
-        border-left: 4px solid;
-        margin-bottom: 0.5rem;
-    }
-
-    .alert-info {
-        border-left-color: #17a2b8;
-        background-color: #d1ecf1;
-        color: #0c5460;
-    }
-
-    .list-group-item {
-        border-left: 3px solid transparent;
-        transition: all 0.2s ease;
-    }
-
-    .list-group-item:hover {
-        background-color: #f8f9fa;
-        border-left-color: #007bff;
-    }
-
-    /* Comparison Toggle */
-    .form-check {
-        margin-bottom: 0;
-    }
-
-    .form-check-input:checked {
-        background-color: #0d6efd;
-        border-color: #0d6efd;
-    }
-
-    /* Card Shadows & Borders */
-    .card {
-        border: 1px solid #e9ecef;
-        transition: box-shadow 0.3s ease;
-    }
-
-    .card:hover {
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
-    }
-
-    /* Responsive Adjustments */
-    @media (max-width: 992px) {
-
-        .col-lg-8,
-        .col-lg-4 {
-            margin-bottom: 1rem;
-        }
-
-        .card-body {
-            padding: 1rem;
-        }
-    }
-
-    /* No Data Message */
-    .no-data {
-        background-color: #f8f9fa;
-    }
-
-    .text-muted {
-        color: #6c757d !important;
-    }
-
-    /* Loading State */
-    #accountant-dashboard-loading {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 400px;
-    }
-
-    /* Smooth Transitions */
-    button,
-    select,
-    input {
-        transition: all 0.2s ease;
-    }
-
-    button:active {
-        transform: translateY(1px);
-    }
-
-    /* Focus States for Accessibility */
-    .btn:focus,
-    select:focus,
-    input:focus {
-        outline: 2px solid #0d6efd;
-        outline-offset: 2px;
-    }
-
-    /* Print Styles */
-    @media print {
-
-        .btn-group,
-        .form-control-sm,
-        .form-select-sm,
-        #refreshDashboard {
-            display: none !important;
-        }
-
-        .card {
-            page-break-inside: avoid;
-            box-shadow: none;
-            border: 1px solid #dee2e6;
-        }
-    }
-</style>
