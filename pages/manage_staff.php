@@ -28,8 +28,8 @@
 </div>
 
 <!-- Load Staff Management Controllers -->
-<script src="<?= $appBase ?>js/pages/staff.js"></script>
-<script src="<?= $appBase ?>js/pages/staff_production_ui.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>
 
 <script>
 (function () {

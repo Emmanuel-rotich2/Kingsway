@@ -152,15 +152,19 @@
         document.getElementById('searchMessages').addEventListener('input', debounce(filterMessages, 300));
     });
 
+    let _managerMessages = [];
+
     async function loadMessages() {
+        const tbody = document.getElementById('messagesTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></td></tr>';
         try {
-            const response = await API.communications.getAll();
-            if (response.success) {
-                renderMessagesTable(response.data);
-                updateStats(response.data);
-            }
+            const response = await callAPI('/communications/list?limit=200', 'GET');
+            _managerMessages = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderMessagesTable(_managerMessages);
+            if (typeof updateStats === 'function') updateStats(_managerMessages);
         } catch (error) {
             console.error('Error loading messages:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center py-4">Failed to load messages.</td></tr>';
         }
     }
 
@@ -226,8 +230,21 @@
         });
     }
 
-    function viewMessage(id) { console.log('View:', id); }
-    function resendMessage(id) { console.log('Resend:', id); }
+    function viewMessage(id) {
+        const msg = _managerMessages.find(m => m.id == id);
+        if (!msg) return;
+        const preview = `From: ${escapeHtml(msg.sender_name || '—')}\nTo: ${escapeHtml(msg.recipient_name || msg.recipient || '—')}\nChannel: ${msg.channel}\nStatus: ${msg.status}\nSent: ${formatDateTime(msg.sent_at)}\n\n${escapeHtml(msg.message || msg.body || '')}`;
+        alert(preview);
+    }
+
+    async function resendMessage(id) {
+        if (!confirm('Resend this message?')) return;
+        try {
+            await callAPI('/communications/resend', 'POST', { id });
+            showNotification('Message queued for resend', 'success');
+            loadMessages();
+        } catch (e) { showNotification('Resend failed: ' + (e.message || e), 'error'); }
+    }
 
     function escapeHtml(str) { return str ? str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
     function formatDateTime(d) { return d ? new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'; }

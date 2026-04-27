@@ -366,58 +366,80 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <!-- Day type banner (holiday / weekend alert) -->
+                <div id="markDayBanner" class="alert alert-warning mb-3" style="display:none"></div>
+
+                <!-- Context summary badges -->
+                <div class="d-flex gap-2 flex-wrap mb-3 small" id="ctxSummaryRow">
+                    <span class="badge bg-light text-dark border">Total: <strong id="ctxTotal">—</strong></span>
+                    <span class="badge bg-success">Marked: <strong id="ctxMarked">—</strong></span>
+                    <span class="badge bg-info text-dark">On Leave: <strong id="ctxOnLeave">—</strong></span>
+                    <span class="badge bg-secondary">Off Day: <strong id="ctxOffDay">—</strong></span>
+                    <span class="badge bg-primary">On Duty: <strong id="ctxOnDuty">—</strong></span>
+                </div>
+
                 <!-- Filters row inside modal -->
-                <div class="row g-3 mb-3">
-                    <div class="col-md-4">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-3">
                         <label class="form-label small fw-semibold">Date</label>
-                        <input type="date" class="form-control" id="markDate">
+                        <input type="date" class="form-control form-control-sm" id="markDate">
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
+                        <label class="form-label small fw-semibold">Shift</label>
+                        <select class="form-select form-select-sm" id="markShift">
+                            <option value="full_day">Full Day</option>
+                            <option value="morning">Morning</option>
+                            <option value="afternoon">Afternoon</option>
+                            <option value="evening">Evening</option>
+                            <option value="night">Night</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
                         <label class="form-label small fw-semibold">Department</label>
-                        <select class="form-select" id="markDepartment">
+                        <select class="form-select form-select-sm" id="markDepartment">
                             <option value="">All Departments</option>
                         </select>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-3">
                         <label class="form-label small fw-semibold">&nbsp;</label>
-                        <button class="btn btn-sa w-100" id="loadStaffForMarkingBtn"
+                        <button class="btn btn-sa btn-sm w-100" id="loadStaffForMarkingBtn"
                                 data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
-                            <i class="bi bi-arrow-clockwise me-1"></i>Load Staff
+                            <i class="bi bi-arrow-clockwise me-1"></i>Load
                         </button>
                     </div>
                 </div>
 
                 <!-- Quick actions -->
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
                     <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-success" id="markAllPresentBtn"
+                        <button class="btn btn-outline-success btn-sm" id="markAllPresentBtn"
                                 data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                             <i class="bi bi-check-all me-1"></i>All Present
                         </button>
-                        <button class="btn btn-outline-danger" id="markAllAbsentBtn"
+                        <button class="btn btn-outline-danger btn-sm" id="markAllAbsentBtn"
                                 data-permission="attendance_staff_create,attendance_staff_submit,attendance_staff_edit,attendance_staff_edit_own">
                             <i class="bi bi-x-lg me-1"></i>All Absent
                         </button>
                     </div>
-                    <small class="text-muted">Click P / A / L for each staff member</small>
+                    <small class="text-muted">P=Present · A=Absent · L=Late | Enter check-in time for late detection</small>
                 </div>
 
                 <!-- Staff marking table -->
-                <div class="table-responsive" style="max-height:400px; overflow-y:auto;">
+                <div class="table-responsive" style="max-height:420px; overflow-y:auto;">
                     <table class="table table-hover table-sm" id="markStaffTable">
                         <thead class="table-light sticky-top">
                             <tr>
                                 <th>Staff</th>
                                 <th>Department</th>
-                                <th>Duty</th>
-                                <th>Status Today</th>
-                                <th>Attendance</th>
+                                <th>Check-in Time</th>
+                                <th>Status</th>
+                                <th>Mark</th>
                             </tr>
                         </thead>
                         <tbody id="markStaffTableBody">
                             <tr>
                                 <td colspan="5" class="text-center text-muted py-3">
-                                    Click <strong>Load Staff</strong> to populate the list.
+                                    Select date and click <strong>Load</strong> to populate the register.
                                 </td>
                             </tr>
                         </tbody>
@@ -494,4 +516,4 @@
      SCRIPTS
 ========================================================= -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-<script src="<?= $appBase ?>js/pages/staff_attendance.js?v=<?= time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/staff_attendance.js?v=<?= time() ?>"></script>

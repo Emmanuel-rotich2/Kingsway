@@ -17,10 +17,10 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h4 class="mb-0"><i class="fas fa-calendar-check"></i> View Attendance</h4>
             <div class="btn-group">
-                <a href="<?= $appBase ?>home.php?route=mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink">
+                <a href="<?= $appBase ?>/home.php?route=mark_attendance" class="btn btn-light btn-sm" id="markAttendanceLink">
                     <i class="bi bi-check2-square"></i> Mark Attendance
                 </a>
-                <a href="<?= $appBase ?>home.php?route=boarding_roll_call" class="btn btn-outline-light btn-sm" id="boardingRollCallLink">
+                <a href="<?= $appBase ?>/home.php?route=boarding_roll_call" class="btn btn-outline-light btn-sm" id="boardingRollCallLink">
                     <i class="bi bi-house-door"></i> Boarding Roll Call
                 </a>
                 <button class="btn btn-outline-light btn-sm" id="exportBtn">
@@ -405,4 +405,4 @@
 }
 </style>
 
-<script src="<?= $appBase ?>js/pages/view_attendance.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/view_attendance.js?v=<?php echo time(); ?>"></script>

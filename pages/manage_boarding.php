@@ -19,7 +19,7 @@
 <div id="boarding-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'boarding-loading',
         contentId:   'boarding-content',
@@ -57,5 +57,5 @@
             },
         ],
     });
-})();
+});
 </script>

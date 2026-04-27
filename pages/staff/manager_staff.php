@@ -110,7 +110,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/all_staff.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_staff.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof StaffController !== 'undefined') {

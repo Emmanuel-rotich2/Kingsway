@@ -396,5 +396,5 @@
 </div>
 
 <!-- User Management Scripts -->
-<script src="<?= $appBase ?>js/utils/form-validation.js?v=<?php echo time(); ?>"></script>
-<script src="<?= $appBase ?>js/pages/users.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/utils/form-validation.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/users.js?v=<?php echo time(); ?>"></script>

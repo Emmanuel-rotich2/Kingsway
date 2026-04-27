@@ -282,29 +282,75 @@
         initEventListeners();
     });
 
+    let _allRoutes = [];
+    let _editRouteId = null;
+
     async function loadRoutes() {
+        const tbody = document.getElementById('routesTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></td></tr>';
         try {
-            const response = await API.transport.getRoutes();
-            if (response.success) {
-                renderRoutesTable(response.data);
-            }
+            const response = await callAPI('/transport/all-routes', 'GET');
+            _allRoutes = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderRoutesTable(_allRoutes);
+            document.getElementById('totalRoutes').textContent = _allRoutes.length;
+            _updateRouteChart(_allRoutes);
+            _loadVehicleDriverDropdowns();
         } catch (error) {
             console.error('Error loading routes:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-danger text-center py-4">Failed to load routes.</td></tr>';
         }
     }
 
     async function loadStats() {
         try {
-            const response = await API.transport.getStats();
-            if (response.success) {
-                document.getElementById('totalRoutes').textContent = response.data.routes || 0;
-                document.getElementById('totalVehicles').textContent = response.data.vehicles || 0;
-                document.getElementById('studentsUsingTransport').textContent = response.data.students || 0;
-                document.getElementById('totalDrivers').textContent = response.data.drivers || 0;
-            }
+            const [vRes, dRes] = await Promise.all([
+                callAPI('/transport/all-vehicles', 'GET').catch(() => []),
+                callAPI('/transport/all-drivers',  'GET').catch(() => []),
+            ]);
+            const vehicles = Array.isArray(vRes?.data) ? vRes.data : (Array.isArray(vRes) ? vRes : []);
+            const drivers  = Array.isArray(dRes?.data) ? dRes.data : (Array.isArray(dRes) ? dRes : []);
+            document.getElementById('totalVehicles').textContent   = vehicles.length;
+            document.getElementById('totalDrivers').textContent    = drivers.length;
+            _updateVehicleChart(vehicles);
         } catch (error) {
-            console.error('Error loading stats:', error);
+            console.warn('Error loading transport stats:', error);
         }
+    }
+
+    function _updateRouteChart(routes) {
+        const canvas = document.getElementById('routeChart');
+        if (!canvas || !routes.length) return;
+        const inst = Chart.getChart(canvas);
+        if (inst) {
+            inst.data.labels = routes.map(r => r.name);
+            inst.data.datasets[0].data = routes.map(r => r.student_count || 0);
+            inst.update();
+        }
+    }
+
+    function _updateVehicleChart(vehicles) {
+        const canvas = document.getElementById('vehicleChart');
+        if (!canvas) return;
+        const active = vehicles.filter(v => v.status === 'active').length;
+        const maint  = vehicles.filter(v => v.status === 'maintenance').length;
+        const inact  = vehicles.filter(v => v.status === 'inactive').length;
+        const inst = Chart.getChart(canvas);
+        if (inst) { inst.data.datasets[0].data = [active, maint, inact]; inst.update(); }
+    }
+
+    async function _loadVehicleDriverDropdowns() {
+        try {
+            const [vRes, dRes] = await Promise.all([
+                callAPI('/transport/all-vehicles', 'GET').catch(() => []),
+                callAPI('/transport/all-drivers',  'GET').catch(() => []),
+            ]);
+            const vehicles = Array.isArray(vRes?.data) ? vRes.data : (Array.isArray(vRes) ? vRes : []);
+            const drivers  = Array.isArray(dRes?.data) ? dRes.data : (Array.isArray(dRes) ? dRes : []);
+            const vSel = document.getElementById('vehicleId');
+            const dSel = document.getElementById('driverId');
+            if (vSel) vSel.innerHTML = '<option value="">None</option>' + vehicles.map(v => `<option value="${v.id}">${escapeHtml(v.registration_no || v.plate_number || v.name || 'Vehicle '+v.id)}</option>`).join('');
+            if (dSel) dSel.innerHTML = '<option value="">None</option>' + drivers.map(d  => `<option value="${d.id}">${escapeHtml((d.first_name||'')+' '+(d.last_name||''))}</option>`).join('');
+        } catch (e) { /* dropdowns optional */ }
     }
 
     function initCharts() {
@@ -382,11 +428,66 @@
         });
     }
 
-    async function saveRoute() { console.log('Save route'); }
-    function viewRoute(id) { console.log('View route:', id); }
-    function editRoute(id) { console.log('Edit route:', id); }
-    function deleteRoute(id) { console.log('Delete route:', id); }
-    function exportData() { console.log('Export'); }
+    async function saveRoute() {
+        const form = document.getElementById('routeForm');
+        if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+        const payload = {
+            name:       document.getElementById('routeName').value.trim(),
+            vehicle_id: document.getElementById('vehicleId').value || null,
+            driver_id:  document.getElementById('driverId').value  || null,
+            am_pickup:  document.getElementById('amPickup').value  || null,
+            pm_dropoff: document.getElementById('pmDropoff').value || null,
+            stops:      (document.getElementById('stops').value || '').split('\n').map(s => s.trim()).filter(Boolean),
+        };
+        try {
+            if (_editRouteId) {
+                await callAPI('/transport/route/' + _editRouteId, 'PUT', payload);
+                showNotification('Route updated', 'success');
+            } else {
+                await callAPI('/transport/route', 'POST', payload);
+                showNotification('Route added', 'success');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('routeModal'))?.hide();
+            _editRouteId = null;
+            loadRoutes();
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    function viewRoute(id) {
+        const r = _allRoutes.find(x => x.id == id);
+        if (!r) return;
+        document.getElementById('routeForm').reset();
+        _editRouteId = r.id;
+        document.getElementById('routeName').value  = r.name        || '';
+        document.getElementById('vehicleId').value  = r.vehicle_id  || '';
+        document.getElementById('driverId').value   = r.driver_id   || '';
+        document.getElementById('amPickup').value   = r.am_pickup   || '06:30';
+        document.getElementById('pmDropoff').value  = r.pm_dropoff  || '16:30';
+        document.getElementById('stops').value      = Array.isArray(r.stops) ? r.stops.join('\n') : (r.stops || '');
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('routeModal')).show();
+    }
+
+    function editRoute(id) { viewRoute(id); }
+
+    async function deleteRoute(id) {
+        const r = _allRoutes.find(x => x.id == id);
+        if (!confirm('Delete route "' + (r?.name || id) + '"?')) return;
+        try {
+            await callAPI('/transport/route/' + id, 'DELETE');
+            showNotification('Route deleted', 'success');
+            loadRoutes();
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    function exportData() {
+        if (!_allRoutes.length) { showNotification('No routes to export', 'warning'); return; }
+        const rows = [['Route Name','Vehicle','Driver','AM Pickup','PM Dropoff','Students','Status']];
+        _allRoutes.forEach(r => rows.push([r.name||'', r.vehicle_reg||'', r.driver_name||'', r.am_pickup||'', r.pm_dropoff||'', r.student_count||0, r.status||'']));
+        const csv  = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a    = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'transport_routes.csv'; a.click();
+    }
 
     // ---- Transport Billing ----
 

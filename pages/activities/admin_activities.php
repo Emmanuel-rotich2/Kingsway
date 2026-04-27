@@ -288,7 +288,7 @@
 <!-- Include modals -->
 <?php include __DIR__ . '/../components/modals/activity_modal.php'; ?>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Initialize role-based UI
@@ -455,8 +455,7 @@
     }
 
     function editActivity(id) {
-        // Open modal with activity data
-        console.log('Edit activity:', id);
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_activities&edit=' + id;
     }
 
     async function deleteActivity(id) {

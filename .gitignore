@@ -9,6 +9,7 @@
 
 .htaccess
 /.htaccess
+./.htaccess
 
 
 /tests/
@@ -43,7 +44,6 @@ logs/
 
 # Cache
 cache/
-.htaccess
 
 
 # Database dumps (large dump files only — migrations are tracked)

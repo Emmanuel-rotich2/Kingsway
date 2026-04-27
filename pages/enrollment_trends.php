@@ -102,4 +102,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/enrollment_trends.js"></script>
+<script src="<?= $appBase ?>/js/pages/enrollment_trends.js"></script>

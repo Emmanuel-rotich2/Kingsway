@@ -19,7 +19,7 @@
 <div id="discipline-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'discipline-loading',
         contentId:   'discipline-content',
@@ -56,5 +56,5 @@
             },
         ],
     });
-})();
+});
 </script>

@@ -117,4 +117,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/students_with_balance.js"></script>
+<script src="<?= $appBase ?>/js/pages/students_with_balance.js"></script>

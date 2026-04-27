@@ -796,4 +796,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/assessments_exams.js"></script>
+<script src="<?= $appBase ?>/js/pages/assessments_exams.js"></script>

@@ -906,7 +906,7 @@
 <!-- =======================================================
      SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>js/pages/manage_non_teaching_staff.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_non_teaching_staff.js?v=<?php echo time(); ?>"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof manageNonTeachingStaffController !== 'undefined') {

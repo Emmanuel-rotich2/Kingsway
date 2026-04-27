@@ -79,4 +79,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/performance_analysis.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/performance_analysis.js?v=<?php echo time(); ?>"></script>

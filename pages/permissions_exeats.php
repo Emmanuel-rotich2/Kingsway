@@ -259,4 +259,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/permissions_exeats.js"></script>
+<script src="<?= $appBase ?>/js/pages/permissions_exeats.js"></script>

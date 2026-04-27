@@ -19,7 +19,7 @@
 <div id="transport-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'transport-loading',
         contentId:   'transport-content',
@@ -57,5 +57,5 @@
             },
         ],
     });
-})();
+});
 </script>

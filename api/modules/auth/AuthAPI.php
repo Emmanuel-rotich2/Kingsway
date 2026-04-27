@@ -372,9 +372,13 @@ class AuthAPI extends BaseAPI
         // Effective permissions for filtering the sidebar
         $effectivePermissions = array_values(array_unique(array_merge($userPermissions, $delegatedPermissions)));
 
+        // Fast path: use hardcoded sidebar if defined for this role
+        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+
         try {
-            // Build sidebar from database using MenuBuilderService
-            if (count($roleIds) > 1) {
+            if ($hardcodedSidebar !== null) {
+                $sidebarItems = $hardcodedSidebar;
+            } elseif (count($roleIds) > 1) {
                 // Multi-role: combine menus from all roles
                 $sidebarItems = $this->getMenuBuilder()->buildSidebarForMultipleRoles(
                     $userId,
@@ -650,25 +654,33 @@ class AuthAPI extends BaseAPI
         $defaultDashboard = null;
         $dashboardKey = null;
 
+        // Fast path: use hardcoded sidebar if defined for this role (no DB queries needed)
+        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+        if ($hardcodedSidebar !== null) {
+            $sidebarItems = $hardcodedSidebar;
+        }
+
         // Get dashboard key using DashboardRouter (prefer role ID if available)
         if ($primaryRoleId) {
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRoleId);
 
-            // Try to get menu items using role ID as key
-            $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+            if ($hardcodedSidebar === null) {
+                // Only query DB menu items when no hardcoded sidebar exists
+                $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
+            }
             $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
         } elseif ($primaryRole) {
             $dashboardKey = DashboardRouter::getDashboardForRole($primaryRole);
 
             // Fall back to role name lookup if role ID wasn't provided
-            if ($primaryRoleId) {
+            if ($hardcodedSidebar === null && $primaryRoleId) {
                 $sidebarItems = $dashboardManager->getMenuItems($primaryRoleId);
                 $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
             }
         }
 
             // If no items for primary role, combine from all roles
-            if (empty($sidebarItems) && !empty($roleIds)) {
+            if ($hardcodedSidebar === null && empty($sidebarItems) && !empty($roleIds)) {
                 // Union menus from dashboards config
                 $dashConfig = include __DIR__ . '/../../includes/dashboards.php';
                 $menusUnion = [];
@@ -1013,6 +1025,78 @@ class AuthAPI extends BaseAPI
             }
         }
         return false;
+    }
+
+    /**
+     * Return a hardcoded sidebar for the given role, or null if not defined.
+     * Hardcoded sidebars bypass all DB authorization queries (900+ queries saved).
+     * Add roles to config/role_sidebars.php to opt them into the fast path.
+     */
+    private function getHardcodedSidebarItems(int $roleId): ?array
+    {
+        if ($roleId <= 0) {
+            return null;
+        }
+        static $config = null;
+        if ($config === null) {
+            $path = dirname(__DIR__, 3) . '/config/role_sidebars.php';
+            $config = file_exists($path) ? (include $path) : [];
+        }
+        if (!isset($config[$roleId])) {
+            return null;
+        }
+        // Normalise to the same shape as MenuBuilderService output.
+        // IDs: parent = roleId*10000 + groupIndex*100; child = parentId + childIndex + 1
+        $items      = [];
+        $groupIndex = 0;
+        foreach ($config[$roleId] as $item) {
+            $parentId = $roleId * 10000 + $groupIndex * 100;
+            $subitems  = [];
+            $subIndex  = 1;
+            foreach ($item['subitems'] ?? [] as $sub) {
+                $subitems[] = [
+                    'id'                   => $parentId + $subIndex,
+                    'parent_id'            => $parentId,
+                    'label'                => $sub['label'],
+                    'icon'                 => $sub['icon'] ?? null,
+                    'url'                  => $sub['url'] ?? null,
+                    'route_url'            => $sub['url'] ?? null,
+                    'domain'               => 'SCHOOL',
+                    'display_order'        => $subIndex,
+                    'subitems'             => [],
+                    'show_badge'           => false,
+                    'badge_source'         => null,
+                    'badge_color'          => 'danger',
+                    'open_in_new_tab'      => false,
+                    'requires_confirmation'=> false,
+                    'confirmation_message' => null,
+                    'css_class'            => null,
+                    'tooltip'              => null,
+                ];
+                $subIndex++;
+            }
+            $items[] = [
+                'id'                   => $parentId,
+                'parent_id'            => null,
+                'label'                => $item['label'],
+                'icon'                 => $item['icon'] ?? null,
+                'url'                  => $item['url'] ?? null,
+                'route_url'            => $item['url'] ?? null,
+                'domain'               => 'SCHOOL',
+                'display_order'        => $groupIndex,
+                'subitems'             => $subitems,
+                'show_badge'           => false,
+                'badge_source'         => null,
+                'badge_color'          => 'danger',
+                'open_in_new_tab'      => false,
+                'requires_confirmation'=> false,
+                'confirmation_message' => null,
+                'css_class'            => null,
+                'tooltip'              => null,
+            ];
+            $groupIndex++;
+        }
+        return $items;
     }
 
     /**

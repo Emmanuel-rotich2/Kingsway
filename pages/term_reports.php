@@ -345,4 +345,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/term_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/term_reports.js"></script>

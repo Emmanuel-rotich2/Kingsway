@@ -232,4 +232,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/my_routes.js"></script>
+<script src="<?= $appBase ?>/js/pages/my_routes.js"></script>

@@ -188,4 +188,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/student_performance.js"></script>
+<script src="<?= $appBase ?>/js/pages/student_performance.js"></script>

@@ -27,7 +27,6 @@
  * 2. Observations
  * 3. Competencies
  */
-require_once __DIR__ . '/../../components/global/dashboard_base.php';
 ?>
 
 <div class="container-fluid py-4" id="intern-dashboard">
@@ -73,4 +72,4 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/intern_student_teacher_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/intern_student_teacher_dashboard.js"></script>

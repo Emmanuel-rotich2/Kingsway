@@ -236,7 +236,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/bank_transactions.js"></script>
+<script src="<?= $appBase ?>/js/pages/bank_transactions.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankTransactionsController !== 'undefined') {

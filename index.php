@@ -1,501 +1,450 @@
-<!--Description: Main landing page for Kingsway Preparatory School-->
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
+$appBase    = rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '')),'/');
+if ($appBase === '.') $appBase = '';
+$pageTitle  = 'Home';
+$activePage = 'home';
+require_once __DIR__ . '/public/layout/public_data.php';
+$news        = kw_latest_news(3);
+$events      = kw_upcoming_events(4);
+$schoolPhone = kw_school_stat('school_phone_main', kw_school_stat('school_phone', '0720 113 030'));
+$programs    = kw_programs();
+$gallery     = kw_gallery(6);
+$heroStats   = [
+    [kw_school_stat('hero_stat_1_value','1,200+'), kw_school_stat('hero_stat_1_label','Students Enrolled'),    'bi-people-fill'],
+    [kw_school_stat('hero_stat_2_value','98%'),    kw_school_stat('hero_stat_2_label','KJSEA / KCPE Pass Rate'),'bi-mortarboard-fill'],
+    [kw_school_stat('hero_stat_3_value','30+'),    kw_school_stat('hero_stat_3_label','Regional Awards'),       'bi-award-fill'],
+    [kw_school_stat('hero_stat_4_value','Est. '.kw_school_stat('school_founded_year','2005')), kw_school_stat('hero_stat_4_label','Years of Excellence'),'bi-calendar2-check'],
+];
 ?>
-<!DOCTYPE html>
-<html lang="en">
+<?php include __DIR__ . '/public/layout/header.php'; ?>
 
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kingsway Preparatory School</title>
-
-  <!-- Favicons -->
-  <link rel="icon" type="image/png" href="images/favicon/favicon-96x96.png" sizes="96x96" />
-  <link rel="icon" type="image/svg+xml" href="images/favicon/favicon.svg" />
-  <link rel="shortcut icon" href="images/favicon/favicon.ico" />
-  <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png" />
-  <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
-  <link rel="manifest" href="images/favicon/site.webmanifest" />
-
-  <!-- CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
-  <link rel="stylesheet" href="king.css">
-
-  <style>
-    body {
-      background-color: #fffdf5;
-      padding-top: 90px; /* space for fixed navbar */
-    }
-
-    .navbar-custom {
-      background-color: #198754;
-    }
-
-    .navbar {
-      z-index: 1050;
-    }
-
-    .hero-bg {
-      background: linear-gradient(135deg, #f9c80e 60%, #198754 100%);
-      color: #fff;
-      min-height: 350px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .hero-graphic {
-      position: absolute;
-      right: 0;
-      bottom: 0;
-      width: 350px;
-      opacity: 0.15;
-    }
-
-    .hero-content {
-      position: relative;
-      z-index: 1;
-    }
-
-    .summary-card {
-      min-width: 180px;
-      border-radius: 1rem;
-      background-color: #fff8e1;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-      transition: transform .2s ease;
-    }
-
-    .summary-card:hover {
-      transform: translateY(-5px);
-    }
-
-    .school-logo {
-      width: 60px;
-      height: 60px;
-      object-fit: contain;
-      border-radius: 50%;
-      background: #fff;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.07);
-    }
-
-    footer {
-      background-color: #198754;
-    }
-  </style>
-</head>
-
-<body>
-
-<!-- Notification Modal -->
-<div class="modal fade" id="notificationModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content notification-info">
-      <div class="modal-body d-flex align-items-center">
-        <i class="bi bi-info-circle fs-4 me-3"></i>
-        <span class="notification-message"></span>
-      </div>
+<!-- ═══ ANNOUNCEMENT TICKER ══════════════════════════════════════════════════ -->
+<div class="ticker-bar d-flex align-items-center gap-3 px-3">
+  <span class="ticker-label"><i class="bi bi-megaphone-fill me-1"></i>News</span>
+  <div class="overflow-hidden flex-grow-1">
+    <div class="ticker-track">
+      <?php foreach ($news as $n): ?>
+        <span><a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>"><?= htmlspecialchars($n['title']) ?></a></span>
+      <?php endforeach; ?>
+      <?php foreach ($news as $n): /* duplicate for seamless loop */ ?>
+        <span><a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>"><?= htmlspecialchars($n['title']) ?></a></span>
+      <?php endforeach; ?>
     </div>
   </div>
 </div>
 
-<!-- NAVBAR (FIXED) -->
-<nav class="navbar navbar-expand-lg navbar-dark navbar-custom shadow-sm fixed-top">
-  <div class="container">
-    <a class="navbar-brand d-flex align-items-center" href="#">
-      <img src="images/kings logo.png" alt="Kingsway Logo" class="school-logo me-2">
-      Kingsway Prep School
-    </a>
-
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-
-    <div class="collapse navbar-collapse" id="mainNav">
-      <ul class="navbar-nav ms-auto">
-        <li class="nav-item"><a class="nav-link active" href="#">Home</a></li>
-
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown">About</a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="#history">History</a></li>
-            <li><a class="dropdown-item" href="#programs">Programs</a></li>
-            <li><a class="dropdown-item" href="#performance">Performance</a></li>
-          </ul>
-        </li>
-
-        <li class="nav-item"><a class="nav-link" href="#downloads">Downloads</a></li>
-        <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
-
-        <li class="nav-item">
-          <a class="nav-link" data-bs-toggle="modal" data-bs-target="#loginModal">
-            <i class="bi bi-box-arrow-in-right"></i> Login
+<!-- ═══ HERO ══════════════════════════════════════════════════════════════════ -->
+<section class="hero">
+  <div class="hero-bg-img"></div>
+  <div class="hero-particles">
+    <span></span><span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span><span></span>
+  </div>
+  <div class="container hero-content">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-7">
+        <div class="hero-badge"><i class="bi bi-patch-check-fill"></i>CBC-Aligned Curriculum</div>
+        <h1 class="hero-title">
+          Where Every Child<br>
+          <span class="highlight">Soars to Excellence</span>
+        </h1>
+        <p class="hero-subtitle">
+          Kingsway Preparatory School provides world-class education combining the Kenya
+          Competency-Based Curriculum with holistic character development, sports, and
+          co-curricular excellence — in the heart of Londiani, Kenya.
+        </p>
+        <div class="hero-actions">
+          <a href="<?= $appBase ?>/admissions.php" class="btn-kw-gold">
+            <i class="bi bi-pencil-square"></i>Apply for Admission
           </a>
-        </li>
-      </ul>
+          <a href="<?= $appBase ?>/about.php" class="btn-kw-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">
+            <i class="bi bi-play-circle"></i>Discover Our School
+          </a>
+        </div>
+      </div>
+      <div class="col-lg-5 d-none d-lg-block">
+        <div class="hero-card">
+          <div class="hero-card-title">School at a Glance</div>
+          <?php foreach ($heroStats as $hs): ?>
+          <div class="hero-stat">
+            <div class="hero-stat-icon"><i class="bi <?= htmlspecialchars($hs[2]) ?>"></i></div>
+            <div class="hero-stat-text"><strong><?= htmlspecialchars($hs[0]) ?></strong><span><?= htmlspecialchars($hs[1]) ?></span></div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+      </div>
     </div>
   </div>
-</nav>
+  <div class="scroll-indicator"><span></span>Scroll down</div>
+</section>
 
-<!-- HERO -->
-<section class="hero-bg d-flex align-items-center">
-  <div class="container hero-content py-5">
-    <div class="text-center mb-4">
-      <h2 class="fw-bold">KINGSWAY PREPARATORY SCHOOL</h2>
-      <p>P.O BOX 203-20203, LONDIANI - KENYA | 0720113030 / 0720113031</p>
-      <em>Motto: "In God We Soar"</em>
-    </div>
-
-    <div class="row align-items-center">
-      <div class="col-md-7">
-        <h1 class="display-5 fw-bold">Welcome to Kingsway</h1>
-        <p class="lead">Nurturing Excellence, Character & Leadership.</p>
-        <button class="btn btn-light btn-lg" data-bs-toggle="modal" data-bs-target="#loginModal">
-          <i class="bi bi-box-arrow-in-right"></i> Admin / Staff Login
-        </button>
+<!-- ═══ STATS ═════════════════════════════════════════════════════════════════ -->
+<section class="section-sm bg-white">
+  <div class="container">
+    <div class="row g-4">
+      <?php
+      $stats = [
+        ['icon'=>'bi-people-fill',      'target'=>(int)kw_school_stat('stat_students','1200'), 'suffix'=>'+', 'label'=>'Students Enrolled',    'color'=>'#198754'],
+        ['icon'=>'bi-person-workspace', 'target'=>(int)kw_school_stat('stat_teachers','80'),   'suffix'=>'+', 'label'=>'Qualified Teachers',   'color'=>'#0d4f2a'],
+        ['icon'=>'bi-trophy-fill',      'target'=>(int)kw_school_stat('stat_pass_rate','98'),  'suffix'=>'%', 'label'=>'Exam Pass Rate',        'color'=>'#f9c80e'],
+        ['icon'=>'bi-award-fill',       'target'=>(int)kw_school_stat('stat_awards','30'),     'suffix'=>'+', 'label'=>'Awards & Honours',      'color'=>'#198754'],
+        ['icon'=>'bi-house-door-fill',  'target'=>(int)kw_school_stat('stat_years','20'),      'suffix'=>'',  'label'=>'Years of Excellence',   'color'=>'#0d4f2a'],
+        ['icon'=>'bi-heart-fill',       'target'=>100,                                         'suffix'=>'%', 'label'=>'Commitment to Learners','color'=>'#f9c80e'],
+      ];
+      foreach ($stats as $i => $s): ?>
+      <div class="col-lg-2 col-md-4 col-6">
+        <div class="stat-card reveal delay-<?= $i+1 ?>">
+          <div class="stat-icon" style="background:linear-gradient(135deg,<?= $s['color'] ?>,<?= $s['color'] ?>cc);">
+            <i class="bi <?= $s['icon'] ?>"></i>
+          </div>
+          <div class="stat-number" data-target="<?= $s['target'] ?>" data-suffix="<?= $s['suffix'] ?>">0</div>
+          <div class="stat-label"><?= $s['label'] ?></div>
+        </div>
       </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
 
-      <div class="col-md-5 d-none d-md-block">
-        <svg class="hero-graphic" viewBox="0 0 400 300">
-          <ellipse cx="200" cy="150" rx="180" ry="90" fill="#fff" />
-          <circle cx="120" cy="120" r="40" fill="#198754" />
-          <circle cx="280" cy="180" r="60" fill="#f9c80e" />
-        </svg>
+<!-- ═══ ABOUT SNIPPET ════════════════════════════════════════════════════════ -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-6 reveal reveal-left">
+        <div class="position-relative">
+          <img src="<?= $appBase ?>/images/school-building.jpg"
+               onerror="this.src='https://placehold.co/600x420/198754/ffffff?text=Kingsway+School'"
+               alt="Kingsway School" class="img-fluid rounded-4 shadow-lg">
+          <div class="position-absolute bottom-0 start-0 m-3 bg-white rounded-3 p-3 shadow-sm d-flex align-items-center gap-2">
+            <div class="bg-success rounded-2 p-2 text-white"><i class="bi bi-shield-check fs-5"></i></div>
+            <div><div class="fw-bold small text-dark">TSC Accredited</div><div class="text-muted" style="font-size:.75rem">Ministry of Education Kenya</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-6 reveal reveal-right">
+        <div class="section-label"><span>About Kingsway</span></div>
+        <h2 class="section-title">Building <span>Tomorrow's Leaders</span> Today</h2>
+        <p class="section-subtitle mb-4">
+          Founded with a vision to provide holistic education, Kingsway Preparatory School
+          has grown into one of the leading schools in the Rift Valley region.
+          We nurture academic excellence, strong values, and practical life skills.
+        </p>
+        <div class="row g-3 mb-4">
+          <?php
+          $pillars = [
+            ['icon'=>'bi-book-fill','color'=>'#198754','text'=>'CBC Curriculum','sub'=>'Kenya-aligned learning'],
+            ['icon'=>'bi-star-fill','color'=>'#f9c80e','text'=>'Values-Based','sub'=>'Character first approach'],
+            ['icon'=>'bi-activity', 'color'=>'#0d6efd','text'=>'Co-Curricular','sub'=>'Sports, arts & clubs'],
+            ['icon'=>'bi-house-fill','color'=>'#dc3545','text'=>'Full Boarding','sub'=>'Safe residential campus'],
+          ];
+          foreach ($pillars as $p): ?>
+          <div class="col-6">
+            <div class="d-flex align-items-start gap-3 p-3 bg-white rounded-3 border h-100">
+              <div class="rounded-2 p-2 flex-shrink-0" style="background:<?= $p['color'] ?>22;">
+                <i class="bi <?= $p['icon'] ?> fs-5" style="color:<?= $p['color'] ?>"></i>
+              </div>
+              <div>
+                <div class="fw-semibold small"><?= $p['text'] ?></div>
+                <div class="text-muted" style="font-size:.78rem"><?= $p['sub'] ?></div>
+              </div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
+        <a href="<?= $appBase ?>/about.php" class="btn-kw-primary">
+          <i class="bi bi-arrow-right-circle"></i>Learn More About Us
+        </a>
       </div>
     </div>
   </div>
 </section>
 
-<!-- SUMMARY -->
-<div class="container my-5">
-  <div class="row g-4 justify-content-center text-center">
-    <div class="col-md-3">
-      <div class="summary-card p-4">
-        <i class="bi bi-people-fill fs-1 text-success"></i>
-        <h4>1200+</h4>
-        <p class="text-muted">Students Enrolled</p>
-      </div>
+<!-- ═══ PROGRAMS ══════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="container">
+    <div class="text-center mb-5 reveal">
+      <div class="section-label justify-content-center"><span>Academic Excellence</span></div>
+      <h2 class="section-title">Our <span>Programs & Curriculum</span></h2>
+      <p class="section-subtitle mx-auto">Comprehensive CBC-aligned programs from Pre-Primary through Junior Secondary School.</p>
     </div>
-    <div class="col-md-3">
-      <div class="summary-card p-4">
-        <i class="bi bi-mortarboard-fill fs-1 text-success"></i>
-        <h4>98%</h4>
-        <p class="text-muted">JSS Pass Rate</p>
-      </div>
-    </div>
-    <div class="col-md-3">
-      <div class="summary-card p-4">
-        <i class="bi bi-award-fill fs-1 text-warning"></i>
-        <h4>30+</h4>
-        <p class="text-muted">Awards</p>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ABOUT / DOWNLOADS -->
-<div class="container my-5">
-  <div class="row g-4">
-    <div class="col-md-6" id="history">
-      <h3>Our History</h3>
-      <p>Kingsway Preparatory School was founded to provide quality education and holistic development.</p>
-    </div>
-
-    <div class="col-md-6" id="programs">
-      <h3>Our Programs</h3>
-      <ul>
-        <li>Early Childhood Development (ECD)</li>
-        <li>Primary & Junior Secondary</li>
-        <li>STEM & ICT Integration</li>
-        <li>Sports, Music & Drama</li>
-        <li>Leadership Training</li>
-      </ul>
-    </div>
-
-    <div class="col-md-6" id="performance">
-      <h3>Performance</h3>
-      <p>98% KCPE success rate and outstanding co-curricular achievements.</p>
-    </div>
-
-    <div class="col-md-6" id="downloads">
-      <h3>Downloads</h3>
-      <ul>
-        <li><a href="downloads/admission_letter.pdf" target="_blank">Admission Letter</a></li>
-        <li><a href="downloads/fee_structure.pdf" target="_blank">Fee Structure</a></li>
-        <li><a href="downloads/calendar.pdf" target="_blank">School Calendar</a></li>
-      </ul>
-    </div>
-  </div>
-</div>
-
-<!-- CONTACT -->
-<div class="container my-5" id="contact">
-  <h3>Contact Us</h3>
-  <form class="bg-light p-4 rounded shadow-sm">
-    <div class="row">
-      <div class="col-md-6 mb-3">
-        <input class="form-control" placeholder="Your Name" required>
-      </div>
-      <div class="col-md-6 mb-3">
-        <input class="form-control" type="email" placeholder="Your Email" required>
-      </div>
-    </div>
-    <textarea class="form-control mb-3" rows="4" placeholder="Your Message" required></textarea>
-    <button class="btn btn-primary">Send Message</button>
-  </form>
-</div>
-
-<!-- FOOTER -->
-<footer class="text-white py-4 mt-5">
-  <div class="container text-center">
-    <small>&copy; 2025 Kingsway Preparatory School. All rights reserved.</small>
-  </div>
-</footer>
-
-  <!-- Login Modal -->
-  <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-      <form class="modal-content border-0 shadow-lg" id="loginForm" style="border-radius: 1rem; overflow: hidden;">
-        <!-- Header with gradient background -->
-        <div class="modal-header border-0 text-white py-4" style="background: linear-gradient(135deg, #198754 0%, #0d6efd 100%);">
-          <div class="w-100 text-center">
-            <img src="./images/logo.jpg" alt="Kingsway Logo" class="mb-3" style="width: 80px; height: 80px; object-fit: contain; border-radius: 50%; background: #fff; padding: 5px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
-            <h4 class="modal-title fw-bold mb-1" id="loginModalLabel">Welcome</h4>
-            <p class="mb-0 opacity-75 small">Sign in to Kingsway Academy Portal</p>
+    <div class="row g-4">
+      <?php foreach (array_slice($programs, 0, 6) as $i => $p): ?>
+      <div class="col-lg-4 col-md-6">
+        <a href="<?= $appBase ?>/about.php#<?= htmlspecialchars($p['anchor'] ?? 'programs') ?>" class="text-decoration-none">
+          <div class="program-card reveal delay-<?= ($i%3)+1 ?>" style="cursor:pointer">
+            <div class="program-icon" style="background:<?= htmlspecialchars($p['color']) ?>22">
+              <i class="bi <?= htmlspecialchars($p['icon']) ?>" style="color:<?= htmlspecialchars($p['color']) ?>"></i>
+            </div>
+            <h5><?= htmlspecialchars($p['name']) ?></h5>
+            <p><?= htmlspecialchars($p['description']) ?></p>
+            <span style="color:<?= htmlspecialchars($p['color']) ?>;font-size:.82rem;font-weight:600">Learn More <i class="bi bi-arrow-right"></i></span>
           </div>
-          <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" aria-label="Close"></button>
+        </a>
+      </div>
+      <?php endforeach; ?>
+    </div>
+    <div class="text-center mt-5">
+      <a href="<?= $appBase ?>/about.php#programs" class="btn-kw-outline">
+        <i class="bi bi-grid-3x3-gap"></i>View All Programs
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ NEWS + EVENTS ════════════════════════════════════════════════════════ -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="row g-5">
+
+      <!-- Latest News -->
+      <div class="col-lg-7">
+        <div class="d-flex align-items-center justify-content-between mb-4 reveal">
+          <div>
+            <div class="section-label"><span>Latest Updates</span></div>
+            <h2 class="section-title mb-0">News &amp; <span>Blog</span></h2>
+          </div>
+          <a href="<?= $appBase ?>/news.php" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
+            All News <i class="bi bi-arrow-right"></i>
+          </a>
         </div>
-        
-        <div class="modal-body px-4 py-4">
-          <!-- Username/Email Field -->
-          <div class="mb-3">
-            <label for="loginUsername" class="form-label fw-semibold text-muted small">
-              <i class="bi bi-person me-1"></i>Username or Email
-            </label>
-            <div class="input-group">
-              <span class="input-group-text bg-light border-end-0"><i class="bi bi-person-circle text-muted"></i></span>
-              <input type="text"
-                id="loginUsername"
-                name="username"
-                class="form-control border-start-0 ps-0"
-                placeholder="Enter your username or email"
-                autocomplete="username"
-                required
-                style="border-radius: 0 0.375rem 0.375rem 0;">
+        <div class="row g-4">
+          <?php foreach (array_slice($news,0,3) as $i => $n):
+            $cats = ['Sports'=>['#198754','bi-lightning-fill'],'Academic'=>['#1976d2','bi-book-fill'],'Infrastructure'=>['#e91e63','bi-buildings-fill'],'Announcement'=>['#f9c80e','bi-megaphone-fill'],'Arts'=>['#9c27b0','bi-music-note-beamed']];
+            $cat  = $cats[$n['category']] ?? ['#198754','bi-circle-fill'];
+            $date = date('d M Y', strtotime($n['created_at']));
+            $img  = !empty($n['image_url']) ? htmlspecialchars($n['image_url']) : "https://placehold.co/600x380/".ltrim($cat[0],'#')."/ffffff?text=".urlencode($n['category'] ?? 'News');
+            $excerpt = mb_strimwidth(strip_tags($n['excerpt'] ?? $n['content'] ?? ''),0,120,'…');
+          ?>
+          <div class="col-md-<?= $i===0?'12':'6' ?>">
+            <a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>" class="text-decoration-none">
+            <div class="card-modern reveal delay-<?= $i+1 ?>">
+              <div class="card-img-wrap">
+                <img src="<?= $img ?>" alt="<?= htmlspecialchars($n['title']) ?>" onerror="this.src='https://placehold.co/600x380/<?= ltrim($cat[0],'#') ?>/ffffff?text=News'">
+              </div>
+              <div class="p-3">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                  <span class="card-category" style="background:<?= $cat[0] ?>">
+                    <i class="bi <?= $cat[1] ?>"></i><?= htmlspecialchars($n['category'] ?? 'News') ?>
+                  </span>
+                  <span class="card-date"><i class="bi bi-calendar3"></i><?= $date ?></span>
+                </div>
+                <div class="card-title"><?= htmlspecialchars($n['title']) ?></div>
+                <div class="card-excerpt"><?= htmlspecialchars($excerpt) ?></div>
+                <span class="read-more text-success">Read More <i class="bi bi-arrow-right"></i></span>
+              </div>
             </div>
-          </div>
-          
-          <!-- Password Field with Show/Hide Toggle -->
-          <div class="mb-3">
-            <label for="loginPassword" class="form-label fw-semibold text-muted small">
-              <i class="bi bi-lock me-1"></i>Password
-            </label>
-            <div class="input-group">
-              <span class="input-group-text bg-light border-end-0"><i class="bi bi-key text-muted"></i></span>
-              <input type="password"
-                id="loginPassword"
-                name="password"
-                class="form-control border-start-0 border-end-0 ps-0"
-                placeholder="Enter your password"
-                autocomplete="current-password"
-                required>
-              <button type="button" class="btn btn-outline-secondary border-start-0 bg-light" id="togglePassword" tabindex="-1" title="Show/Hide Password">
-                <i class="bi bi-eye" id="togglePasswordIcon"></i>
-              </button>
-            </div>
-          </div>
-          
-          <!-- Remember Me & Forgot Password -->
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="form-check">
-              <input type="checkbox" class="form-check-input" id="rememberMe" name="remember_me">
-              <label class="form-check-label small text-muted" for="rememberMe">Remember me</label>
-            </div>
-            <a href="forgot_password.php" class="text-decoration-none small fw-semibold" style="color: #198754;">
-              <i class="bi bi-question-circle me-1"></i>Forgot Password?
             </a>
           </div>
-          
-          <!-- Error Alert -->
-          <div id="loginError" class="alert alert-danger d-none py-2 small">
-            <i class="bi bi-exclamation-triangle me-1"></i>
-            <span id="loginErrorText"></span>
+          <?php endforeach; ?>
+        </div>
+      </div>
+
+      <!-- Upcoming Events -->
+      <div class="col-lg-5">
+        <div class="d-flex align-items-center justify-content-between mb-4 reveal">
+          <div>
+            <div class="section-label"><span>What's Coming</span></div>
+            <h2 class="section-title mb-0">Upcoming <span>Events</span></h2>
           </div>
-          
-          <!-- Login Button -->
-          <button type="submit" class="btn btn-success w-100 py-2 fw-semibold" id="loginSubmitBtn" style="border-radius: 0.5rem;">
-            <span id="loginBtnText"><i class="bi bi-box-arrow-in-right me-2"></i>Sign In</span>
-            <span id="loginSpinner" class="d-none">
-              <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-              Signing in...
-            </span>
-          </button>
+          <a href="<?= $appBase ?>/events.php" class="btn-kw-outline" style="white-space:nowrap;padding:8px 18px;font-size:.82rem;">
+            Calendar <i class="bi bi-arrow-right"></i>
+          </a>
         </div>
-        
-        <!-- Footer -->
-        <div class="modal-footer border-0 bg-light py-3 justify-content-center">
-          <small class="text-muted">
-            <i class="bi bi-shield-lock me-1"></i>
-            Secure login protected by SSL encryption
-          </small>
+        <div class="bg-white rounded-4 border p-4 reveal">
+          <?php
+          $typeColors = ['Academic'=>['#e3f2fd','#1976d2'],'Ceremony'=>['#fff8e1','#f9a825'],'Sports'=>['#e8f5e9','#2e7d32'],'Meeting'=>['#fce4ec','#c62828']];
+          foreach ($events as $ev):
+            $evDate = new DateTime($ev['event_date']);
+            $tc = $typeColors[$ev['category']] ?? ['#f3e5f5','#7b1fa2'];
+          ?>
+          <a href="<?= $appBase ?>/event-detail.php?id=<?= (int)$ev['id'] ?>" class="text-decoration-none text-dark">
+          <div class="event-item" style="cursor:pointer">
+            <div class="event-date-box">
+              <div class="day"><?= $evDate->format('d') ?></div>
+              <div class="month"><?= $evDate->format('M') ?></div>
+            </div>
+            <div>
+              <div class="event-type" style="background:<?= $tc[0] ?>;color:<?= $tc[1] ?>">
+                <?= htmlspecialchars($ev['category'] ?? 'Event') ?>
+              </div>
+              <div class="event-title"><?= htmlspecialchars($ev['title']) ?></div>
+              <div class="event-meta">
+                <?php if (!empty($ev['event_time'])): ?>
+                <span><i class="bi bi-clock text-success"></i><?= date('g:i A', strtotime($ev['event_time'])) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($ev['location'])): ?>
+                <span><i class="bi bi-geo-alt text-success"></i><?= htmlspecialchars($ev['location']) ?></span>
+                <?php endif; ?>
+              </div>
+            </div>
+          </div>
+          </a>
+          <?php endforeach; ?>
+          <div class="text-center pt-2">
+            <a href="<?= $appBase ?>/events.php" class="read-more justify-content-center">
+              View Full Calendar <i class="bi bi-arrow-right"></i>
+            </a>
+          </div>
         </div>
-      </form>
+      </div>
+
     </div>
   </div>
+</section>
 
-  <!-- Password Toggle Script -->
-  <script>
-    document.addEventListener('DOMContentLoaded', function() {
-      const togglePassword = document.getElementById('togglePassword');
-      const passwordInput = document.getElementById('loginPassword');
-      const toggleIcon = document.getElementById('togglePasswordIcon');
-      
-      if (togglePassword && passwordInput && toggleIcon) {
-        togglePassword.addEventListener('click', function() {
-          const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-          passwordInput.setAttribute('type', type);
-          toggleIcon.classList.toggle('bi-eye');
-          toggleIcon.classList.toggle('bi-eye-slash');
-        });
-      }
-      
-      // Add loading state to login form
-      const loginForm = document.getElementById('loginForm');
-      if (loginForm) {
-        loginForm.addEventListener('submit', function() {
-          const btnText = document.getElementById('loginBtnText');
-          const spinner = document.getElementById('loginSpinner');
-          const submitBtn = document.getElementById('loginSubmitBtn');
-          
-          if (btnText && spinner && submitBtn) {
-            btnText.classList.add('d-none');
-            spinner.classList.remove('d-none');
-            submitBtn.disabled = true;
-          }
-        });
-      }
-    });
-  </script>
-
-  <!-- Notification -->
-  <div id="notification" class="alert d-none"></div>
-
-  <!-- Footer -->
-  <footer class="text-white py-4 mt-5">
-    <div class="container">
-      <div class="row">
-        <div class="col-md-4">
-          <h5>Contact Info</h5>
-          <p>P.O BOX 203-20203, LONDIANI<br>
-            Phone: 0720113030 / 0720113031<br>
-            Email: info@kingsway.ac.ke</p>
+<!-- ═══ GALLERY ═══════════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="container">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-5 reveal reveal-left">
+        <div class="section-label"><span>School Life</span></div>
+        <h2 class="section-title">Life at <span>Kingsway</span></h2>
+        <p class="section-subtitle mb-4">
+          From morning assemblies to afternoon sports, from science labs to music
+          festivals — every day at Kingsway is filled with purpose, joy, and growth.
+        </p>
+        <div class="d-flex flex-column gap-3 mb-4">
+          <?php foreach ([['bi-house-heart-fill','Boarding & Hostel','Modern dormitories with trained houseparents'],['bi-cup-hot-fill','Catering','Nutritious meals planned by qualified cooks'],['bi-wifi','Digital Learning','Smart classrooms and computer lab']] as $f): ?>
+          <div class="d-flex align-items-center gap-3">
+            <div class="bg-success bg-opacity-10 rounded-2 p-2 flex-shrink-0">
+              <i class="bi <?= $f[0] ?> text-success fs-5"></i>
+            </div>
+            <div>
+              <div class="fw-semibold small"><?= $f[1] ?></div>
+              <div class="text-muted" style="font-size:.78rem"><?= $f[2] ?></div>
+            </div>
+          </div>
+          <?php endforeach; ?>
         </div>
-        <div class="col-md-4">
-          <h5>Quick Links</h5>
-          <ul class="list-unstyled">
-            <li><a href="#" class="text-white">About Us</a></li>
-            <li><a href="#" class="text-white">Admissions</a></li>
-            <li><a href="#" class="text-white">News & Events</a></li>
-            <li><a href="#" class="text-white">Contact Us</a></li>
-          </ul>
+      </div>
+      <div class="col-lg-7 reveal reveal-right">
+        <div class="gallery-grid">
+          <?php foreach ($gallery as $gi => $g): ?>
+          <div class="gallery-item">
+            <img src="<?= htmlspecialchars($g['image_url']) ?>"
+                 alt="<?= htmlspecialchars($g['caption'] ?? 'Kingsway School') ?>"
+                 onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70'"
+                 loading="lazy">
+            <div class="overlay"><i class="bi bi-zoom-in"></i></div>
+          </div>
+          <?php endforeach; ?>
         </div>
-        <div class="col-md-4">
-          <h5>Follow Us</h5>
-          <div class="d-flex gap-3 fs-4">
-            <a href="#" class="text-white"><i class="bi bi-facebook"></i></a>
-            <a href="#" class="text-white"><i class="bi bi-twitter"></i></a>
-            <a href="#" class="text-white"><i class="bi bi-instagram"></i></a>
-            <a href="#" class="text-white"><i class="bi bi-youtube"></i></a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ ADMISSIONS CTA ════════════════════════════════════════════════════════ -->
+<section class="cta-banner">
+  <div class="container position-relative" style="z-index:1">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-8 reveal reveal-left">
+        <div class="section-label" style="color:var(--gold)"><span>Enrol Today</span></div>
+        <h2 class="section-title">Ready to Join the <span style="color:var(--gold)">Kingsway Family?</span></h2>
+        <p class="section-subtitle" style="color:rgba(255,255,255,.8);max-width:540px">
+          Applications for Term 1 <?= date('Y')+1 ?> are now open. Limited spaces available across all grade levels.
+          Begin your child's journey to excellence today.
+        </p>
+      </div>
+      <div class="col-lg-4 text-lg-end reveal reveal-right">
+        <div class="d-flex flex-column flex-sm-row flex-lg-column gap-3 justify-content-lg-end">
+          <a href="<?= $appBase ?>/admissions.php" class="btn-kw-gold">
+            <i class="bi bi-pencil-square"></i>Start Application
+          </a>
+          <a href="<?= $appBase ?>/downloads.php" class="btn-kw-outline" style="color:#fff;border-color:rgba(255,255,255,.4)">
+            <i class="bi bi-download"></i>Download Prospectus
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ TESTIMONIALS ══════════════════════════════════════════════════════════ -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="text-center mb-5 reveal">
+      <div class="section-label justify-content-center"><span>Parent &amp; Alumni Voices</span></div>
+      <h2 class="section-title">What Our <span>Community Says</span></h2>
+    </div>
+    <div class="row g-4">
+      <?php
+      $testi = [
+        ['text'=>"Kingsway has transformed my daughter completely. The teachers genuinely care, the CBC teaching is excellent, and she has grown so much in confidence and character.",'name'=>'Mrs. Akinyi Otieno','role'=>'Parent, Grade 6','stars'=>5],
+        ['text'=>"As an alumni who went through KCPE here, I can say the foundation Kingsway gave me opened doors to the best secondary schools and beyond. The values still guide me.",'name'=>'Brian Kiprotich','role'=>'Alumni, Class of 2019','stars'=>5],
+        ['text'=>"The boarding facilities and pastoral care are exceptional. My son feels at home here. The staff treats every child as their own. We are extremely satisfied.",'name'=>'Mr. Samuel Cheruiyot','role'=>'Parent, Grade 8','stars'=>5],
+      ];
+      foreach ($testi as $i => $t): ?>
+      <div class="col-lg-4 col-md-6">
+        <div class="testimonial-card reveal delay-<?= $i+1 ?>">
+          <div class="stars"><?= str_repeat('★',$t['stars']) ?></div>
+          <p class="testimonial-text"><?= $t['text'] ?></p>
+          <div class="testimonial-author">
+            <div class="testimonial-avatar d-flex align-items-center justify-content-center bg-success text-white rounded-circle" style="width:46px;height:46px;font-size:1.1rem;font-weight:700;flex-shrink:0;">
+              <?= strtoupper(substr($t['name'],0,1)) ?>
+            </div>
+            <div>
+              <div class="testimonial-name"><?= $t['name'] ?></div>
+              <div class="testimonial-role"><?= $t['role'] ?></div>
+            </div>
           </div>
         </div>
       </div>
-      <hr class="my-4">
-      <div class="text-center">
-        <small>&copy; 2025 Kingsway Preparatory School. All rights reserved.</small>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CAREERS TEASER ════════════════════════════════════════════════════════ -->
+<section class="section">
+  <div class="container">
+    <div class="row align-items-center g-4">
+      <div class="col-lg-6 reveal reveal-left">
+        <div class="section-label"><span>Work With Us</span></div>
+        <h2 class="section-title">Build Your Career at <span>Kingsway</span></h2>
+        <p class="section-subtitle mb-4">
+          We are always looking for passionate educators and support staff who share our
+          vision of excellence and child-centred education. Join our team and make a difference.
+        </p>
+        <a href="<?= $appBase ?>/careers.php" class="btn-kw-primary">
+          <i class="bi bi-briefcase-fill"></i>View Open Positions
+        </a>
+      </div>
+      <div class="col-lg-6 reveal reveal-right">
+        <div class="row g-3">
+          <?php foreach ([['bi-person-check-fill','Competitive Salary','TSC-aligned pay scales and benefits'],['bi-people-fill','Supportive Team','Collaborative, growth-oriented environment'],['bi-patch-check-fill','CPD Programs','Continuous professional development funded'],['bi-geo-alt-fill','Londiani, Kenya','Beautiful, serene school campus']] as $b): ?>
+          <div class="col-6">
+            <div class="p-3 bg-white border rounded-3 text-center h-100">
+              <i class="bi <?= $b[0] ?> text-success fs-3 mb-2 d-block"></i>
+              <div class="fw-semibold small mb-1"><?= $b[1] ?></div>
+              <div class="text-muted" style="font-size:.78rem"><?= $b[2] ?></div>
+            </div>
+          </div>
+          <?php endforeach; ?>
+        </div>
       </div>
     </div>
-  </footer>
+  </div>
+</section>
 
-  <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    <?php
-    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
-    if ($appBase === '.') $appBase = '';
-    ?>
-    window.APP_BASE = <?php echo json_encode($appBase); ?>;
-  </script>
-  <script src="js/api.js?v=<?php echo time(); ?>"></script>
-  <script src="js/sidebar.js?v=<?php echo time(); ?>"></script>
-  
-  <script>
-    // Login form handler
-    document.addEventListener('DOMContentLoaded', function() {
-      const loginForm = document.getElementById('loginForm');
-      const loginError = document.getElementById('loginError');
-      const loginErrorText = document.getElementById('loginErrorText');
-      const loginBtnText = document.getElementById('loginBtnText');
-      const loginSpinner = document.getElementById('loginSpinner');
-      const loginSubmitBtn = document.getElementById('loginSubmitBtn');
-      
-      // Function to reset button state
-      function resetLoginButton() {
-        if (loginBtnText && loginSpinner && loginSubmitBtn) {
-          loginBtnText.classList.remove('d-none');
-          loginSpinner.classList.add('d-none');
-          loginSubmitBtn.disabled = false;
-        }
-      }
-      
-      // Function to show error
-      function showLoginError(message) {
-        if (loginErrorText) {
-          loginErrorText.textContent = message;
-        } else if (loginError) {
-          loginError.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i>' + message;
-        }
-        if (loginError) {
-          loginError.classList.remove('d-none');
-        }
-        resetLoginButton();
-      }
-      
-      if (loginForm) {
-        loginForm.addEventListener('submit', async function(e) {
-          e.preventDefault();
-          
-          // Get form data
-          const username = this.querySelector('input[name="username"]').value;
-          const password = this.querySelector('input[name="password"]').value;
-          
-          // Hide previous errors and show loading state
-          if (loginError) loginError.classList.add('d-none');
-          if (loginBtnText) loginBtnText.classList.add('d-none');
-          if (loginSpinner) loginSpinner.classList.remove('d-none');
-          if (loginSubmitBtn) loginSubmitBtn.disabled = true;
-          
-          try {
-            console.log('Attempting login for:', username);
-            
-            // Call the login API
-            const response = await API.auth.login(username, password);
-            
-            console.log('Login response:', response);
-            
-            if (response && response.token) {
-              console.log('Login successful, redirecting...');
-              // The API.auth.login already handles the redirect
-            } else {
-              throw new Error(response?.message || 'Login failed');
-            }
-          } catch (error) {
-            console.error('Login error:', error);
-            showLoginError(error.message || 'Login failed. Please try again.');
-          }
-        });
-      }
-    });
-  </script>
-</body>
-</html>
+<!-- ═══ CONTACT STRIP ═════════════════════════════════════════════════════════ -->
+<section class="section-sm" style="background:var(--green-dark)">
+  <div class="container">
+    <div class="row g-4 text-white">
+      <?php foreach ([
+        ['bi-geo-alt-fill','Location',    kw_school_stat('school_address_postal', 'P.O BOX 203-20203, Londiani, Kenya')],
+        ['bi-telephone-fill','Call Us',   kw_school_stat('school_phone_main','+254 720 113 030').' / '.kw_school_stat('school_phone_alt','+254 720 113 031')],
+        ['bi-envelope-fill','Email',      kw_school_stat('school_email_main','info@kingswaypreparatoryschool.sc.ke')],
+        ['bi-clock-fill','Office Hours',  kw_school_stat('office_hours_weekday','Mon – Fri: 7:30 AM – 5:00 PM')],
+      ] as $c): ?>
+      <div class="col-md-3 col-6 text-center">
+        <div class="mb-2 opacity-75"><i class="bi <?= $c[0] ?> fs-2" style="color:var(--gold)"></i></div>
+        <div class="small text-uppercase fw-semibold opacity-75 mb-1"><?= $c[1] ?></div>
+        <div class="small opacity-90"><?= $c[2] ?></div>
+      </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+</section>
+
+<?php include __DIR__ . '/public/layout/footer.php'; ?>

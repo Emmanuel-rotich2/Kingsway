@@ -173,7 +173,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/studentFees.js"></script>
+<script src="<?= $appBase ?>/js/pages/studentFees.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof FeesController !== 'undefined') {

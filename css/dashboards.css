@@ -1,0 +1,303 @@
+/**
+ * Kingsway Shared Dashboard Styles
+ * Eliminates per-dashboard <style> blocks and emoji usage.
+ * All role dashboards use classes from this file.
+ */
+
+/* ==========================================================================
+   STAT CARDS — gradient colored cards with translucent icon overlay
+   Usage: <div class="dash-stat dsc-blue">...</div>
+   ========================================================================== */
+
+.dash-stat {
+    border-radius: 14px;
+    border: none;
+    padding: 1.25rem 1.25rem 1rem;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.dash-stat:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+}
+/* watermark icon — placed as a sibling with class .dash-stat-icon */
+.dash-stat-icon {
+    font-size: 2.6rem;
+    opacity: 0.22;
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    line-height: 1;
+}
+.dash-stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 0.2rem;
+}
+.dash-stat-label {
+    font-size: 0.8rem;
+    opacity: 0.88;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.dash-stat-sub {
+    font-size: 0.72rem;
+    opacity: 0.7;
+    margin-top: 0.3rem;
+}
+/* decorative shimmer stripe */
+.dash-stat::after {
+    content: '';
+    position: absolute;
+    top: -50%; right: -30%;
+    width: 70%; height: 200%;
+    background: rgba(255,255,255,0.07);
+    transform: rotate(25deg);
+    pointer-events: none;
+}
+
+/* Colour variants */
+.dsc-blue      { background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%); }
+.dsc-indigo    { background: linear-gradient(135deg, #3949ab 0%, #1a237e 100%); }
+.dsc-purple    { background: linear-gradient(135deg, #9c27b0 0%, #6a1b9a 100%); }
+.dsc-pink      { background: linear-gradient(135deg, #e91e63 0%, #ad1457 100%); }
+.dsc-red       { background: linear-gradient(135deg, #eb3349 0%, #c62828 100%); }
+.dsc-orange    { background: linear-gradient(135deg, #f7971e 0%, #e64a19 100%); }
+.dsc-amber     { background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%); }
+.dsc-yellow    { background: linear-gradient(135deg, #fdd835 0%, #f57f17 100%); color: #333 !important; }
+.dsc-green     { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+.dsc-teal      { background: linear-gradient(135deg, #009688 0%, #004d40 100%); }
+.dsc-cyan      { background: linear-gradient(135deg, #00bcd4 0%, #006064 100%); }
+.dsc-slate     { background: linear-gradient(135deg, #475569 0%, #1e293b 100%); }
+
+/* ==========================================================================
+   STANDARD DASHBOARD CARD
+   ========================================================================== */
+
+.dash-card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    transition: box-shadow 0.2s;
+}
+.dash-card:hover {
+    box-shadow: 0 6px 20px rgba(0,0,0,0.11);
+}
+.dash-card .card-header {
+    background: transparent;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    padding: 0.9rem 1.25rem 0.75rem;
+}
+
+/* ==========================================================================
+   QUICK LINKS panel
+   ========================================================================== */
+
+.dash-quick-link {
+    display: flex;
+    align-items: center;
+    padding: 0.65rem 0.9rem;
+    border-radius: 9px;
+    background: #f8f9fa;
+    margin-bottom: 0.45rem;
+    text-decoration: none;
+    color: #333;
+    font-size: 0.9rem;
+    transition: background 0.15s, transform 0.15s;
+}
+.dash-quick-link:hover {
+    background: #e9ecef;
+    transform: translateX(4px);
+    color: #111;
+}
+.dash-quick-link .ql-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    margin-right: 0.75rem;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+.dash-quick-link span { flex: 1; }
+.dash-quick-link .ql-arrow {
+    font-size: 0.75rem;
+    color: #adb5bd;
+}
+
+/* ==========================================================================
+   DASHBOARD HEADER — greeting bar
+   ========================================================================== */
+
+.dash-greeting-bar {
+    background: linear-gradient(135deg, var(--green-700, #15803d) 0%, var(--green-900, #14532d) 100%);
+    color: #fff;
+    border-radius: 14px;
+    padding: 1.1rem 1.5rem;
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    box-shadow: 0 3px 10px rgba(21,128,61,0.25);
+}
+.dash-greeting-bar h5 { margin: 0; font-weight: 700; font-size: 1.1rem; }
+.dash-greeting-bar p  { margin: 0; opacity: 0.85; font-size: 0.82rem; }
+.dash-greeting-bar .dash-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+.dash-greeting-bar .dash-badge {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    border-radius: 20px;
+    padding: 0.25rem 0.8rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.dash-refresh-btn {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.35);
+    color: #fff;
+    border-radius: 8px;
+    padding: 0.3rem 0.7rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.dash-refresh-btn:hover { background: rgba(255,255,255,0.28); }
+
+/* ==========================================================================
+   CHART CONTAINER standard height
+   ========================================================================== */
+
+.dash-chart-wrap { position: relative; height: 240px; }
+.dash-chart-wrap-lg { position: relative; height: 300px; }
+
+/* ==========================================================================
+   BACKWARD-COMPATIBLE ALIASES
+   Legacy dashboards still use .stat-card / .dashboard-card / .quick-link
+   These aliases keep those dashboards working without HTML changes.
+   New dashboards should use .dash-stat / .dash-card / .dash-quick-link
+   ========================================================================== */
+
+.stat-card {
+    border-radius: 14px;
+    border: none;
+    padding: 1.25rem 1.25rem 1rem;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.stat-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.18); }
+.stat-card::after {
+    content: '';
+    position: absolute;
+    top: -50%; right: -30%;
+    width: 70%; height: 200%;
+    background: rgba(255,255,255,0.07);
+    transform: rotate(25deg);
+    pointer-events: none;
+}
+.stat-card .icon, .stat-card .stat-icon {
+    font-size: 2.4rem;
+    opacity: 0.25;
+    position: absolute;
+    right: 1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+.stat-card .value, .stat-card .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 0.2rem;
+}
+.stat-card .label, .stat-card .stat-label {
+    font-size: 0.82rem;
+    opacity: 0.88;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.stat-card .secondary, .stat-card .stat-sub {
+    font-size: 0.72rem;
+    opacity: 0.72;
+    margin-top: 0.3rem;
+}
+
+/* Legacy card colours used by headteacher / deputy / accountant dashboards */
+.bg-students      { background: linear-gradient(135deg,#667eea 0%,#764ba2 100%); }
+.bg-attendance    { background: linear-gradient(135deg,#11998e 0%,#38ef7d 100%); }
+.bg-schedules     { background: linear-gradient(135deg,#00c6fb 0%,#005bea 100%); }
+.bg-admissions    { background: linear-gradient(135deg,#56ab2f 0%,#a8e063 100%); color:#fff !important; }
+.bg-discipline    { background: linear-gradient(135deg,#eb3349 0%,#f45c43 100%); }
+.bg-communications{ background: linear-gradient(135deg,#834d9b 0%,#d04ed6 100%); }
+.bg-assessments   { background: linear-gradient(135deg,#f7971e 0%,#ffd200 100%); }
+.bg-performance   { background: linear-gradient(135deg,#ff6a00 0%,#ee0979 100%); }
+.bg-fees          { background: linear-gradient(135deg,#43e97b 0%,#38f9d7 100%); color:#222 !important; }
+.bg-pending       { background: linear-gradient(135deg,#f7971e 0%,#ffd200 100%); }
+.bg-overdue       { background: linear-gradient(135deg,#eb3349 0%,#f45c43 100%); }
+.bg-income        { background: linear-gradient(135deg,#56ab2f 0%,#a8e063 100%); color:#fff !important; }
+.bg-leaves        { background: linear-gradient(135deg,#4facfe 0%,#00f2fe 100%); color:#222 !important; }
+.bg-staff         { background: linear-gradient(135deg,#6a11cb 0%,#2575fc 100%); }
+.bg-timetables    { background: linear-gradient(135deg,#f093fb 0%,#f5576c 100%); }
+.bg-announcements { background: linear-gradient(135deg,#43e97b 0%,#38f9d7 100%); color:#222 !important; }
+
+.dashboard-card, .table-card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+    transition: box-shadow 0.2s;
+}
+.dashboard-card:hover, .table-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.11); }
+
+.chart-container { position: relative; height: 300px; }
+
+.quick-link {
+    display: flex;
+    align-items: center;
+    padding: 0.65rem 0.9rem;
+    border-radius: 9px;
+    background: #f8f9fa;
+    margin-bottom: 0.45rem;
+    text-decoration: none;
+    color: #333;
+    font-size: 0.9rem;
+    transition: background 0.15s, transform 0.15s;
+}
+.quick-link:hover { background: #e9ecef; transform: translateX(4px); color: #111; }
+.quick-link i {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px;
+    margin-right: 0.75rem;
+    font-size: 0.875rem;
+}
+
+.refresh-indicator { font-size: 0.75rem; color: #6c757d; }
+
+/* ==========================================================================
+   STATUS BADGES used in tables
+   ========================================================================== */
+
+.badge-ee { background: #16a34a; color: #fff; }
+.badge-me { background: #2563eb; color: #fff; }
+.badge-ae { background: #d97706; color: #fff; }
+.badge-be { background: #dc2626; color: #fff; }

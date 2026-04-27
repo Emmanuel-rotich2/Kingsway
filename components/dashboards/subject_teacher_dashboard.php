@@ -27,7 +27,6 @@
  * 1. Pending Assessments
  * 2. Exam Schedule
  */
-require_once __DIR__ . '/../../components/global/dashboard_base.php';
 ?>
 
 <div class="container-fluid py-4" id="subject-teacher-dashboard">
@@ -73,4 +72,4 @@ require_once __DIR__ . '/../../components/global/dashboard_base.php';
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/subject_teacher_dashboard.js"></script>
+<script src="<?= $appBase ?>/js/dashboards/subject_teacher_dashboard.js"></script>

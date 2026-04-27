@@ -103,12 +103,12 @@ const BoardingRollCall = {
   },
 
   configureSharedActions: async function () {
-    if (!this.elements.historyLink || !window.API?.systemconfig?.authorizeRoute) {
+    if (!this.elements.historyLink || !window.AppRouteAccess?.authorizeRoute) {
       return;
     }
 
     try {
-      const access = await window.API.systemconfig.authorizeRoute(
+      const access = await window.AppRouteAccess.authorizeRoute(
         "view_attendance",
       );
       if (access?.authorized === false) {

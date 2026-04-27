@@ -1495,4 +1495,161 @@ class InventoryController extends BaseController
     {
         return $this->user['id'] ?? null;
     }
+
+    // ========================================
+    // SECTION: Fixed Assets & Depreciation
+    // ========================================
+
+    /** GET /api/inventory/assets — list fixed assets */
+    public function getAssets($id = null, $data = [], $segments = [])
+    {
+        if ($id) {
+            $asset = $this->db->query(
+                "SELECT fa.*, ac.name AS category_name, ac.depreciation_method, ac.useful_life_years AS cat_life,
+                        u.full_name AS added_by_name
+                 FROM fixed_assets fa
+                 LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+                 LEFT JOIN users u ON u.id = fa.added_by
+                 WHERE fa.id=? AND fa.deleted_at IS NULL", [$id]
+            )->fetch();
+            return $asset ? $this->success($asset) : $this->notFound('Asset not found');
+        }
+        $where = ['fa.deleted_at IS NULL'];
+        $params = [];
+        if (!empty($data['category_id'])) { $where[] = 'fa.category_id=?'; $params[] = $data['category_id']; }
+        if (!empty($data['status']))      { $where[] = 'fa.status=?';      $params[] = $data['status']; }
+        if (!empty($data['search'])) {
+            $where[] = '(fa.name LIKE ? OR fa.asset_code LIKE ? OR fa.serial_number LIKE ?)';
+            $s = '%'.$data['search'].'%'; $params = array_merge($params, [$s,$s,$s]);
+        }
+        $rows = $this->db->query(
+            "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
+             FROM fixed_assets fa
+             LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+             WHERE ".implode(' AND ',$where)." ORDER BY fa.purchase_date DESC LIMIT 500",
+            $params
+        )->fetchAll();
+
+        $stats = $this->db->query(
+            "SELECT COUNT(*) AS total_assets, COALESCE(SUM(purchase_price),0) AS total_cost,
+                    COALESCE(SUM(current_book_value),0) AS total_book_value,
+                    COALESCE(SUM(accumulated_depr),0) AS total_accumulated_depr,
+                    COUNT(CASE WHEN YEAR(purchase_date)=YEAR(CURDATE()) THEN 1 END) AS acquired_this_year,
+                    COUNT(CASE WHEN status='under_repair' THEN 1 END) AS under_repair
+             FROM fixed_assets WHERE deleted_at IS NULL AND status NOT IN ('disposed','written_off')"
+        )->fetch();
+        return $this->success(['assets' => $rows, 'stats' => $stats]);
+    }
+
+    /** POST /api/inventory/assets — register a new fixed asset */
+    public function postAssets($id = null, $data = [], $segments = [])
+    {
+        if (empty($data['name']) || empty($data['category_id']) || empty($data['purchase_date']) || empty($data['purchase_price'])) {
+            return $this->badRequest('name, category_id, purchase_date, purchase_price are required');
+        }
+        $userId = $this->getCurrentUserId();
+        $cat = $this->db->query("SELECT * FROM asset_categories WHERE id=?", [$data['category_id']])->fetch();
+        if (!$cat) return $this->badRequest('Invalid category');
+
+        $assetCode = 'AST-' . strtoupper(substr($cat['code'], 0, 3)) . '-' . date('Y') . '-' . strtoupper(substr(uniqid(), -4));
+        $method    = $data['depreciation_method'] ?? $cat['depreciation_method'];
+        $life      = $data['useful_life_years']   ?? $cat['useful_life_years'];
+        $residual  = $data['residual_value']       ?? (($cat['residual_value_pct'] / 100) * $data['purchase_price']);
+        $bookValue = $data['purchase_price'] - $residual;
+
+        $this->db->query(
+            "INSERT INTO fixed_assets (asset_code, name, category_id, description, serial_number, model, brand,
+              location, purchase_date, purchase_price, supplier_id, invoice_number, warranty_expiry, `condition`,
+              status, acquisition_type, depreciation_method, useful_life_years, residual_value, current_book_value,
+              accumulated_depr, added_by)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)",
+            [
+                $assetCode, $data['name'], $data['category_id'], $data['description'] ?? null,
+                $data['serial_number'] ?? null, $data['model'] ?? null, $data['brand'] ?? null,
+                $data['location'] ?? null, $data['purchase_date'], $data['purchase_price'],
+                $data['supplier_id'] ?? null, $data['invoice_number'] ?? null, $data['warranty_expiry'] ?? null,
+                $data['condition'] ?? 'good', $data['status'] ?? 'active',
+                $data['acquisition_type'] ?? 'purchase', $method, $life, $residual, $bookValue, $userId
+            ]
+        );
+        return $this->success(['id' => $this->db->lastInsertId(), 'asset_code' => $assetCode], 'Asset registered');
+    }
+
+    /** PUT /api/inventory/assets/{id} — update asset or record disposal */
+    public function putAssets($id = null, $data = [], $segments = [])
+    {
+        if (!$id) return $this->badRequest('Asset ID required');
+        $userId = $this->getCurrentUserId();
+
+        if (!empty($data['dispose'])) {
+            $asset = $this->db->query("SELECT * FROM fixed_assets WHERE id=?", [$id])->fetch();
+            if (!$asset) return $this->notFound('Asset not found');
+            $this->db->query(
+                "INSERT INTO asset_disposals (asset_id, disposal_date, disposal_type, book_value_at_disposal, proceeds, reason, authorised_by)
+                 VALUES (?,?,?,?,?,?,?)",
+                [$id, $data['disposal_date'] ?? date('Y-m-d'), $data['disposal_type'] ?? 'write_off',
+                 $asset['current_book_value'], $data['proceeds'] ?? 0, $data['reason'] ?? 'Disposed', $userId]
+            );
+            $this->db->query("UPDATE fixed_assets SET status=?, deleted_at=NOW() WHERE id=?", [$data['disposal_type'] ?? 'disposed', $id]);
+            return $this->success(null, 'Asset disposed');
+        }
+
+        $fields = []; $params = [];
+        $allowed = ['name','description','serial_number','model','brand','location','condition','status','warranty_expiry'];
+        foreach ($allowed as $f) {
+            if (array_key_exists($f, $data)) { $fields[] = "$f=?"; $params[] = $data[$f]; }
+        }
+        if (empty($fields)) return $this->badRequest('Nothing to update');
+        $fields[] = 'updated_at=NOW()'; $params[] = $id;
+        $this->db->query("UPDATE fixed_assets SET ".implode(',',$fields)." WHERE id=?", $params);
+        return $this->success(null, 'Asset updated');
+    }
+
+    /** GET /api/inventory/asset-categories — list asset categories */
+    public function getAssetCategories($id = null, $data = [], $segments = [])
+    {
+        $rows = $this->db->query("SELECT * FROM asset_categories WHERE status='active' ORDER BY name")->fetchAll();
+        return $this->success($rows);
+    }
+
+    /** GET /api/inventory/depreciation — depreciation schedule for assets */
+    public function getDepreciation($id = null, $data = [], $segments = [])
+    {
+        $year = $data['year'] ?? date('Y');
+        $catId = $data['category_id'] ?? null;
+        $where = ['fa.deleted_at IS NULL', "fa.status NOT IN ('disposed','written_off')"];
+        $params = [];
+        if ($catId) { $where[] = 'fa.category_id=?'; $params[] = $catId; }
+
+        $assets = $this->db->query(
+            "SELECT fa.*, ac.name AS category_name, ac.depreciation_rate AS cat_rate, ac.useful_life_years AS cat_life
+             FROM fixed_assets fa
+             LEFT JOIN asset_categories ac ON ac.id = fa.category_id
+             WHERE ".implode(' AND ',$where)." ORDER BY ac.name, fa.name",
+            $params
+        )->fetchAll();
+
+        $schedule = [];
+        foreach ($assets as $a) {
+            $cost       = (float)$a['purchase_price'];
+            $residual   = (float)$a['residual_value'];
+            $depreciable= $cost - $residual;
+            $life       = (int)($a['useful_life_years'] ?: $a['cat_life'] ?: 5);
+            $rate       = $life > 0 ? (100 / $life) : 20;
+            $annualDepr = $depreciable / $life;
+            $startYear  = (int)date('Y', strtotime($a['purchase_date']));
+            $yearsUsed  = max(0, (int)$year - $startYear + 1);
+            $accumulated= min($depreciable, $annualDepr * $yearsUsed);
+            $bookValue  = max($residual, $cost - $accumulated);
+            $schedule[] = array_merge($a, [
+                'financial_year'       => $year,
+                'annual_depreciation'  => round($annualDepr, 2),
+                'accumulated_depr'     => round($accumulated, 2),
+                'current_book_value'   => round($bookValue, 2),
+                'depreciation_rate_pct'=> round($rate, 2),
+                'pct_remaining'        => $cost > 0 ? round(($bookValue/$cost)*100, 1) : 0,
+            ]);
+        }
+        return $this->success($schedule);
+    }
 }

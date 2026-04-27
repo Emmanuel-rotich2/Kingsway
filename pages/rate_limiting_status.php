@@ -12,5 +12,5 @@
     </div>
     <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-tachometer-alt me-2"></i>Rate Limiting Details</h6></div><div class="card-body"><div id="monitorContent" class="text-center text-muted py-4">Loading monitoring data...</div></div></div>
 </div>
-<script src="<?= $appBase ?>js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/system/monitoring_controller.js?v=<?php echo time(); ?>"></script>
 <script>window._monCtrl = new MonitoringController({ title: 'Rate Limiting', apiEndpoint: '/system/rate-limiting', refreshInterval: 30000 });</script>

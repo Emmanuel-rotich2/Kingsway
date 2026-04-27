@@ -176,4 +176,4 @@
 </div>
 
 <!-- Page Controller -->
-<script src="<?= $appBase ?>js/pages/route_registry.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/route_registry.js?v=<?php echo time(); ?>"></script>
