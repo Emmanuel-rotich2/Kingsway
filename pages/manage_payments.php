@@ -183,4 +183,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_payments.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_payments.js"></script>

@@ -195,4 +195,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_announcements.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_announcements.js?v=<?php echo time(); ?>"></script>

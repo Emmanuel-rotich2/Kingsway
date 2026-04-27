@@ -215,10 +215,18 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Re-apply when content changes dynamically
-const originalSetHTML = HTMLElement.prototype.innerHTML;
-Object.defineProperty(HTMLElement.prototype, 'innerHTML', {
-  set(html) {
-    originalSetHTML.call(this, html);
-    EnhancedRoleBasedUI.applyModuleGuards(this);
-  }
-});
+const _innerHTMLDesc = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML') ||
+                       Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'innerHTML');
+if (_innerHTMLDesc && _innerHTMLDesc.set) {
+  const _originalSetter = _innerHTMLDesc.set;
+  Object.defineProperty(Element.prototype, 'innerHTML', {
+    set(html) {
+      _originalSetter.call(this, html);
+      if (this && this.nodeType === Node.ELEMENT_NODE) {
+        EnhancedRoleBasedUI.applyModuleGuards(this);
+      }
+    },
+    get: _innerHTMLDesc.get,
+    configurable: true,
+  });
+}

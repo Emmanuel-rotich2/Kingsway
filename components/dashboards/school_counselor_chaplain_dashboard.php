@@ -1,62 +1,54 @@
 <?php
 /**
- * School Counselor/Chaplain Dashboard
- * Role: Chaplain (ID 24) — counseling sessions, chapel services, pastoral care
+ * School Counselor / Chaplain Dashboard — Pastoral Care (Role ID 24)
  */
 ?>
 <div class="container-fluid py-3" id="counselor-dashboard">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- Greeting Bar -->
+    <div class="dash-greeting-bar mb-4">
         <div>
-            <h4 class="mb-1"><i class="bi bi-heart-pulse me-2 text-danger"></i>Pastoral Care Dashboard</h4>
-            <p class="text-muted mb-0">Counseling, chapel services, and student welfare</p>
+            <h5 id="counselorGreeting">Good morning!</h5>
+            <p>Counseling, chapel services, and student welfare</p>
         </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-danger btn-sm" onclick="counselorDashboardController.showNewSessionModal()">
+        <div class="dash-meta">
+            <button class="btn btn-sm btn-light" onclick="counselorDashboardController.showNewSessionModal()">
                 <i class="bi bi-plus me-1"></i>Record Session
             </button>
-            <button class="btn btn-outline-secondary btn-sm" onclick="counselorDashboardController.refresh()">
+            <button class="dash-refresh-btn" onclick="counselorDashboardController.refresh()">
                 <i class="bi bi-arrow-clockwise"></i>
             </button>
         </div>
     </div>
 
-    <!-- Stat Cards -->
+    <!-- KPI Cards -->
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">💬</div>
-                    <h4 class="mb-0 text-primary" id="sessionsThisWeek">0</h4>
-                    <small class="text-muted">Sessions This Week</small>
-                </div>
+            <div class="dash-stat dsc-blue">
+                <div class="dash-stat-value" id="sessionsThisWeek">0</div>
+                <div class="dash-stat-label">Sessions This Week</div>
+                <i class="bi bi-chat-square-text-fill dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">👤</div>
-                    <h4 class="mb-0 text-success" id="studentsSeen">0</h4>
-                    <small class="text-muted">Students Seen</small>
-                </div>
+            <div class="dash-stat dsc-green">
+                <div class="dash-stat-value" id="studentsSeen">0</div>
+                <div class="dash-stat-label">Students Seen</div>
+                <i class="bi bi-person-check-fill dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">📋</div>
-                    <h4 class="mb-0 text-warning" id="pendingReferrals">0</h4>
-                    <small class="text-muted">Pending Referrals</small>
-                </div>
+            <div class="dash-stat dsc-amber">
+                <div class="dash-stat-value" id="pendingReferrals">0</div>
+                <div class="dash-stat-label">Pending Referrals</div>
+                <i class="bi bi-clipboard-fill dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">⛪</div>
-                    <h4 class="mb-0 text-danger" id="chapelServices">0</h4>
-                    <small class="text-muted">Chapel Services</small>
-                </div>
+            <div class="dash-stat dsc-indigo">
+                <div class="dash-stat-value" id="chapelServices">0</div>
+                <div class="dash-stat-label">Chapel Services</div>
+                <i class="bi bi-stars dash-stat-icon"></i>
             </div>
         </div>
     </div>
@@ -64,8 +56,8 @@
     <div class="row g-3">
         <!-- Recent Sessions -->
         <div class="col-md-7">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card dash-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-chat-square-text me-2"></i>Recent Counseling Sessions</h6>
                     <a href="#" onclick="counselorDashboardController.navigate('counseling_records')" class="btn btn-sm btn-outline-primary">View All</a>
                 </div>
@@ -82,10 +74,10 @@
             </div>
         </div>
 
-        <!-- Upcoming Chapel & Actions -->
+        <!-- Chapel Schedule + Actions -->
         <div class="col-md-5">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card dash-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-calendar-heart me-2"></i>Chapel Schedule</h6>
                     <a href="#" onclick="counselorDashboardController.navigate('chapel_services')" class="btn btn-sm btn-outline-danger">View All</a>
                 </div>
@@ -94,18 +86,21 @@
                 </div>
             </div>
 
-            <div class="card shadow-sm mt-3">
-                <div class="card-header bg-white"><h6 class="mb-0">Quick Actions</h6></div>
-                <div class="card-body d-grid gap-2">
-                    <button class="btn btn-outline-primary btn-sm" onclick="counselorDashboardController.navigate('student_counseling')">
-                        <i class="bi bi-person-check me-1"></i>Student Counseling Records
-                    </button>
-                    <button class="btn btn-outline-danger btn-sm" onclick="counselorDashboardController.navigate('parent_meetings')">
-                        <i class="bi bi-people me-1"></i>Parent Meetings
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="counselorDashboardController.navigate('conduct_reports')">
-                        <i class="bi bi-file-text me-1"></i>Conduct Reports
-                    </button>
+            <div class="card dash-card mt-3">
+                <div class="card-header"><h6 class="mb-0"><i class="bi bi-lightning me-2 text-warning"></i>Quick Actions</h6></div>
+                <div class="card-body">
+                    <a href="#" onclick="counselorDashboardController.navigate('student_counseling')" class="dash-quick-link">
+                        <i class="bi bi-person-check ql-icon bg-primary text-white"></i>
+                        <span>Counseling Records</span><i class="bi bi-chevron-right ql-arrow"></i>
+                    </a>
+                    <a href="#" onclick="counselorDashboardController.navigate('parent_meetings')" class="dash-quick-link">
+                        <i class="bi bi-people ql-icon bg-danger text-white"></i>
+                        <span>Parent Meetings</span><i class="bi bi-chevron-right ql-arrow"></i>
+                    </a>
+                    <a href="#" onclick="counselorDashboardController.navigate('conduct_reports')" class="dash-quick-link">
+                        <i class="bi bi-file-text ql-icon bg-secondary text-white"></i>
+                        <span>Conduct Reports</span><i class="bi bi-chevron-right ql-arrow"></i>
+                    </a>
                 </div>
             </div>
         </div>

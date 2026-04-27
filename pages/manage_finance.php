@@ -19,7 +19,7 @@
 <div id="manage-finance-content" style="display: none;"></div>
 
 <script>
-(function () {
+document.addEventListener('DOMContentLoaded', function () {
     PageShell.loadRoleTemplate({
         loadingId:   'manage-finance-loading',
         contentId:   'manage-finance-content',
@@ -57,5 +57,5 @@
             },
         ],
     });
-})();
+});
 </script>

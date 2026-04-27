@@ -168,4 +168,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/assign_subjects_to_teachers.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/assign_subjects_to_teachers.js?v=<?php echo time(); ?>"></script>

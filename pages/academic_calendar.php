@@ -169,4 +169,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/academic_calendar.js"></script>
+<script src="<?= $appBase ?>/js/pages/academic_calendar.js"></script>

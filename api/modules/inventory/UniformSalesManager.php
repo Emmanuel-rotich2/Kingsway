@@ -785,6 +785,283 @@ class UniformSalesManager extends BaseAPI
         }
     }
 
+    // =========================================================================
+    // PURCHASE / RECEIVE FROM SUPPLIER
+    // =========================================================================
+
+    /**
+     * Record receiving uniform stock from a supplier.
+     * Creates a purchase record + updates uniform_sizes + inventory_items.
+     */
+    public function recordPurchase(array $data, int $userId = 0): array
+    {
+        try {
+            $items        = $data['items'] ?? [];
+            $supplierId   = $data['supplier_id'] ?? null;
+            $supplierName = $data['supplier_name'] ?? '';
+            $invoiceNo    = $data['invoice_number'] ?? null;
+            $deliveryNote = $data['delivery_note'] ?? null;
+            $purchaseDate = $data['purchase_date'] ?? date('Y-m-d');
+            $notes        = $data['notes'] ?? '';
+
+            if (empty($items)) {
+                return $this->formatError('At least one item line is required', 400);
+            }
+
+            $totalCost = 0;
+            foreach ($items as $line) {
+                $totalCost += ($line['quantity'] ?? 0) * ($line['unit_cost'] ?? 0);
+            }
+
+            $this->db->beginTransaction();
+            try {
+                // Create purchase header
+                $this->db->query(
+                    "INSERT INTO uniform_purchases
+                       (purchase_date, supplier_id, supplier_name, invoice_number, delivery_note,
+                        total_cost, received_by, notes, status, created_by, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', ?, NOW())",
+                    [$purchaseDate, $supplierId, $supplierName, $invoiceNo, $deliveryNote,
+                     $totalCost, $userId, $notes, $userId]
+                );
+                $purchaseId = $this->db->lastInsertId();
+
+                foreach ($items as $line) {
+                    $itemId   = (int)($line['item_id'] ?? 0);
+                    $size     = trim($line['size'] ?? '');
+                    $qty      = (int)($line['quantity'] ?? 0);
+                    $unitCost = (float)($line['unit_cost'] ?? 0);
+
+                    if (!$itemId || !$size || $qty <= 0) continue;
+
+                    // Purchase line
+                    $this->db->query(
+                        "INSERT INTO uniform_purchase_items
+                           (purchase_id, item_id, size, quantity, unit_cost) VALUES (?, ?, ?, ?, ?)",
+                        [$purchaseId, $itemId, $size, $qty, $unitCost]
+                    );
+
+                    // Upsert uniform_sizes row
+                    $this->db->query(
+                        "INSERT INTO uniform_sizes (item_id, size, unit_price, quantity_available, last_restocked)
+                         VALUES (?, ?, ?, ?, NOW())
+                         ON DUPLICATE KEY UPDATE
+                           quantity_available = quantity_available + VALUES(quantity_available),
+                           unit_price = IF(VALUES(unit_price) > 0, VALUES(unit_price), unit_price),
+                           last_restocked = NOW()",
+                        [$itemId, $size, $unitCost, $qty]
+                    );
+
+                    // Update inventory_items current_quantity
+                    $this->db->query(
+                        "UPDATE inventory_items SET current_quantity = current_quantity + ?, updated_at = NOW()
+                         WHERE id = ?",
+                        [$qty, $itemId]
+                    );
+
+                    // Inventory transaction log
+                    $this->db->query(
+                        "INSERT INTO inventory_transactions
+                           (item_id, transaction_type, quantity, unit_cost, total_cost,
+                            transaction_date, reference_type, notes, created_at)
+                         VALUES (?, 'in', ?, ?, ?, ?, 'purchase', ?, NOW())",
+                        [$itemId, $qty, $unitCost, $qty * $unitCost, $purchaseDate,
+                         'Invoice ' . ($invoiceNo ?: $purchaseId)]
+                    );
+                }
+
+                $this->db->commit();
+                return $this->formatSuccess(
+                    ['purchase_id' => $purchaseId, 'total_cost' => $totalCost, 'lines' => count($items)],
+                    'Stock received successfully'
+                );
+            } catch (\Exception $e) {
+                $this->db->rollback();
+                throw $e;
+            }
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to record purchase: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * List purchase history with line items.
+     */
+    public function listPurchases(array $params = []): array
+    {
+        try {
+            $limit  = min((int)($params['limit'] ?? 20), 100);
+            $page   = max((int)($params['page'] ?? 1), 1);
+            $offset = ($page - 1) * $limit;
+
+            $rows = $this->db->query(
+                "SELECT up.id, up.purchase_date, up.supplier_name, up.invoice_number,
+                        up.delivery_note, up.total_cost, up.payment_status, up.amount_paid,
+                        up.status, up.notes,
+                        CONCAT(s.first_name,' ',s.last_name) AS received_by_name,
+                        (SELECT COUNT(*) FROM uniform_purchase_items WHERE purchase_id = up.id) AS line_count
+                 FROM uniform_purchases up
+                 LEFT JOIN staff s ON s.id = up.received_by
+                 ORDER BY up.purchase_date DESC, up.id DESC
+                 LIMIT $limit OFFSET $offset"
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $total = (int)$this->db->query("SELECT COUNT(*) FROM uniform_purchases")->fetchColumn();
+
+            return $this->formatSuccess([
+                'purchases'  => $rows,
+                'pagination' => ['total' => $total, 'page' => $page, 'limit' => $limit,
+                                 'total_pages' => (int)ceil($total / $limit)],
+            ], 'Purchases retrieved');
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve purchases: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get purchase with its line items.
+     */
+    public function getPurchase(int $id): array
+    {
+        try {
+            $header = $this->db->query(
+                "SELECT up.*, CONCAT(s.first_name,' ',s.last_name) AS received_by_name
+                 FROM uniform_purchases up LEFT JOIN staff s ON s.id = up.received_by
+                 WHERE up.id = ?",
+                [$id]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$header) return $this->formatError('Purchase not found', 404);
+
+            $lines = $this->db->query(
+                "SELECT upi.*, ii.name AS item_name, ii.code AS item_code
+                 FROM uniform_purchase_items upi
+                 JOIN inventory_items ii ON ii.id = upi.item_id
+                 WHERE upi.purchase_id = ?",
+                [$id]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess(['purchase' => $header, 'items' => $lines]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve purchase: ' . $e->getMessage(), 500);
+        }
+    }
+
+    // =========================================================================
+    // PAYMENT RECORDING (partial / full with history)
+    // =========================================================================
+
+    /**
+     * Record a payment against a uniform sale using the stored procedure.
+     */
+    public function recordSalePayment(int $saleId, array $data, int $userId = 0): array
+    {
+        try {
+            $amount    = (float)($data['amount_paid'] ?? 0);
+            $method    = $data['payment_method'] ?? 'cash';
+            $reference = $data['reference_no'] ?? null;
+            $notes     = $data['notes'] ?? null;
+
+            if ($amount <= 0) return $this->formatError('Amount must be positive', 400);
+
+            $stmt = $this->db->query(
+                "CALL sp_record_uniform_payment(?, ?, ?, ?, ?, ?)",
+                [$saleId, $amount, $method, $reference, $userId, $notes]
+            );
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess($result ?? [], 'Payment recorded');
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to record payment: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get payment history for a sale.
+     */
+    public function getSalePaymentHistory(int $saleId): array
+    {
+        try {
+            $sale = $this->db->query(
+                "SELECT us.*, ii.name AS item_name,
+                        CONCAT(st.first_name,' ',st.last_name) AS student_name,
+                        st.admission_number
+                 FROM uniform_sales us
+                 JOIN students st ON st.id = us.student_id
+                 JOIN inventory_items ii ON ii.id = us.item_id
+                 WHERE us.id = ?",
+                [$saleId]
+            )->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$sale) return $this->formatError('Sale not found', 404);
+
+            $payments = $this->db->query(
+                "SELECT upr.*, CONCAT(s.first_name,' ',s.last_name) AS recorded_by_name
+                 FROM uniform_payment_records upr
+                 LEFT JOIN staff s ON s.id = upr.recorded_by
+                 WHERE upr.sale_id = ?
+                 ORDER BY upr.payment_date, upr.id",
+                [$saleId]
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->formatSuccess(['sale' => $sale, 'payments' => $payments]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to retrieve payment history: ' . $e->getMessage(), 500);
+        }
+    }
+
+    /**
+     * Get all students with outstanding uniform balances.
+     */
+    public function getOutstandingBalances(array $params = []): array
+    {
+        try {
+            $search = $params['search'] ?? '';
+            $limit  = min((int)($params['limit'] ?? 50), 200);
+            $page   = max((int)($params['page'] ?? 1), 1);
+            $offset = ($page - 1) * $limit;
+
+            $where = $search
+                ? "AND (s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_number LIKE ?)"
+                : '';
+            $bind = $search
+                ? ["%$search%", "%$search%", "%$search%"]
+                : [];
+
+            $rows = $this->db->query(
+                "SELECT s.id AS student_id, CONCAT(s.first_name,' ',s.last_name) AS student_name,
+                        s.admission_number,
+                        COUNT(us.id) AS total_sales,
+                        SUM(us.total_amount) AS total_billed,
+                        SUM(us.amount_paid) AS total_paid,
+                        SUM(us.balance_due) AS total_balance,
+                        MAX(us.sale_date) AS last_purchase
+                 FROM students s
+                 JOIN uniform_sales us ON us.student_id = s.id
+                 WHERE us.balance_due > 0 $where
+                 GROUP BY s.id
+                 ORDER BY total_balance DESC
+                 LIMIT $limit OFFSET $offset",
+                $bind
+            )->fetchAll(\PDO::FETCH_ASSOC);
+
+            $total = (int)$this->db->query(
+                "SELECT COUNT(DISTINCT us.student_id) FROM uniform_sales us
+                 JOIN students s ON s.id = us.student_id
+                 WHERE us.balance_due > 0 $where",
+                $bind
+            )->fetchColumn();
+
+            return $this->formatSuccess([
+                'students'   => $rows,
+                'pagination' => ['total' => $total, 'page' => $page, 'limit' => $limit,
+                                 'total_pages' => (int)ceil($total / $limit)],
+            ]);
+        } catch (\Exception $e) {
+            return $this->formatError('Failed to get balances: ' . $e->getMessage(), 500);
+        }
+    }
+
     /**
      * Format success response
      */

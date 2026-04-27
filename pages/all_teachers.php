@@ -100,4 +100,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/all_teachers.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_teachers.js"></script>

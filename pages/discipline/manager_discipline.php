@@ -152,24 +152,26 @@
     });
 
     async function loadCases(filters = {}) {
+        const tbody = document.getElementById('casesTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></td></tr>';
         try {
-            const response = await API.discipline.getAll(filters);
-            if (response.success) {
-                renderCasesTable(response.data);
-            }
+            const params = new URLSearchParams(Object.fromEntries(Object.entries(filters).filter(([,v]) => v)));
+            const qs = params.toString();
+            const response = await callAPI('/students/discipline-get' + (qs ? '?' + qs : ''), 'GET');
+            window._managerCases = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderCasesTable(window._managerCases);
         } catch (error) {
             console.error('Error loading cases:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-danger text-center py-4">Failed to load cases.</td></tr>';
         }
     }
 
     async function loadStats() {
         try {
-            const response = await API.discipline.getStats();
-            if (response.success) {
-                document.getElementById('totalCases').textContent = response.data.total || 0;
-                document.getElementById('openCases').textContent = response.data.open || 0;
-                document.getElementById('resolvedCases').textContent = response.data.resolved || 0;
-            }
+            const cases = window._managerCases || [];
+            document.getElementById('totalCases').textContent    = cases.length;
+            document.getElementById('openCases').textContent     = cases.filter(c => c.status === 'open' || c.status === 'under_review').length;
+            document.getElementById('resolvedCases').textContent = cases.filter(c => c.status === 'resolved').length;
         } catch (error) {
             console.error('Error loading stats:', error);
         }
@@ -252,9 +254,43 @@
         new bootstrap.Modal(document.getElementById('caseModal')).show();
     }
 
-    async function saveCase() { console.log('Save case'); }
-    function viewCase(id) { console.log('View:', id); }
-    function editCase(id) { console.log('Edit:', id); }
+    async function saveCase() {
+        const form = document.getElementById('caseForm');
+        if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+        const caseId = document.getElementById('caseId')?.value;
+        const payload = {
+            student_id:    document.getElementById('studentId').value,
+            incident_date: document.getElementById('incidentDate')?.value,
+            category:      document.getElementById('category').value,
+            severity:      document.getElementById('severity')?.value,
+            description:   document.getElementById('description').value.trim(),
+        };
+        try {
+            if (caseId) {
+                await callAPI('/students/discipline-update/' + caseId, 'PUT', payload);
+                showNotification('Case updated', 'success');
+            } else {
+                await callAPI('/students/discipline-record', 'POST', { ...payload, reported_by: AuthContext.getUser()?.user_id });
+                showNotification('Case recorded', 'success');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('caseModal'))?.hide();
+            loadCases();
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    function viewCase(id) {
+        const c = (window._managerCases || []).find(x => x.id == id);
+        if (!c) return;
+        if (document.getElementById('caseId')) document.getElementById('caseId').value = c.id;
+        document.getElementById('studentId').value   = c.student_id || '';
+        if (document.getElementById('incidentDate')) document.getElementById('incidentDate').value = c.incident_date || '';
+        document.getElementById('category').value    = c.category || '';
+        if (document.getElementById('severity')) document.getElementById('severity').value = c.severity || '';
+        document.getElementById('description').value = c.description || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('caseModal')).show();
+    }
+
+    function editCase(id) { viewCase(id); }
 
     function formatDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }
     function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }

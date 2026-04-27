@@ -242,29 +242,39 @@
         initEventListeners();
     });
 
+    let _adminStudents = [];
+
     async function loadStudents(filters = {}) {
+        const tbody = document.getElementById('studentsTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="text-center py-4"><div class="spinner-border spinner-border-sm text-success"></div></td></tr>';
         try {
-            const response = await API.students.getAll(filters);
-            if (response.success) {
-                renderStudentsTable(response.data);
-                document.getElementById('totalCount').textContent = response.total || response.data.length;
-            }
+            const params = new URLSearchParams({ limit: 500 });
+            Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+            const response = await callAPI('/students?' + params.toString(), 'GET');
+            _adminStudents = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderStudentsTable(_adminStudents);
+            const countEl = document.getElementById('totalCount');
+            if (countEl) countEl.textContent = _adminStudents.length;
         } catch (error) {
             console.error('Error loading students:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="13" class="text-danger text-center py-4">Failed to load students.</td></tr>';
         }
     }
 
     async function loadStats() {
         try {
-            const response = await API.students.getStats();
-            if (response.success) {
-                document.getElementById('totalStudents').textContent = response.data.total || 0;
-                document.getElementById('activeStudents').textContent = response.data.active || 0;
-                document.getElementById('newAdmissions').textContent = response.data.newThisTerm || 0;
-                document.getElementById('graduatingCount').textContent = response.data.graduating || 0;
-            }
+            const response = await callAPI('/students/summary', 'GET');
+            const d = response?.data ?? response ?? {};
+            const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+            setEl('totalStudents',    d.total     ?? _adminStudents.length);
+            setEl('activeStudents',   d.active    ?? _adminStudents.filter(s => s.status === 'active').length);
+            setEl('newAdmissions',    d.new_this_term ?? 0);
+            setEl('graduatingCount',  d.graduating    ?? 0);
         } catch (error) {
-            console.error('Error loading stats:', error);
+            // Compute from loaded data as fallback
+            const setEl = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+            setEl('totalStudents',   _adminStudents.length);
+            setEl('activeStudents',  _adminStudents.filter(s => s.status === 'active').length);
         }
     }
 
@@ -526,13 +536,46 @@
         }
     }
 
-    function transferStudent(id) { console.log('Transfer student:', id); }
-    function graduateStudent(id) { console.log('Graduate student:', id); }
-    function messageParent(id) { console.log('Message parent:', id); }
-    function bulkExport() { console.log('Bulk export'); }
-    function bulkMessage() { console.log('Bulk message'); }
-    function bulkDelete() { console.log('Bulk delete'); }
-    function exportStudents() { console.log('Export students'); }
+    function transferStudent(id) {
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=student_promotion&student_id=' + id;
+    }
+
+    async function graduateStudent(id) {
+        const s = _adminStudents.find(x => x.id == id);
+        if (!confirm('Mark ' + (s ? s.first_name + ' ' + s.last_name : 'student') + ' as graduated?')) return;
+        try {
+            await callAPI('/students/' + id, 'PUT', { status: 'graduated' });
+            showNotification('Student graduated', 'success');
+            loadStudents();
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    async function messageParent(id) {
+        const s = _adminStudents.find(x => x.id == id);
+        const msg = prompt('Message to parent of ' + (s ? s.first_name + ' ' + s.last_name : 'student') + ':');
+        if (!msg) return;
+        try {
+            await callAPI('/communications/send', 'POST', { recipient_type: 'parent', student_id: id, message: msg, channel: 'sms' });
+            showNotification('Message sent', 'success');
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    function bulkExport() { exportStudents(); }
+    function bulkMessage() { showNotification('Bulk messaging not yet available. Use Communications module.', 'info'); }
+    function bulkDelete()  { showNotification('Bulk delete disabled for safety. Delete students individually.', 'warning'); }
+
+    function exportStudents() {
+        if (!_adminStudents.length) { showNotification('No students to export', 'warning'); return; }
+        const rows = [['Admission No','First Name','Last Name','Gender','Class','Status','Parent Phone','Fee Balance']];
+        _adminStudents.forEach(s => rows.push([
+            s.admission_no||'', s.first_name||'', s.last_name||'', s.gender||'', s.class_name||'', s.status||'',
+            s.parent_phone||'', s.fee_balance||0,
+        ]));
+        const csv  = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a    = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'students_export.csv'; a.click();
+    }
 
     function formatDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }
     function formatNumber(n) { return n?.toLocaleString() || '0'; }

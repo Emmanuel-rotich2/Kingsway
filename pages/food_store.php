@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-white">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-warehouse"></i> Food Store Management</h4>
+            <h4 class="mb-0"><i class="bi bi-building"></i> Food Store Management</h4>
             <div class="btn-group">
                 <button class="btn btn-light btn-sm" id="addItemBtn" data-permission="foodstore_manage">
                     <i class="bi bi-plus-circle"></i> Add Item
@@ -256,5 +256,5 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/food_store.js"></script>
+<script src="<?= $appBase ?>/js/pages/food_store.js"></script>
 </script>

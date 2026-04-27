@@ -164,4 +164,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>js/pages/enter_results.js"></script>
+<script src="<?= $appBase ?>/js/pages/enter_results.js"></script>

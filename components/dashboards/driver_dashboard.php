@@ -1,57 +1,51 @@
 <?php
 /**
- * Driver Dashboard Component
- * Role: Driver (ID 23) — route info, student attendance, vehicle status
+ * Driver Dashboard — Route info, students, vehicle status (Role ID 23)
  */
 ?>
 <div class="container-fluid py-3" id="driver-dashboard">
 
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <!-- Greeting Bar -->
+    <div class="dash-greeting-bar mb-4">
         <div>
-            <h4 class="mb-1"><i class="bi bi-truck me-2 text-primary"></i>Driver Dashboard</h4>
-            <p class="text-muted mb-0">Your route, students, and daily schedule</p>
+            <h5 id="driverGreeting">Good morning!</h5>
+            <p>Your route, students, and daily schedule</p>
         </div>
-        <button class="btn btn-outline-primary btn-sm" onclick="driverDashboardController.refresh()">
-            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
-        </button>
+        <div class="dash-meta">
+            <button class="dash-refresh-btn" onclick="driverDashboardController.refresh()">
+                <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+            </button>
+        </div>
     </div>
 
-    <!-- Stat Cards -->
+    <!-- KPI Cards -->
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">🛣️</div>
-                    <div class="fw-semibold small" id="routeNameCard">—</div>
-                    <small class="text-muted">My Route</small>
-                </div>
+            <div class="dash-stat dsc-blue">
+                <div class="dash-stat-value small" id="routeNameCard">—</div>
+                <div class="dash-stat-label">My Route</div>
+                <i class="bi bi-signpost-split dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">👨‍🎓</div>
-                    <h4 class="mb-0 text-primary" id="totalStudents">0</h4>
-                    <small class="text-muted">Students</small>
-                </div>
+            <div class="dash-stat dsc-indigo">
+                <div class="dash-stat-value" id="totalStudents">0</div>
+                <div class="dash-stat-label">Students</div>
+                <i class="bi bi-people dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">📍</div>
-                    <h4 class="mb-0 text-success" id="totalStops">0</h4>
-                    <small class="text-muted">Stops</small>
-                </div>
+            <div class="dash-stat dsc-teal">
+                <div class="dash-stat-value" id="totalStops">0</div>
+                <div class="dash-stat-label">Stops</div>
+                <i class="bi bi-geo-alt-fill dash-stat-icon"></i>
             </div>
         </div>
         <div class="col-6 col-md-3">
-            <div class="card border-0 shadow-sm text-center">
-                <div class="card-body py-3">
-                    <div class="fs-2 mb-1">✅</div>
-                    <h4 class="mb-0 text-success" id="presentToday">0</h4>
-                    <small class="text-muted">Present Today</small>
-                </div>
+            <div class="dash-stat dsc-green">
+                <div class="dash-stat-value" id="presentToday">0</div>
+                <div class="dash-stat-label">Present Today</div>
+                <i class="bi bi-check-circle-fill dash-stat-icon"></i>
             </div>
         </div>
     </div>
@@ -59,10 +53,8 @@
     <div class="row g-3">
         <!-- Route Schedule -->
         <div class="col-md-5">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white">
-                    <h6 class="mb-0"><i class="bi bi-map me-2"></i>Route Schedule</h6>
-                </div>
+            <div class="card dash-card">
+                <div class="card-header"><h6 class="mb-0"><i class="bi bi-map me-2"></i>Route Schedule</h6></div>
                 <div class="card-body">
                     <div class="row g-3 mb-3">
                         <div class="col-6 text-center">
@@ -79,11 +71,10 @@
                     <div id="stopsList"><div class="text-center text-muted py-3 small">Loading...</div></div>
                 </div>
             </div>
+
             <!-- Vehicle -->
-            <div class="card shadow-sm mt-3">
-                <div class="card-header bg-white">
-                    <h6 class="mb-0"><i class="bi bi-truck me-2"></i>My Vehicle</h6>
-                </div>
+            <div class="card dash-card mt-3">
+                <div class="card-header"><h6 class="mb-0"><i class="bi bi-truck me-2"></i>My Vehicle</h6></div>
                 <div class="card-body">
                     <div class="row g-2 text-center">
                         <div class="col-6"><small class="text-muted d-block">Reg No.</small><strong id="vehicleReg">—</strong></div>
@@ -97,8 +88,8 @@
 
         <!-- Student Attendance -->
         <div class="col-md-7">
-            <div class="card shadow-sm">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+            <div class="card dash-card">
+                <div class="card-header d-flex justify-content-between align-items-center">
                     <h6 class="mb-0"><i class="bi bi-people me-2"></i>Today's Students</h6>
                     <button class="btn btn-sm btn-success" onclick="driverDashboardController.saveAttendance()">
                         <i class="bi bi-check2 me-1"></i>Save Attendance

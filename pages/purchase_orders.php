@@ -253,7 +253,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/purchase_orders.js"></script>
+<script src="<?= $appBase ?>/js/pages/purchase_orders.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof PurchaseOrdersController !== 'undefined') {

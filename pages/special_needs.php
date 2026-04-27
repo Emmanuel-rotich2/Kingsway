@@ -274,4 +274,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/special_needs.js"></script>
+<script src="<?= $appBase ?>/js/pages/special_needs.js"></script>

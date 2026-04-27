@@ -151,43 +151,42 @@
         initEventListeners();
     });
 
+    let _allStudentsData = [];
+
     async function loadStudents(filters = {}) {
+        const tbody = document.getElementById('studentsTableBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4"><div class="spinner-border spinner-border-sm"></div></td></tr>';
         try {
-            const response = await API.students.getAll(filters);
-            if (response.success) {
-                renderStudentsTable(response.data);
-            }
+            const params = new URLSearchParams({ status: 'active', limit: 500 });
+            if (filters.class_id) params.set('class_id', filters.class_id);
+            if (filters.search)   params.set('search',   filters.search);
+            const response = await callAPI('/students?' + params.toString(), 'GET');
+            _allStudentsData = Array.isArray(response?.data) ? response.data : (Array.isArray(response) ? response : []);
+            renderStudentsTable(_allStudentsData);
+            document.getElementById('totalStudents').textContent  = _allStudentsData.length;
+            document.getElementById('activeStudents').textContent = _allStudentsData.filter(s => s.status === 'active').length;
         } catch (error) {
             console.error('Error loading students:', error);
+            if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-danger text-center py-4">Failed to load students.</td></tr>';
         }
     }
 
     async function loadStats() {
-        try {
-            const response = await API.students.getStats();
-            if (response.success) {
-                document.getElementById('totalStudents').textContent = response.data.total || 0;
-                document.getElementById('activeStudents').textContent = response.data.active || 0;
-                document.getElementById('newThisTerm').textContent = response.data.newThisTerm || 0;
-            }
-        } catch (error) {
-            console.error('Error loading stats:', error);
-        }
+        // Stats computed from loaded data - no separate API call needed
     }
 
     async function loadFilters() {
         try {
-            const classRes = await API.classes.getAll();
-            if (classRes.success) {
-                const select = document.getElementById('filterClass');
-                const modalSelect = document.getElementById('classId');
-                classRes.data.forEach(cls => {
-                    select.add(new Option(cls.name, cls.id));
-                    modalSelect.add(new Option(cls.name, cls.id));
-                });
-            }
+            const classRes = await callAPI('/academic/classes?status=active', 'GET');
+            const classes = Array.isArray(classRes?.data) ? classRes.data : (Array.isArray(classRes) ? classRes : []);
+            const filterSel = document.getElementById('filterClass');
+            const modalSel  = document.getElementById('classId');
+            classes.forEach(cls => {
+                if (filterSel) filterSel.add(new Option(cls.name, cls.id));
+                if (modalSel)  modalSel.add(new Option(cls.name, cls.id));
+            });
         } catch (error) {
-            console.error('Error loading filters:', error);
+            console.warn('Error loading class filter:', error);
         }
     }
 
@@ -255,10 +254,56 @@
         new bootstrap.Modal(document.getElementById('studentModal')).show();
     }
 
-    async function viewStudent(id) { console.log('View student:', id); }
-    async function editStudent(id) { console.log('Edit student:', id); }
-    async function saveStudent() { console.log('Save student'); }
-    function exportStudents() { console.log('Export'); }
+    async function viewStudent(id) {
+        const s = _allStudentsData.find(x => x.id == id);
+        if (!s) return;
+        document.getElementById('studentModalTitle').textContent = 'Edit Student';
+        document.getElementById('studentId').value    = s.id;
+        document.getElementById('firstName').value   = s.first_name || '';
+        document.getElementById('lastName').value    = s.last_name  || '';
+        document.getElementById('admissionNo').value = s.admission_no || '';
+        if (document.getElementById('gender'))  document.getElementById('gender').value  = s.gender  || 'male';
+        if (document.getElementById('classId')) document.getElementById('classId').value = s.class_id || '';
+        if (document.getElementById('dob'))     document.getElementById('dob').value     = s.date_of_birth || '';
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('studentModal')).show();
+    }
+
+    async function editStudent(id) { await viewStudent(id); }
+
+    async function saveStudent() {
+        const form = document.getElementById('studentForm');
+        if (!form || !form.checkValidity()) { form?.reportValidity(); return; }
+        const id = document.getElementById('studentId').value;
+        const payload = {
+            first_name:    document.getElementById('firstName').value.trim(),
+            last_name:     document.getElementById('lastName').value.trim(),
+            admission_no:  document.getElementById('admissionNo').value.trim(),
+            gender:        document.getElementById('gender')?.value  || 'male',
+            class_id:      document.getElementById('classId')?.value || null,
+            date_of_birth: document.getElementById('dob')?.value     || null,
+        };
+        try {
+            if (id) {
+                await callAPI('/students/' + id, 'PUT', payload);
+                showNotification('Student updated', 'success');
+            } else {
+                await callAPI('/students', 'POST', payload);
+                showNotification('Student added', 'success');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('studentModal'))?.hide();
+            loadStudents();
+        } catch (e) { showNotification('Failed: ' + (e.message || e), 'error'); }
+    }
+
+    function exportStudents() {
+        if (!_allStudentsData.length) { showNotification('No students to export', 'warning'); return; }
+        const rows = [['Admission No','First Name','Last Name','Gender','Class','Status']];
+        _allStudentsData.forEach(s => rows.push([s.admission_no||'', s.first_name||'', s.last_name||'', s.gender||'', s.class_name||'', s.status||'']));
+        const csv  = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a    = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'students.csv'; a.click();
+    }
 
     function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }
     function debounce(fn, d) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), d); }; }

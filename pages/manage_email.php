@@ -214,4 +214,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_email.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_email.js?v=<?php echo time(); ?>"></script>

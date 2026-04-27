@@ -192,4 +192,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/curriculum_cbc.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/curriculum_cbc.js?v=<?php echo time(); ?>"></script>

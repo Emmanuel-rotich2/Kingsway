@@ -166,7 +166,7 @@
     }
 
     function viewMessage(id) {
-        console.log('View message:', id);
+        window.location.href = (window.APP_BASE || '') + '/home.php?route=messaging&view=' + id;
     }
 
     function escapeHtml(str) { return str ? str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }

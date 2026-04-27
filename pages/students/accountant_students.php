@@ -68,4 +68,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/all_students_accountant.js"></script>
+<script src="<?= $appBase ?>/js/pages/all_students_accountant.js"></script>

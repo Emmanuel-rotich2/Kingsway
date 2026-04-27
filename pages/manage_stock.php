@@ -9,7 +9,7 @@
 <div class="card shadow-sm">
     <div class="card-header bg-gradient bg-warning text-dark">
         <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-exchange-alt"></i> Stock Movement & Adjustments</h4>
+            <h4 class="mb-0"><i class="bi bi-arrow-left-right"></i> Stock Movement & Adjustments</h4>
             <div class="btn-group">
                 <button class="btn btn-dark btn-sm" id="addStockBtn" data-permission="stock_manage">
                     <i class="bi bi-plus-circle"></i> Add Stock
@@ -257,4 +257,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_stock.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_stock.js"></script>

@@ -48,7 +48,12 @@ const academicsController = {
             if (document.getElementById('classesTableBody')) {
                 await this.loadClasses();
             }
-            
+
+            // Load subjects if on manage_subjects page
+            if (document.getElementById('subjectsTableBody')) {
+                await this._loadSubjectsPage();
+            }
+
             this.setupEventListeners();
             console.log('Academics Controller initialized successfully');
         } catch (error) {
@@ -733,7 +738,269 @@ const academicsController = {
 
     generateTimetable() {
         this.showToast('Timetable generation feature coming soon', 'info', 'Info');
-    }
+    },
+
+    // ==================== SUBJECT / LEARNING AREA MANAGEMENT ====================
+    // Used by manage_subjects.php (learning_areas = subjects in CBC terminology)
+
+    _subjects:    [],
+    _subjFiltered: [],
+    _subjPage:    1,
+    _subjPerPage: 15,
+
+    async _loadSubjectsPage() {
+        const tbody = document.getElementById('subjectsTableBody');
+        if (!tbody) return;
+        tbody.innerHTML = '<tr><td colspan="9" class="text-center py-4"><div class="spinner-border text-primary"></div></td></tr>';
+        try {
+            const r = await callAPI('/academic/learning-areas/list', 'GET');
+            this._subjects = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+            this._subjFiltered = [...this._subjects];
+            this._renderSubjectsTable();
+            this._updateSubjectStats();
+            this._loadSubjectTeachersDropdown();
+            this._loadSubjectClassesCheckboxes();
+        } catch (e) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-danger text-center py-4">Failed to load subjects. ' + (e.message || '') + '</td></tr>';
+        }
+    },
+
+    _updateSubjectStats() {
+        const core     = this._subjects.filter(s => s.category === 'core').length;
+        const optional = this._subjects.filter(s => s.category === 'optional').length;
+        const withTeach = this._subjects.filter(s => (s.teacher_count ?? 0) > 0).length;
+        this._setEl('totalSubjectsCount',  this._subjects.length);
+        this._setEl('coreSubjectsCount',   core);
+        this._setEl('optionalSubjectsCount', optional);
+        this._setEl('teachersAssignedCount', withTeach);
+    },
+
+    _renderSubjectsTable() {
+        const tbody = document.getElementById('subjectsTableBody');
+        if (!tbody) return;
+        const start = (this._subjPage - 1) * this._subjPerPage;
+        const page  = this._subjFiltered.slice(start, start + this._subjPerPage);
+
+        this._setEl('subjShowingFrom',  this._subjFiltered.length ? start + 1 : 0);
+        this._setEl('subjShowingTo',    Math.min(start + this._subjPerPage, this._subjFiltered.length));
+        this._setEl('subjTotalRecords', this._subjFiltered.length);
+
+        if (!page.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No subjects match the current filters.</td></tr>';
+            this._renderSubjectPagination();
+            return;
+        }
+        tbody.innerHTML = page.map((s, i) => `
+            <tr>
+                <td>${start + i + 1}</td>
+                <td><code>${this._escH(s.code || s.subject_code || '—')}</code></td>
+                <td><strong>${this._escH(s.name || s.subject_name)}</strong>${s.description ? '<br><small class="text-muted">' + this._escH(s.description.substring(0, 60)) + (s.description.length > 60 ? '…' : '') + '</small>' : ''}</td>
+                <td><span class="badge bg-${s.category === 'core' ? 'primary' : s.category === 'optional' ? 'info' : 'secondary'}">${this._escH(s.category || '—')}</span></td>
+                <td>${this._escH(s.grade_level || s.level || '—')}</td>
+                <td>${s.teacher_count ?? 0}</td>
+                <td>${s.class_count ?? 0}</td>
+                <td><span class="badge bg-${(s.status || 'active') === 'active' ? 'success' : 'secondary'}">${s.status || 'active'}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="academicsController.showSubjectModal(${s.id})" title="Edit"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="academicsController._deleteSubject(${s.id},'${this._escH(s.name || s.subject_name).replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+                </td>
+            </tr>`).join('');
+        this._renderSubjectPagination();
+    },
+
+    _renderSubjectPagination() {
+        const el = document.getElementById('subjectsPagination');
+        if (!el) return;
+        const pages = Math.ceil(this._subjFiltered.length / this._subjPerPage);
+        if (pages <= 1) { el.innerHTML = ''; return; }
+        el.innerHTML = Array.from({ length: pages }, (_, i) => `
+            <li class="page-item ${i + 1 === this._subjPage ? 'active' : ''}">
+                <button class="page-link" onclick="academicsController._goSubjectPage(${i + 1})">${i + 1}</button>
+            </li>`).join('');
+    },
+
+    _goSubjectPage(page) { this._subjPage = page; this._renderSubjectsTable(); },
+
+    searchSubjects(q) {
+        q = (q || '').toLowerCase();
+        this._subjFiltered = q
+            ? this._subjects.filter(s => (s.name || s.subject_name || '').toLowerCase().includes(q) || (s.code || s.subject_code || '').toLowerCase().includes(q))
+            : [...this._subjects];
+        this._subjPage = 1;
+        this._renderSubjectsTable();
+    },
+
+    filterByCategory(val) {
+        this._subjFiltered = val ? this._subjects.filter(s => s.category === val) : [...this._subjects];
+        this._subjPage = 1;
+        this._renderSubjectsTable();
+    },
+
+    filterByLevel(val) {
+        this._subjFiltered = val ? this._subjects.filter(s => (s.grade_level || s.level || '') === val) : [...this._subjects];
+        this._subjPage = 1;
+        this._renderSubjectsTable();
+    },
+
+    filterByStatus(val) {
+        this._subjFiltered = val ? this._subjects.filter(s => (s.status || 'active') === val) : [...this._subjects];
+        this._subjPage = 1;
+        this._renderSubjectsTable();
+    },
+
+    showSubjectModal(id) {
+        const form = document.getElementById('subjectForm');
+        if (!form) return;
+        form.reset();
+        document.getElementById('subjectId').value = '';
+        document.getElementById('subjectModalAction').textContent = 'Add';
+
+        if (id) {
+            const s = this._subjects.find(x => x.id == id);
+            if (!s) return;
+            document.getElementById('subjectId').value        = s.id;
+            document.getElementById('subjectCode').value      = s.code || s.subject_code || '';
+            document.getElementById('subjectName').value      = s.name || s.subject_name || '';
+            document.getElementById('subjectCategory').value  = s.category || '';
+            document.getElementById('subjectGradeLevel').value = s.grade_level || s.level || '';
+            document.getElementById('subjectDepartment').value = s.department || '';
+            document.getElementById('subjectStatus').value    = s.status || 'active';
+            document.getElementById('subjectDescription').value = s.description || '';
+            document.getElementById('subjectModalAction').textContent = 'Edit';
+        }
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('subjectModal')).show();
+    },
+
+    async saveSubject(e) {
+        e.preventDefault();
+        const id = document.getElementById('subjectId').value;
+        const payload = {
+            code:        document.getElementById('subjectCode').value.trim(),
+            name:        document.getElementById('subjectName').value.trim(),
+            category:    document.getElementById('subjectCategory').value,
+            grade_level: document.getElementById('subjectGradeLevel').value,
+            department:  document.getElementById('subjectDepartment').value,
+            status:      document.getElementById('subjectStatus').value,
+            description: document.getElementById('subjectDescription').value.trim(),
+        };
+        try {
+            if (id) {
+                await callAPI('/academic/learning-areas/update/' + id, 'PUT', payload);
+                this.showToast('Subject updated', 'success', 'Saved');
+            } else {
+                await callAPI('/academic/learning-areas/create', 'POST', payload);
+                this.showToast('Subject added', 'success', 'Saved');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('subjectModal'))?.hide();
+            await this._loadSubjectsPage();
+        } catch (err) {
+            this.showToast('Failed to save: ' + (err.message || err), 'error', 'Error');
+        }
+    },
+
+    async _deleteSubject(id, name) {
+        if (!confirm('Delete subject "' + name + '"? This cannot be undone.')) return;
+        try {
+            await callAPI('/academic/learning-areas/delete/' + id, 'DELETE');
+            this.showToast('Subject deleted', 'success', 'Deleted');
+            await this._loadSubjectsPage();
+        } catch (err) {
+            this.showToast(err?.message || 'Cannot delete subject', 'error', 'Error');
+        }
+    },
+
+    exportSubjects() {
+        const rows = [['Code','Name','Category','Level','Department','Status']];
+        this._subjects.forEach(s => rows.push([
+            s.code || s.subject_code || '', s.name || s.subject_name || '',
+            s.category || '', s.grade_level || '', s.department || '', s.status || 'active',
+        ]));
+        const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a    = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'subjects.csv'; a.click();
+    },
+
+    // ── Curriculum Unit Modal ───────────────────────────────────────
+    showCurriculumUnitModal(id) {
+        const form = document.getElementById('curriculumUnitForm');
+        if (!form) return;
+        form.reset();
+        document.getElementById('unitId').value = '';
+        document.getElementById('unitModalAction').textContent = 'Add';
+
+        // Populate subjects dropdown
+        const sel = document.getElementById('unitSubject');
+        if (sel) {
+            sel.innerHTML = '<option value="">Select Subject</option>' +
+                this._subjects.map(s => `<option value="${s.id}">${this._escH(s.name || s.subject_name)}</option>`).join('');
+        }
+        if (id) {
+            // TODO: load unit data when curriculum_units endpoint is available
+            document.getElementById('unitModalAction').textContent = 'Edit';
+        }
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('curriculumUnitModal')).show();
+    },
+
+    async saveCurriculumUnit(e) {
+        e.preventDefault();
+        const id = document.getElementById('unitId').value;
+        const methods = Array.from(document.getElementById('unitAssessmentMethods').selectedOptions).map(o => o.value);
+        const payload = {
+            name:              document.getElementById('unitName').value.trim(),
+            code:              document.getElementById('unitCode').value.trim(),
+            sequence_order:    parseInt(document.getElementById('unitSequence').value) || 1,
+            subject_id:        document.getElementById('unitSubject').value,
+            term_number:       document.getElementById('unitTerm').value,
+            duration_hours:    document.getElementById('unitDuration').value,
+            objectives:        document.getElementById('unitObjectives').value.trim(),
+            topics:            document.getElementById('unitTopics').value.trim(),
+            assessment_methods: methods,
+            resources_needed:  document.getElementById('unitResources').value.trim(),
+            status:            document.getElementById('unitStatus').value,
+        };
+        try {
+            if (id) {
+                await callAPI('/academic/curriculum-units/' + id, 'PUT', payload);
+                this.showToast('Unit updated', 'success', 'Saved');
+            } else {
+                await callAPI('/academic/curriculum-units', 'POST', payload);
+                this.showToast('Unit added', 'success', 'Saved');
+            }
+            bootstrap.Modal.getInstance(document.getElementById('curriculumUnitModal'))?.hide();
+        } catch (err) {
+            this.showToast('Failed to save: ' + (err.message || err), 'error', 'Error');
+        }
+    },
+
+    async _loadSubjectTeachersDropdown() {
+        const sel = document.getElementById('subjectTeachers');
+        if (!sel || this.state.teachers.length) return;
+        try {
+            const r = await callAPI('/staff?type=teaching&status=active&limit=200', 'GET');
+            const teachers = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+            sel.innerHTML = teachers.map(t => `<option value="${t.id}">${this._escH(t.first_name + ' ' + t.last_name)}</option>`).join('');
+        } catch (e) { /* optional */ }
+    },
+
+    async _loadSubjectClassesCheckboxes() {
+        const container = document.getElementById('subjectClassesCheckboxes');
+        if (!container) return;
+        try {
+            const r = await window.API.academic.listClasses();
+            const classes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+            container.innerHTML = classes.length
+                ? classes.map(c => `
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" name="class_ids[]" value="${c.id}" id="sc_${c.id}">
+                        <label class="form-check-label" for="sc_${c.id}">${this._escH(c.name)}</label>
+                    </div>`).join('')
+                : '<span class="text-muted small">No classes found.</span>';
+        } catch (e) { container.innerHTML = '<span class="text-muted small">Could not load classes.</span>'; }
+    },
+
+    _setEl(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; },
+    _escH(str) { const d = document.createElement('div'); d.textContent = String(str ?? ''); return d.innerHTML; },
 };
 
 // Initialize when DOM is ready

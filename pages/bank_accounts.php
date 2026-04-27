@@ -226,7 +226,7 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/bank_accounts.js"></script>
+<script src="<?= $appBase ?>/js/pages/bank_accounts.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         if (typeof BankAccountsController !== 'undefined') {

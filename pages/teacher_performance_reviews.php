@@ -75,4 +75,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/teacher_performance_reviews.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/teacher_performance_reviews.js?v=<?php echo time(); ?>"></script>

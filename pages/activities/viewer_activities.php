@@ -77,7 +77,7 @@
     </footer>
 </div>
 
-<script src="/js/components/RoleBasedUI.js"></script>
+<script src="<?= $appBase ?>/js/components/RoleBasedUI.js"></script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         RoleBasedUI.applyLayout();

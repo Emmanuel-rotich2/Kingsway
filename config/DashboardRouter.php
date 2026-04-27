@@ -1,326 +1,169 @@
 <?php
 /**
- * Dashboard Route Mapper (Database-Driven)
- * 
- * Maps user roles to their corresponding dashboards using database configuration.
- * ALL DATA IS SOURCED FROM THE DATABASE - no hard-coded role mappings.
- * 
- * Database Tables Used:
- * - dashboards: Dashboard definitions
- * - role_dashboards: Role to dashboard mappings
- * - roles: Role definitions
- * 
- * @package App\Config
- * @since 2025-12-28
+ * Dashboard Route Mapper — hardcoded for zero-latency lookup.
+ *
+ * Previously queried `role_dashboards` + `dashboards` tables on every request.
+ * Now a single array lookup; no DB round-trips needed.
+ *
+ * To add a new role: add an entry to ROLE_DASHBOARDS below.
+ * Dashboard keys correspond to files in /components/dashboards/{key}.php
  */
 namespace App\Config;
 
-require_once __DIR__ . '/../database/Database.php';
-
-use App\Database\Database;
-
 class DashboardRouter
 {
-    private static ?\PDO $db = null;
-    private static array $roleDashboardCache = [];
-    private static array $dashboardCache = [];
+    // role_id => dashboard file key (without .php)
+    private const ROLE_DASHBOARDS = [
+        2  => 'system_administrator_dashboard',
+        3  => 'director_owner_dashboard',
+        4  => 'school_administrative_officer_dashboard',
+        5  => 'headteacher_dashboard',
+        6  => 'deputy_head_academic_dashboard',
+        7  => 'class_teacher_dashboard',
+        8  => 'subject_teacher_dashboard',
+        9  => 'intern_student_teacher_dashboard',
+        10 => 'school_accountant_dashboard',
+        14 => 'store_manager_dashboard',
+        16 => 'catering_manager_cook_lead_dashboard',
+        18 => 'matron_housemother_dashboard',
+        21 => 'hod_talent_development_dashboard',
+        23 => 'driver_dashboard',
+        24 => 'school_counselor_chaplain_dashboard',
+        32 => 'support_staff_dashboard',
+        33 => 'support_staff_dashboard',
+        34 => 'support_staff_dashboard',
+        63 => 'deputy_head_discipline_dashboard',
+        64 => 'support_staff_dashboard',
+    ];
+
+    private const DEFAULT_DASHBOARD = 'headteacher_dashboard';
+
+    // role name → role_id for string-based lookups
+    private const ROLE_NAME_MAP = [
+        'system administrator'    => 2,
+        'director'                => 3,
+        'school administrator'    => 4,
+        'headteacher'             => 5,
+        'deputy head - academic'  => 6,
+        'deputy head academic'    => 6,
+        'class teacher'           => 7,
+        'subject teacher'         => 8,
+        'intern/student teacher'  => 9,
+        'intern student teacher'  => 9,
+        'accountant'              => 10,
+        'school accountant'       => 10,
+        'inventory manager'       => 14,
+        'store manager'           => 14,
+        'cateress'                => 16,
+        'catering manager'        => 16,
+        'boarding master'         => 18,
+        'matron'                  => 18,
+        'housemother'             => 18,
+        'talent development'      => 21,
+        'hod talent development'  => 21,
+        'driver'                  => 23,
+        'chaplain'                => 24,
+        'counselor'               => 24,
+        'school counselor'        => 24,
+        'kitchen staff'           => 32,
+        'security staff'          => 33,
+        'janitor'                 => 34,
+        'deputy head - discipline'=> 63,
+        'deputy head discipline'  => 63,
+        'staff'                   => 64,
+    ];
 
     /**
-     * Get database connection
-     */
-    private static function getDb(): \PDO
-    {
-        if (self::$db === null) {
-            self::$db = Database::getInstance()->getConnection();
-        }
-        return self::$db;
-    }
-
-    /**
-     * Get dashboard route for a given role (by ID or name)
-     * 
-     * @param string|int|array $role Role ID, name, or array of roles
-     * @return string Dashboard route name
+     * Get dashboard route for a role (by ID, name, or array of roles).
      */
     public static function getDashboardForRole($role): string
     {
-        // Handle array of roles (use first role)
         if (is_array($role)) {
-            if (empty($role)) {
-                return self::getDefaultDashboard();
-            }
-            // If role is array of objects with 'id' or 'name' key
-            if (isset($role[0]['id'])) {
-                $role = $role[0]['id'];
-            } elseif (isset($role[0]['name'])) {
-                $role = $role[0]['name'];
-            } else {
-                $role = $role[0];
-            }
+            if (empty($role)) return self::DEFAULT_DASHBOARD;
+            $role = $role[0]['id'] ?? $role[0]['name'] ?? $role[0];
         }
 
-        // Try to get from database first
-        try {
-            $dashboardRoute = null;
-
-            if (is_numeric($role)) {
-                // Role ID provided
-                $dashboardRoute = self::getDashboardRouteForRoleId((int) $role);
-            } else {
-                // Role name provided - look up role ID
-                $roleId = self::getRoleIdByName($role);
-                if ($roleId) {
-                    $dashboardRoute = self::getDashboardRouteForRoleId($roleId);
-                }
-            }
-
-            if ($dashboardRoute) {
-                return $dashboardRoute;
-            }
-        } catch (\Exception $e) {
-            error_log("DashboardRouter::getDashboardForRole() error: " . $e->getMessage());
+        if (is_numeric($role)) {
+            return self::ROLE_DASHBOARDS[(int)$role] ?? self::DEFAULT_DASHBOARD;
         }
 
-        // Fallback: try to construct dashboard name from role
-        if (is_string($role)) {
-            $constructed = self::constructDashboardName($role);
-            if (self::dashboardExists($constructed)) {
-                return $constructed;
-            }
+        // String name lookup — normalise and match
+        $key = strtolower(trim((string)$role));
+        if (isset(self::ROLE_NAME_MAP[$key])) {
+            $id = self::ROLE_NAME_MAP[$key];
+            return self::ROLE_DASHBOARDS[$id] ?? self::DEFAULT_DASHBOARD;
         }
 
-        // Ultimate fallback
-        return self::getDefaultDashboard();
+        // Last resort: construct from name
+        $constructed = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $role)) . '_dashboard';
+        return self::dashboardExists($constructed) ? $constructed : self::DEFAULT_DASHBOARD;
     }
 
-    /**
-     * Get dashboard route for a role ID from database (cached)
-     */
-    private static function getDashboardRouteForRoleId(int $roleId): ?string
-    {
-        if (isset(self::$roleDashboardCache[$roleId])) {
-            return self::$roleDashboardCache[$roleId];
-        }
-
-        try {
-            $stmt = self::getDb()->prepare(
-                "SELECT d.name
-                 FROM role_dashboards rd
-                 JOIN dashboards d ON d.id = rd.dashboard_id
-                 WHERE rd.role_id = ? AND rd.is_primary = 1 AND d.is_active = 1
-                 ORDER BY rd.id ASC
-                 LIMIT 1"
-            );
-            $stmt->execute([$roleId]);
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-            $route = $result['name'] ?? null;
-            self::$roleDashboardCache[$roleId] = $route;
-            return $route;
-
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    /**
-     * Get role ID by name
-     */
-    private static function getRoleIdByName(string $roleName): ?int
-    {
-        try {
-            // Normalize role name
-            $normalized = strtolower(trim(str_replace(['-', ' '], '_', $roleName)));
-
-            $stmt = self::getDb()->prepare(
-                "SELECT id FROM roles WHERE LOWER(REPLACE(REPLACE(name, ' ', '_'), '-', '_')) = ? LIMIT 1"
-            );
-            $stmt->execute([$normalized]);
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-            return $result ? (int) $result['id'] : null;
-
-        } catch (\Exception $e) {
-            return null;
-        }
-    }
-
-    /**
-     * Construct dashboard name from role name
-     */
-    private static function constructDashboardName(string $roleName): string
-    {
-        return strtolower(str_replace(['/', ' ', '-'], '_', $roleName)) . '_dashboard';
-    }
-
-    /**
-     * Get the default dashboard
-     * 
-     * @return string Default dashboard route name
-     */
     public static function getDefaultDashboard(): string
     {
-        try {
-            // Get the dashboard marked as system default
-            $stmt = self::getDb()->query(
-                "SELECT name FROM dashboards WHERE is_active = 1 ORDER BY id ASC LIMIT 1"
-            );
-            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-            if ($result) {
-                return $result['name'];
-            }
-        } catch (\Exception $e) {
-            // Fallback
-        }
-
-        return '#';
+        return self::DEFAULT_DASHBOARD;
     }
 
-    /**
-     * Check if a dashboard file exists
-     * 
-     * @param string $dashboardKey Dashboard file key (without .php)
-     * @return bool
-     */
-    public static function dashboardExists($dashboardKey): bool
+    public static function dashboardExists(string $key): bool
     {
-        if (isset(self::$dashboardCache[$dashboardKey])) {
-            return self::$dashboardCache[$dashboardKey];
-        }
-
-        $path = __DIR__ . '/../components/dashboards/' . $dashboardKey . '.php';
-        $exists = file_exists($path);
-        self::$dashboardCache[$dashboardKey] = $exists;
-        return $exists;
+        return file_exists(__DIR__ . '/../components/dashboards/' . $key . '.php');
     }
 
-    /**
-     * Get dashboard path for rendering
-     * 
-     * @param string $dashboardKey Dashboard file key (without .php)
-     * @return string|null Full path to dashboard file, or null if not found
-     */
-    public static function getDashboardPath($dashboardKey): ?string
+    public static function getDashboardPath(string $key): ?string
     {
-        $path = __DIR__ . '/../components/dashboards/' . $dashboardKey . '.php';
+        $path = __DIR__ . '/../components/dashboards/' . $key . '.php';
         return file_exists($path) ? $path : null;
     }
 
+    public static function getDashboardUrl($role): string
+    {
+        return '?route=' . self::getDashboardForRole($role);
+    }
+
     /**
-     * Get all available dashboards from database
-     * 
-     * @return array Array of dashboard info
+     * Returns all roles → dashboard pairs (no DB needed).
      */
     public static function getAllDashboards(): array
     {
-        try {
-            $stmt = self::getDb()->query(
-                "SELECT id, name, display_name AS title, NULL AS icon, description, domain, is_active
-                 FROM dashboards
-                 WHERE is_active = 1
-                 ORDER BY domain, display_name"
-            );
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-
-        } catch (\Exception $e) {
-            // Fallback: scan filesystem
-            return self::getAllDashboardsFromFiles();
-        }
-    }
-
-    /**
-     * Fallback: Get dashboards from filesystem
-     */
-    private static function getAllDashboardsFromFiles(): array
-    {
-        $dashboardsDir = __DIR__ . '/../components/dashboards/';
-        $files = glob($dashboardsDir . '*_dashboard.php');
-
-        $dashboards = [];
-        foreach ($files as $file) {
-            $key = basename($file, '.php');
-            $dashboards[] = [
-                'name' => $key,
-                'title' => ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $key))),
-                'is_active' => 1
+        $result = [];
+        foreach (self::ROLE_DASHBOARDS as $roleId => $key) {
+            if (isset($result[$key])) continue; // dedupe support_staff_dashboard etc.
+            $result[$key] = [
+                'name'      => $key,
+                'title'     => ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $key))),
+                'is_active' => 1,
             ];
         }
-
-        return $dashboards;
+        return array_values($result);
     }
 
     /**
-     * Get dashboard URL for a role
-     * 
-     * @param string|int|array $role
-     * @return string URL with route parameter
-     */
-    public static function getDashboardUrl($role): string
-    {
-        $dashboard = self::getDashboardForRole($role);
-        return '?route=' . $dashboard;
-    }
-
-    /**
-     * Get all dashboards accessible by a role
-     * 
-     * @param int $roleId Role ID
-     * @return array Array of dashboard info
+     * Returns dashboard info for a single role (no DB).
      */
     public static function getDashboardsForRole(int $roleId): array
     {
-        try {
-            $stmt = self::getDb()->prepare(
-                "SELECT d.id, d.name, d.display_name AS title, NULL AS icon, d.description, d.domain, rd.is_primary
-                 FROM role_dashboards rd
-                 JOIN dashboards d ON d.id = rd.dashboard_id
-                 WHERE rd.role_id = ? AND d.is_active = 1
-                 ORDER BY rd.is_primary DESC, d.display_name"
-            );
-            $stmt->execute([$roleId]);
-            return $stmt->fetchAll(\PDO::FETCH_ASSOC);
-
-        } catch (\Exception $e) {
-            return [];
-        }
+        $key = self::ROLE_DASHBOARDS[$roleId] ?? null;
+        if (!$key) return [];
+        return [[
+            'name'       => $key,
+            'title'      => ucwords(str_replace('_', ' ', str_replace('_dashboard', '', $key))),
+            'is_primary' => 1,
+            'is_active'  => 1,
+        ]];
     }
 
-    /**
-     * Clear the cache
-     */
-    public static function clearCache(): void
-    {
-        self::$roleDashboardCache = [];
-        self::$dashboardCache = [];
-    }
-
-    /**
-     * Get user's default dashboard route
-     * NOTE: In JWT architecture, this should use role from token
-     * 
-     * @deprecated Use getDashboardForRole() with role from JWT token instead
-     * @return string Dashboard key
-     */
+    /** @deprecated Use getDashboardForRole() */
     public static function getUserDefaultDashboard(): string
     {
-        return self::getDefaultDashboard();
+        return self::DEFAULT_DASHBOARD;
     }
 
-    /**
-     * Redirect to default dashboard
-     * 
-     * @param bool $exit Whether to exit after redirect
-     */
     public static function redirectToDefaultDashboard(bool $exit = true): void
     {
-        $dashboard = self::getDefaultDashboard();
-        $url = '?route=' . $dashboard;
-
-        header('Location: ' . $url);
-
-        if ($exit) {
-            exit;
-        }
+        header('Location: ?route=' . self::DEFAULT_DASHBOARD);
+        if ($exit) exit;
     }
+
+    // No-op — nothing to clear when there's no cache
+    public static function clearCache(): void {}
 }

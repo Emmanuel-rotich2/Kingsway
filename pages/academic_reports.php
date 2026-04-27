@@ -357,4 +357,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/academic_reports.js"></script>
+<script src="<?= $appBase ?>/js/pages/academic_reports.js"></script>

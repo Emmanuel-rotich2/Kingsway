@@ -198,4 +198,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/budget_overview.js"></script>
+<script src="<?= $appBase ?>/js/pages/budget_overview.js"></script>

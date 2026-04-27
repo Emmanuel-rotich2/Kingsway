@@ -1,27 +1,31 @@
 
 <div class="container-fluid py-4">
-    <!-- A. GLOBAL HEADER (Sticky) -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card border-0 shadow-sm">
-                <div class="card-body d-flex justify-content-between align-items-center">
-                    <div>
-                        <p class="text-muted mb-0"><strong>Academic Year: </strong><span id="academic_year">--</span></p>
-                        <p class="text-muted mb-0"><strong>Current Term: </strong><span id="current_term">--</span></p>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <small class="text-muted">Last updated: <span id="last_refresh">--</span></small>
-                        <div class="btn-group">
-                            <button class="btn btn-outline-primary btn-sm" id="generate_reports">Reports</button>
-                            <button class="btn btn-outline-secondary btn-sm" id="export_dashboard">Export</button>
-                            <button class="btn btn-outline-info btn-sm" id="system_health">Health</button>
-                            <button class="btn btn-outline-warning btn-sm" id="ceo_settings">Settings</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    <!-- Executive Greeting Bar -->
+    <div class="dash-greeting-bar mb-4">
+        <div>
+            <h5 id="directorGreeting">Good morning!</h5>
+            <p>Executive overview — <span id="academic_year">—</span> &bull; <span id="current_term">—</span></p>
+        </div>
+        <div class="dash-meta">
+            <span class="text-white-50 small">Updated: <span id="last_refresh">—</span></span>
+            <button class="dash-refresh-btn" id="generate_reports"><i class="bi bi-file-bar-graph me-1"></i>Reports</button>
+            <button class="dash-refresh-btn" id="export_dashboard"><i class="bi bi-download me-1"></i>Export</button>
+            <button class="dash-refresh-btn" id="system_health"><i class="bi bi-activity me-1"></i>Health</button>
+            <button class="dash-refresh-btn" id="ceo_settings"><i class="bi bi-gear me-1"></i>Settings</button>
         </div>
     </div>
+    <script>
+        (function () {
+            const user = (typeof AuthContext !== 'undefined') ? AuthContext.getUser() : null;
+            if (user) {
+                const hr = new Date().getHours();
+                const greet = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+                const name = user.first_name || user.name || '';
+                const el = document.getElementById('directorGreeting');
+                if (el) el.textContent = greet + (name ? ', ' + name : '') + '!';
+            }
+        })();
+    </script>
 
     <!-- B. EXECUTIVE KPI STRIP (12 Cards) -->
     <div class="row g-3 mb-4" id="kpi_strip">
@@ -762,19 +766,7 @@
         </div>
     </div>
 
-    <style>
-    .toolbox-card {
-        transition: all 0.3s ease;
-        cursor: pointer;
-    }
-    .toolbox-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-    }
-    .toolbox-card:hover h6 {
-        color: var(--bs-primary);
-    }
-    </style>
+    
 
     <script>
     // CEO Toolbox Navigation Handler (follows sidebar pattern)
@@ -796,5 +788,5 @@
     </script>
 </div>
 
-<!-- Director Dashboard Controller Script (with cache-busting) -->
-<script src="js/dashboards/director_dashboard.js?v=<?php echo time(); ?>"></script>
+<!-- Director Dashboard Controller -->
+<script src="<?= $appBase ?>/js/dashboards/director_dashboard.js?v=<?php echo time(); ?>"></script>

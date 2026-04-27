@@ -327,4 +327,4 @@
     #payslipContainer .table th {
         padding: 0.5rem;
     }
-</style><script src="<?= $appBase ?>js/pages/detailed_payslip.js"></script>
+</style><script src="<?= $appBase ?>/js/pages/detailed_payslip.js"></script>

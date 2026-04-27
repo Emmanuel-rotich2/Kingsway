@@ -30,4 +30,4 @@
     Last updated: <span id="lastRefreshTime">—</span>
 </div>
 
-<script src="<?= $appBase ?>js/dashboards/dashboard_router.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/dashboards/dashboard_router.js?v=<?php echo time(); ?>"></script>

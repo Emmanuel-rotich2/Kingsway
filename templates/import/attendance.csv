@@ -1,0 +1,5 @@
+student_admission_no,date,status,session,subject,reason,notes
+ADM001,2025-01-13,present,morning,,,
+ADM001,2025-01-14,absent,morning,,sick,Reported sick at home
+ADM002,2025-01-13,present,morning,,,
+ADM002,2025-01-15,late,morning,,traffic,Arrived 20 minutes late

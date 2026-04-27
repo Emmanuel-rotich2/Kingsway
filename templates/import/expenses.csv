@@ -1,0 +1,4 @@
+date,category,description,amount,payment_method,receipt_number,vendor_name,approved_by,notes
+2025-01-15,Stationery,Exercise books for Grade 1-4,15000,cash,RCP2025001,Kamau Stationery,John Headmaster,Term 1 stationery
+2025-01-20,Utilities,Electricity bill January,8500,bank_transfer,KPLC001,KPLC,,
+2025-02-01,Maintenance,Classroom repairs Block A,25000,cheque,CHQ001,Njoroge Contractors,Mary Finance,

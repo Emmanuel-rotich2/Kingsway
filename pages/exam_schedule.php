@@ -308,4 +308,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>js/pages/exam_schedule.js"></script>
+<script src="<?= $appBase ?>/js/pages/exam_schedule.js"></script>

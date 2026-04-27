@@ -182,4 +182,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>js/pages/manage_sms.js?v=<?php echo time(); ?>"></script>
+<script src="<?= $appBase ?>/js/pages/manage_sms.js?v=<?php echo time(); ?>"></script>
