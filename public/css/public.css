@@ -41,6 +41,7 @@ body {
   background: var(--white);
   line-height: 1.7;
   overflow-x: hidden;
+  padding-bottom: 42px; /* clear fixed bottom ticker */
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -268,7 +269,11 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* ─── Announcement Ticker ───────────────────────────────────────────────────── */
 .ticker-bar {
-  margin-top: 74px; /* clear the fixed navbar */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1020;
   background: var(--gold);
   color: var(--green-dark);
   padding: 10px 0;
@@ -925,7 +930,7 @@ img { max-width: 100%; height: auto; display: block; }
   .section { padding: 60px 0; }
   .site-nav { background: var(--green-dark); }
   .hero-content { padding: 40px 0 60px; }
-  .ticker-bar   { margin-top: 62px; } /* smaller navbar when collapsed */
+  .ticker-bar   { bottom: 0; } /* already fixed, no override needed */
   .gallery-grid { grid-template-rows: repeat(2, 160px); }
 }
 @media (max-width: 767px) {

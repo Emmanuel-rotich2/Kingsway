@@ -4,8 +4,17 @@ if ($appBase === '.') $appBase = '';
 $pageTitle  = 'Home';
 $activePage = 'home';
 require_once __DIR__ . '/public/layout/public_data.php';
-$news   = kw_latest_news(3);
-$events = kw_upcoming_events(4);
+$news        = kw_latest_news(3);
+$events      = kw_upcoming_events(4);
+$schoolPhone = kw_school_stat('school_phone_main', kw_school_stat('school_phone', '0720 113 030'));
+$programs    = kw_programs();
+$gallery     = kw_gallery(6);
+$heroStats   = [
+    [kw_school_stat('hero_stat_1_value','1,200+'), kw_school_stat('hero_stat_1_label','Students Enrolled'),    'bi-people-fill'],
+    [kw_school_stat('hero_stat_2_value','98%'),    kw_school_stat('hero_stat_2_label','KJSEA / KCPE Pass Rate'),'bi-mortarboard-fill'],
+    [kw_school_stat('hero_stat_3_value','30+'),    kw_school_stat('hero_stat_3_label','Regional Awards'),       'bi-award-fill'],
+    [kw_school_stat('hero_stat_4_value','Est. '.kw_school_stat('school_founded_year','2005')), kw_school_stat('hero_stat_4_label','Years of Excellence'),'bi-calendar2-check'],
+];
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -15,10 +24,10 @@ $events = kw_upcoming_events(4);
   <div class="overflow-hidden flex-grow-1">
     <div class="ticker-track">
       <?php foreach ($news as $n): ?>
-        <span><a href="<?= $appBase ?>/news.php"><?= htmlspecialchars($n['title']) ?></a></span>
+        <span><a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>"><?= htmlspecialchars($n['title']) ?></a></span>
       <?php endforeach; ?>
       <?php foreach ($news as $n): /* duplicate for seamless loop */ ?>
-        <span><a href="<?= $appBase ?>/news.php"><?= htmlspecialchars($n['title']) ?></a></span>
+        <span><a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>"><?= htmlspecialchars($n['title']) ?></a></span>
       <?php endforeach; ?>
     </div>
   </div>
@@ -56,22 +65,12 @@ $events = kw_upcoming_events(4);
       <div class="col-lg-5 d-none d-lg-block">
         <div class="hero-card">
           <div class="hero-card-title">School at a Glance</div>
+          <?php foreach ($heroStats as $hs): ?>
           <div class="hero-stat">
-            <div class="hero-stat-icon"><i class="bi bi-people-fill"></i></div>
-            <div class="hero-stat-text"><strong>1,200+</strong><span>Students Enrolled</span></div>
+            <div class="hero-stat-icon"><i class="bi <?= htmlspecialchars($hs[2]) ?>"></i></div>
+            <div class="hero-stat-text"><strong><?= htmlspecialchars($hs[0]) ?></strong><span><?= htmlspecialchars($hs[1]) ?></span></div>
           </div>
-          <div class="hero-stat">
-            <div class="hero-stat-icon"><i class="bi bi-mortarboard-fill"></i></div>
-            <div class="hero-stat-text"><strong>98%</strong><span>KJSEA / KCPE Pass Rate</span></div>
-          </div>
-          <div class="hero-stat">
-            <div class="hero-stat-icon"><i class="bi bi-award-fill"></i></div>
-            <div class="hero-stat-text"><strong>30+</strong><span>Regional Awards</span></div>
-          </div>
-          <div class="hero-stat">
-            <div class="hero-stat-icon"><i class="bi bi-calendar2-check"></i></div>
-            <div class="hero-stat-text"><strong>Est. 2005</strong><span>Years of Excellence</span></div>
-          </div>
+          <?php endforeach; ?>
         </div>
       </div>
     </div>
@@ -85,12 +84,12 @@ $events = kw_upcoming_events(4);
     <div class="row g-4">
       <?php
       $stats = [
-        ['icon'=>'bi-people-fill',      'target'=>1200, 'suffix'=>'+', 'label'=>'Students Enrolled',    'color'=>'#198754'],
-        ['icon'=>'bi-person-workspace', 'target'=>80,   'suffix'=>'+', 'label'=>'Qualified Teachers',   'color'=>'#0d4f2a'],
-        ['icon'=>'bi-trophy-fill',      'target'=>98,   'suffix'=>'%', 'label'=>'Exam Pass Rate',        'color'=>'#f9c80e'],
-        ['icon'=>'bi-award-fill',       'target'=>30,   'suffix'=>'+', 'label'=>'Awards & Honours',      'color'=>'#198754'],
-        ['icon'=>'bi-house-door-fill',  'target'=>20,   'suffix'=>'',  'label'=>'Years of Excellence',   'color'=>'#0d4f2a'],
-        ['icon'=>'bi-heart-fill',       'target'=>100,  'suffix'=>'%', 'label'=>'Commitment to Learners','color'=>'#f9c80e'],
+        ['icon'=>'bi-people-fill',      'target'=>(int)kw_school_stat('stat_students','1200'), 'suffix'=>'+', 'label'=>'Students Enrolled',    'color'=>'#198754'],
+        ['icon'=>'bi-person-workspace', 'target'=>(int)kw_school_stat('stat_teachers','80'),   'suffix'=>'+', 'label'=>'Qualified Teachers',   'color'=>'#0d4f2a'],
+        ['icon'=>'bi-trophy-fill',      'target'=>(int)kw_school_stat('stat_pass_rate','98'),  'suffix'=>'%', 'label'=>'Exam Pass Rate',        'color'=>'#f9c80e'],
+        ['icon'=>'bi-award-fill',       'target'=>(int)kw_school_stat('stat_awards','30'),     'suffix'=>'+', 'label'=>'Awards & Honours',      'color'=>'#198754'],
+        ['icon'=>'bi-house-door-fill',  'target'=>(int)kw_school_stat('stat_years','20'),      'suffix'=>'',  'label'=>'Years of Excellence',   'color'=>'#0d4f2a'],
+        ['icon'=>'bi-heart-fill',       'target'=>100,                                         'suffix'=>'%', 'label'=>'Commitment to Learners','color'=>'#f9c80e'],
       ];
       foreach ($stats as $i => $s): ?>
       <div class="col-lg-2 col-md-4 col-6">
@@ -169,24 +168,18 @@ $events = kw_upcoming_events(4);
       <p class="section-subtitle mx-auto">Comprehensive CBC-aligned programs from Pre-Primary through Junior Secondary School.</p>
     </div>
     <div class="row g-4">
-      <?php
-      $programs = [
-        ['icon'=>'bi-emoji-smile-fill','bg'=>'#e8f5e9','color'=>'#198754','title'=>'Pre-Primary (ECD)',  'desc'=>'PP1 & PP2 — Foundation learning through play-based activities, literacy, numeracy, and social skills.'],
-        ['icon'=>'bi-book-open-fill',  'bg'=>'#e3f2fd','color'=>'#1976d2','title'=>'Lower Primary',      'desc'=>'Grade 1–3 — Core competencies in Literacy, Mathematical Activities, and Environmental Activities.'],
-        ['icon'=>'bi-pencil-fill',     'bg'=>'#fff8e1','color'=>'#f9c80e','title'=>'Upper Primary',      'desc'=>'Grade 4–6 — Deepened learning across English, Kiswahili, Mathematics, Science and Social Studies.'],
-        ['icon'=>'bi-mortarboard-fill','bg'=>'#fce4ec','color'=>'#e91e63','title'=>'Junior Secondary',   'desc'=>'Grade 7–9 — Pathway-focused learning. KJSEA preparation with STEM, Arts and Social Sciences tracks.'],
-        ['icon'=>'bi-laptop-fill',     'bg'=>'#e8eaf6','color'=>'#3f51b5','title'=>'STEM & ICT',         'desc'=>'Integrated computer science, robotics, and digital literacy embedded across all grade levels.'],
-        ['icon'=>'bi-trophy-fill',     'bg'=>'#f3e5f5','color'=>'#9c27b0','title'=>'Sports & Co-Curricular','desc'=>'Football, athletics, music, drama, clubs and leadership programs for all-round development.'],
-      ];
-      foreach ($programs as $i => $p): ?>
+      <?php foreach (array_slice($programs, 0, 6) as $i => $p): ?>
       <div class="col-lg-4 col-md-6">
-        <div class="program-card reveal delay-<?= ($i%3)+1 ?>">
-          <div class="program-icon" style="background:<?= $p['bg'] ?>">
-            <i class="bi <?= $p['icon'] ?>" style="color:<?= $p['color'] ?>"></i>
+        <a href="<?= $appBase ?>/about.php#<?= htmlspecialchars($p['anchor'] ?? 'programs') ?>" class="text-decoration-none">
+          <div class="program-card reveal delay-<?= ($i%3)+1 ?>" style="cursor:pointer">
+            <div class="program-icon" style="background:<?= htmlspecialchars($p['color']) ?>22">
+              <i class="bi <?= htmlspecialchars($p['icon']) ?>" style="color:<?= htmlspecialchars($p['color']) ?>"></i>
+            </div>
+            <h5><?= htmlspecialchars($p['name']) ?></h5>
+            <p><?= htmlspecialchars($p['description']) ?></p>
+            <span style="color:<?= htmlspecialchars($p['color']) ?>;font-size:.82rem;font-weight:600">Learn More <i class="bi bi-arrow-right"></i></span>
           </div>
-          <h5><?= $p['title'] ?></h5>
-          <p><?= $p['desc'] ?></p>
-        </div>
+        </a>
       </div>
       <?php endforeach; ?>
     </div>
@@ -219,12 +212,14 @@ $events = kw_upcoming_events(4);
             $cats = ['Sports'=>['#198754','bi-lightning-fill'],'Academic'=>['#1976d2','bi-book-fill'],'Infrastructure'=>['#e91e63','bi-buildings-fill'],'Announcement'=>['#f9c80e','bi-megaphone-fill'],'Arts'=>['#9c27b0','bi-music-note-beamed']];
             $cat  = $cats[$n['category']] ?? ['#198754','bi-circle-fill'];
             $date = date('d M Y', strtotime($n['created_at']));
-            $excerpt = mb_strimwidth(strip_tags($n['content']),0,120,'…');
+            $img  = !empty($n['image_url']) ? htmlspecialchars($n['image_url']) : "https://placehold.co/600x380/".ltrim($cat[0],'#')."/ffffff?text=".urlencode($n['category'] ?? 'News');
+            $excerpt = mb_strimwidth(strip_tags($n['excerpt'] ?? $n['content'] ?? ''),0,120,'…');
           ?>
           <div class="col-md-<?= $i===0?'12':'6' ?>">
+            <a href="<?= $appBase ?>/news-article.php?id=<?= (int)$n['id'] ?>" class="text-decoration-none">
             <div class="card-modern reveal delay-<?= $i+1 ?>">
               <div class="card-img-wrap">
-                <img src="https://placehold.co/600x380/<?= ltrim($cat[0],'#') ?>/ffffff?text=<?= urlencode($n['category'] ?? 'News') ?>" alt="<?= htmlspecialchars($n['title']) ?>">
+                <img src="<?= $img ?>" alt="<?= htmlspecialchars($n['title']) ?>" onerror="this.src='https://placehold.co/600x380/<?= ltrim($cat[0],'#') ?>/ffffff?text=News'">
               </div>
               <div class="p-3">
                 <div class="d-flex align-items-center justify-content-between mb-2">
@@ -233,11 +228,12 @@ $events = kw_upcoming_events(4);
                   </span>
                   <span class="card-date"><i class="bi bi-calendar3"></i><?= $date ?></span>
                 </div>
-                <div class="card-title"><a href="<?= $appBase ?>/news.php"><?= htmlspecialchars($n['title']) ?></a></div>
+                <div class="card-title"><?= htmlspecialchars($n['title']) ?></div>
                 <div class="card-excerpt"><?= htmlspecialchars($excerpt) ?></div>
-                <a href="<?= $appBase ?>/news.php" class="read-more">Read More <i class="bi bi-arrow-right"></i></a>
+                <span class="read-more text-success">Read More <i class="bi bi-arrow-right"></i></span>
               </div>
             </div>
+            </a>
           </div>
           <?php endforeach; ?>
         </div>
@@ -261,7 +257,8 @@ $events = kw_upcoming_events(4);
             $evDate = new DateTime($ev['event_date']);
             $tc = $typeColors[$ev['category']] ?? ['#f3e5f5','#7b1fa2'];
           ?>
-          <div class="event-item">
+          <a href="<?= $appBase ?>/event-detail.php?id=<?= (int)$ev['id'] ?>" class="text-decoration-none text-dark">
+          <div class="event-item" style="cursor:pointer">
             <div class="event-date-box">
               <div class="day"><?= $evDate->format('d') ?></div>
               <div class="month"><?= $evDate->format('M') ?></div>
@@ -281,6 +278,7 @@ $events = kw_upcoming_events(4);
               </div>
             </div>
           </div>
+          </a>
           <?php endforeach; ?>
           <div class="text-center pt-2">
             <a href="<?= $appBase ?>/events.php" class="read-more justify-content-center">
@@ -321,14 +319,12 @@ $events = kw_upcoming_events(4);
       </div>
       <div class="col-lg-7 reveal reveal-right">
         <div class="gallery-grid">
-          <?php
-          $imgs = ['students','sports','classroom','library','assembly','lab'];
-          $colors = ['198754','0d4f2a','f9c80e','1976d2','9c27b0','e91e63'];
-          foreach ($imgs as $gi => $g): ?>
+          <?php foreach ($gallery as $gi => $g): ?>
           <div class="gallery-item">
-            <img src="<?= $appBase ?>/images/gallery/<?= $g ?>.jpg"
-                 onerror="this.src='https://placehold.co/400x300/<?= $colors[$gi] ?>/ffffff?text=<?= ucfirst($g) ?>'"
-                 alt="<?= ucfirst($g) ?>">
+            <img src="<?= htmlspecialchars($g['image_url']) ?>"
+                 alt="<?= htmlspecialchars($g['caption'] ?? 'Kingsway School') ?>"
+                 onerror="this.src='https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&q=70'"
+                 loading="lazy">
             <div class="overlay"><i class="bi bi-zoom-in"></i></div>
           </div>
           <?php endforeach; ?>
@@ -435,7 +431,12 @@ $events = kw_upcoming_events(4);
 <section class="section-sm" style="background:var(--green-dark)">
   <div class="container">
     <div class="row g-4 text-white">
-      <?php foreach ([['bi-geo-alt-fill','Location','P.O BOX 203-20203, Londiani, Kenya'],['bi-telephone-fill','Call Us','+254 720 113 030 / 031'],['bi-envelope-fill','Email','info@kingswaypreparatoryschool.sc.ke'],['bi-clock-fill','Office Hours','Mon – Fri: 7:30 AM – 5:00 PM']] as $c): ?>
+      <?php foreach ([
+        ['bi-geo-alt-fill','Location',    kw_school_stat('school_address_postal', 'P.O BOX 203-20203, Londiani, Kenya')],
+        ['bi-telephone-fill','Call Us',   kw_school_stat('school_phone_main','+254 720 113 030').' / '.kw_school_stat('school_phone_alt','+254 720 113 031')],
+        ['bi-envelope-fill','Email',      kw_school_stat('school_email_main','info@kingswaypreparatoryschool.sc.ke')],
+        ['bi-clock-fill','Office Hours',  kw_school_stat('office_hours_weekday','Mon – Fri: 7:30 AM – 5:00 PM')],
+      ] as $c): ?>
       <div class="col-md-3 col-6 text-center">
         <div class="mb-2 opacity-75"><i class="bi <?= $c[0] ?> fs-2" style="color:var(--gold)"></i></div>
         <div class="small text-uppercase fw-semibold opacity-75 mb-1"><?= $c[1] ?></div>

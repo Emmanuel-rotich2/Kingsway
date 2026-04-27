@@ -6,6 +6,17 @@ $activePage = 'events';
 require_once __DIR__ . '/public/layout/public_data.php';
 $events = kw_upcoming_events(10);
 $terms  = kw_academic_terms();
+
+/* ── Newsletter subscribe POST ── */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    $email = filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL);
+    if (!$email) { echo json_encode(['success'=>false,'message'=>'Please enter a valid email.']); exit; }
+    $r = kw_save_subscriber($email);
+    $msg = $r === 'exists' ? 'Already subscribed!' : 'Subscribed to event alerts!';
+    echo json_encode(['success'=>true,'message'=>$msg]);
+    exit;
+}
 ?>
 <?php include __DIR__ . '/public/layout/header.php'; ?>
 
@@ -36,40 +47,54 @@ $terms  = kw_academic_terms();
           $tc = $typeColors[$ev['category'] ?? ''] ?? ['#f5f5f5','#333'];
           $isPast = $evDate < new DateTime('today');
         ?>
-        <div class="card-modern mb-4 reveal <?= $isPast?'opacity-50':'' ?>">
-          <div class="row g-0">
-            <div class="col-auto d-flex">
-              <div class="d-flex flex-column align-items-center justify-content-center px-4 text-white rounded-start-4" style="min-width:90px;background:var(--green-dark)">
-                <div style="font-size:2rem;font-weight:900;line-height:1"><?= $evDate->format('d') ?></div>
-                <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;opacity:.9"><?= $evDate->format('M') ?></div>
-                <div style="font-size:.75rem;opacity:.75"><?= $evDate->format('Y') ?></div>
+        <a href="<?= $appBase ?>/event-detail.php?id=<?= (int)$ev['id'] ?>" class="text-decoration-none">
+          <div class="card-modern mb-4 reveal <?= $isPast?'opacity-50':'' ?>" style="cursor:pointer">
+            <div class="row g-0">
+              <div class="col-auto d-flex">
+                <div class="d-flex flex-column align-items-center justify-content-center px-4 text-white rounded-start-4" style="min-width:90px;background:var(--green-dark)">
+                  <div style="font-size:2rem;font-weight:900;line-height:1"><?= $evDate->format('d') ?></div>
+                  <div style="font-size:.8rem;text-transform:uppercase;letter-spacing:.5px;opacity:.9"><?= $evDate->format('M') ?></div>
+                  <div style="font-size:.75rem;opacity:.75"><?= $evDate->format('Y') ?></div>
+                </div>
               </div>
-            </div>
-            <div class="col p-4">
-              <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
-                <div>
-                  <span class="event-type mb-2" style="background:<?= $tc[0] ?>;color:<?= $tc[1] ?>">
-                    <?= htmlspecialchars($ev['category'] ?? 'Event') ?>
-                  </span>
-                  <h5 class="fw-bold mb-2"><?= htmlspecialchars($ev['title']) ?></h5>
-                  <p class="text-muted small mb-2"><?= htmlspecialchars($ev['description'] ?? '') ?></p>
-                  <div class="event-meta">
-                    <?php if (!empty($ev['event_time'])): ?>
-                    <span><i class="bi bi-clock text-success"></i><?= date('g:i A',strtotime($ev['event_time'])) ?></span>
+              <div class="col p-4">
+                <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+                  <div>
+                    <span class="event-type mb-2" style="background:<?= $tc[0] ?>;color:<?= $tc[1] ?>">
+                      <?= htmlspecialchars($ev['category']) ?>
+                    </span>
+                    <h5 class="fw-bold mb-2"><?= htmlspecialchars($ev['title']) ?></h5>
+                    <p class="text-muted small mb-2"><?= htmlspecialchars(mb_strimwidth($ev['description'] ?? '',0,120,'…')) ?></p>
+                    <div class="event-meta">
+                      <?php if (!empty($ev['event_time'])): ?>
+                      <span><i class="bi bi-clock text-success"></i><?= date('g:i A',strtotime($ev['event_time'])) ?></span>
+                      <?php endif; ?>
+                      <?php if (!empty($ev['location'])): ?>
+                      <span><i class="bi bi-geo-alt text-success"></i><?= htmlspecialchars($ev['location']) ?></span>
+                      <?php endif; ?>
+                    </div>
+                  </div>
+                  <div class="d-flex flex-column align-items-end gap-1">
+                    <?php if (!$isPast): ?>
+                    <span class="tag bg-success bg-opacity-10 text-success">Upcoming</span>
+                    <?php else: ?>
+                    <span class="tag bg-secondary bg-opacity-10 text-secondary">Past</span>
                     <?php endif; ?>
-                    <?php if (!empty($ev['location'])): ?>
-                    <span><i class="bi bi-geo-alt text-success"></i><?= htmlspecialchars($ev['location']) ?></span>
-                    <?php endif; ?>
+                    <span class="text-muted small"><i class="bi bi-chevron-right"></i>Details</span>
                   </div>
                 </div>
-                <?php if (!$isPast): ?>
-                <span class="tag bg-success bg-opacity-10 text-success">Upcoming</span>
-                <?php endif; ?>
               </div>
             </div>
           </div>
-        </div>
+        </a>
         <?php endforeach; ?>
+
+        <?php if (empty($events)): ?>
+        <div class="text-center py-5">
+          <i class="bi bi-calendar-event fs-1 text-muted d-block mb-3"></i>
+          <p class="text-muted">No upcoming events scheduled. Check back soon!</p>
+        </div>
+        <?php endif; ?>
       </div>
 
       <!-- Sidebar: Academic Calendar + Subscribe -->
@@ -85,8 +110,7 @@ $terms  = kw_academic_terms();
               <?= date('d M', strtotime($t['start_date'])) ?> — <?= date('d M Y', strtotime($t['end_date'])) ?>
             </div>
           </div>
-          <?php endforeach; else: ?>
-          <?php foreach ([['Term 1','Jan 20','Apr 4'],['Term 2','May 5','Aug 15'],['Term 3','Sep 1','Nov 28']] as $t): ?>
+          <?php endforeach; else: foreach ([['Term 1','Jan 20','Apr 4'],['Term 2','May 5','Aug 15'],['Term 3','Sep 1','Nov 28']] as $t): ?>
           <div class="mb-3 pb-3 border-bottom">
             <div class="fw-semibold small"><?= $t[0] ?> <?= date('Y') ?></div>
             <div class="text-muted" style="font-size:.8rem"><?= $t[1] ?> — <?= $t[2] ?> <?= date('Y') ?></div>
@@ -113,9 +137,10 @@ $terms  = kw_academic_terms();
         <div class="rounded-4 p-4 reveal" style="background:linear-gradient(135deg,var(--green-dark),var(--green))">
           <h5 class="fw-bold text-white mb-2"><i class="bi bi-bell-fill text-warning me-2"></i>Get Event Alerts</h5>
           <p class="small mb-3" style="color:rgba(255,255,255,.8)">Subscribe to receive school event reminders via email.</p>
-          <form onsubmit="event.preventDefault();this.innerHTML='<p class=\'text-white text-center\'>✅ Subscribed!</p>'">
-            <input type="email" class="form-control-kw mb-2" placeholder="Your email address" required>
-            <button type="submit" class="btn-kw-gold w-100 justify-content-center" style="font-size:.85rem">
+          <form id="subscribeForm">
+            <input type="email" name="email" class="form-control-kw mb-2" placeholder="Your email address" required>
+            <div id="subMsg" class="small fw-semibold mb-2" style="display:none"></div>
+            <button type="submit" id="subBtn" class="btn-kw-gold w-100 justify-content-center" style="font-size:.85rem">
               <i class="bi bi-bell"></i>Subscribe
             </button>
           </form>
@@ -125,5 +150,35 @@ $terms  = kw_academic_terms();
     </div>
   </div>
 </section>
+
+<script>
+document.getElementById('subscribeForm')?.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('subBtn');
+  const msg = document.getElementById('subMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Subscribing…';
+  const fd = new FormData(this);
+  try {
+    const res = await fetch('', { method:'POST', body:fd });
+    const json = await res.json();
+    if (json.success) {
+      this.style.display = 'none';
+      msg.style.display = 'block';
+      msg.style.color = '#fff';
+      msg.textContent = 'Subscribed!';
+    } else {
+      msg.style.display = 'block';
+      msg.style.color = '#ffe082';
+      msg.textContent = json.message;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-bell"></i>Subscribe';
+    }
+  } catch {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-bell"></i>Subscribe';
+  }
+});
+</script>
 
 <?php include __DIR__ . '/public/layout/footer.php'; ?>
