@@ -5,6 +5,13 @@
  * Data is loaded by AdmissionsController in js/pages/admissions.js.
  */
 $roleCategory = $roleCategory ?? 'viewer';
+if (!isset($appBase)) {
+    $p = $_SERVER['SCRIPT_NAME'] ?? '';
+    $appBase = rtrim(dirname(dirname(dirname($p))), '/');
+    if ($appBase === '.' || $appBase === '/') {
+        $appBase = '';
+    }
+}
 ?>
 
 <div data-page="admissions" data-role="<?= htmlspecialchars($roleCategory) ?>">
@@ -202,6 +209,30 @@ $roleCategory = $roleCategory ?? 'viewer';
                             </select>
                         </div>
                         <div class="col-md-4">
+                            <label class="form-label fw-semibold">Application Source</label>
+                            <select name="application_source" class="form-select">
+                                <option value="physical">Physical / Front Office</option>
+                                <option value="online">Online</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Intake Type</label>
+                            <select name="admission_category" id="admissionCategorySelect" class="form-select">
+                                <option value="standard">Standard Admission</option>
+                                <option value="nursery_term_1">Nursery Term 1 Intake</option>
+                                <option value="nursery_term_3">Nursery Term 3 Intake</option>
+                            </select>
+                            <small class="text-muted">Nursery intakes use the same workflow but are reported separately.</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Target Term</label>
+                            <select name="target_term_id" id="targetTermSelect" class="form-select">
+                                <option value="">Auto / Current Term</option>
+                                <option value="1">Term 1</option>
+                                <option value="3">Term 3</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
                             <label class="form-label fw-semibold">Previous School</label>
                             <input type="text" name="previous_school" class="form-control"
                                    placeholder="Name of last school attended">
@@ -219,8 +250,7 @@ $roleCategory = $roleCategory ?? 'viewer';
                                 <option value="">Select Parent/Guardian</option>
                             </select>
                             <small class="text-muted">
-                                Parent must already exist in the system.
-                                <a href="#" class="text-success ms-1" onclick="alert('Navigate to Parents module to add a new parent first.')">Add parent?</a>
+                                Parent must already exist in the system. Use the Parents module before submitting this application if the guardian is missing.
                             </small>
                         </div>
                     </div>
@@ -375,8 +405,50 @@ $roleCategory = $roleCategory ?? 'viewer';
     </div>
 </div>
 
+<div class="modal fade" id="directorConfirmationModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="directorConfirmationForm">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>Director Confirmation</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="application_id" id="directorConfirmationApplicationId">
+                    <p class="text-muted mb-3">Confirm this learner's admission record after enrollment has been completed by the office.</p>
+                    <label class="form-label fw-semibold">Confirmation Notes</label>
+                    <textarea name="notes" class="form-control" rows="3" placeholder="Optional review notes"></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">
+                        <i class="bi bi-check2-circle me-1"></i>Confirm Enrolled Record
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 
-<script src="<?= $appBase ?>/js/pages/admissions.js"></script>
+<!-- Generic Confirm Modal -->
+<div class="modal fade" id="admissionsConfirmModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title" id="admissionsConfirmTitle">Confirm</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p id="admissionsConfirmMessage" class="mb-0"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="admissionsConfirmOk">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 // Grade-specific document fields and interview note
 (function () {
@@ -410,3 +482,5 @@ $roleCategory = $roleCategory ?? 'viewer';
     }
 })();
 </script>
+
+<script src="<?= $appBase ?>/js/pages/admissions.js?v=<?= time() ?>"></script>

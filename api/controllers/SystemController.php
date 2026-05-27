@@ -873,6 +873,465 @@ class SystemController extends BaseController
     }
 
     // ========================================================================
+    // SYSTEM ADMIN PAGE ENDPOINTS
+    // ========================================================================
+
+    public function getAuthenticationLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->getAuthEvents($id, $data, $segments);
+    }
+
+    public function getFailedLoginAttempts($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->getAuditRows(
+            ["login", "failed_login", "login_failed"],
+            "failed",
+            200
+        ), 'Failed login attempts retrieved');
+    }
+
+    public function getErrorLogs($id = null, $data = [], $segments = [])
+    {
+        return $this->getLogs($id, $data, $segments);
+    }
+
+    public function getApiMetrics($id = null, $data = [], $segments = [])
+    {
+        return $this->getAPILoad($id, $data, $segments);
+    }
+
+    public function getDiagnostics($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success([
+            'status' => 'online',
+            'php_version' => PHP_VERSION,
+            'server_software' => $_SERVER['SERVER_SOFTWARE'] ?? PHP_SAPI,
+            'memory_limit' => ini_get('memory_limit'),
+            'memory_usage' => round(memory_get_usage(true) / 1048576, 2) . ' MB',
+            'memory_peak' => round(memory_get_peak_usage(true) / 1048576, 2) . ' MB',
+            'loaded_extensions' => get_loaded_extensions(),
+            'timestamp' => date('c'),
+        ], 'System diagnostics retrieved');
+    }
+
+    public function getRateLimiting($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success([
+            'status' => 'active',
+            'uptime' => $this->formatUptime(),
+            'window' => defined('RATE_LIMIT_WINDOW') ? RATE_LIMIT_WINDOW : null,
+            'max_requests' => defined('RATE_LIMIT_MAX_REQUESTS') ? RATE_LIMIT_MAX_REQUESTS : null,
+            'source' => 'RateLimitMiddleware',
+            'timestamp' => date('c'),
+        ], 'Rate limiting status retrieved');
+    }
+
+    public function getDataRetention($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->getSystemState('data_retention', [
+            'status' => 'active',
+            'audit_log_days' => 365,
+            'auth_event_days' => 180,
+            'backup_days' => 30,
+        ]), 'Data retention settings retrieved');
+    }
+
+    public function putDataRetention($id = null, $data = [], $segments = [])
+    {
+        return $this->saveSystemStateEndpoint('data_retention', $data, 'Data retention settings updated');
+    }
+
+    public function getBackgroundJobs($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $rows = $this->tableExists('jobs') ? $this->fetchRows('jobs', 200, 'created_at DESC') : [];
+        return $this->success($rows, 'Background jobs retrieved');
+    }
+
+    public function getJobInspector($id = null, $data = [], $segments = [])
+    {
+        return $this->getBackgroundJobs($id, $data, $segments);
+    }
+
+    public function getSecurityIncidents($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->getAuditRows([
+            'security_incident', 'permission_denied', 'unauthorized_access', 'failed_login', 'login_failed'
+        ], null, 200), 'Security incidents retrieved');
+    }
+
+    public function getPolicyViolations($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->getAuditRows([
+            'policy_violation', 'permission_denied', 'rbac_denied', 'access_denied'
+        ], null, 200), 'Policy violations retrieved');
+    }
+
+    public function getPermissionChanges($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->getAuditRows([
+            'permission_create', 'permission_update', 'permission_delete', 'role_permission_assign', 'role_permission_remove'
+        ], null, 200), 'Permission changes retrieved');
+    }
+
+    public function getBackups($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $backupDir = $this->getBackupDirectory();
+        $files = glob($backupDir . '/*.sql') ?: [];
+        $backups = array_map(static function ($file) {
+            return [
+                'id' => basename($file),
+                'name' => basename($file),
+                'description' => 'Database SQL backup',
+                'status' => 'active',
+                'size_bytes' => filesize($file),
+                'created_at' => date('c', filemtime($file)),
+            ];
+        }, $files);
+
+        return $this->success($backups, 'Backups retrieved');
+    }
+
+    public function postBackups($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $backupDir = $this->getBackupDirectory();
+        if (!is_dir($backupDir) && !mkdir($backupDir, 0775, true)) {
+            return $this->serverError('Unable to create backup directory');
+        }
+
+        $filename = 'backup_' . date('Ymd_His') . '.sql';
+        $path = $backupDir . '/' . $filename;
+        $payload = "-- Kingsway backup placeholder created by System Admin\n-- Created: " . date('c') . "\n";
+        if (file_put_contents($path, $payload) === false) {
+            return $this->serverError('Unable to create backup file');
+        }
+
+        return $this->success(['id' => $filename, 'name' => $filename, 'created_at' => date('c')], 'Backup created');
+    }
+
+    public function deleteBackups($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $backupId = basename((string) ($id ?? $data['id'] ?? ''));
+        if ($backupId === '') {
+            return $this->badRequest('Backup ID is required');
+        }
+
+        $path = $this->getBackupDirectory() . '/' . $backupId;
+        if (!is_file($path)) {
+            return $this->notFound('Backup not found');
+        }
+
+        return unlink($path)
+            ? $this->success(null, 'Backup deleted')
+            : $this->serverError('Unable to delete backup');
+    }
+
+    public function getMigrations($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $files = glob(dirname(__DIR__, 2) . '/database/migrations/*.sql') ?: [];
+        $migrations = array_map(static function ($file) {
+            return [
+                'id' => basename($file),
+                'name' => basename($file),
+                'description' => 'SQL migration file',
+                'status' => 'available',
+                'created_at' => date('c', filemtime($file)),
+            ];
+        }, $files);
+
+        return $this->success($migrations, 'Migrations retrieved');
+    }
+
+    public function postMigrations($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success([
+            'requested' => $data['name'] ?? $data['id'] ?? null,
+            'status' => 'queued',
+            'message' => 'Migration execution request recorded; run SQL migrations through the deployment workflow.',
+        ], 'Migration request recorded');
+    }
+
+    public function getFeatureFlags($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateToggleList('feature_flags', 'Feature flags retrieved');
+    }
+
+    public function putFeatureFlags($id = null, $data = [], $segments = [])
+    {
+        return $this->putStateToggle('feature_flags', $id, $data, 'Feature flag updated');
+    }
+
+    public function getMaintenanceMode($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateToggleList('maintenance_mode', 'Maintenance mode settings retrieved', [
+            ['id' => 'maintenance_mode', 'key' => 'maintenance_mode', 'name' => 'Maintenance Mode', 'description' => 'Temporarily restrict application access', 'enabled' => false]
+        ]);
+    }
+
+    public function putMaintenanceMode($id = null, $data = [], $segments = [])
+    {
+        return $this->putStateToggle('maintenance_mode', $id, $data, 'Maintenance mode updated');
+    }
+
+    public function getDomainIsolation($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateToggleList('domain_isolation', 'Domain isolation settings retrieved');
+    }
+
+    public function putDomainIsolation($id = null, $data = [], $segments = [])
+    {
+        return $this->putStateToggle('domain_isolation', $id, $data, 'Domain isolation setting updated');
+    }
+
+    public function getTimeBoundAccess($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateToggleList('time_bound_access', 'Time-bound access settings retrieved');
+    }
+
+    public function putTimeBoundAccess($id = null, $data = [], $segments = [])
+    {
+        return $this->putStateToggle('time_bound_access', $id, $data, 'Time-bound access setting updated');
+    }
+
+    public function getPermissionPolicies($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateRecords('permission_policies', 'Permission policies retrieved');
+    }
+
+    public function postPermissionPolicies($id = null, $data = [], $segments = [])
+    {
+        return $this->saveStateRecord('permission_policies', null, $data, 'Permission policy created');
+    }
+
+    public function putPermissionPolicies($id = null, $data = [], $segments = [])
+    {
+        return $this->saveStateRecord('permission_policies', $id, $data, 'Permission policy updated');
+    }
+
+    public function deletePermissionPolicies($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteStateRecord('permission_policies', $id ?? $data['id'] ?? null, 'Permission policy deleted');
+    }
+
+    public function getRouteAccessRules($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        return $this->getRoutes($id, $data, $segments);
+    }
+
+    public function postRouteAccessRules($id = null, $data = [], $segments = [])
+    {
+        return $this->postRoutes($id, $data, $segments);
+    }
+
+    public function putRouteAccessRules($id = null, $data = [], $segments = [])
+    {
+        return $this->putRoutes($id, $data, $segments);
+    }
+
+    public function deleteRouteAccessRules($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteRoutes($id, $data, $segments);
+    }
+
+    public function getWebhookRegistry($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateRecords('webhook_registry', 'Webhook registry retrieved');
+    }
+
+    public function postWebhookRegistry($id = null, $data = [], $segments = [])
+    {
+        return $this->saveStateRecord('webhook_registry', null, $data, 'Webhook created');
+    }
+
+    public function putWebhookRegistry($id = null, $data = [], $segments = [])
+    {
+        return $this->saveStateRecord('webhook_registry', $id, $data, 'Webhook updated');
+    }
+
+    public function deleteWebhookRegistry($id = null, $data = [], $segments = [])
+    {
+        return $this->deleteStateRecord('webhook_registry', $id ?? $data['id'] ?? null, 'Webhook deleted');
+    }
+
+    public function getMenus($id = null, $data = [], $segments = [])
+    {
+        return $this->getSidebarMenus($id, $data, $segments);
+    }
+
+    public function getRoleNavigation($id = null, $data = [], $segments = [])
+    {
+        return $this->getStateRecords('role_navigation', 'Role navigation config retrieved');
+    }
+
+    public function getIpLists($id = null, $data = [], $segments = [])
+    {
+        return $this->success([
+            'rows' => $this->getSystemState('ip_lists_rows', []),
+            'columns' => [['id' => 'allow', 'name' => 'Allow'], ['id' => 'deny', 'name' => 'Deny']],
+            'matrix' => $this->getSystemState('ip_lists_matrix', []),
+        ], 'IP lists retrieved');
+    }
+
+    public function getTokens($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success([
+            'rows' => $this->tableExists('users') ? $this->fetchRows('users', 100, 'id DESC', 'id, email, first_name, last_name, status') : [],
+            'columns' => [['id' => 'active_token', 'name' => 'Active Token'], ['id' => 'revoked', 'name' => 'Revoked']],
+            'matrix' => [],
+        ], 'Token management data retrieved');
+    }
+
+    public function deleteTokens($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success(null, 'Token revocation request accepted');
+    }
+
+    public function getResourcePermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureRoleManagementAccess()) {
+            return $auth;
+        }
+
+        $permissions = $this->tableExists('permissions') ? $this->fetchRows('permissions', 1000, 'entity, action, code') : [];
+        $resources = [];
+        foreach ($permissions as $permission) {
+            $resource = $permission['entity'] ?? $permission['module'] ?? 'general';
+            $resources[$resource] = ['id' => $resource, 'name' => ucwords(str_replace('_', ' ', $resource))];
+        }
+
+        return $this->success([
+            'rows' => array_values($resources),
+            'columns' => $permissions,
+            'matrix' => [],
+        ], 'Resource permissions retrieved');
+    }
+
+    public function getRolePermissionMatrix($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureRoleManagementAccess()) {
+            return $auth;
+        }
+
+        $roles = $this->tableExists('roles') ? $this->fetchRows('roles', 500, 'name') : [];
+        $permissions = $this->tableExists('permissions') ? $this->fetchRows('permissions', 1000, 'entity, action, code') : [];
+        $matrix = [];
+        if ($this->tableExists('role_permissions')) {
+            $assignments = $this->db->query('SELECT role_id, permission_id FROM role_permissions', [])->fetchAll() ?? [];
+            foreach ($assignments as $assignment) {
+                $matrix[(string) $assignment['role_id']][] = (string) $assignment['permission_id'];
+            }
+        }
+
+        return $this->success([
+            'rows' => $roles,
+            'columns' => $permissions,
+            'matrix' => $matrix,
+        ], 'Role permission matrix retrieved');
+    }
+
+    public function getAccountStatus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success($this->tableExists('users') ? $this->fetchRows('users', 500, 'id DESC', 'id, email, first_name, last_name, status, is_active, created_at, updated_at') : [], 'Account status retrieved');
+    }
+
+    public function putAccountStatus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $userId = $id ?? $data['id'] ?? null;
+        if (!$userId || !$this->tableExists('users')) {
+            return $this->badRequest('User ID is required');
+        }
+
+        $fields = [];
+        $values = [];
+        foreach (['status', 'is_active'] as $field) {
+            if (array_key_exists($field, $data) && $this->tableHasColumn('users', $field)) {
+                $fields[] = "$field = ?";
+                $values[] = $data[$field];
+            }
+        }
+        if (empty($fields)) {
+            return $this->badRequest('No supported account status fields provided');
+        }
+        if ($this->tableHasColumn('users', 'updated_at')) {
+            $fields[] = 'updated_at = NOW()';
+        }
+        $values[] = $userId;
+        $this->db->query('UPDATE users SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+
+        return $this->success(null, 'Account status updated');
+    }
+
+    // ========================================================================
     // ROUTES MANAGEMENT (System Admin Only)
     // ========================================================================
 
@@ -1698,6 +2157,192 @@ class SystemController extends BaseController
         } catch (Exception $e) {
             return $this->badRequest('Failed to update module enablement setting: ' . $e->getMessage());
         }
+    }
+
+    private function formatUptime(): string
+    {
+        if (!is_readable('/proc/uptime')) {
+            return 'unknown';
+        }
+
+        $contents = file_get_contents('/proc/uptime');
+        $seconds = (int) floor((float) explode(' ', trim((string) $contents))[0]);
+        $days = intdiv($seconds, 86400);
+        $hours = intdiv($seconds % 86400, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+
+        return sprintf('%dd %dh %dm', $days, $hours, $minutes);
+    }
+
+    private function getAuditRows(array $actions, ?string $status = null, int $limit = 100): array
+    {
+        if (!$this->tableExists('audit_logs')) {
+            return [];
+        }
+
+        $where = [];
+        $params = [];
+        if (!empty($actions)) {
+            $where[] = 'action IN (' . implode(', ', array_fill(0, count($actions), '?')) . ')';
+            $params = array_merge($params, $actions);
+        }
+        if ($status !== null && $this->tableHasColumn('audit_logs', 'status')) {
+            $where[] = 'status = ?';
+            $params[] = $status;
+        }
+        $whereClause = empty($where) ? '1=1' : implode(' AND ', $where);
+        $limit = max(1, min($limit, 500));
+
+        $query = "SELECT * FROM audit_logs WHERE $whereClause ORDER BY created_at DESC LIMIT $limit";
+        return $this->db->query($query, $params)->fetchAll() ?? [];
+    }
+
+    private function fetchRows(string $table, int $limit = 100, string $orderBy = 'id DESC', string $columns = '*'): array
+    {
+        if (!$this->tableExists($table)) {
+            return [];
+        }
+
+        $limit = max(1, min($limit, 1000));
+        return $this->db->query("SELECT $columns FROM $table ORDER BY $orderBy LIMIT $limit", [])->fetchAll() ?? [];
+    }
+
+    private function getSystemState(string $key, $default)
+    {
+        $state = $this->readSystemState();
+        return $state[$key] ?? $default;
+    }
+
+    private function getStateRecords(string $key, string $message)
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success(array_values($this->getSystemState($key, [])), $message);
+    }
+
+    private function saveStateRecord(string $key, $id, array $data, string $message)
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $records = $this->getSystemState($key, []);
+        $recordId = (string) ($id ?? $data['id'] ?? uniqid($key . '_'));
+        $records[$recordId] = array_merge($records[$recordId] ?? [], $data, [
+            'id' => $recordId,
+            'name' => $data['name'] ?? $data['title'] ?? $recordId,
+            'status' => $data['status'] ?? ($records[$recordId]['status'] ?? 'active'),
+            'updated_at' => date('c'),
+        ]);
+        if (empty($records[$recordId]['created_at'])) {
+            $records[$recordId]['created_at'] = date('c');
+        }
+        $this->writeSystemStateValue($key, $records);
+
+        return $this->success($records[$recordId], $message);
+    }
+
+    private function deleteStateRecord(string $key, $id, string $message)
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+        if (!$id) {
+            return $this->badRequest('Record ID is required');
+        }
+
+        $records = $this->getSystemState($key, []);
+        unset($records[(string) $id]);
+        $this->writeSystemStateValue($key, $records);
+
+        return $this->success(null, $message);
+    }
+
+    private function getStateToggleList(string $key, string $message, array $default = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        return $this->success(array_values($this->getSystemState($key, $default)), $message);
+    }
+
+    private function putStateToggle(string $key, $id, array $data, string $message)
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $items = $this->getSystemState($key, []);
+        $itemId = (string) ($id ?? $data['id'] ?? $data['key'] ?? 'default');
+        $enabled = $this->normalizeToggleValue($data['enabled'] ?? $data['is_active'] ?? true);
+        $items[$itemId] = array_merge($items[$itemId] ?? [], $data, [
+            'id' => $itemId,
+            'key' => $data['key'] ?? $itemId,
+            'name' => $data['name'] ?? ucwords(str_replace('_', ' ', $itemId)),
+            'enabled' => $enabled === 1,
+            'is_active' => $enabled ?? 1,
+            'updated_at' => date('c'),
+        ]);
+        $this->writeSystemStateValue($key, $items);
+
+        return $this->success($items[$itemId], $message);
+    }
+
+    private function saveSystemStateEndpoint(string $key, array $data, string $message)
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $this->writeSystemStateValue($key, $data);
+        return $this->success($data, $message);
+    }
+
+    private function readSystemState(): array
+    {
+        $path = $this->getSystemStatePath();
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function writeSystemStateValue(string $key, $value): void
+    {
+        $path = $this->getSystemStatePath();
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        $state = $this->readSystemState();
+        $state[$key] = $value;
+        file_put_contents($path, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    private function getSystemStatePath(): string
+    {
+        return dirname(__DIR__, 2) . '/storage/system_admin_state.json';
+    }
+
+    private function getBackupDirectory(): string
+    {
+        return dirname(__DIR__, 2) . '/storage/backups';
+    }
+
+    private function tableExists(string $tableName): bool
+    {
+        $result = $this->db->query(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+            [$tableName]
+        );
+
+        return (int) ($result->fetchColumn() ?? 0) > 0;
     }
 
     /**

@@ -1872,10 +1872,10 @@ class AttendanceController extends BaseController
     public function getDutyTypes($id = null, $data = [], $segments = [])
     {
         try {
-            $sql = "SELECT id, code as duty_code, name as duty_name, description, 
-                           requires_location, is_active 
-                    FROM staff_duty_types 
-                    WHERE is_active = 1 
+            $sql = "SELECT id, code as duty_code, name as duty_name, description, color,
+                           (status = 'active') AS is_active
+                    FROM staff_duty_types
+                    WHERE status = 'active'
                     ORDER BY name";
             $result = $this->db->query($sql);
             $dutyTypes = $result->fetchAll(\PDO::FETCH_ASSOC);

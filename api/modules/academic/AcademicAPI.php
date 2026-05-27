@@ -24,6 +24,8 @@ class AcademicAPI extends BaseAPI
     private $curriculumWorkflow;
     private $yearTransitionWorkflow;
 
+    private const STAFF_TYPE_TEACHING = 3;
+
     public function __construct()
     {
         parent::__construct('academic');
@@ -1351,6 +1353,27 @@ class AcademicAPI extends BaseAPI
     public function getYearsList($params = [])
     {
         return $this->getAcademicYears($params);
+    }
+
+    public function getAcademicYear($id)
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Academic year ID is required', 400);
+            }
+
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+            $year = $yearManager->getAcademicYear((int) $id);
+
+            if (!$year) {
+                return errorResponse('Academic year not found', 404);
+            }
+
+            return successResponse($year);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
     }
 
     public function getCurrentAcademicYear($params = [])
@@ -3186,8 +3209,8 @@ class AcademicAPI extends BaseAPI
                 $bindings[] = $search;
             }
 
-            // Teaching staff + leadership likely to handle academic assignments
-            $where[] = "(s.staff_type_id = 1 OR LOWER(s.position) REGEXP 'teacher|head|academic|deputy')";
+            // Teaching staff + leadership that handles academic assignments
+            $where[] = "(s.staff_type_id = " . self::STAFF_TYPE_TEACHING . " OR LOWER(s.position) REGEXP 'teacher|head|academic|deputy')";
             $whereClause = implode(' AND ', $where);
 
             $sql = "

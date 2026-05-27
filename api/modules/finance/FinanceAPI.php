@@ -838,20 +838,6 @@ class FinanceAPI extends BaseAPI
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'verification'], 'Payroll verified');
     }
 
-    public function approvePayroll($data)
-    {
-        $payrollId = $data['payroll_id'] ?? null;
-        $userId = $data['user_id'] ?? null;
-        $comments = $data['comments'] ?? '';
-
-        if (!$payrollId || !$userId) {
-            return formatResponse(false, null, 'Payroll ID and User ID required');
-        }
-        $stmt = $this->db->prepare("UPDATE staff_payroll SET status = 'approved' WHERE id = ?");
-        $stmt->execute([$payrollId]);
-        return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'approved'], 'Payroll approved');
-    }
-
     public function rejectPayroll($data)
     {
         $payrollId = $data['payroll_id'] ?? null;
@@ -1702,6 +1688,123 @@ class FinanceAPI extends BaseAPI
     // ========================================================================
 
     /**
+     * Validate that a staff profile has the statutory, payment and employment fields required for payroll.
+     */
+    private function getPayrollEligibilityIssues(array $staff): array
+    {
+        $checks = [
+            'staff_no' => 'Staff number',
+            'department_id' => 'Department',
+            'role_count' => 'Assigned role',
+            'basic_salary' => 'Basic salary',
+            'kra_pin' => 'KRA PIN',
+            'nssf_no' => 'NSSF number',
+            'nhif_no' => 'NHIF/SHIF number',
+            'phone' => 'Phone number',
+            'bank_name' => 'Bank name',
+            'bank_account' => 'Bank account number',
+        ];
+
+        $missing = [];
+        foreach ($checks as $field => $label) {
+            $value = $staff[$field] ?? null;
+            if ($field === 'role_count') {
+                if ((int) $value < 1) {
+                    $missing[] = $label;
+                }
+                continue;
+            }
+            if ($field === 'basic_salary') {
+                if ((float) $value <= 0) {
+                    $missing[] = $label;
+                }
+                continue;
+            }
+            if ($value === null || trim((string) $value) === '') {
+                $missing[] = $label;
+            }
+        }
+
+        return $missing;
+    }
+
+    /**
+     * Fetch the profile fields needed to verify payroll eligibility.
+     */
+    private function getPayrollEligibilityProfile($staffId): ?array
+    {
+        $sql = "SELECT
+                    s.id,
+                    s.staff_no,
+                    s.department_id,
+                    s.salary AS basic_salary,
+                    s.kra_pin,
+                    s.nssf_no,
+                    s.nhif_no,
+                    s.phone,
+                    s.bank_name,
+                    s.bank_account,
+                    COUNT(DISTINCT ur.role_id) AS role_count
+                FROM staff s
+                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                WHERE s.id = ? AND s.status = 'active'
+                GROUP BY s.id";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$staffId]);
+        $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $staff ?: null;
+    }
+
+    /**
+     * Hard payroll gate used before creating payroll records.
+     */
+    private function assertPayrollEligible($staffId)
+    {
+        $profile = $this->getPayrollEligibilityProfile($staffId);
+        if (!$profile) {
+            throw new Exception('Staff member is not active or does not exist');
+        }
+
+        $missing = $this->getPayrollEligibilityIssues($profile);
+        if (!empty($missing)) {
+            throw new Exception('Staff is not payroll eligible. Missing: ' . implode(', ', $missing));
+        }
+    }
+
+    /**
+     * Get active configured staff allowances for a payroll period.
+     */
+    private function getActiveStaffAllowancesTotal($staffId, $periodStart, $periodEnd): float
+    {
+        $sql = "SELECT COALESCE(SUM(amount), 0) AS total
+                FROM staff_allowances
+                WHERE staff_id = ?
+                  AND status = 'active'
+                  AND effective_date <= ?
+                  AND (end_date IS NULL OR end_date >= ?)";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$staffId, $periodEnd, $periodStart]);
+        return (float) $stmt->fetchColumn();
+    }
+
+    /**
+     * Get active configured staff deductions for a payroll period.
+     */
+    private function getActiveStaffDeductionsTotal($staffId, $periodStart, $periodEnd): float
+    {
+        $sql = "SELECT COALESCE(SUM(amount), 0) AS total
+                FROM staff_deductions
+                WHERE staff_id = ?
+                  AND status = 'active'
+                  AND effective_date <= ?
+                  AND (end_date IS NULL OR end_date >= ?)";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$staffId, $periodEnd, $periodStart]);
+        return (float) $stmt->fetchColumn();
+    }
+
+    /**
      * Get staff list with children info for payroll processing
      */
     public function getStaffForPayroll()
@@ -1714,18 +1817,81 @@ class FinanceAPI extends BaseAPI
                         s.first_name,
                         s.last_name,
                         s.position,
+                        s.department_id,
                         d.name AS department,
                         s.salary AS basic_salary,
                         s.status,
+                        s.kra_pin,
+                        s.nssf_no,
+                        s.nhif_no,
+                        s.phone,
+                        s.bank_name,
+                        s.bank_account,
+                        COUNT(DISTINCT ur.role_id) AS role_count,
                         (SELECT COUNT(*) FROM staff_children sc WHERE sc.staff_id = s.id) AS children_count
                     FROM staff s
                     LEFT JOIN departments d ON s.department_id = d.id
+                    LEFT JOIN user_roles ur ON ur.user_id = s.user_id
                     WHERE s.status = 'active'
+                    GROUP BY s.id
                     ORDER BY s.first_name, s.last_name";
             $stmt = $this->db->query($sql);
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            foreach ($staff as &$member) {
+                $missing = $this->getPayrollEligibilityIssues($member);
+                $member['payroll_eligible'] = empty($missing);
+                $member['payroll_missing_fields'] = $missing;
+            }
+            unset($member);
+
             return formatResponse(true, $staff, 'Staff list retrieved');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Prepare a bulk payroll preview using configured salary, allowances and deductions.
+     */
+    public function getBulkPayrollPreview($month, $year)
+    {
+        try {
+            $periodStart = sprintf('%04d-%02d-01', (int) $year, (int) $month);
+            $periodEnd = date('Y-m-t', strtotime($periodStart));
+            $staffResponse = $this->getStaffForPayroll();
+            $staffList = $staffResponse['data'] ?? [];
+            $rows = [];
+
+            foreach ($staffList as $staff) {
+                $eligible = !empty($staff['payroll_eligible']);
+                $basicSalary = (float) ($staff['basic_salary'] ?? 0);
+                $allowances = $eligible ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $otherDeductions = $eligible ? $this->getActiveStaffDeductionsTotal($staff['id'], $periodStart, $periodEnd) : 0;
+                $grossSalary = $basicSalary + $allowances;
+                $nssf = $eligible ? $this->calculateNSSF($grossSalary) : 0;
+                $nhif = $eligible ? $this->calculateNHIF($grossSalary) : 0;
+                $paye = $eligible ? $this->calculatePAYE($grossSalary - $nssf) : 0;
+                $housingLevy = $eligible ? $grossSalary * 0.015 : 0;
+                $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $otherDeductions;
+
+                $rows[] = [
+                    'staff_id' => $staff['id'],
+                    'staff_no' => $staff['staff_no'] ?? null,
+                    'staff_name' => $staff['full_name'] ?? '',
+                    'position' => $staff['position'] ?? 'Staff',
+                    'basic_salary' => $basicSalary,
+                    'allowances' => $allowances,
+                    'statutory_deductions' => $nssf + $nhif + $paye,
+                    'housing_levy' => $housingLevy,
+                    'other_deductions' => $otherDeductions,
+                    'net_salary' => $grossSalary - $totalDeductions,
+                    'payroll_eligible' => $eligible,
+                    'missing_fields' => $staff['payroll_missing_fields'] ?? [],
+                ];
+            }
+
+            return formatResponse(true, $rows, 'Bulk payroll preview prepared');
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -1737,6 +1903,8 @@ class FinanceAPI extends BaseAPI
     public function getStaffPayrollDetails($staffId)
     {
         try {
+            $this->assertPayrollEligible($staffId);
+
             // Get staff info
             $sql = "SELECT
                         s.id,
@@ -1744,9 +1912,16 @@ class FinanceAPI extends BaseAPI
                         s.first_name,
                         s.last_name,
                         s.position,
+                        s.department_id,
                         d.name AS department,
                         s.salary AS basic_salary,
-                        s.status
+                        s.status,
+                        s.kra_pin,
+                        s.nssf_no,
+                        s.nhif_no,
+                        s.phone,
+                        s.bank_name,
+                        s.bank_account
                     FROM staff s
                     LEFT JOIN departments d ON s.department_id = d.id
                     WHERE s.id = ?";
@@ -1797,26 +1972,34 @@ class FinanceAPI extends BaseAPI
             if ($academicYearId && $termId) {
                 foreach ($children as &$child) {
                     if (empty($child['fee_invoice_id'])) {
-                        $gen = $this->feeManager->generateStudentInvoice(
-                            $child['student_id'],
-                            $academicYearId,
-                            $termId,
-                            $this->getCurrentUserId()
-                        );
-                        if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
-                            $invoice = $gen['data'] ?? [];
-                            $child['fee_invoice_id'] = $invoice['id'] ?? null;
-                            $child['total_amount'] = $invoice['total_amount'] ?? 0;
-                            $child['amount_paid'] = $invoice['amount_paid'] ?? 0;
-                            $child['fee_balance'] = $invoice['balance'] ?? 0;
-                            $child['invoice_status'] = $invoice['status'] ?? null;
-                            $child['term_id'] = $invoice['term_id'] ?? $termId;
-                            $child['academic_year_id'] = $invoice['academic_year_id'] ?? $academicYearId;
-                        } else {
+                        try {
+                            $gen = $this->feeManager->generateStudentInvoice(
+                                $child['student_id'],
+                                $academicYearId,
+                                $termId,
+                                $this->getCurrentUserId()
+                            );
+                            if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
+                                $invoice = $gen['data'] ?? [];
+                                $child['fee_invoice_id'] = $invoice['id'] ?? null;
+                                $child['total_amount'] = $invoice['total_amount'] ?? 0;
+                                $child['amount_paid'] = $invoice['amount_paid'] ?? 0;
+                                $child['fee_balance'] = $invoice['balance'] ?? 0;
+                                $child['invoice_status'] = $invoice['status'] ?? null;
+                                $child['term_id'] = $invoice['term_id'] ?? $termId;
+                                $child['academic_year_id'] = $invoice['academic_year_id'] ?? $academicYearId;
+                            } else {
+                                $invoiceWarnings[] = [
+                                    'student_id' => $child['student_id'],
+                                    'staff_child_id' => $child['staff_child_id'],
+                                    'message' => $gen['message'] ?? 'Invoice not available'
+                                ];
+                            }
+                        } catch (\Exception $invoiceEx) {
                             $invoiceWarnings[] = [
                                 'student_id' => $child['student_id'],
                                 'staff_child_id' => $child['staff_child_id'],
-                                'message' => $gen['message'] ?? 'Invoice not available'
+                                'message' => 'Could not generate invoice: ' . $invoiceEx->getMessage()
                             ];
                         }
                     }
@@ -1858,9 +2041,8 @@ class FinanceAPI extends BaseAPI
             $staffId = $data['staff_id'] ?? null;
             $payrollMonth = $data['payroll_month'] ?? date('n');
             $payrollYear = $data['payroll_year'] ?? date('Y');
-            $basicSalary = $data['basic_salary'] ?? 0;
-            $allowances = $data['allowances'] ?? [];
-            $otherDeductions = $data['other_deductions'] ?? 0;
+            $manualAllowances = $data['allowances'] ?? [];
+            $manualOtherDeductions = $data['other_deductions'] ?? 0;
             $childrenDeductions = $data['children_deductions'] ?? [];
             $processedBy = $data['processed_by'] ?? null;
 
@@ -1868,10 +2050,21 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Staff ID required');
             }
 
+            $this->assertPayrollEligible($staffId);
+            $profile = $this->getPayrollEligibilityProfile($staffId);
+            $basicSalary = (float) ($profile['basic_salary'] ?? 0);
+            $payrollPeriodStart = sprintf('%04d-%02d-01', $payrollYear, $payrollMonth);
+            $payrollPeriodEnd = date('Y-m-t', strtotime($payrollPeriodStart));
+
+            $configuredAllowances = $this->getActiveStaffAllowancesTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+            $configuredDeductions = $this->getActiveStaffDeductionsTotal($staffId, $payrollPeriodStart, $payrollPeriodEnd);
+
             // Calculate totals
-            $totalAllowances = is_array($allowances)
-                ? array_sum(array_values($allowances))
-                : floatval($allowances);
+            $manualAllowanceTotal = is_array($manualAllowances)
+                ? array_sum(array_values($manualAllowances))
+                : floatval($manualAllowances);
+            $manualOtherDeductions = floatval($manualOtherDeductions);
+            $totalAllowances = $configuredAllowances + $manualAllowanceTotal;
 
             $grossSalary = $basicSalary + $totalAllowances;
 
@@ -1889,7 +2082,7 @@ class FinanceAPI extends BaseAPI
                 }
             }
 
-            $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $totalChildrenFees + $otherDeductions;
+            $totalDeductions = $nssf + $nhif + $paye + $housingLevy + $totalChildrenFees + $configuredDeductions + $manualOtherDeductions;
             $netSalary = $grossSalary - $totalDeductions;
 
             $payrollPeriod = sprintf('%04d-%02d', $payrollYear, $payrollMonth);
@@ -1926,7 +2119,7 @@ class FinanceAPI extends BaseAPI
                     $nssf,
                     $nhif,
                     $paye,
-                    $otherDeductions + $totalChildrenFees,
+                    $configuredDeductions + $manualOtherDeductions + $totalChildrenFees,
                     $totalDeductions,
                     $netSalary,
                     $existing['id']
@@ -1951,7 +2144,7 @@ class FinanceAPI extends BaseAPI
                     $nssf,
                     $nhif,
                     $paye,
-                    $otherDeductions + $totalChildrenFees,
+                    $configuredDeductions + $manualOtherDeductions + $totalChildrenFees,
                     $totalDeductions,
                     $totalDeductions,
                     $netSalary
@@ -1998,14 +2191,19 @@ class FinanceAPI extends BaseAPI
                             $invoiceRow = $invStmt->fetch(PDO::FETCH_ASSOC);
 
                             if (!$invoiceRow) {
-                                $gen = $this->feeManager->generateStudentInvoice(
-                                    $studentId,
-                                    $academicYearId,
-                                    $dedTermId,
-                                    $this->getCurrentUserId()
-                                );
-                                if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
-                                    $invoiceRow = $gen['data'] ?? null;
+                                try {
+                                    $gen = $this->feeManager->generateStudentInvoice(
+                                        $studentId,
+                                        $academicYearId,
+                                        $dedTermId,
+                                        $this->getCurrentUserId()
+                                    );
+                                    if (!empty($gen) && ($gen['status'] ?? '') === 'success') {
+                                        $invoiceRow = $gen['data'] ?? null;
+                                    }
+                                } catch (\Exception $genEx) {
+                                    // Invoice generation failed, proceed without invoice
+                                    error_log("Invoice generation failed for student {$studentId}: " . $genEx->getMessage());
                                 }
                             }
 
@@ -2078,7 +2276,7 @@ class FinanceAPI extends BaseAPI
                 'paye' => $paye,
                 'housing_levy' => $housingLevy,
                 'children_fees' => $totalChildrenFees,
-                'other_deductions' => $otherDeductions,
+                'other_deductions' => $configuredDeductions + $manualOtherDeductions,
                 'total_deductions' => $totalDeductions,
                 'net_salary' => $netSalary
             ], 'Payroll processed successfully');
@@ -2103,7 +2301,10 @@ class FinanceAPI extends BaseAPI
                         s.position,
                         d.name AS department,
                         s.bank_account,
-                        s.bank_account AS bank_account_number
+                        s.bank_account AS bank_account_number,
+                        s.kra_pin,
+                        s.nssf_no,
+                        s.nhif_no
                     FROM staff_payroll sp
                     JOIN staff s ON sp.staff_id = s.id
                     LEFT JOIN departments d ON s.department_id = d.id
@@ -2597,21 +2798,107 @@ class FinanceAPI extends BaseAPI
     }
 
     /**
+     * Approve a prepared payroll record for accountant payment release.
+     */
+    public function approvePayroll($payrollId, $approvedBy = null)
+    {
+        try {
+            $stmt = $this->db->prepare("SELECT status FROM staff_payroll WHERE id = ? LIMIT 1");
+            $stmt->execute([$payrollId]);
+            $current = $stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$current) {
+                return formatResponse(false, null, 'Payroll not found');
+            }
+            if ($current['status'] !== 'pending') {
+                return formatResponse(false, null, 'Only pending payroll can be approved');
+            }
+
+            $sql = "UPDATE staff_payroll SET status = 'approved', approved_at = NOW(), approved_by = ?, updated_at = NOW() WHERE id = ?";
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$approvedBy, $payrollId]);
+
+            return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'approved'], 'Payroll approved for payment release');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Process multiple payroll records as one backend bulk request.
+     */
+    public function processBulkPayroll($data)
+    {
+        try {
+            $staffIds = $data['staff_ids'] ?? [];
+            $month = $data['payroll_month'] ?? date('n');
+            $year = $data['payroll_year'] ?? date('Y');
+            if (!is_array($staffIds) || empty($staffIds)) {
+                return formatResponse(false, null, 'At least one staff member is required');
+            }
+
+            $processed = [];
+            $failed = [];
+            foreach ($staffIds as $staffId) {
+                $result = $this->processPayrollWithDeductions([
+                    'staff_id' => $staffId,
+                    'payroll_month' => $month,
+                    'payroll_year' => $year,
+                    'allowances' => 0,
+                    'other_deductions' => 0,
+                    'children_deductions' => [],
+                ]);
+
+                if (($result['status'] ?? '') === 'success') {
+                    $processed[] = $result['data'];
+                } else {
+                    $failed[] = [
+                        'staff_id' => $staffId,
+                        'message' => $result['message'] ?? 'Failed to process payroll'
+                    ];
+                }
+            }
+
+            return formatResponse(true, [
+                'processed' => $processed,
+                'failed' => $failed,
+                'processed_count' => count($processed),
+                'failed_count' => count($failed),
+            ], 'Bulk payroll processed');
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
      * Mark payroll as paid and record children fee payments
      */
-    public function markPayrollPaid($payrollId, $paymentRef = null)
+    public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null)
     {
         try {
             $this->db->beginTransaction();
 
+            $statusStmt = $this->db->prepare("SELECT status FROM staff_payroll WHERE id = ? LIMIT 1");
+            $statusStmt->execute([$payrollId]);
+            $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$payroll) {
+                throw new Exception('Payroll not found');
+            }
+            if ($payroll['status'] !== 'approved') {
+                throw new Exception('Payroll must be approved by the director before payment can be released');
+            }
+
+            $allowedPaymentModes = ['bank', 'cash', 'mpesa', 'airtel_money'];
+            $paymentMode = in_array($paymentMode, $allowedPaymentModes, true) ? $paymentMode : 'bank';
+
             // Update payroll status
-            $sql = "UPDATE staff_payroll SET 
-                        status = 'paid', 
+            $sql = "UPDATE staff_payroll SET
+                        status = 'paid',
                         payment_date = NOW(),
+                        payment_mode = ?,
                         payment_reference = ?
                     WHERE id = ?";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$paymentRef, $payrollId]);
+            $stmt->execute([$paymentMode, $paymentRef, $payrollId]);
 
             // Update children fee deductions status
             $dedSql = "UPDATE staff_child_fee_deductions SET status = 'deducted' WHERE payslip_id = ?";

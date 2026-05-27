@@ -41,8 +41,8 @@ const AcademicYearsController = {
   async loadData() {
     try {
       const [yearsRes, currentRes] = await Promise.all([
-        window.API.academic.getAllAcademicYears(),
-        window.API.academic.getCurrentAcademicYear(),
+        window.API.academic.listYears(),
+        window.API.academic.getCurrentYear(),
       ]);
 
       if (yearsRes?.success) {
@@ -221,7 +221,7 @@ const AcademicYearsController = {
   async setAsCurrent(yearId) {
     if (!confirm("Set this as the current academic year?")) return;
     try {
-      const res = await window.API.academic.setCurrentAcademicYear(yearId);
+      const res = await window.API.academic.setCurrentYear(yearId);
       if (res?.success) {
         this.showNotification("Current academic year updated", "success");
         await this.loadData();

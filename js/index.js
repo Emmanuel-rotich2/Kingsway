@@ -121,6 +121,17 @@ window.addEventListener('resize', function () {
 function getRouteFromUrl(url) {
     if (!url) return '';
     const value = String(url).trim();
+
+    try {
+        const parsed = new URL(value, window.location.origin);
+        const route = parsed.searchParams.get('route');
+        if (route) {
+            return route;
+        }
+    } catch (e) {
+        // Fall through to regex parsing for route fragments that are not valid URLs.
+    }
+
     const match = value.match(/[?&]route=([^&#]+)/);
     if (match && match[1]) {
         try {
@@ -129,8 +140,23 @@ function getRouteFromUrl(url) {
             return match[1];
         }
     }
-    return value;
+
+    return value.replace(/^\/+/, '');
 }
+
+function navigateWithFullPageShell(route) {
+    const normalizedRoute = getRouteFromUrl(route);
+    if (!normalizedRoute || normalizedRoute === '#') {
+        return false;
+    }
+
+    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}`;
+    return true;
+}
+
+window.AppRouter = window.AppRouter || {};
+window.AppRouter.go = navigateWithFullPageShell;
+window.navigateToRoute = navigateWithFullPageShell;
 
 function getCurrentUserRoleIds() {
     const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
@@ -282,34 +308,10 @@ window.addEventListener('click', async function(e) {
     }
 });
 
-// Navigation function for loading dashboard/pages
-async function navigateToRoute(route) {
-    const normalizedRoute = getRouteFromUrl(route);
-    const authorization = await authorizeRouteAccess(normalizedRoute);
-    if (!authorization.authorized) {
-        showNotification("You are not allowed to open that page.", NOTIFICATION_TYPES.WARNING);
-        await redirectToAllowedRoute(normalizedRoute);
-        return false;
-    }
-
-    let html = '';
-    try {
-        html = await fetchContent((window.APP_BASE || '') + `/components/dashboards/${normalizedRoute}.php`);
-    } catch {
-        try {
-            html = await fetchContent((window.APP_BASE || '') + `/pages/${normalizedRoute}.php`);
-        } catch {
-            html = "<div class='alert alert-warning'>Page not found.</div>";
-        }
-    }
-    document.getElementById('main-content-segment').innerHTML = html;
-    return true;
-}
-
-async function fetchContent(path) {
-    const res = await fetch(path);
-    if (!res.ok) throw new Error('Not found');
-    return await res.text();
+// Navigation function for dashboard/cards. The app standard is full-page shell routing
+// so PHP page scripts execute normally and old controllers cannot remain mounted.
+function navigateToRoute(route) {
+    return navigateWithFullPageShell(route);
 }
 
 // Initial load: load sidebar and default dashboard if needed
@@ -327,4 +329,5 @@ window.AppRouteAccess = {
     getCurrentUserRoleIds,
     normalizeRoute: getRouteFromUrl,
 };
+window.AppRouter.go = navigateToRoute;
 window.navigateToRoute = navigateToRoute;

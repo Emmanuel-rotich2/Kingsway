@@ -189,12 +189,13 @@ const dashboardBaseController = {
           const handler = (ev) => {
             ev.preventDefault();
             const route = el.getAttribute("data-route");
-            if (route && typeof window.navigateToRoute === "function") {
-              window.navigateToRoute(route);
-              window.history.pushState({}, "", "?route=" + route);
-            } else if (route) {
-              // Fallback to direct page navigation
-              window.location.href = `${window.APP_BASE || ''}/pages/${route}.php`;
+            if (route) {
+              const go = window.AppRouter?.go || window.navigateToRoute;
+              if (typeof go === "function") {
+                go(route);
+              } else {
+                window.location.href = `${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(route)}`;
+              }
             }
           };
           el._routeHandler = handler;

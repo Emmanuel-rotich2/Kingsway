@@ -1670,6 +1670,64 @@ class StudentsController extends BaseController
     }
 
     /**
+     * GET /api/students/special-needs
+     * List students that have recorded health conditions, disability notes, or special requirements.
+     */
+    public function getSpecialNeeds($id = null, $data = [], $segments = [])
+    {
+        try {
+            $page   = max(1, (int) ($_GET['page']  ?? $data['page']  ?? 1));
+            $limit  = max(1, min(200, (int) ($_GET['limit'] ?? $data['limit'] ?? 20)));
+            $offset = ($page - 1) * $limit;
+            $search = trim($_GET['search'] ?? $data['search'] ?? '');
+
+            $where  = ["(hr.disability_notes IS NOT NULL AND hr.disability_notes != ''
+                         OR hr.chronic_conditions IS NOT NULL AND hr.chronic_conditions != ''
+                         OR hr.allergies IS NOT NULL AND hr.allergies != '')"];
+            $params = [];
+
+            if ($search !== '') {
+                $like = '%' . $search . '%';
+                $where[] = "(s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_no LIKE ?)";
+                $params  = array_merge($params, [$like, $like, $like]);
+            }
+
+            $whereClause = implode(' AND ', $where);
+
+            $sql = "SELECT
+                        s.id, s.admission_no,
+                        CONCAT(s.first_name, ' ', COALESCE(s.middle_name,''), ' ', s.last_name) AS full_name,
+                        s.first_name, s.last_name, s.gender, s.date_of_birth, s.status,
+                        st.name AS stream_name,
+                        hr.disability_notes, hr.chronic_conditions, hr.allergies,
+                        hr.special_diet, hr.blood_group, hr.notes AS health_notes
+                    FROM students s
+                    LEFT JOIN streams st ON st.id = s.stream_id
+                    LEFT JOIN student_health_records hr ON hr.student_id = s.id
+                    WHERE s.status = 'active' AND $whereClause
+                    ORDER BY s.first_name, s.last_name
+                    LIMIT ? OFFSET ?";
+
+            $rows = $this->db->query($sql, array_merge($params, [$limit, $offset]))->fetchAll();
+
+            $countSql = "SELECT COUNT(*) FROM students s
+                         LEFT JOIN student_health_records hr ON hr.student_id = s.id
+                         WHERE s.status = 'active' AND $whereClause";
+            $total = (int) $this->db->query($countSql, $params)->fetchColumn();
+
+            return $this->success([
+                'data'        => $rows,
+                'total'       => $total,
+                'page'        => $page,
+                'per_page'    => $limit,
+                'total_pages' => (int) ceil($total / $limit),
+            ]);
+        } catch (\Exception $e) {
+            return $this->error('Failed to fetch special needs records: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Convert kebab-case to camelCase
      */
     private function toCamelCase($string)

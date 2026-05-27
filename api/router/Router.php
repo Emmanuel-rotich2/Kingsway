@@ -7,6 +7,7 @@ use App\API\Middleware\AuthMiddleware;
 use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\RBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
+use App\API\Middleware\RouteAuthorization;
 use Exception;
 
 class Router
@@ -34,7 +35,18 @@ class Router
             // 4. RBAC - Resolve user permissions from database
             RBACMiddleware::handle();
 
-            // 5. Device - Log device fingerprint and check blacklist
+            // 5. Route Authorization - Enforce DB route whitelist for registered API routes
+            $routeAuth = RouteAuthorization::enforceCurrentRequest();
+            if (!$routeAuth['success']) {
+                http_response_code($routeAuth['http_code']);
+                return [
+                    'status' => 'error',
+                    'message' => $routeAuth['message'],
+                    'code' => $routeAuth['http_code']
+                ];
+            }
+
+            // 6. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
             // ===== DELEGATE TO CONTROLLER ROUTER =====
