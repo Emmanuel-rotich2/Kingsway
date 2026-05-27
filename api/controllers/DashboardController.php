@@ -47,6 +47,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorAnnouncements($id = null, $data = [], $segments = [])
         {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $service = new DirectorAnalyticsService();
             $result = $service->getLatestAnnouncements();
@@ -63,7 +66,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorPayrollSummary($id = null, $data = [], $segments = [])
     {
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $service = new DirectorAnalyticsService();
             $total = $service->getMonthlyPayrollSummary();
@@ -81,7 +86,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorSystemStatus($id = null, $data = [], $segments = [])
     {
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $service = new DirectorAnalyticsService();
             $status = $service->getSystemHealthStatus();
@@ -101,8 +108,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorSummary($id = null, $data = [], $segments = [])
     {
-
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $kpis = $analytics->getSummaryKPIs();
@@ -123,8 +131,9 @@ class DashboardController extends BaseController
      */
     public function getPaymentsTrends($id = null, $data = [], $segments = [])
     {
-
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $trends = $analytics->getFinancialTrends();
@@ -144,8 +153,9 @@ class DashboardController extends BaseController
      */
     public function getPaymentsRevenueSources($id = null, $data = [], $segments = [])
     {
-
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $sources = $analytics->getRevenueSources();
@@ -165,8 +175,9 @@ class DashboardController extends BaseController
      */
     public function getAcademicsKpis($id = null, $data = [], $segments = [])
     {
-
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $kpis = $analytics->getAcademicKPIs();
@@ -186,8 +197,9 @@ class DashboardController extends BaseController
      */
     public function getAcademicsPerformanceMatrix($id = null, $data = [], $segments = [])
     {
-
-
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $matrix = $analytics->getPerformanceMatrix();
@@ -207,6 +219,9 @@ class DashboardController extends BaseController
      */
     public function getAttendanceTrends($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $trends = $analytics->getAttendanceTrends();
@@ -230,6 +245,9 @@ class DashboardController extends BaseController
      */
     public function getFeesByClassTerm($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $report = $analytics->getFeesByClassTerm();
@@ -248,6 +266,9 @@ class DashboardController extends BaseController
      */
     public function getAcademicKpisTable($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $rows = $analytics->getAcademicKPIsTable();
@@ -266,6 +287,9 @@ class DashboardController extends BaseController
      */
     public function getStudentDistribution($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $rows = $analytics->getStudentDistribution();
@@ -281,6 +305,9 @@ class DashboardController extends BaseController
      */
     public function getStaffDeployment($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $rows = $analytics->getStaffDeployment();
@@ -296,6 +323,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorRisks($id = null, $data = [], $segments = [])
         {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
         try {
             $analytics = new DirectorAnalyticsService();
             $risks = $analytics->getOperationalRisks();
@@ -317,7 +347,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminAuthEvents($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -335,7 +365,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminActiveSessions($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -353,7 +383,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminUptime($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -371,7 +401,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminHealthErrors($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -389,7 +419,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminHealthWarnings($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -407,7 +437,7 @@ class DashboardController extends BaseController
      */
     public function getSystemAdminAPILoad($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 2) {
+        if (!$this->hasRoleId(2)) {
             return $this->forbidden('System Admin access only');
         }
         try {
@@ -427,6 +457,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorEnrollment($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
 
         try {
             $service = new DirectorAnalyticsService();
@@ -445,6 +478,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorStaff($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
 
         try {
             $service = new DirectorAnalyticsService();
@@ -463,6 +499,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorFinance($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
 
         try {
             $service = new DirectorAnalyticsService();
@@ -481,6 +520,9 @@ class DashboardController extends BaseController
      */
     public function getDirectorAttendance($id = null, $data = [], $segments = [])
     {
+        if (!$this->hasRoleId(3)) {
+            return $this->forbidden('Director access only');
+        }
 
         try {
             $service = new DirectorAnalyticsService();
@@ -502,7 +544,14 @@ class DashboardController extends BaseController
     public function getHeadteacherFull($id = null, $data = [], $segments = [])
     {
         $allowedRoles = [5, 6, 63]; // Headteacher, Deputy Head, HOD
-        if (!in_array($this->getUserRole(), $allowedRoles)) {
+        $hasAllowedRole = false;
+        foreach ($allowedRoles as $roleId) {
+            if ($this->hasRoleId($roleId)) {
+                $hasAllowedRole = true;
+                break;
+            }
+        }
+        if (!$hasAllowedRole) {
             return $this->forbidden('Headteacher/Deputy Head access only');
         }
         try {
@@ -522,7 +571,7 @@ class DashboardController extends BaseController
      */
     public function getDeputyAcademicFull($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 6) {
+        if (!$this->hasRoleId(6)) {
             return $this->forbidden('Deputy Academic access only');
         }
         try {
@@ -540,7 +589,7 @@ class DashboardController extends BaseController
      */
     public function getDeputyDisciplineFull($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 63) {
+        if (!$this->hasRoleId(63)) {
             return $this->forbidden('Deputy Discipline access only');
         }
         try {
@@ -558,7 +607,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherOverview($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -578,7 +627,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherAttendanceToday($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -598,7 +647,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherSchedules($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -618,7 +667,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherAdmissions($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -638,7 +687,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherDiscipline($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -658,7 +707,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherCommunications($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -678,7 +727,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherAssessments($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -698,7 +747,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherPerformance($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -727,7 +776,7 @@ class DashboardController extends BaseController
      */
     public function getAccountantFinancial($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 10) {
+        if (!$this->hasRoleId(10)) {
             return $this->forbidden('Accountant access only');
         }
         try {
@@ -794,7 +843,7 @@ class DashboardController extends BaseController
      */
     public function getAccountantPayments($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 10) {
+        if (!$this->hasRoleId(10)) {
             return $this->forbidden('Accountant access only');
         }
         try {
@@ -833,7 +882,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherPendingAdmissions($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -854,7 +903,7 @@ class DashboardController extends BaseController
      */
     public function getHeadteacherDisciplineCases($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 5) {
+        if (!$this->hasRoleId(5)) {
             return $this->forbidden('Headteacher access only');
         }
         try {
@@ -878,7 +927,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherFull($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -896,7 +945,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherClasses($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -916,7 +965,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherSections($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -936,7 +985,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherAssessmentsDue($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -956,7 +1005,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherGraded($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -976,7 +1025,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherExams($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -996,7 +1045,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherLessonPlans($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -1016,7 +1065,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherPendingAssessments($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -1037,7 +1086,7 @@ class DashboardController extends BaseController
      */
     public function getSubjectTeacherExamSchedule($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 8) {
+        if (!$this->hasRoleId(8)) {
             return $this->forbidden('Subject Teacher access only');
         }
         try {
@@ -1061,7 +1110,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherFull($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1079,7 +1128,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherMyClass($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1097,7 +1146,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherAttendance($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1115,7 +1164,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherAssessments($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1133,7 +1182,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherLessonPlans($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1151,7 +1200,7 @@ class DashboardController extends BaseController
      */
     public function getClassTeacherStudents($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1171,7 +1220,7 @@ class DashboardController extends BaseController
      */
     public function getTeacherMyClass($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1194,7 +1243,7 @@ class DashboardController extends BaseController
      */
     public function getTeacherAttendanceToday($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 7) {
+        if (!$this->hasRoleId(7)) {
             return $this->forbidden('Class Teacher access only');
         }
         try {
@@ -1413,7 +1462,7 @@ class DashboardController extends BaseController
      */
     public function getInternTeacherFull($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 9) {
+        if (!$this->hasRoleId(9)) {
             return $this->forbidden('Intern Teacher access only');
         }
         try {
@@ -1431,7 +1480,7 @@ class DashboardController extends BaseController
      */
     public function getInternTeacherClasses($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 9) {
+        if (!$this->hasRoleId(9)) {
             return $this->forbidden('Intern Teacher access only');
         }
         try {
@@ -1449,7 +1498,7 @@ class DashboardController extends BaseController
      */
     public function getInternTeacherObservations($id = null, $data = [], $segments = [])
     {
-        if ($this->getUserRole() !== 9) {
+        if (!$this->hasRoleId(9)) {
             return $this->forbidden('Intern Teacher access only');
         }
         try {

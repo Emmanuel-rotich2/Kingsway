@@ -1,69 +1,172 @@
 class LogViewerController {
     constructor(config) {
-        this.config = Object.assign({ title: 'Logs', apiEndpoint: '/system/logs', columns: ['#','Timestamp','Level','Message'] }, config);
-        this.allData = []; this.init();
+        this.config = Object.assign({ title: 'Logs', apiEndpoint: '/system/logs', columns: ['#', 'Timestamp', 'Level', 'Message', 'Source', 'Actions'] }, config);
+        this.allData = [];
+        this.visibleData = [];
+        this.init();
     }
+
     async init() {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
-        this.setupEventListeners(); await this.loadData();
+        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
+            return;
+        }
+
+        this.setupEventListeners();
+        await this.loadData();
     }
+
     setupEventListeners() {
         document.getElementById('searchInput')?.addEventListener('input', () => this.filterData());
         document.getElementById('severityFilter')?.addEventListener('change', () => this.filterData());
         document.getElementById('dateFrom')?.addEventListener('change', () => this.filterData());
         document.getElementById('dateTo')?.addEventListener('change', () => this.filterData());
     }
+
     async loadData() {
         try {
-            const r = await window.API.apiCall(this.config.apiEndpoint, 'GET');
-            this.allData = r?.data || r || []; this.renderStats(this.allData); this.renderTable(this.allData);
-        } catch (e) { console.error('Load failed:', e); this.renderTable([]); }
+            const response = await window.API.apiCall(this.config.apiEndpoint, 'GET');
+            this.allData = this.unwrapList(response);
+            this.renderStats(this.allData);
+            this.renderTable(this.allData);
+        } catch (error) {
+            console.error('Load failed:', error);
+            this.allData = [];
+            this.visibleData = [];
+            this.renderStats([]);
+            this.renderError(error.message || 'Load failed');
+        }
     }
+
     renderStats(data) {
         const items = Array.isArray(data) ? data : [];
-        const el = (id, val) => { const e = document.getElementById(id); if (e) e.textContent = val; };
-        el('statTotal', items.length);
-        el('statErrors', items.filter(i => (i.level||i.severity||'').toLowerCase() === 'error').length);
-        el('statWarnings', items.filter(i => (i.level||i.severity||'').toLowerCase() === 'warning').length);
+        const setText = (id, value) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        };
+
+        setText('statTotal', items.length);
+        setText('statErrors', items.filter(item => this.getLevel(item) === 'error').length);
+        setText('statWarnings', items.filter(item => this.getLevel(item) === 'warning').length);
+
         const today = new Date().toISOString().split('T')[0];
-        el('statToday', items.filter(i => i.created_at && i.created_at.startsWith(today)).length);
+        setText('statToday', items.filter(item => this.getTimestamp(item).startsWith(today)).length);
     }
+
     renderTable(items) {
         const tbody = document.querySelector('#dataTable tbody');
-        const cols = this.config.columns.length;
-        if (!items.length) { tbody.innerHTML = '<tr><td colspan="' + cols + '" class="text-center text-muted py-4">No records found</td></tr>'; return; }
-        tbody.innerHTML = items.slice(0, 500).map((item, i) => {
-            const level = (item.level || item.severity || 'info').toLowerCase();
+        if (!tbody) return;
+
+        this.visibleData = Array.isArray(items) ? items : [];
+        const colspan = this.getColumnCount();
+
+        if (!this.visibleData.length) {
+            tbody.innerHTML = '<tr><td colspan="' + colspan + '" class="text-center text-muted py-4">No records found</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = this.visibleData.slice(0, 500).map((item, index) => {
+            const level = this.getLevel(item);
             const badge = level === 'error' ? 'danger' : level === 'warning' ? 'warning' : level === 'critical' ? 'dark' : 'info';
-            return '<tr><td>' + (i+1) + '</td><td><small>' + (item.created_at || item.timestamp || '--') + '</small></td><td><span class="badge bg-' + badge + '">' + this.esc(level) + '</span></td><td>' + this.esc(item.message || item.description || '--') + '</td><td>' + this.esc(item.source || '--') + '</td><td><button class="btn btn-sm btn-outline-primary" onclick="window._logCtrl.showDetail(' + i + ')"><i class="fas fa-eye"></i></button></td></tr>';
+            const timestamp = this.getTimestamp(item) || '--';
+            const message = item.message || item.description || item.endpoint || item.action || '--';
+            const source = item.source || item.module || item.controller || item.user_email || '--';
+
+            return '<tr>'
+                + '<td>' + (index + 1) + '</td>'
+                + '<td><small>' + this.esc(timestamp) + '</small></td>'
+                + '<td><span class="badge bg-' + badge + '">' + this.esc(level) + '</span></td>'
+                + '<td>' + this.esc(message) + '</td>'
+                + '<td>' + this.esc(source) + '</td>'
+                + '<td><button class="btn btn-sm btn-outline-primary" onclick="window._logCtrl.showDetail(' + index + ')"><i class="fas fa-eye"></i></button></td>'
+                + '</tr>';
         }).join('');
     }
+
     filterData() {
-        const s = (document.getElementById('searchInput')?.value || '').toLowerCase();
-        const sev = document.getElementById('severityFilter')?.value || '';
+        const search = (document.getElementById('searchInput')?.value || '').toLowerCase();
+        const severity = document.getElementById('severityFilter')?.value || '';
         const from = document.getElementById('dateFrom')?.value || '';
         const to = document.getElementById('dateTo')?.value || '';
-        this.renderTable(this.allData.filter(item => {
-            if (s && !JSON.stringify(item).toLowerCase().includes(s)) return false;
-            if (sev && (item.level||item.severity||'').toLowerCase() !== sev) return false;
-            if (from && (item.created_at||'') < from) return false;
-            if (to && (item.created_at||'') > to + 'T99') return false;
+
+        const filtered = this.allData.filter(item => {
+            if (search && !JSON.stringify(item).toLowerCase().includes(search)) return false;
+            if (severity && this.getLevel(item) !== severity) return false;
+
+            const timestamp = this.getTimestamp(item);
+            if (from && timestamp < from) return false;
+            if (to && timestamp > to + 'T23:59:59') return false;
+
             return true;
-        }));
+        });
+
+        this.renderTable(filtered);
     }
+
     showDetail(index) {
-        const item = this.allData[index]; if (!item) return;
-        const det = document.getElementById('detailContent');
-        if (det) det.innerHTML = '<pre class="mb-0" style="white-space:pre-wrap">' + this.esc(JSON.stringify(item, null, 2)) + '</pre>';
-        const m = document.getElementById('detailModal');
-        if (m) new bootstrap.Modal(m).show();
+        const item = this.visibleData[index];
+        if (!item) return;
+
+        const detail = document.getElementById('detailContent');
+        if (detail) {
+            detail.innerHTML = '<pre class="mb-0" style="white-space:pre-wrap">' + this.esc(JSON.stringify(item, null, 2)) + '</pre>';
+        }
+
+        const modal = document.getElementById('detailModal');
+        if (modal) bootstrap.Modal.getOrCreateInstance(modal).show();
     }
+
     exportCSV() {
         if (!this.allData.length) return;
-        const h = this.config.columns; const rows = this.allData.map(item => Object.values(item).slice(0, h.length));
-        let csv = h.join(',') + '\n' + rows.map(r => r.map(v => '"'+(v||'')+'"').join(',')).join('\n');
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
-        a.download = this.config.title.toLowerCase().replace(/\s+/g,'_') + '.csv'; a.click();
+
+        const headers = this.config.columns;
+        const rows = this.allData.map(item => Object.values(item).slice(0, headers.length));
+        const csv = headers.join(',') + '\n' + rows.map(row => row.map(value => this.csv(value)).join(',')).join('\n');
+        const link = document.createElement('a');
+
+        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        link.download = this.config.title.toLowerCase().replace(/\s+/g, '_') + '.csv';
+        link.click();
     }
-    esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+    unwrapList(response) {
+        const payload = response?.data?.data ?? response?.data ?? response;
+        if (Array.isArray(payload)) return payload;
+        if (Array.isArray(payload?.items)) return payload.items;
+        if (Array.isArray(payload?.records)) return payload.records;
+        if (Array.isArray(payload?.rows)) return payload.rows;
+        if (payload && typeof payload === 'object') return Object.values(payload).filter(value => value && typeof value === 'object');
+        return [];
+    }
+
+    renderError(message) {
+        const tbody = document.querySelector('#dataTable tbody');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="' + this.getColumnCount() + '" class="text-center text-danger py-4">' + this.esc(message) + '</td></tr>';
+        }
+    }
+
+    getLevel(item) {
+        const status = String(item?.level || item?.severity || item?.status || '').toLowerCase();
+        if (status.includes('error') || status.includes('fail')) return 'error';
+        if (status.includes('warn')) return 'warning';
+        if (status.includes('critical')) return 'critical';
+        return status || 'info';
+    }
+
+    getTimestamp(item) {
+        return String(item?.created_at || item?.timestamp || item?.updated_at || item?.date || '');
+    }
+
+    getColumnCount() {
+        return document.querySelectorAll('#dataTable thead th').length || this.config.columns.length || 1;
+    }
+
+    csv(value) {
+        return '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    }
+
+    esc(value) {
+        return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
 }

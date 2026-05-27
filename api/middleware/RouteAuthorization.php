@@ -273,9 +273,116 @@ class RouteAuthorization
     }
 
     /**
+     * Enforce authorization for the current HTTP request when the API route is registered.
+     */
+    public static function enforceCurrentRequest(): array
+    {
+        if (empty($_SERVER['auth_user'])) {
+            return [
+                'success' => true,
+                'message' => 'No authenticated user context to authorize',
+                'http_code' => 200
+            ];
+        }
+
+        $routeName = self::resolveCurrentRouteName();
+        if ($routeName === null) {
+            return [
+                'success' => true,
+                'message' => 'No registered API route matched',
+                'http_code' => 200
+            ];
+        }
+
+        $user = $_SERVER['auth_user'] ?? [];
+        $roleIds = self::extractRoleIds($user);
+        if (empty($roleIds)) {
+            return [
+                'success' => false,
+                'message' => 'No roles assigned to authenticated user.',
+                'http_code' => 403
+            ];
+        }
+
+        $userId = $user['user_id'] ?? ($user['id'] ?? null);
+        foreach ($roleIds as $roleId) {
+            if (self::isAuthorized($roleId, $routeName)) {
+                self::logAuthorizationAttempt($userId, $roleId, $routeName, true);
+                return [
+                    'success' => true,
+                    'message' => 'Authorized',
+                    'http_code' => 200
+                ];
+            }
+        }
+
+        self::logAuthorizationAttempt($userId, $roleIds[0], $routeName, false);
+        return [
+            'success' => false,
+            'message' => "Route '{$routeName}' is not available for this user.",
+            'http_code' => 403
+        ];
+    }
+
+    private static function resolveCurrentRouteName(): ?string
+    {
+        $path = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '';
+        $path = '/' . ltrim($path, '/');
+        $trimmedPath = ltrim($path, '/');
+        $segments = explode('/', $trimmedPath);
+
+        if (count($segments) > 2 && strtolower($segments[0]) === 'kingsway' && strtolower($segments[1]) === 'api') {
+            $apiPath = 'api/' . implode('/', array_slice($segments, 2));
+        } elseif (count($segments) > 1 && strtolower($segments[0]) === 'api') {
+            $apiPath = $trimmedPath;
+        } else {
+            $apiPath = null;
+        }
+
+        $candidates = array_values(array_unique(array_filter([
+            $path,
+            $trimmedPath,
+            $apiPath,
+            $apiPath ? '/' . $apiPath : null,
+        ])));
+
+        foreach ($candidates as $url) {
+            $stmt = self::getDb()->prepare(
+                "SELECT name FROM routes WHERE url = ? AND is_active = 1 LIMIT 1"
+            );
+            $stmt->execute([$url]);
+            $routeName = $stmt->fetchColumn();
+            if ($routeName) {
+                return $routeName;
+            }
+        }
+
+        return null;
+    }
+
+    private static function extractRoleIds(array $user): array
+    {
+        if (!empty($user['role_ids']) && is_array($user['role_ids'])) {
+            return array_values(array_unique(array_map('intval', $user['role_ids'])));
+        }
+
+        $roleIds = [];
+        foreach (($user['roles'] ?? []) as $role) {
+            if (is_numeric($role)) {
+                $roleIds[] = (int) $role;
+            } elseif (is_array($role) && isset($role['id'])) {
+                $roleIds[] = (int) $role['id'];
+            } elseif (is_object($role) && isset($role->id)) {
+                $roleIds[] = (int) $role->id;
+            }
+        }
+
+        return array_values(array_unique($roleIds));
+    }
+    /**
      * Log authorization attempt
-     * 
-     * @param int $user_id User ID
+     *
+     * @param int|null $user_id User ID
      * @param int $role_id Role ID
      * @param string $route Route attempted
      * @param bool $authorized Whether authorization succeeded

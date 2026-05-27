@@ -1144,8 +1144,15 @@ class UsersAPI extends BaseAPI
             // Get primary role ID (first role assigned)
             $primaryRoleId = $roleIds[0] ?? null;
 
+            if (empty($roleIds)) {
+                throw new Exception('Missing required staff payroll field: assigned role');
+            }
+
             // Determine department intelligently or use provided value
-            $departmentId = $staffInfo['department_id'] ?? ($primaryRoleId ? $this->mapRoleToDepartment($primaryRoleId) : 1);
+            $departmentId = $staffInfo['department_id'] ?? ($primaryRoleId ? $this->mapRoleToDepartment($primaryRoleId) : null);
+            if (empty($departmentId)) {
+                throw new Exception('Missing required staff payroll field: department_id');
+            }
 
             // Determine staff type intelligently or use provided value
             $staffTypeId = $staffInfo['staff_type_id'] ?? ($primaryRoleId ? $this->mapRoleToStaffType($primaryRoleId) : 2);
@@ -1153,8 +1160,25 @@ class UsersAPI extends BaseAPI
             // Determine staff category intelligently or use provided value
             $staffCategoryId = $staffInfo['staff_category_id'] ?? ($primaryRoleId ? $this->getStaffCategoryIdForRole($primaryRoleId) : null);
 
-            // Enforce mandatory payroll fields for staff (NSSF/KRA/NHIF/bank/salary)
-            $requiredPayroll = ['nssf_no', 'kra_pin', 'nhif_no', 'bank_account', 'salary'];
+            // Normalize aliases used by UI/API clients before validation.
+            if (empty($staffInfo['phone']) && !empty($staffInfo['phone_number'])) {
+                $staffInfo['phone'] = $staffInfo['phone_number'];
+            }
+            if (empty($staffInfo['bank_account']) && !empty($staffInfo['bank_account_number'])) {
+                $staffInfo['bank_account'] = $staffInfo['bank_account_number'];
+            }
+
+            // Enforce mandatory payroll fields for staff.
+            // A staff member cannot be payroll-eligible without statutory, contact, payment, department, role and salary details.
+            $requiredPayroll = [
+                'nssf_no',
+                'kra_pin',
+                'nhif_no',
+                'phone',
+                'bank_name',
+                'bank_account',
+                'salary'
+            ];
             foreach ($requiredPayroll as $pf) {
                 if (empty($staffInfo[$pf])) {
                     throw new Exception("Missing required staff payroll field: $pf");
@@ -1186,8 +1210,8 @@ class UsersAPI extends BaseAPI
             }
 
             // Insert staff record with all determined fields
-            $sql = 'INSERT INTO staff (user_id, staff_type_id, staff_category_id, staff_no, first_name, last_name, department_id, supervisor_id, position, employment_date, contract_type, nssf_no, kra_pin, nhif_no, bank_account, salary, gender, marital_status, tsc_no, address, profile_pic_url, documents_folder, status, date_of_birth, created_at, updated_at) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $sql = 'INSERT INTO staff (user_id, staff_type_id, staff_category_id, staff_no, first_name, last_name, phone, department_id, supervisor_id, position, employment_date, contract_type, nssf_no, kra_pin, nhif_no, bank_name, bank_account, salary, gender, marital_status, tsc_no, address, profile_pic_url, documents_folder, status, date_of_birth, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
@@ -1198,6 +1222,7 @@ class UsersAPI extends BaseAPI
                 $staffNo,
                 $staffInfo['first_name'] ?? $user['first_name'],
                 $staffInfo['last_name'] ?? $user['last_name'],
+                $staffInfo['phone'] ?? null,
                 $departmentId,
                 $staffInfo['supervisor_id'] ?? null,
                 $staffInfo['position'] ?? 'Staff',
@@ -1206,6 +1231,7 @@ class UsersAPI extends BaseAPI
                 $staffInfo['nssf_no'] ?? null,
                 $staffInfo['kra_pin'] ?? null,
                 $staffInfo['nhif_no'] ?? null,
+                $staffInfo['bank_name'] ?? null,
                 $staffInfo['bank_account'] ?? null,
                 $staffInfo['salary'] ?? null,
                 $staffInfo['gender'] ?? $staffInfo['gender'] ?? null,

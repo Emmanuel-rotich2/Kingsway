@@ -579,16 +579,8 @@ class MenuBuilderService
             if ($item['parent_id'] == $parentId) {
                 $children = $this->buildMenuTree($items, $item['id']);
 
-                $rawUrl = $item['url'] ?? $item['route_name'] ?? null;
-                $normalizedUrl = $rawUrl;
-                if ($rawUrl && strpos($rawUrl, 'route=') !== false) {
-                    // Extract route name from URLs like home.php?route=dashboard
-                    $query = parse_url($rawUrl, PHP_URL_QUERY);
-                    if ($query) {
-                        parse_str($query, $params);
-                        $normalizedUrl = $params['route'] ?? $rawUrl;
-                    }
-                }
+                $rawUrl = $item['route_name'] ?? $item['url'] ?? null;
+                $normalizedUrl = $this->normalizeMenuRoute($rawUrl);
 
                 // Hide dead-end placeholders: no route and no visible children.
                 $hasRoute = !empty($normalizedUrl) && $normalizedUrl !== '#';
@@ -601,6 +593,7 @@ class MenuBuilderService
                     'label' => $item['label'],
                     'icon' => $item['icon'],
                     'url' => $normalizedUrl,
+                    'route' => $hasRoute ? $normalizedUrl : null,
                     'route_url' => $item['route_url'] ?? null,
                     'domain' => $item['domain'],
                     'display_order' => $item['display_order'] ?? 0,
@@ -628,6 +621,31 @@ class MenuBuilderService
         }
 
         return $tree;
+    }
+
+    /**
+     * Normalize a menu target to the canonical route key consumed by home.php and route authorization.
+     */
+    private function normalizeMenuRoute($route): ?string
+    {
+        if (!is_string($route)) {
+            return null;
+        }
+
+        $trimmed = trim($route);
+        if ($trimmed === '' || $trimmed === '#') {
+            return $trimmed;
+        }
+
+        $query = parse_url($trimmed, PHP_URL_QUERY);
+        if ($query) {
+            parse_str($query, $params);
+            if (!empty($params['route'])) {
+                return (string) $params['route'];
+            }
+        }
+
+        return ltrim($trimmed, '/');
     }
 
     /**

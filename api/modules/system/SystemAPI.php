@@ -127,19 +127,28 @@ class SystemAPI extends BaseAPI
     // Set school configuration (direct DB access)
     public function setSchoolConfig($data)
     {
-        
+        $allowedFields = [
+            'school_name', 'school_code', 'logo_url', 'favicon_url', 'motto', 'vision',
+            'mission', 'core_values', 'about_us', 'email', 'phone', 'alternative_phone',
+            'address', 'city', 'state', 'country', 'postal_code', 'website',
+            'facebook_url', 'twitter_url', 'instagram_url', 'linkedin_url', 'youtube_url',
+            'established_year', 'principal_name', 'principal_message', 'academic_calendar_url',
+            'prospectus_url', 'student_handbook_url', 'timezone', 'currency', 'language',
+            'date_format', 'time_format', 'is_active', 'created_by', 'updated_by'
+        ];
+        $allowedMap = array_flip($allowedFields);
+        $filteredData = array_intersect_key($data, $allowedMap);
+
         if (isset($data['id'])) {
             // Update existing config
             $fields = [];
             $params = [];
-            foreach ($data as $key => $value) {
-                if ($key !== 'id') {
-                    $fields[] = "$key = ?";
-                    $params[] = $value;
-                }
+            foreach ($filteredData as $key => $value) {
+                $fields[] = "`$key` = ?";
+                $params[] = $value;
             }
             if (empty($fields)) {
-                $result = ['success' => false, 'message' => 'No fields to update'];
+                $result = ['success' => false, 'message' => 'No valid fields to update'];
             } else {
                 $params[] = $data['id'];
                 $sql = 'UPDATE school_configuration SET ' . implode(', ', $fields) . ' WHERE id = ?';
@@ -153,10 +162,15 @@ class SystemAPI extends BaseAPI
             }
         } else {
             // Create new config
-            $fields = array_keys($data);
+            if (empty($filteredData)) {
+                return ['success' => false, 'message' => 'No valid fields to create'];
+            }
+
+            $fields = array_keys($filteredData);
+            $quotedFields = array_map(fn($field) => "`$field`", $fields);
             $placeholders = array_fill(0, count($fields), '?');
-            $params = array_values($data);
-            $sql = 'INSERT INTO school_configuration (' . implode(', ', $fields) . ') VALUES (' . implode(', ', $placeholders) . ')';
+            $params = array_values($filteredData);
+            $sql = 'INSERT INTO school_configuration (' . implode(', ', $quotedFields) . ') VALUES (' . implode(', ', $placeholders) . ')';
             $stmt = $this->db->prepare($sql);
             $success = $stmt->execute($params);
             if ($success) {
@@ -171,6 +185,45 @@ class SystemAPI extends BaseAPI
     // System health check
     public function healthCheck()
     {
-        return ['success' => true, 'message' => 'System is healthy', 'timestamp' => date('c')];
+        $database = 'unknown';
+        try {
+            $this->db->query('SELECT 1');
+            $database = 'online';
+        } catch (\Throwable $e) {
+            $database = 'offline';
+        }
+
+        $load = function_exists('sys_getloadavg') ? sys_getloadavg() : null;
+        $memoryLimit = ini_get('memory_limit');
+        $memoryUsageMb = round(memory_get_usage(true) / 1048576, 2);
+        $uptime = null;
+
+        if (is_readable('/proc/uptime')) {
+            $contents = file_get_contents('/proc/uptime');
+            $seconds = (int) floor((float) explode(' ', trim((string) $contents))[0]);
+            $days = intdiv($seconds, 86400);
+            $hours = intdiv($seconds % 86400, 3600);
+            $minutes = intdiv($seconds % 3600, 60);
+            $uptime = sprintf('%dd %dh %dm', $days, $hours, $minutes);
+        }
+
+        $status = $database === 'online' ? 'healthy' : 'degraded';
+
+        return [
+            'success' => true,
+            'message' => 'System health retrieved',
+            'data' => [
+                'status' => $status,
+                'uptime' => $uptime ?? 'unknown',
+                'database' => $database,
+                'php_version' => PHP_VERSION,
+                'memory_usage' => $memoryUsageMb . ' MB',
+                'memory_limit' => $memoryLimit,
+                'cpu_usage' => is_array($load) ? round((float) $load[0], 2) : null,
+                'value1' => is_array($load) ? round((float) $load[0], 2) : 0,
+                'value2' => $memoryUsageMb,
+                'timestamp' => date('c'),
+            ],
+        ];
     }
 }

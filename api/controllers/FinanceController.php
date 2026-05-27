@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 use App\API\Modules\finance\FinanceAPI;
 use App\API\Modules\finance\PaymentReconciliationAPI;
 use App\API\Modules\finance\ExpenseManager;
+use App\API\Modules\finance\AllowanceTemplateAPI;
 use Exception;
 use App\Database\Database;
 
@@ -19,11 +20,13 @@ class FinanceController extends BaseController
 {
     private FinanceAPI $api;
     private ExpenseManager $expenseManager;
+    private AllowanceTemplateAPI $allowanceTemplateApi;
 
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
         $this->expenseManager = new ExpenseManager();
+        $this->allowanceTemplateApi = new AllowanceTemplateAPI();
     }
 
     public function index()
@@ -331,8 +334,9 @@ class FinanceController extends BaseController
     public function postPayrollsApprove($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
-        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
-        $result = $this->api->approvePayroll($data);
+        $payrollId = $data['payroll_id'] ?? $data['id'] ?? $id;
+        $approvedBy = $data['user_id'] ?? $this->getCurrentUserId();
+        $result = $this->api->approvePayroll($payrollId, $approvedBy);
         return $this->handleResponse($result);
     }
 
@@ -457,6 +461,45 @@ class FinanceController extends BaseController
     }
 
     /**
+     * GET /api/finance/bulk-payroll-preview?month=X&year=Y
+     * Prepare bulk payroll preview using configured salary, allowances and deductions
+     */
+    public function getBulkPayrollPreview($id = null, $data = [], $segments = [])
+    {
+        $month = $_GET['month'] ?? $data['month'] ?? date('n');
+        $year = $_GET['year'] ?? $data['year'] ?? date('Y');
+        $result = $this->api->getBulkPayrollPreview($month, $year);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/process-bulk-payroll
+     * Process multiple staff payroll records as one backend request
+     */
+    public function postProcessBulkPayroll($id = null, $data = [], $segments = [])
+    {
+        $payload = $data ?: $this->getRequestData();
+        $result = $this->api->processBulkPayroll($payload);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/approve-payroll
+     * Director approval before accountant payment release
+     */
+    public function postApprovePayroll($id = null, $data = [], $segments = [])
+    {
+        $payload = $data ?: $this->getRequestData();
+        $payrollId = $payload['payroll_id'] ?? null;
+        if (!$payrollId) {
+            return $this->badRequest('Payroll ID required');
+        }
+        $approvedBy = $payload['approved_by'] ?? null;
+        $result = $this->api->approvePayroll($payrollId, $approvedBy);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/finance/process-payroll-with-deductions
      * Process payroll including children school fee deductions
      */
@@ -519,12 +562,105 @@ class FinanceController extends BaseController
         }
 
         $paymentRef = $data['payment_reference'] ?? '';
-        $result = $this->api->markPayrollPaid($payrollId, $paymentRef);
+        $paymentMode = $data['payment_mode'] ?? 'bank';
+        $result = $this->api->markPayrollPaid($payrollId, $paymentRef, $paymentMode);
         return $this->handleResponse($result);
     }
 
     // ========================================
-    // SECTION 2C: Fee Invoice Generation
+    // SECTION 2C: Allowance Templates
+    // ========================================
+
+    /**
+     * GET /api/finance/allowance-templates
+     * List all allowance templates
+     */
+    public function getAllowanceTemplates($id = null, $data = [], $segments = [])
+    {
+        $filters = array_merge($_GET, $data);
+        $result = $this->allowanceTemplateApi->list($filters);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/allowance-templates/{id}
+     * Get a single allowance template
+     */
+    public function getAllowanceTemplatesGet($id = null, $data = [], $segments = [])
+    {
+        $templateId = $id ?? $data['id'] ?? null;
+        if (!$templateId) {
+            return $this->badRequest('Template ID is required');
+        }
+        $result = $this->allowanceTemplateApi->get($templateId);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/allowance-templates
+     * Create a new allowance template
+     */
+    public function postAllowanceTemplates($id = null, $data = [], $segments = [])
+    {
+        $result = $this->allowanceTemplateApi->create($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * PUT /api/finance/allowance-templates/{id}
+     * Update an allowance template
+     */
+    public function putAllowanceTemplates($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Template ID is required');
+        }
+        $result = $this->allowanceTemplateApi->update($id, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * DELETE /api/finance/allowance-templates/{id}
+     * Deactivate an allowance template
+     */
+    public function deleteAllowanceTemplates($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Template ID is required');
+        }
+        $result = $this->allowanceTemplateApi->delete($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/finance/allowance-templates/{id}/applicable-staff
+     * Preview which staff match a template's criteria
+     */
+    public function getAllowanceTemplatesApplicableStaff($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Template ID is required');
+        }
+        $result = $this->allowanceTemplateApi->getApplicableStaff($id);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/finance/allowance-templates/{id}/apply
+     * Apply a template to matching staff, bulk-creating staff_allowances rows
+     */
+    public function postAllowanceTemplatesApply($id = null, $data = [], $segments = [])
+    {
+        if (!$id) {
+            return $this->badRequest('Template ID is required');
+        }
+        $staffIds = $data['staff_ids'] ?? null;
+        $result = $this->allowanceTemplateApi->applyToStaff($id, $staffIds);
+        return $this->handleResponse($result);
+    }
+
+    // ========================================
+    // SECTION 2D: Fee Invoice Generation
     // ========================================
 
     /**

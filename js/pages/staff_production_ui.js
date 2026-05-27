@@ -51,7 +51,7 @@ const StaffProductionUI = {
       processing: true,
       serverSide: false, // Client-side for now (can enable server-side later)
       pageLength: 25,
-      order: [[2, "asc"]], // Sort by staff number
+      order: [[2, "asc"]], // Sort by staff number (column index unchanged)
       dom:
         '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>>' +
         '<"row"<"col-sm-12"tr>>' +
@@ -110,6 +110,18 @@ const StaffProductionUI = {
         { data: "department_name", defaultContent: "-" },
         { data: "position", defaultContent: "-" },
         { data: "phone", defaultContent: "-" },
+        {
+          data: null,
+          orderable: false,
+          render: function (data, type, row) {
+            if (row.payroll_eligible) {
+              return '<span class="badge bg-success"><i class="material-icons" style="font-size:12px;vertical-align:middle">verified</i> Complete</span>';
+            }
+            var pct = row.profile_completeness || 0;
+            var missing = (row.payroll_missing_fields || []).join(', ');
+            return '<span class="badge bg-danger" title="Missing: ' + missing + '"><i class="material-icons" style="font-size:12px;vertical-align:middle">warning</i> ' + pct + '%</span>';
+          },
+        },
         {
           data: "status",
           render: function (data) {
@@ -540,6 +552,9 @@ const StaffProductionUI = {
         (s) => s.staff_type_id === 1,
       ).length;
       const onLeave = staffList.filter((s) => s.status === "on_leave").length;
+      const incompleteProfiles = staffList.filter(
+        (s) => s.payroll_eligible === false,
+      ).length;
 
       $("#totalStaffCount").text(totalStaff);
       $("#teachingStaffCount").text(teachingStaff);
@@ -547,6 +562,7 @@ const StaffProductionUI = {
       $("#onLeaveCount").text(onLeave);
       $("#presentTodayCount").text(totalStaff - onLeave);
       $("#totalActiveStaff").text(totalStaff);
+      $("#incompleteProfilesCount").text(incompleteProfiles);
 
       // Update progress bars
       const leavePercentage = (onLeave / totalStaff) * 100;

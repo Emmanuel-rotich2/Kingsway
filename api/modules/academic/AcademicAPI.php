@@ -1355,6 +1355,27 @@ class AcademicAPI extends BaseAPI
         return $this->getAcademicYears($params);
     }
 
+    public function getAcademicYear($id)
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Academic year ID is required', 400);
+            }
+
+            require_once __DIR__ . '/AcademicYearManager.php';
+            $yearManager = new AcademicYearManager($this->db);
+            $year = $yearManager->getAcademicYear((int) $id);
+
+            if (!$year) {
+                return errorResponse('Academic year not found', 404);
+            }
+
+            return successResponse($year);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     public function getCurrentAcademicYear($params = [])
     {
         try {

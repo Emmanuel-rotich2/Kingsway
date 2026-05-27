@@ -225,15 +225,19 @@ class WorkflowHandler extends BaseAPI
      */
     public function completeWorkflow($instance_id, $completion_data = [])
     {
+        $startedTransaction = false;
         try {
-            $this->db->beginTransaction();
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $startedTransaction = true;
+            }
 
-            $sql = "UPDATE workflow_instances 
-                    SET status = 'completed', 
+            $sql = "UPDATE workflow_instances
+                    SET status = 'completed',
                         completed_at = NOW(),
                         data_json = JSON_SET(COALESCE(data_json, '{}'), '$.completion', :completion_data)
                     WHERE id = :instance_id";
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 'instance_id' => $instance_id,
@@ -244,16 +248,20 @@ class WorkflowHandler extends BaseAPI
             $this->logStageEntry($instance_id, 'completed', 'Workflow completed successfully');
 
             // Send completion notifications
-            $this->sendWorkflowNotification($instance_id, 'Workflow Completed', 
+            $this->sendWorkflowNotification($instance_id, 'Workflow Completed',
                 'The workflow has been completed successfully', 'stage_complete');
 
-            $this->db->commit();
+            if ($startedTransaction) {
+                $this->db->commit();
+            }
 
             $this->logAction('workflow_completed', $instance_id, 'Workflow completed');
 
             return true;
         } catch (Exception $e) {
-            $this->db->rollBack();
+            if ($startedTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             $this->logError('workflow_complete_failed', $e->getMessage());
             throw $e;
         }

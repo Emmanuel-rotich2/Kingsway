@@ -490,6 +490,19 @@
             </div>
         </div>
     </div>
+
+    <div class="col-lg-3 col-md-6">
+        <div class="card stat-card">
+            <div class="stat-icon" style="background: linear-gradient(135deg, #F44336, #E57373);">
+                <i class="material-icons" style="color: white;">assignment_late</i>
+            </div>
+            <h6 class="text-muted mb-2">Incomplete Profiles</h6>
+            <div class="d-flex align-items-baseline">
+                <h2 class="mb-0 me-2" id="incompleteProfilesCount" style="color: #F44336;">0</h2>
+                <small class="text-muted">not payroll eligible</small>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Advanced Analytics Dashboard (HR & Finance) -->
@@ -589,6 +602,12 @@
                     Contracts
                 </a>
             </li>
+            <li class="nav-item" data-role="director,headteacher,accountant,admin">
+                <a class="nav-link" data-bs-toggle="tab" href="#allowanceTemplatesTab">
+                    <i class="material-icons" style="font-size: 18px; vertical-align: middle;">tune</i>
+                    Allowance Templates
+                </a>
+            </li>
         </ul>
     </div>
     
@@ -651,6 +670,7 @@
                                 <th>Department</th>
                                 <th>Position</th>
                                 <th>Contact</th>
+                                <th>Profile</th>
                                 <th>Status</th>
                                 <th>Actions</th>
                             </tr>
@@ -909,11 +929,41 @@
                     </table>
                 </div>
             </div>
+            <!-- Allowance Templates Tab -->
+            <div class="tab-pane fade" id="allowanceTemplatesTab" data-role="director,headteacher,accountant,admin">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">Allowance Templates</h5>
+                    <button class="btn btn-primary" onclick="AllowanceTemplateController.showModal()">
+                        <i class="material-icons" style="font-size: 18px; vertical-align: middle;">add_circle</i>
+                        New Template
+                    </button>
+                </div>
+                <p class="text-muted mb-3">Configure allowance templates that can be bulk-applied to staff based on department, staff type, role, or contract type.</p>
+
+                <div class="table-responsive">
+                    <table id="allowanceTemplatesTable" class="table table-hover" style="width:100%">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Amount</th>
+                                <th>Taxable</th>
+                                <th>Department</th>
+                                <th>Staff Type</th>
+                                <th>Role</th>
+                                <th>Contract</th>
+                                <th>Matching Staff</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </div>
 </div>
-
-<!-- Floating Action Button -->
 <button class="fab d-md-none" onclick="staffManagementController.showStaffModal()">
     <i class="material-icons">add</i>
 </button>
@@ -1303,7 +1353,332 @@
 
 <!-- staff.js and staff_production_ui.js are loaded by manage_staff.php to avoid duplicates -->
 
+<!-- Allowance Template Modal -->
+<div class="modal fade" id="allowanceTemplateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header" style="background: linear-gradient(135deg, #4CAF50, #8BC34A); color: white;">
+                <h5 class="modal-title"><i class="material-icons" style="vertical-align:middle;">tune</i> <span id="templateModalTitle">New Allowance Template</span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="allowanceTemplateForm">
+                    <input type="hidden" id="templateId">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Template Name <span class="text-danger">*</span></label>
+                            <input type="text" id="templateName" class="form-control" placeholder="e.g. Teaching Staff Housing" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Allowance Type <span class="text-danger">*</span></label>
+                            <select id="templateType" class="form-select" required>
+                                <option value="">Select type</option>
+                                <option value="housing">Housing</option>
+                                <option value="transport">Transport</option>
+                                <option value="medical">Medical</option>
+                                <option value="hardship">Hardship</option>
+                                <option value="responsibility">Responsibility</option>
+                                <option value="overtime">Overtime</option>
+                                <option value="bonus">Bonus</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Amount (KES) <span class="text-danger">*</span></label>
+                            <input type="number" id="templateAmount" class="form-control" step="0.01" min="0" placeholder="5000" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Taxable?</label>
+                            <select id="templateTaxable" class="form-select">
+                                <option value="1">Yes</option>
+                                <option value="0">No</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Status</label>
+                            <select id="templateStatus" class="form-select">
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <textarea id="templateDescription" class="form-control" rows="2" placeholder="Optional description..."></textarea>
+                        </div>
+                        <div class="col-12"><hr><h6 class="text-muted">Target Criteria <small class="text-muted">(leave blank to apply to ALL staff)</small></h6></div>
+                        <div class="col-md-3">
+                            <label class="form-label">Department</label>
+                            <select id="templateDepartment" class="form-select">
+                                <option value="">All Departments</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Staff Type</label>
+                            <select id="templateStaffType" class="form-select">
+                                <option value="">All Types</option>
+                                <option value="1">Teaching</option>
+                                <option value="2">Non-Teaching</option>
+                                <option value="3">Admin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Contract Type</label>
+                            <select id="templateContractType" class="form-select">
+                                <option value="">All Contracts</option>
+                                <option value="permanent">Permanent</option>
+                                <option value="contract">Contract</option>
+                                <option value="temporary">Temporary</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Role</label>
+                            <select id="templateRole" class="form-select">
+                                <option value="">All Roles</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+                <div id="templatePreviewArea" class="mt-3" style="display:none;">
+                    <div class="alert alert-info">
+                        <i class="material-icons" style="font-size:18px;vertical-align:middle;">info</i>
+                        <span id="templatePreviewText"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-info" onclick="AllowanceTemplateController.preview()">
+                    <i class="material-icons" style="font-size:16px;vertical-align:middle;">preview</i> Preview
+                </button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="AllowanceTemplateController.save()">
+                    <i class="material-icons" style="font-size:16px;vertical-align:middle;">save</i> Save Template
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
-    // Initialization is handled by manage_staff.php after staff_production_ui.js loads
-    console.log('[Staff Management Production] Template loaded');
+var AllowanceTemplateController = {
+    templates: [],
+    departments: [],
+    roles: [],
+    table: null,
+
+    init: function() {
+        this.table = $('#allowanceTemplatesTable').DataTable({
+            responsive: true,
+            pageLength: 10,
+            order: [[0, 'asc']],
+            columns: [
+                { data: 'name' },
+                { data: 'allowance_type' },
+                { data: 'amount', render: function(d) { return 'KES ' + Number(d).toLocaleString(); } },
+                { data: 'is_taxable', render: function(d) { return d == 1 ? '<span class="badge bg-warning">Yes</span>' : '<span class="badge bg-secondary">No</span>'; } },
+                { data: 'department_name', defaultContent: '<span class="text-muted">All</span>' },
+                { data: 'staff_type_name', defaultContent: '<span class="text-muted">All</span>' },
+                { data: 'role_name', defaultContent: '<span class="text-muted">All</span>' },
+                { data: 'contract_type', defaultContent: '<span class="text-muted">All</span>' },
+                { data: 'matching_staff_count', render: function(d) { return '<span class="badge bg-info">' + (d || 0) + ' staff</span>'; } },
+                { data: 'status', render: function(d) { return d === 'active' ? '<span class="badge bg-success">Active</span>' : '<span class="badge bg-secondary">Inactive</span>'; } },
+                {
+                    data: null, orderable: false,
+                    render: function(data, type, row) {
+                        return '<div class="btn-group btn-group-sm">' +
+                            '<button class="btn btn-outline-success" onclick="AllowanceTemplateController.apply(' + row.id + ')" title="Apply to Staff"><i class="material-icons" style="font-size:16px">group_add</i></button>' +
+                            '<button class="btn btn-outline-primary" onclick="AllowanceTemplateController.edit(' + row.id + ')" title="Edit"><i class="material-icons" style="font-size:16px">edit</i></button>' +
+                            '<button class="btn btn-outline-danger" onclick="AllowanceTemplateController.deactivate(' + row.id + ')" title="Deactivate"><i class="material-icons" style="font-size:16px">block</i></button>' +
+                            '</div>';
+                    }
+                }
+            ]
+        });
+        this.loadData();
+    },
+
+    loadData: function() {
+        var self = this;
+        $.when(
+            $.ajax({ url: (window.APP_BASE || '') + '/api/finance/allowance-templates', headers: self._headers() }),
+            $.ajax({ url: (window.APP_BASE || '') + '/api/staff/departments', headers: self._headers() }),
+            $.ajax({ url: (window.APP_BASE || '') + '/api/users/roles', headers: self._headers() })
+        ).then(function(tmplResp, deptResp, roleResp) {
+            self.templates = (tmplResp[0] && tmplResp[0].data) ? tmplResp[0].data : [];
+            self.departments = (deptResp[0] && deptResp[0].data) ? (Array.isArray(deptResp[0].data) ? deptResp[0].data : deptResp[0].data.departments || []) : [];
+            self.roles = (roleResp[0] && roleResp[0].data) ? (Array.isArray(roleResp[0].data) ? roleResp[0].data : roleResp[0].data.roles || []) : [];
+
+            self.table.clear().rows.add(self.templates).draw();
+            self._populateDropdowns();
+        });
+    },
+
+    _headers: function() {
+        var h = { 'Content-Type': 'application/json' };
+        var token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+        if (token) h['Authorization'] = 'Bearer ' + token;
+        return h;
+    },
+
+    _populateDropdowns: function() {
+        var deptSel = $('#templateDepartment');
+        deptSel.find('option:gt(0)').remove();
+        this.departments.forEach(function(d) {
+            deptSel.append('<option value="' + d.id + '">' + (d.name || d.department_name) + '</option>');
+        });
+
+        var roleSel = $('#templateRole');
+        roleSel.find('option:gt(0)').remove();
+        this.roles.forEach(function(r) {
+            roleSel.append('<option value="' + r.id + '">' + r.name + '</option>');
+        });
+    },
+
+    showModal: function(template) {
+        $('#templateModalTitle').text(template ? 'Edit Allowance Template' : 'New Allowance Template');
+        $('#templateId').val(template ? template.id : '');
+        $('#templateName').val(template ? template.name : '');
+        $('#templateType').val(template ? template.allowance_type : '');
+        $('#templateAmount').val(template ? template.amount : '');
+        $('#templateTaxable').val(template ? template.is_taxable : '1');
+        $('#templateStatus').val(template ? template.status : 'active');
+        $('#templateDescription').val(template ? (template.description || '') : '');
+        $('#templateDepartment').val(template && template.department_id ? template.department_id : '');
+        $('#templateStaffType').val(template && template.staff_type_id ? template.staff_type_id : '');
+        $('#templateContractType').val(template && template.contract_type ? template.contract_type : '');
+        $('#templateRole').val(template && template.role_id ? template.role_id : '');
+        $('#templatePreviewArea').hide();
+        new bootstrap.Modal('#allowanceTemplateModal').show();
+    },
+
+    edit: function(id) {
+        var tmpl = this.templates.find(function(t) { return t.id == id; });
+        if (tmpl) this.showModal(tmpl);
+    },
+
+    save: function() {
+        var self = this;
+        var id = $('#templateId').val();
+        var payload = {
+            name: $('#templateName').val(),
+            allowance_type: $('#templateType').val(),
+            amount: parseFloat($('#templateAmount').val()),
+            is_taxable: parseInt($('#templateTaxable').val()),
+            status: $('#templateStatus').val(),
+            description: $('#templateDescription').val(),
+            department_id: $('#templateDepartment').val() || null,
+            staff_type_id: $('#templateStaffType').val() || null,
+            contract_type: $('#templateContractType').val() || null,
+            role_id: $('#templateRole').val() || null
+        };
+
+        if (!payload.name || !payload.allowance_type || !payload.amount) {
+            showNotification('Please fill in all required fields', 'error');
+            return;
+        }
+
+        var url = (window.APP_BASE || '') + '/api/finance/allowance-templates' + (id ? '/' + id : '');
+        var method = id ? 'PUT' : 'POST';
+
+        $.ajax({
+            url: url,
+            method: method,
+            headers: self._headers(),
+            data: JSON.stringify(payload),
+            success: function(resp) {
+                bootstrap.Modal.getInstance('#allowanceTemplateModal').hide();
+                showNotification(resp.message || 'Template saved', 'success');
+                self.loadData();
+            },
+            error: function(xhr) {
+                var msg = xhr.responseJSON ? xhr.responseJSON.message : 'Failed to save template';
+                showNotification(msg, 'error');
+            }
+        });
+    },
+
+    preview: function() {
+        var self = this;
+        var id = $('#templateId').val();
+        if (!id) {
+            // For new templates, estimate matching staff
+            var dept = $('#templateDepartment').val();
+            var stype = $('#templateStaffType').val();
+            var ct = $('#templateContractType').val();
+            var role = $('#templateRole').val();
+            var count = 0;
+            // rough estimate from loaded staff list
+            if (typeof staffManagementController !== 'undefined' && staffManagementController.staff) {
+                count = staffManagementController.staff.filter(function(s) {
+                    if (s.status !== 'active') return false;
+                    if (dept && s.department_id != dept) return false;
+                    if (stype && s.staff_type_id != stype) return false;
+                    if (ct && s.contract_type !== ct) return false;
+                    return true;
+                }).length;
+            }
+            $('#templatePreviewText').text('Approximately ' + count + ' active staff match these criteria.');
+            $('#templatePreviewArea').show();
+            return;
+        }
+
+        $.ajax({
+            url: (window.APP_BASE || '') + '/api/finance/allowance-templates/' + id + '/applicable-staff',
+            headers: self._headers(),
+            success: function(resp) {
+                var data = resp.data || resp;
+                var names = (data.matching_staff || []).map(function(s) { return s.staff_no + ' ' + s.first_name + ' ' + s.last_name; });
+                var text = (data.count || 0) + ' staff members match this template.';
+                if (names.length > 0 && names.length <= 20) text += ': ' + names.join(', ');
+                $('#templatePreviewText').text(text);
+                $('#templatePreviewArea').show();
+            }
+        });
+    },
+
+    apply: function(id) {
+        var self = this;
+        var tmpl = this.templates.find(function(t) { return t.id == id; });
+        if (!tmpl) return;
+
+        if (!confirm('Apply "' + tmpl.name + '" allowance of KES ' + Number(tmpl.amount).toLocaleString() + ' to all matching staff?\n\nThis will create allowance records that will be included in payroll processing.')) return;
+
+        $.ajax({
+            url: (window.APP_BASE || '') + '/api/finance/allowance-templates/' + id + '/apply',
+            method: 'POST',
+            headers: self._headers(),
+            data: JSON.stringify({}),
+            success: function(resp) {
+                showNotification(resp.message || 'Template applied', 'success');
+                self.loadData();
+            },
+            error: function(xhr) {
+                var msg = xhr.responseJSON ? xhr.responseJSON.message : 'Failed to apply template';
+                showNotification(msg, 'error');
+            }
+        });
+    },
+
+    deactivate: function(id) {
+        if (!confirm('Deactivate this template?')) return;
+        var self = this;
+        $.ajax({
+            url: (window.APP_BASE || '') + '/api/finance/allowance-templates/' + id,
+            method: 'DELETE',
+            headers: self._headers(),
+            success: function(resp) {
+                showNotification('Template deactivated', 'success');
+                self.loadData();
+            }
+        });
+    }
+};
+
+// Auto-init when tab is first shown
+$(document).ready(function() {
+    $('a[href="#allowanceTemplatesTab"]').on('shown.bs.tab', function() {
+        if (!AllowanceTemplateController.table) {
+            AllowanceTemplateController.init();
+        }
+    });
+});
 </script>

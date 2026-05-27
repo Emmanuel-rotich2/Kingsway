@@ -14,17 +14,22 @@ use App\Config\DashboardRouter;
 
 // Get route from URL (authentication verified by JWT in JavaScript)
 $route = $_GET['route'] ?? 'loading';
+$route = is_string($route) ? trim($route) : 'loading';
+$isCanonicalRoute = $route === 'loading' || preg_match('/^[A-Za-z0-9_\-\/]+$/', $route);
 
-// Verify the requested route/dashboard exists
+// Verify the requested route/page exists
 $requestedPath = null;
-if ($route !== 'loading') {
-    if (DashboardRouter::dashboardExists($route)) {
-        $requestedPath = DashboardRouter::getDashboardPath($route);
-    } else {
-        // Try as regular page
-        $pagePath = __DIR__ . "/../pages/{$route}.php";
-        if (file_exists($pagePath)) {
-            $requestedPath = $pagePath;
+if ($route !== 'loading' && $isCanonicalRoute) {
+    $pagePath = realpath(__DIR__ . "/../pages/{$route}.php");
+    $pagesDir = realpath(__DIR__ . '/../pages');
+
+    if ($pagePath && $pagesDir && str_starts_with($pagePath, $pagesDir . DIRECTORY_SEPARATOR)) {
+        $requestedPath = $pagePath;
+    } elseif (DashboardRouter::dashboardExists($route)) {
+        $dashboardPath = realpath(DashboardRouter::getDashboardPath($route));
+        $dashboardDir = realpath(__DIR__ . '/../components/dashboards');
+        if ($dashboardPath && $dashboardDir && str_starts_with($dashboardPath, $dashboardDir . DIRECTORY_SEPARATOR)) {
+            $requestedPath = $dashboardPath;
         }
     }
 }

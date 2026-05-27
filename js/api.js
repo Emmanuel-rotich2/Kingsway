@@ -27,33 +27,104 @@ const NOTIFICATION_ICONS = {
   info: "bi-info-circle",
 };
 
-// Show notification using Bootstrap modal
+// Show notification as a non-blocking toast
 function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
-  const modal = document.getElementById("notificationModal");
-  const modalContent = modal.querySelector(".modal-content");
-  const icon = modal.querySelector(".notification-icon i");
-  const messageDiv = modal.querySelector(".notification-message");
+  const legacyModal = document.getElementById("notificationModal");
+  if (legacyModal && typeof bootstrap !== "undefined") {
+    const existingModal = bootstrap.Modal.getInstance(legacyModal);
+    if (existingModal) {
+      existingModal.hide();
+    }
+    legacyModal.classList.remove("show");
+    legacyModal.style.display = "none";
+    document.body.classList.remove("modal-open");
+    document.querySelectorAll(".modal-backdrop").forEach(function (backdrop) {
+      backdrop.remove();
+    });
+  }
 
-  // Remove existing notification classes
-  modalContent.classList.remove(
-    "notification-success",
-    "notification-error",
-    "notification-warning",
-    "notification-info",
-  );
+  let container = document.getElementById("appToastContainer");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "appToastContainer";
+    container.style.position = "fixed";
+    container.style.top = "86px";
+    container.style.right = "24px";
+    container.style.zIndex = "1085";
+    container.style.display = "flex";
+    container.style.flexDirection = "column";
+    container.style.gap = "10px";
+    container.style.maxWidth = "420px";
+    document.body.appendChild(container);
+  }
 
-  // Add appropriate notification class
-  modalContent.classList.add(`notification-${type}`);
+  const palette = {
+    success: { bg: "#ffffff", border: "#22c55e", icon: "#15803d" },
+    error: { bg: "#ffffff", border: "#ef4444", icon: "#b91c1c" },
+    warning: { bg: "#ffffff", border: "#f59e0b", icon: "#b45309" },
+    info: { bg: "#ffffff", border: "#3b82f6", icon: "#1d4ed8" },
+  };
+  const colors = palette[type] || palette.info;
 
-  // Set icon
-  icon.className = `bi ${NOTIFICATION_ICONS[type]}`;
+  const toast = document.createElement("div");
+  toast.setAttribute("role", "status");
+  toast.style.display = "flex";
+  toast.style.alignItems = "center";
+  toast.style.gap = "12px";
+  toast.style.padding = "14px 18px";
+  toast.style.borderRadius = "14px";
+  toast.style.background = colors.bg;
+  toast.style.borderLeft = "5px solid " + colors.border;
+  toast.style.boxShadow = "0 14px 36px rgba(15, 23, 42, 0.18)";
+  toast.style.color = "#111827";
+  toast.style.fontWeight = "500";
+  toast.style.transform = "translateX(20px)";
+  toast.style.opacity = "0";
+  toast.style.transition = "opacity 180ms ease, transform 180ms ease";
 
-  // Set message
-  messageDiv.textContent = message;
+  const icon = document.createElement("i");
+  icon.className = `bi ${NOTIFICATION_ICONS[type] || NOTIFICATION_ICONS.info}`;
+  icon.style.color = colors.icon;
+  icon.style.fontSize = "1.1rem";
+  icon.style.flexShrink = "0";
 
-  // Show modal
-  const bsModal = new bootstrap.Modal(modal);
-  bsModal.show();
+  const text = document.createElement("span");
+  text.textContent = message;
+
+  const close = document.createElement("button");
+  close.type = "button";
+  close.setAttribute("aria-label", "Dismiss notification");
+  close.textContent = "×";
+  close.style.marginLeft = "auto";
+  close.style.border = "0";
+  close.style.background = "transparent";
+  close.style.fontSize = "1.2rem";
+  close.style.lineHeight = "1";
+  close.style.color = "#6b7280";
+  close.style.cursor = "pointer";
+
+  const removeToast = function () {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateX(20px)";
+    setTimeout(function () {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 200);
+  };
+
+  close.addEventListener("click", removeToast);
+  toast.appendChild(icon);
+  toast.appendChild(text);
+  toast.appendChild(close);
+  container.appendChild(toast);
+
+  requestAnimationFrame(function () {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateX(0)";
+  });
+
+  setTimeout(removeToast, type === NOTIFICATION_TYPES.ERROR ? 6000 : 3200);
 }
 
 // Handle API Response
@@ -501,6 +572,7 @@ const ENDPOINT_PERMISSIONS = {
   "/auth/login": null,
   "/auth/logout": null,
   "/auth/refresh-token": null,
+  "/systemconfig/authorize": null,
 
   // Users
   "/users/index": "users_view",
@@ -1804,17 +1876,17 @@ window.API = {
     deleteYear: async (id) => apiCall(`/academic/years/delete/${id}`, "DELETE"),
     setCurrentYear: async (id) =>
       apiCall(`/academic/years/set-current/${id}`, "PUT"),
-    getCurrentAcademicYear: async () =>
-      apiCall("/academic/years-current", "GET"),
+    getCurrentYear: async () => apiCall("/academic/years/current", "GET"),
+    getCurrentAcademicYear: async () => apiCall("/academic/years/current", "GET"),
     getAcademicYear: async (id = null) =>
       id
-        ? apiCall(`/academic/years-get/${id}`, "GET")
-        : apiCall("/academic/years-get", "GET"),
-    getAllAcademicYears: async () => apiCall("/academic/years-list", "GET"),
+        ? apiCall(`/academic/years/get/${id}`, "GET")
+        : apiCall("/academic/years/list", "GET"),
+    getAllAcademicYears: async () => apiCall("/academic/years/list", "GET"),
     createAcademicYear: async (data) =>
-      apiCall("/academic/years-create", "POST", data),
+      apiCall("/academic/years/create", "POST", data),
     setCurrentAcademicYear: async (id) =>
-      apiCall("/academic/years-set-current", "POST", { id }),
+      apiCall(`/academic/years/set-current/${id}`, "PUT"),
 
     // Terms
     createTerm: async (data) => apiCall("/academic/terms/create", "POST", data),
@@ -2203,6 +2275,10 @@ window.API = {
     index: async () => apiCall("/admission/index", "GET"),
     // Get workflow queues by stage (for role-based views)
     getQueues: async () => apiCall("/admission/queues", "GET"),
+    getStageMatrix: async () => apiCall("/admission/stage-matrix", "GET"),
+    getPolicy: async () => apiCall("/admission/policy", "GET"),
+    getPayments: async (applicationId) =>
+      apiCall(`/admission/payments/${applicationId}`, "GET"),
     // Get single application details with workflow state
     getApplication: async (id) =>
       apiCall(`/admission/application/${id}`, "GET"),
@@ -2235,6 +2311,8 @@ window.API = {
       apiCall("/admission/record-fee-payment", "POST", data),
     completeEnrollment: async (data) =>
       apiCall("/admission/complete-enrollment", "POST", data),
+    confirmEnrollment: async (data) =>
+      apiCall("/admission/confirm-enrollment", "POST", data),
   },
 
   // Communications endpoints
@@ -2531,6 +2609,10 @@ window.API = {
       apiCall("/finance/staff-for-payroll", "GET"),
     getStaffPayrollDetails: async (staffId) =>
       apiCall(`/finance/staff-payroll-details?staff_id=${staffId}`, "GET"),
+    getBulkPayrollPreview: async (month, year) =>
+      apiCall(`/finance/bulk-payroll-preview?month=${month}&year=${year}`, "GET"),
+    processBulkPayroll: async (data) =>
+      apiCall("/finance/process-bulk-payroll", "POST", data),
     processPayrollWithDeductions: async (data) =>
       apiCall("/finance/process-payroll-with-deductions", "POST", data),
     getDetailedPayslip: async (payrollId) =>
@@ -2539,10 +2621,16 @@ window.API = {
       apiCall(`/finance/payroll-stats?month=${month}&year=${year}`, "GET"),
     getPayrollList: async (filters) =>
       apiCall("/finance/payroll-list", "GET", null, filters),
-    markPayrollPaid: async (payrollId, paymentRef = "") =>
+    approvePayroll: async (payrollId, approvedBy = null) =>
+      apiCall("/finance/approve-payroll", "POST", {
+        payroll_id: payrollId,
+        approved_by: approvedBy,
+      }),
+    markPayrollPaid: async (payrollId, paymentRef = "", paymentMode = "bank") =>
       apiCall("/finance/mark-payroll-paid", "POST", {
         payroll_id: payrollId,
         payment_reference: paymentRef,
+        payment_mode: paymentMode,
       }),
 
     // Payments
@@ -3835,6 +3923,17 @@ window.API = {
     updatePolicy: async (id, data) =>
       apiCall("/system/policies", "PUT", { id, ...data }),
     deletePolicy: async (id) => apiCall("/system/policies", "DELETE", { id }),
+  },
+
+  // System Config endpoints (match SystemConfigController)
+  systemconfig: {
+    authorizeRoute: async (route, roleIds = null) => {
+      const payload = { route };
+      if (Array.isArray(roleIds) && roleIds.length > 0) {
+        payload.role_ids = roleIds;
+      }
+      return apiCall("/systemconfig/authorize", "POST", payload);
+    },
   },
 
   // School Config endpoints (match SchoolConfigController)
