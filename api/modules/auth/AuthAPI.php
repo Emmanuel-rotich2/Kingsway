@@ -2,6 +2,7 @@
 namespace App\API\Modules\auth;
 
 use App\API\Includes\BaseAPI;
+use App\API\Includes\ValidationHelper;
 use App\API\Modules\users\UsersAPI;
 use App\API\Modules\users\RoleManager;
 use App\API\Modules\users\PermissionManager;
@@ -109,56 +110,185 @@ class AuthAPI extends BaseAPI
         ];
     }
 
-    // Forgot password workflow (send reset email or SMS with code and link)
     public function forgotPassword($data)
     {
-        $email = $data['email'] ?? null;
-        if (!$email) {
+        $identifier = trim($data['email'] ?? '');
+        if ($identifier === '') {
             return [
                 'success' => false,
                 'message' => 'Email is required.'
             ];
         }
-        // Generate a reset code and link (store code in DB or cache with expiry)
-        $resetCode = bin2hex(random_bytes(4));
-        $resetLink = $this->generateResetLink($email, $resetCode);
-        // Store code and expiry (pseudo, implement as needed)
-        // $this->storeResetCode($email, $resetCode);
-        // Send email (or SMS) with code and link
-        $this->sendResetEmail($email, $email, $resetLink); // username/email for demo
+
+        $message = 'If an account exists for that email, password reset instructions have been sent.';
+
+        try {
+            $stmt = $this->db->prepare('
+                SELECT id, email, username, first_name, last_name
+                FROM users
+                WHERE email = ? OR username = ?
+                LIMIT 1
+            ');
+            $stmt->execute([$identifier, $identifier]);
+            $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                return [
+                    'success' => true,
+                    'message' => $message
+                ];
+            }
+
+            $rawToken = bin2hex(random_bytes(32));
+            $tokenHash = $this->hashResetToken($rawToken);
+
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('UPDATE password_resets SET used = 1 WHERE email = ? AND used = 0');
+            $stmt->execute([$user['email']]);
+
+            $stmt = $this->db->prepare('
+                INSERT INTO password_resets (email, token, created_at, expires_at, used)
+                VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 HOUR), 0)
+            ');
+            $stmt->execute([$user['email'], $tokenHash]);
+
+            $this->db->commit();
+
+            $displayName = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
+            $resetLink = $this->generateResetLink($rawToken);
+
+            try {
+                $this->sendResetEmail($user['email'], $displayName ?: ($user['username'] ?? $user['email']), $resetLink);
+            } catch (\Throwable $e) {
+                error_log('Password reset email failed: ' . $e->getMessage());
+            }
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Forgot password failed: ' . $e->getMessage());
+        }
+
         return [
             'success' => true,
-            'message' => 'Password reset instructions sent to your email.'
+            'message' => $message
         ];
     }
 
-    // Reset password using code
-    public function resetPassword($data)
+    public function verifyResetToken($data)
     {
-        $email = $data['email'] ?? null;
-        $code = $data['code'] ?? null;
-        $newPassword = $data['new_password'] ?? null;
-        if (!$email || !$code || !$newPassword) {
+        $token = trim($data['token'] ?? '');
+        if ($token === '') {
             return [
                 'success' => false,
-                'message' => 'Email, code, and new password are required.'
+                'message' => 'Invalid or expired reset link.'
             ];
         }
-        // Validate code (pseudo, implement as needed)
-        // $valid = $this->validateResetCode($email, $code);
-        $valid = true; // For demo, always valid
-        if (!$valid) {
+
+        $stmt = $this->db->prepare('
+            SELECT id
+            FROM password_resets
+            WHERE token = ? AND used = 0 AND expires_at > NOW()
+            LIMIT 1
+        ');
+        $stmt->execute([$this->hashResetToken($token)]);
+
+        if (!$stmt->fetch(\PDO::FETCH_ASSOC)) {
             return [
                 'success' => false,
-                'message' => 'Invalid or expired reset code.'
+                'message' => 'Invalid or expired reset link.'
             ];
         }
-        // Update password (pseudo, implement as needed)
-        // $this->usersApi->updatePasswordByEmail($email, $newPassword);
+
         return [
             'success' => true,
-            'message' => 'Password has been reset successfully.'
+            'message' => 'Reset link is valid.'
         ];
+    }
+
+    public function resetPassword($data)
+    {
+        $token = trim($data['token'] ?? '');
+        $newPassword = $data['new_password'] ?? $data['password'] ?? null;
+
+        if ($token === '' || !$newPassword) {
+            return [
+                'success' => false,
+                'message' => 'Token and new password are required.'
+            ];
+        }
+
+        $passwordValidation = ValidationHelper::validatePassword($newPassword);
+        if (!$passwordValidation['valid']) {
+            return [
+                'success' => false,
+                'message' => $passwordValidation['error']
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('
+                SELECT id, email
+                FROM password_resets
+                WHERE token = ? AND used = 0 AND expires_at > NOW()
+                LIMIT 1
+                FOR UPDATE
+            ');
+            $stmt->execute([$this->hashResetToken($token)]);
+            $reset = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$reset) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired reset link.'
+                ];
+            }
+
+            $stmt = $this->db->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+            $stmt->execute([$reset['email']]);
+            $user = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired reset link.'
+                ];
+            }
+
+            $stmt = $this->db->prepare('
+                UPDATE users
+                SET password = ?, password_changed_at = NOW(), updated_at = NOW(), force_password_change = 0
+                WHERE id = ?
+            ');
+            $stmt->execute([
+                password_hash($newPassword, PASSWORD_DEFAULT),
+                $user['id']
+            ]);
+
+            $stmt = $this->db->prepare('UPDATE password_resets SET used = 1 WHERE id = ?');
+            $stmt->execute([$reset['id']]);
+
+            $this->db->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Password has been reset successfully.'
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Reset password failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Password reset failed. Please try again.'
+            ];
+        }
     }
 
     // Refresh JWT token (issue new token if refresh token is valid)
@@ -197,13 +327,21 @@ class AuthAPI extends BaseAPI
         ];
     }
 
-    // Helper to generate a reset link (implement as needed)
-    private function generateResetLink($email, $code)
+    private function hashResetToken(string $token): string
     {
-        $baseUrl = 'https://yourdomain.com/reset-password';
-        return $baseUrl . '?email=' . urlencode($email) . '&code=' . urlencode($code);
+        return hash('sha256', $token);
     }
-     
+
+    private function generateResetLink(string $token): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+
+        return $scheme . '://' . $host . $appBase . '/reset_password.php?token=' . urlencode($token);
+    }
 
     // Login user
     public function login($data)

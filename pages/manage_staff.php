@@ -27,54 +27,78 @@
     ?>
 </div>
 
-<!-- Load Staff Management Controllers -->
-<script src="<?= $appBase ?>/js/pages/staff.js"></script>
-<script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>
+<!-- Load Staff Management Controller -->
+<script src="<?= $appBase ?>/js/pages/staff_production_ui.js?v=<?= time() ?>"></script>
 
 <script>
 (function () {
-    if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) {
-        document.getElementById('staff-loading').innerHTML =
-            '<div class="alert alert-danger">Authentication required. Please log in again.</div>';
-        return;
+    function showAuthError() {
+        var el = document.getElementById('staff-loading');
+        var div = document.createElement('div');
+        div.className = 'alert alert-danger';
+        div.textContent = 'Authentication required. Please log in again.';
+        el.replaceChildren(div);
     }
 
-    const user = AuthContext.getUser();
-    const roleId = user?.role_id ?? 0;
-    const roles  = user?.roles ?? [];
+    function initStaffPage() {
+        if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) {
+            showAuthError();
+            return;
+        }
 
-    // Determine first role name (normalised)
-    const firstRoleName = (() => {
-        if (!roles.length) return '';
-        const r = roles[0];
-        return (typeof r === 'string' ? r : (r.name || '')).toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
-    })();
+        var user = AuthContext.getUser();
+        var roleId = (user && user.role_id) ? user.role_id : 0;
+        var roles  = (user && user.roles) ? user.roles : [];
 
-    // Access-level mapping (role_id takes priority, then role name)
-    let accessLevel = 'viewer';
-    if (roleId === 1 || roleId === 3 || roleId === 4 ||
-        ['system_administrator', 'school_administrator', 'director', 'director_owner'].includes(firstRoleName)) {
-        accessLevel = 'admin';
-    } else if (roleId === 5 || ['headteacher'].includes(firstRoleName)) {
-        accessLevel = 'manager';
-    } else if (['deputy_head_discipline', 'deputy_head_academic'].includes(firstRoleName)) {
-        accessLevel = 'operator';
-    } else if (AuthContext.hasPermission('staff_view') || AuthContext.hasPermission('manage_staff_view')) {
-        accessLevel = 'viewer';
-    }
+        var firstRoleName = '';
+        if (roles.length > 0) {
+            var r = roles[0];
+            firstRoleName = (typeof r === 'string' ? r : (r.name || '')).toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
+        }
 
-    window.currentUserRole   = firstRoleName;
-    window.currentUserId     = user?.id ?? 0;
-    window.staffAccessLevel  = accessLevel;
+        var accessLevel = 'viewer';
+        if (roleId === 1 || roleId === 3 || roleId === 4 ||
+            ['system_administrator', 'school_administrator', 'director', 'director_owner'].indexOf(firstRoleName) !== -1) {
+            accessLevel = 'admin';
+        } else if (roleId === 5 || firstRoleName === 'headteacher') {
+            accessLevel = 'manager';
+        } else if (firstRoleName === 'deputy_head_discipline' || firstRoleName === 'deputy_head_academic') {
+            accessLevel = 'operator';
+        } else if (AuthContext.hasPermission('staff_view') || AuthContext.hasPermission('manage_staff_view')) {
+            accessLevel = 'viewer';
+        }
 
-    console.log('[Manage Staff] role:', firstRoleName, '| accessLevel:', accessLevel);
+        window.currentUserRole   = firstRoleName;
+        window.currentUserId     = (user && user.id) ? user.id : 0;
+        window.staffAccessLevel  = accessLevel;
 
-    document.getElementById('staff-loading').style.display = 'none';
-    document.getElementById('staff-content').style.display = 'block';
+        console.log('[Manage Staff] role:', firstRoleName, '| accessLevel:', accessLevel);
 
-    document.addEventListener('DOMContentLoaded', function () {
+        document.getElementById('staff-loading').style.display = 'none';
+        document.getElementById('staff-content').style.display = 'block';
+
         if (window.StaffProductionUI) {
-            setTimeout(() => StaffProductionUI.init(), 300);
+            setTimeout(function() { StaffProductionUI.init(); }, 300);
+        }
+    }
+
+    // AuthContext is defined in api.js which loads AFTER this script.
+    // Wait for it to become available via DOMContentLoaded + polling.
+    document.addEventListener('DOMContentLoaded', function () {
+        if (typeof AuthContext !== 'undefined' && AuthContext.isAuthenticated()) {
+            initStaffPage();
+        } else {
+            var attempts = 0;
+            var waitForAuth = setInterval(function () {
+                attempts++;
+                if (typeof AuthContext !== 'undefined' && AuthContext.isAuthenticated()) {
+                    clearInterval(waitForAuth);
+                    initStaffPage();
+                } else if (attempts > 20) {
+                    clearInterval(waitForAuth);
+                    showAuthError();
+                }
+            }, 250);
         }
     });
 })();

@@ -16,6 +16,7 @@ const PayrollManagerController = {
   currentPage: 1,
   perPage: 15,
   currentPayslipId: null,
+  bulkPayrollRows: [],
 
   /**
    * Initialize controller
@@ -76,11 +77,7 @@ const PayrollManagerController = {
 
       const response = await API.finance.getPayrollList(filters);
 
-      if (response.success) {
-        this.payrolls = response.data || [];
-      } else {
-        this.payrolls = [];
-      }
+      this.payrolls = Array.isArray(response) ? response : (response?.payrolls || response?.data || []);
 
       this.filteredPayrolls = [...this.payrolls];
       this.renderTable();
@@ -88,7 +85,9 @@ const PayrollManagerController = {
     } catch (error) {
       console.error("Error loading payrolls:", error);
       this.payrolls = [];
+      this.filteredPayrolls = [];
       this.renderTable();
+      this.updatePayrollCount();
     }
   },
 
@@ -105,17 +104,15 @@ const PayrollManagerController = {
 
       const response = await API.finance.getPayrollStats(month, year);
 
-      if (response.success) {
-        const stats = response.data;
-        document.getElementById("statTotalStaff").textContent =
-          stats.total_staff || 0;
-        document.getElementById("statStaffWithChildren").textContent =
-          stats.staff_with_children || 0;
-        document.getElementById("statThisMonthNet").textContent =
-          "KES " + this.formatCurrency(stats.this_month_net || 0);
-        document.getElementById("statChildrenFees").textContent =
-          "KES " + this.formatCurrency(stats.children_fees_deducted || 0);
-      }
+      const stats = response?.stats || response || {};
+      document.getElementById("statTotalStaff").textContent =
+        stats.total_staff || 0;
+      document.getElementById("statStaffWithChildren").textContent =
+        stats.staff_with_children || 0;
+      document.getElementById("statThisMonthNet").textContent =
+        "KES " + this.formatCurrency(stats.this_month_net || 0);
+      document.getElementById("statChildrenFees").textContent =
+        "KES " + this.formatCurrency(stats.children_fees_deducted || 0);
     } catch (error) {
       console.error("Error loading stats:", error);
     }
@@ -127,11 +124,9 @@ const PayrollManagerController = {
   loadStaffList: async function () {
     try {
       const response = await API.finance.getStaffForPayroll();
-
-      if (response.success) {
-        this.staff = response.data || [];
-        this.populateStaffSelect();
-      }
+      // apiCall unwraps the response — response IS the data array
+      this.staff = Array.isArray(response) ? response : (response?.data || []);
+      this.populateStaffSelect();
     } catch (error) {
       console.error("Error loading staff:", error);
     }
@@ -148,10 +143,15 @@ const PayrollManagerController = {
 
     this.staff.forEach((s) => {
       const option = document.createElement("option");
+      const missing = Array.isArray(s.payroll_missing_fields) ? s.payroll_missing_fields : [];
       option.value = s.id;
       option.textContent = `${s.full_name} (${s.position || "Staff"})`;
       if (s.children_count > 0) {
         option.textContent += ` 👶 ${s.children_count}`;
+      }
+      if (s.payroll_eligible === false) {
+        option.disabled = true;
+        option.textContent += ` — BLOCKED: Missing ${missing.join(", ")}`;
       }
       select.appendChild(option);
     });
@@ -181,13 +181,26 @@ const PayrollManagerController = {
     if (!tbody) return;
 
     if (this.filteredPayrolls.length === 0) {
-      tbody.innerHTML = `
-                <tr>
-                    <td colspan="10" class="text-center py-4">
-                        <i class="fas fa-file-invoice-dollar fa-3x text-muted mb-3"></i>
-                        <p class="text-muted mb-0">No payroll records found</p>
-                    </td>
-                </tr>`;
+      var emptyRow = document.createElement("tr");
+      var emptyCell = document.createElement("td");
+      emptyCell.setAttribute("colspan", "10");
+      emptyCell.style.textAlign = "center";
+      emptyCell.style.padding = "48px 20px";
+      emptyCell.style.color = "#8895a7";
+      var emptyIcon = document.createElement("div");
+      emptyIcon.style.fontSize = "2.5rem";
+      emptyIcon.style.marginBottom = "12px";
+      emptyIcon.style.opacity = "0.4";
+      emptyIcon.textContent = "\uD83D\uDCCB";
+      var emptyText = document.createElement("p");
+      emptyText.style.fontWeight = "600";
+      emptyText.style.margin = "0";
+      emptyText.textContent = "No payroll records found";
+      emptyCell.appendChild(emptyIcon);
+      emptyCell.appendChild(emptyText);
+      emptyRow.appendChild(emptyCell);
+      tbody.replaceChildren(emptyRow);
+      this.renderPagination();
       return;
     }
 
@@ -226,54 +239,33 @@ const PayrollManagerController = {
       html += `
                 <tr>
                     <td>
-                        <strong>${this.escapeHtml(p.staff_name)}</strong>
-                        <br><small class="text-muted">${this.escapeHtml(
-                          p.position || ""
-                        )}</small>
+                        <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
+                        <small style="color: #8895a7; font-size: 0.78rem;">${this.escapeHtml(p.position || "")}</small>
                     </td>
-                    <td>${period}</td>
-                    <td class="text-end">${this.formatCurrency(
-                      p.basic_salary
-                    )}</td>
-                    <td class="text-end text-success">${this.formatCurrency(
-                      p.allowances
-                    )}</td>
-                    <td class="text-end text-danger">${this.formatCurrency(
-                      statutoryDed
-                    )}</td>
-                    <td class="text-end ${
-                      childrenFees > 0 ? "text-warning fw-bold" : ""
-                    }">
-                        ${
-                          childrenFees > 0
-                            ? this.formatCurrency(childrenFees)
-                            : "-"
-                        }
+                    <td style="font-weight: 600;">${period}</td>
+                    <td class="table-amount">${this.formatCurrency(p.basic_salary)}</td>
+                    <td class="table-amount" style="color: #1a7a4c;">${this.formatCurrency(p.allowances)}</td>
+                    <td class="table-amount negative">${this.formatCurrency(statutoryDed)}</td>
+                    <td class="table-amount" style="${childrenFees > 0 ? 'color: #9a7d2e; font-weight: 700;' : 'color: #8895a7;'}">
+                        ${childrenFees > 0 ? this.formatCurrency(childrenFees) : "-"}
                     </td>
-                    <td class="text-end text-danger">${
-                      otherDed > 0 ? this.formatCurrency(otherDed) : "-"
-                    }</td>
-                    <td class="text-end fw-bold text-success">${this.formatCurrency(
-                      p.net_salary
-                    )}</td>
+                    <td class="table-amount negative">${otherDed > 0 ? this.formatCurrency(otherDed) : "-"}</td>
+                    <td class="table-amount" style="font-weight: 800; color: #1a7a4c; font-size: 0.92rem;">${this.formatCurrency(p.net_salary)}</td>
                     <td class="text-center">${statusBadge}</td>
                     <td class="text-center">
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-info" onclick="PayrollManagerController.viewPayslip(${
-                              p.id
-                            })" title="View Payslip">
-                                <i class="fas fa-eye"></i>
+                        <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        ${p.status === "pending" ? `
+                            <button class="table-action-btn approve" onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
+                                <i class="fas fa-user-check"></i>
                             </button>
-                            ${
-                              p.status === "pending"
-                                ? `
-                                <button class="btn btn-outline-success" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Mark as Paid">
-                                    <i class="fas fa-check"></i>
-                                </button>
-                            `
-                                : ""
-                            }
-                        </div>
+                        ` : ""}
+                        ${p.status === "approved" ? `
+                            <button class="table-action-btn approve" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Release Payment">
+                                <i class="fas fa-check-circle"></i>
+                            </button>
+                        ` : ""}
                     </td>
                 </tr>`;
     });
@@ -287,12 +279,13 @@ const PayrollManagerController = {
    */
   getStatusBadge: function (status) {
     const badges = {
-      pending: '<span class="badge bg-warning">Pending</span>',
-      processing: '<span class="badge bg-info">Processing</span>',
-      paid: '<span class="badge bg-success">Paid</span>',
-      cancelled: '<span class="badge bg-secondary">Cancelled</span>',
+      pending: '<span class="status-badge pending"><i class="fas fa-clock"></i> Pending</span>',
+      processing: '<span class="status-badge processing"><i class="fas fa-spinner"></i> Processing</span>',
+      approved: '<span class="status-badge processing"><i class="fas fa-user-check"></i> Approved</span>',
+      paid: '<span class="status-badge paid"><i class="fas fa-check"></i> Paid</span>',
+      cancelled: '<span class="status-badge cancelled"><i class="fas fa-times"></i> Cancelled</span>',
     };
-    return badges[status] || '<span class="badge bg-secondary">Unknown</span>';
+    return badges[status] || '<span class="status-badge pending">Unknown</span>';
   },
 
   /**
@@ -377,6 +370,183 @@ const PayrollManagerController = {
   },
 
   /**
+   * Show bulk payroll modal
+   */
+  showBulkPayrollModal: async function () {
+    const month = new Date().getMonth() + 1;
+    const year = new Date().getFullYear();
+    document.getElementById("bulkPayrollMonth").value = month;
+    document.getElementById("bulkPayrollYear").value = year;
+    const modal = new bootstrap.Modal(document.getElementById("bulkPayrollModal"));
+    modal.show();
+    await this.prepareBulkPayrollRows();
+  },
+
+  prepareBulkPayrollRows: async function () {
+    const month = document.getElementById("bulkPayrollMonth").value;
+    const year = document.getElementById("bulkPayrollYear").value;
+    try {
+      const response = await API.finance.getBulkPayrollPreview(month, year);
+      this.bulkPayrollRows = Array.isArray(response) ? response.map((row) => ({
+        ...row,
+        selected: row.payroll_eligible === true && (parseFloat(row.basic_salary) || 0) > 0,
+      })) : [];
+    } catch (error) {
+      console.error("Error preparing bulk payroll:", error);
+      this.bulkPayrollRows = [];
+      this.showError(error.message || "Failed to prepare bulk payroll preview");
+    }
+    this.renderBulkPayrollRows();
+  },
+
+  renderBulkPayrollRows: function () {
+    const tbody = document.getElementById("bulkPayrollTableBody");
+    if (!tbody) return;
+
+    const rows = [];
+    if (this.bulkPayrollRows.length === 0) {
+      const tr = document.createElement("tr");
+      const td = document.createElement("td");
+      td.colSpan = 9;
+      td.className = "text-center py-4 text-muted";
+      td.textContent = "No active staff found";
+      tr.appendChild(td);
+      rows.push(tr);
+      tbody.replaceChildren(...rows);
+      this.updateBulkPayrollSummary();
+      return;
+    }
+
+    this.bulkPayrollRows.forEach((row, index) => {
+      const tr = document.createElement("tr");
+      const selectTd = document.createElement("td");
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.className = "form-check-input";
+      checkbox.checked = row.selected;
+      checkbox.disabled = !row.payroll_eligible;
+      checkbox.addEventListener("change", () => this.setBulkStaffSelected(index, checkbox.checked));
+      selectTd.appendChild(checkbox);
+
+      const staffTd = document.createElement("td");
+      const name = document.createElement("strong");
+      name.textContent = row.staff_name;
+      const br = document.createElement("br");
+      const staffNo = document.createElement("small");
+      staffNo.className = "text-muted";
+      staffNo.textContent = row.staff_no || "-";
+      staffTd.appendChild(name);
+      staffTd.appendChild(br);
+      staffTd.appendChild(staffNo);
+      if (!row.payroll_eligible) {
+        const blocked = document.createElement("div");
+        blocked.className = "text-danger small fw-bold mt-1";
+        blocked.textContent = "Blocked: Missing " + row.missing_fields.join(", ");
+        staffTd.appendChild(blocked);
+      }
+
+      const positionTd = document.createElement("td");
+      positionTd.textContent = row.position;
+
+      const basicTd = document.createElement("td");
+      basicTd.className = "text-end";
+      basicTd.textContent = this.formatCurrency(row.basic_salary);
+
+      const allowanceTd = document.createElement("td");
+      allowanceTd.className = "text-end text-success";
+      allowanceTd.textContent = this.formatCurrency(row.allowances || 0);
+
+      const statutoryTd = document.createElement("td");
+      statutoryTd.className = "text-end";
+      statutoryTd.textContent = this.formatCurrency(row.statutory_deductions);
+
+      const otherDedTd = document.createElement("td");
+      otherDedTd.className = "text-end";
+      otherDedTd.textContent = this.formatCurrency(row.other_deductions || 0);
+
+      const housingTd = document.createElement("td");
+      housingTd.className = "text-end";
+      housingTd.textContent = this.formatCurrency(row.housing_levy);
+
+      const netTd = document.createElement("td");
+      netTd.className = "text-end fw-bold text-success";
+      netTd.textContent = this.formatCurrency(row.net_salary);
+
+      tr.append(selectTd, staffTd, positionTd, basicTd, allowanceTd, statutoryTd, otherDedTd, housingTd, netTd);
+      rows.push(tr);
+    });
+
+    tbody.replaceChildren(...rows);
+    this.updateBulkPayrollSummary();
+  },
+
+  setBulkStaffSelected: function (index, selected) {
+    this.bulkPayrollRows[index].selected = selected;
+    this.updateBulkPayrollSummary();
+  },
+
+  toggleBulkStaffSelection: function (selected) {
+    this.bulkPayrollRows.forEach((row) => {
+      row.selected = selected && row.payroll_eligible && row.basic_salary > 0;
+    });
+    this.renderBulkPayrollRows();
+  },
+
+  updateBulkPayrollSummary: function () {
+    const summary = document.getElementById("bulkPayrollSummary");
+    if (!summary) return;
+    const selectedRows = this.bulkPayrollRows.filter((row) => row.selected);
+    const totalNet = selectedRows.reduce((sum, row) => sum + row.net_salary, 0);
+    summary.textContent = `${selectedRows.length} selected · ${this.formatCurrency(totalNet)} net`;
+  },
+
+  submitBulkPayroll: async function () {
+    const selectedRows = this.bulkPayrollRows.filter((row) => row.selected);
+    if (selectedRows.length === 0) {
+      this.showError("Select at least one staff member to process.");
+      return;
+    }
+
+    var self = this;
+    self.showConfirm(
+      "Process payroll for " + selectedRows.length + " staff members?",
+      function () {
+        self._executeBulkProcess(selectedRows);
+      }
+    );
+  },
+
+  _executeBulkProcess: async function (selectedRows) {
+    var self = this;
+    const month = document.getElementById("bulkPayrollMonth").value;
+    const year = document.getElementById("bulkPayrollYear").value;
+
+    try {
+      const response = await API.finance.processBulkPayroll({
+        staff_ids: selectedRows.map((row) => row.staff_id),
+        payroll_month: month,
+        payroll_year: year,
+      });
+
+      const modal = bootstrap.Modal.getInstance(document.getElementById("bulkPayrollModal"));
+      if (modal) modal.hide();
+      await this.refresh();
+
+      const processed = response && response.processed_count ? response.processed_count : 0;
+      const failed = response && response.failed_count ? response.failed_count : 0;
+      if (failed > 0) {
+        this.showError(`Prepared ${processed}; failed ${failed}. Check console for details.`);
+        console.warn("Bulk payroll failures:", response.failed || []);
+      } else {
+        this.showSuccess(`Bulk payroll prepared for director review: ${processed} staff members.`);
+      }
+    } catch (error) {
+      console.error("Error processing bulk payroll:", error);
+      this.showError(error.message || "Failed to process bulk payroll");
+    }
+  },
+
+  /**
    * Reset payroll form
    */
   resetPayrollForm: function () {
@@ -400,7 +570,7 @@ const PayrollManagerController = {
    * On staff selected in modal
    */
   onStaffSelected: async function () {
-    const staffId = document.getElementById("payrollStaffSelect").value;
+    var staffId = document.getElementById("payrollStaffSelect").value;
 
     if (!staffId) {
       document.getElementById("staffInfoCard").classList.add("d-none");
@@ -411,19 +581,35 @@ const PayrollManagerController = {
     }
 
     try {
-      const response = await API.finance.getStaffPayrollDetails(staffId);
+      var response = await API.finance.getStaffPayrollDetails(staffId);
 
-      if (response.success) {
-        this.selectedStaff = response.data;
+      // apiCall unwraps handleApiResponse: response IS the data payload
+      // The backend returns: formatResponse(true, $staff, ...) which becomes
+      // {status:'success', data:{id,first_name,...,children:[...]}}
+      // After handleApiResponse unwraps: response = {id,first_name,...,children:[...]}
+      var staffData = response || {};
+      if (staffData && staffData.id) {
+        this.selectedStaff = staffData;
+        this.selectedStaff.children = staffData.children || [];
         this.displayStaffInfo();
         this.displayChildrenSection();
         this.showSalaryCalculation();
       } else {
-        this.showError(response.message || "Failed to load staff details");
+        this.showError("Staff not found. Please select a different staff member.");
       }
     } catch (error) {
       console.error("Error loading staff details:", error);
-      this.showError("Failed to load staff details");
+      var msg = "Failed to load staff details. ";
+      if (error && error.message) {
+        if (error.message.includes("401") || error.message.toLowerCase().includes("auth")) {
+          msg += "Your session may have expired. Please refresh the page.";
+        } else if (error.message.toLowerCase().includes("not found")) {
+          msg += "Staff member not found.";
+        } else {
+          msg += error.message;
+        }
+      }
+      this.showError(msg);
     }
   },
 
@@ -782,14 +968,14 @@ const PayrollManagerController = {
 
       const response = await API.finance.processPayrollWithDeductions(data);
 
-      if (response.success) {
-        bootstrap.Modal.getInstance(
-          document.getElementById("processPayrollModal")
-        ).hide();
+      if (response && (response.id || response.payroll_id || response.payslip_id || response.net_salary !== undefined || response.staff_id)) {
+        var modalEl = document.getElementById("processPayrollModal");
+        var modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
         this.showSuccess("Payroll processed successfully");
         await this.refresh();
       } else {
-        this.showError(response.message || "Failed to process payroll");
+        this.showError((response && response.message) || "Failed to process payroll");
       }
     } catch (error) {
       console.error("Error processing payroll:", error);
@@ -812,14 +998,14 @@ const PayrollManagerController = {
       this.currentPayslipId = payrollId;
       const response = await API.finance.getDetailedPayslip(payrollId);
 
-      if (response.success) {
-        this.renderPayslip(response.data);
-        const modal = new bootstrap.Modal(
+      if (response && response.id) {
+        this.renderPayslip(response);
+        var modal = new bootstrap.Modal(
           document.getElementById("viewPayslipModal")
         );
         modal.show();
       } else {
-        this.showError(response.message || "Failed to load payslip");
+        this.showError((response && response.message) || "Failed to load payslip");
       }
     } catch (error) {
       console.error("Error loading payslip:", error);
@@ -862,9 +1048,9 @@ const PayrollManagerController = {
         childrenHtml += `
                     <tr>
                         <td class="ps-4">
-                            <small>${child.student_name} (${
+                            <small>${this.escapeHtml(child.student_name)} (${this.escapeHtml(
           child.class_name || "-"
-        })</small>
+        )})</small>
                         </td>
                         <td class="text-end">${this.formatCurrency(
                           child.deducted_amount
@@ -873,10 +1059,22 @@ const PayrollManagerController = {
       });
     }
 
+    const paymentModeLabels = {
+      bank: "Bank Transfer",
+      cash: "Cash",
+      mpesa: "M-Pesa",
+      airtel_money: "Airtel Money",
+    };
+    const paymentMode = paymentModeLabels[data.payment_mode] || "Not Recorded";
+    const datePaid = data.payment_date
+      ? new Date(data.payment_date).toLocaleString("en-KE")
+      : "Not Paid";
+
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <h4 class="mb-1">KINGSWAY ACADEMY</h4>
+                    <img src="${window.APP_BASE || ""}/images/kings%20logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;">
+                    <h4 class="mb-1">KINGSWAY PREPARATORY SCHOOL</h4>
                     <p class="mb-0">P.O. Box 123, Nairobi, Kenya</p>
                     <h5 class="mt-3">PAYSLIP</h5>
                     <p class="text-muted">${period}</p>
@@ -885,28 +1083,42 @@ const PayrollManagerController = {
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <table class="table table-sm table-borderless">
-                            <tr><td><strong>Employee Name:</strong></td><td>${
-                              data.first_name
-                            } ${data.last_name}</td></tr>
-                            <tr><td><strong>Staff Number:</strong></td><td>${
-                              data.staff_number || "-"
-                            }</td></tr>
-                            <tr><td><strong>Position:</strong></td><td>${
+                            <tr><td><strong>Employee Name:</strong></td><td>${this.escapeHtml(
+                              `${data.first_name || ""} ${data.last_name || ""}`.trim()
+                            )}</td></tr>
+                            <tr><td><strong>Staff Number:</strong></td><td>${this.escapeHtml(
+                              data.staff_no || data.staff_number || "-"
+                            )}</td></tr>
+                            <tr><td><strong>Position:</strong></td><td>${this.escapeHtml(
                               data.position || "-"
-                            }</td></tr>
-                            <tr><td><strong>Department:</strong></td><td>${
+                            )}</td></tr>
+                            <tr><td><strong>Department:</strong></td><td>${this.escapeHtml(
                               data.department || "-"
-                            }</td></tr>
+                            )}</td></tr>
+                            <tr><td><strong>KRA PIN:</strong></td><td>${this.escapeHtml(
+                              data.kra_pin || "-"
+                            )}</td></tr>
+                            <tr><td><strong>NSSF No:</strong></td><td>${this.escapeHtml(
+                              data.nssf_no || "-"
+                            )}</td></tr>
+                            <tr><td><strong>NHIF No:</strong></td><td>${this.escapeHtml(
+                              data.nhif_no || "-"
+                            )}</td></tr>
                         </table>
                     </div>
                     <div class="col-md-6">
                         <table class="table table-sm table-borderless">
-                            <tr><td><strong>Bank:</strong></td><td>${
+                            <tr><td><strong>Bank:</strong></td><td>${this.escapeHtml(
                               data.bank_name || "-"
-                            }</td></tr>
-                            <tr><td><strong>Account:</strong></td><td>${
-                              data.bank_account_number || "-"
-                            }</td></tr>
+                            )}</td></tr>
+                            <tr><td><strong>Account Number:</strong></td><td>${this.escapeHtml(
+                              data.bank_account_number || data.bank_account || "-"
+                            )}</td></tr>
+                            <tr><td><strong>Payment Mode:</strong></td><td>${paymentMode}</td></tr>
+                            <tr><td><strong>Payment Ref:</strong></td><td>${this.escapeHtml(
+                              data.payment_reference || "-"
+                            )}</td></tr>
+                            <tr><td><strong>Date Paid:</strong></td><td>${datePaid}</td></tr>
                             <tr><td><strong>Pay Period:</strong></td><td>${period}</td></tr>
                             <tr><td><strong>Status:</strong></td><td>${this.getStatusBadge(
                               data.status
@@ -1016,24 +1228,52 @@ const PayrollManagerController = {
   /**
    * Mark payroll as paid
    */
-  markAsPaid: async function (payrollId) {
-    if (
-      !confirm(
-        "Mark this payroll as paid? This will also record fee payments for any children deductions."
-      )
-    ) {
-      return;
-    }
+  approvePayroll: function (payrollId) {
+    var self = this;
+    self.showConfirm(
+      "Approve this payroll for accountant payment release?",
+      function () {
+        self._executeApprove(payrollId);
+      }
+    );
+  },
 
+  _executeApprove: async function (payrollId) {
     try {
-      const paymentRef = prompt("Enter payment reference (optional):") || "";
-      const response = await API.finance.markPayrollPaid(payrollId, paymentRef);
-
-      if (response.success) {
-        this.showSuccess("Payroll marked as paid");
+      const response = await API.finance.approvePayroll(payrollId);
+      if (response && (response.status === "approved" || response.payroll_id)) {
+        this.showSuccess("Payroll approved for payment release");
         await this.refresh();
       } else {
-        this.showError(response.message || "Failed to mark as paid");
+        this.showError((response && response.message) || "Failed to approve payroll");
+      }
+    } catch (error) {
+      console.error("Error approving payroll:", error);
+      this.showError(error.message || "Failed to approve payroll");
+    }
+  },
+
+  markAsPaid: function (payrollId) {
+    var self = this;
+    self.showConfirm(
+      "Mark this payroll as paid? This will also record fee payments for any children deductions.",
+      function () {
+        self.showPaymentModeModal(function (mode, reference) {
+          self._executeMarkAsPaid(payrollId, mode, reference);
+        });
+      }
+    );
+  },
+
+  _executeMarkAsPaid: async function (payrollId, paymentMode, paymentRef) {
+    try {
+      const response = await API.finance.markPayrollPaid(payrollId, paymentRef, paymentMode);
+
+      if (response && (response.payroll_id || response.status === "paid" || response.status === "success" || response.id || response.message)) {
+        this.showSuccess("Payroll marked as paid successfully");
+        await this.refresh();
+      } else {
+        this.showError((response && response.message) || "Failed to mark as paid");
       }
     } catch (error) {
       console.error("Error marking as paid:", error);
@@ -1045,32 +1285,140 @@ const PayrollManagerController = {
    * Print payslip
    */
   printPayslip: function () {
-    const content = document.getElementById("payslipPrintArea").innerHTML;
+    const source = document.getElementById("payslipPrintArea");
+    if (!source) {
+      this.showError("Payslip is not ready to print");
+      return;
+    }
+
     const printWindow = window.open("", "_blank");
-    printWindow.document.write(`
-            <html>
-            <head>
-                <title>Payslip</title>
-                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-                <style>
-                    body { padding: 20px; }
-                    @media print { .no-print { display: none; } }
-                </style>
-            </head>
-            <body>${content}</body>
-            </html>
-        `);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.print();
-    };
+    const doc = printWindow.document;
+    doc.title = "Payslip";
+
+    const bootstrap = doc.createElement("link");
+    bootstrap.rel = "stylesheet";
+    bootstrap.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    doc.head.appendChild(bootstrap);
+
+    const style = doc.createElement("style");
+    style.textContent = "body { padding: 20px; } @media print { .no-print { display: none; } }";
+    doc.head.appendChild(style);
+    doc.body.appendChild(source.cloneNode(true));
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 300);
   },
 
   /**
-   * Download payslip as PDF
+   * Download payslip as PDF (uses print dialog with auto-trigger)
    */
   downloadPayslip: function () {
-    this.showSuccess("PDF download feature coming soon");
+    var source = document.getElementById("payslipPrintArea");
+    if (!source) {
+      this.showError("Payslip is not ready to download");
+      return;
+    }
+
+    var printWindow = window.open("", "_blank");
+    var doc = printWindow.document;
+    doc.title = "Payslip - Download";
+
+    var bsLink = doc.createElement("link");
+    bsLink.rel = "stylesheet";
+    bsLink.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    doc.head.appendChild(bsLink);
+
+    var style = doc.createElement("style");
+    style.textContent = "@page { margin: 15mm; } body { padding: 0; font-family: 'DM Sans', Arial, sans-serif; } @media print { .no-print { display: none; } }";
+    doc.head.appendChild(style);
+    doc.body.appendChild(source.cloneNode(true));
+    printWindow.focus();
+    setTimeout(function () { printWindow.print(); }, 500);
+  },
+
+  /**
+   * Export currently visible payroll rows as CSV
+   */
+  exportCsv: function () {
+    const rows = this.filteredPayrolls || [];
+    if (!rows.length) {
+      this.showError("No payroll records to export");
+      return;
+    }
+
+    const headers = [
+      "Staff",
+      "Period",
+      "Basic Salary",
+      "Allowances",
+      "Statutory Deductions",
+      "Children Fees",
+      "Other Deductions",
+      "Net Pay",
+      "Status",
+    ];
+
+    const csvRows = rows.map((p) => [
+      `${p.staff_name || `${p.first_name || ""} ${p.last_name || ""}`.trim()}`,
+      `${this.getMonthName(p.payroll_month)} ${p.payroll_year}`,
+      p.basic_salary || 0,
+      p.allowances || 0,
+      p.statutory_deductions || 0,
+      p.children_fee_deductions || 0,
+      p.other_deductions || 0,
+      p.net_salary || 0,
+      p.status || "",
+    ]);
+
+    const csv = [headers, ...csvRows]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `payroll-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  },
+
+  /**
+   * Print the payroll table as a PDF via the browser print dialog
+   */
+  printPayrollReport: function () {
+    const table = document.getElementById("payrollTable");
+    if (!table || !(this.filteredPayrolls || []).length) {
+      this.showError("No payroll records to print");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    const doc = printWindow.document;
+    doc.title = "Payroll Report";
+
+    const style = doc.createElement("style");
+    style.textContent = `
+      body { font-family: Arial, sans-serif; padding: 24px; color: #111814; }
+      h1 { margin: 0 0 4px; font-family: Georgia, serif; }
+      p { margin: 0 0 18px; color: #536158; }
+      table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      th { background: #082d21; color: #fff; text-align: left; }
+      th, td { border: 1px solid #d9e3dc; padding: 8px; }
+      .btn-group, button { display: none !important; }
+    `;
+    doc.head.appendChild(style);
+
+    const title = doc.createElement("h1");
+    title.textContent = "Payroll Report";
+    const generated = doc.createElement("p");
+    generated.textContent = `Generated ${new Date().toLocaleString()}`;
+    const clonedTable = table.cloneNode(true);
+
+    doc.body.appendChild(title);
+    doc.body.appendChild(generated);
+    doc.body.appendChild(clonedTable);
+    printWindow.focus();
+    printWindow.print();
   },
 
   // ========================================================================
@@ -1091,12 +1439,88 @@ const PayrollManagerController = {
     return div.innerHTML;
   },
 
+  /**
+   * Get month name from month number (1-12)
+   */
+  getMonthName: function (monthNum) {
+    var months = [
+      "", "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    return months[parseInt(monthNum)] || "";
+  },
+
   showSuccess: function (message) {
     if (typeof showNotification === "function") {
       showNotification(message, "success");
     } else {
       alert("✅ " + message);
     }
+  },
+
+  /**
+   * Show confirmation modal (replaces browser confirm())
+   */
+  showConfirm: function (message, onConfirm, type) {
+    var self = this;
+    var modal = document.getElementById("payrollConfirmModal");
+    var header = document.getElementById("payrollConfirmHeader");
+    var okBtn = document.getElementById("payrollConfirmOk");
+    var titleText = document.getElementById("payrollConfirmTitleText");
+
+    titleText.textContent = type === "danger" ? "Warning" : "Confirm";
+    document.getElementById("payrollConfirmMessage").textContent = message;
+
+    if (type === "danger") {
+      header.style.background = "linear-gradient(135deg, #8B0000, #dc3545)";
+      okBtn.style.background = "#8B0000";
+    } else {
+      header.style.background = "linear-gradient(135deg, #0d4f2a, #198754)";
+      okBtn.style.background = "#0d4f2a";
+    }
+
+    var bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    // Remove old listeners by cloning
+    var newOk = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk, okBtn);
+    newOk.id = "payrollConfirmOk";
+
+    newOk.addEventListener("click", function () {
+      bsModal.hide();
+      if (typeof onConfirm === "function") onConfirm();
+    });
+  },
+
+  /**
+   * Show payment mode modal (replaces browser prompt())
+   * Returns { mode, reference } via callback
+   */
+  showPaymentModeModal: function (onConfirm) {
+    var modal = document.getElementById("payrollPaymentModeModal");
+    var refInput = document.getElementById("paymentReferenceInput");
+    var okBtn = document.getElementById("payrollPaymentConfirmOk");
+
+    // Reset
+    refInput.value = "";
+    document.getElementById("modeBank").checked = true;
+
+    var bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    // Remove old listeners by cloning
+    var newOk = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk, okBtn);
+    newOk.id = "payrollPaymentConfirmOk";
+
+    newOk.addEventListener("click", function () {
+      var selectedMode = document.querySelector('input[name="paymentMode"]:checked');
+      var mode = selectedMode ? selectedMode.value : "bank";
+      var reference = refInput.value.trim();
+      bsModal.hide();
+      if (typeof onConfirm === "function") onConfirm(mode, reference);
+    });
   },
 
   showError: function (message) {

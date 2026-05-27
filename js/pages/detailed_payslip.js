@@ -445,7 +445,7 @@ const DetailedPayslipController = {
     if (window.showToast) {
       window.showToast(message, "success");
     } else {
-      alert(message);
+      this._showNotification(message, "success");
     }
   },
 
@@ -456,8 +456,91 @@ const DetailedPayslipController = {
     if (window.showToast) {
       window.showToast(message, "error");
     } else {
-      alert("Error: " + message);
+      this._showNotification(message, "error");
     }
+  },
+
+  /**
+   * Show confirmation dialog using Bootstrap modal
+   */
+  showConfirm: function (title, message, onConfirm, type) {
+    var modal = document.getElementById("confirmModal");
+    if (!modal) return;
+
+    document.getElementById("confirmModalTitle").textContent = title;
+    document.getElementById("confirmModalMessage").textContent = message;
+
+    var headerEl = modal.querySelector(".modal-header");
+    headerEl.style.background =
+      type === "danger"
+        ? "linear-gradient(135deg, #8B0000, #dc3545)"
+        : "linear-gradient(135deg, #0d4f2a, #198754)";
+
+    var okBtn = document.getElementById("confirmModalOk");
+    okBtn.style.background = type === "danger" ? "#8B0000" : "#0d4f2a";
+
+    var bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    // Remove old listeners by cloning
+    var newOk = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk, okBtn);
+    newOk.id = "confirmModalOk";
+
+    newOk.addEventListener("click", function () {
+      bsModal.hide();
+      if (typeof onConfirm === "function") onConfirm();
+    });
+  },
+
+  /**
+   * Show notification toast (safe DOM methods, no innerHTML)
+   */
+  _showNotification: function (message, type) {
+    var container = document.getElementById("toastContainer");
+    if (!container) {
+      container = document.createElement("div");
+      container.id = "toastContainer";
+      container.style.cssText =
+        "position:fixed;top:20px;right:20px;z-index:9999;";
+      document.body.appendChild(container);
+    }
+
+    var bgClass = type === "success" ? "bg-success" : "bg-danger";
+
+    var toast = document.createElement("div");
+    toast.className =
+      "toast show align-items-center text-white " +
+      bgClass +
+      " border-0 shadow-lg";
+    toast.style.cssText = "border-radius:8px;min-width:300px;margin-bottom:8px;";
+    toast.setAttribute("role", "alert");
+
+    var flex = document.createElement("div");
+    flex.className = "d-flex";
+
+    var body = document.createElement("div");
+    body.className = "toast-body";
+    body.textContent = message;
+
+    var closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "btn-close btn-close-white me-2 m-auto";
+    closeBtn.setAttribute("data-bs-dismiss", "toast");
+    closeBtn.addEventListener("click", function () {
+      toast.classList.remove("show");
+      setTimeout(function () { toast.remove(); }, 300);
+    });
+
+    flex.appendChild(body);
+    flex.appendChild(closeBtn);
+    toast.appendChild(flex);
+    container.appendChild(toast);
+
+    setTimeout(function () {
+      toast.classList.remove("show");
+      setTimeout(function () { toast.remove(); }, 300);
+    }, 4000);
   },
 };
 

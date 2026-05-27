@@ -151,6 +151,15 @@ class AcademicController extends BaseController
     }
 
     /**
+     * GET /api/academic/levels-list - List active school levels
+     */
+    public function getLevelsList($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getLevelsList($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/academic - Create new academic record
      * Called as: post(null, $data, [])
      */
@@ -308,6 +317,15 @@ class AcademicController extends BaseController
 
         return $this->success(['result' => $result]);
     }
+    private function requireAcademicWorkflowAccess(array $permissions = ['academic_manage', 'academic_approve'])
+    {
+        if (!$this->userHasAny($permissions, [1, 3, 4, 5], ['system admin', 'director', 'principal', 'headteacher'])) {
+            return $this->forbidden('You do not have permission to perform this academic workflow action');
+        }
+
+        return null;
+    }
+
     // ==================== EXAMINATION WORKFLOW ====================
     // URLs: POST /api/academic/exams/start-workflow
     //       POST /api/academic/exams/create-schedule
@@ -319,6 +337,10 @@ class AcademicController extends BaseController
      */
     public function postExamsStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess()) {
+            return $guard;
+        }
+
         $result = $this->api->startExaminationWorkflow($data);
         return $this->handleResponse($result);
     }
@@ -328,6 +350,10 @@ class AcademicController extends BaseController
      */
     public function postExamsCreateSchedule($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess()) {
+            return $guard;
+        }
+
         $result = $this->api->createExamSchedule(
             $data['instance_id'] ?? null,
             $data['schedule_entries'] ?? [],
@@ -341,6 +367,10 @@ class AcademicController extends BaseController
      */
     public function postExamsSubmitQuestions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->submitQuestionPaper(
             $data['instance_id'] ?? null,
             $data['subject_id'] ?? null,
@@ -355,6 +385,10 @@ class AcademicController extends BaseController
      */
     public function postExamsPrepareLogistics($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess()) {
+            return $guard;
+        }
+
         $result = $this->api->prepareExamLogistics($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -364,6 +398,10 @@ class AcademicController extends BaseController
      */
     public function postExamsConduct($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->conductExamination($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -373,6 +411,10 @@ class AcademicController extends BaseController
      */
     public function postExamsAssignMarking($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess()) {
+            return $guard;
+        }
+
         $result = $this->api->assignExamMarking(
             $data['instance_id'] ?? null,
             $data['assignments'] ?? [],
@@ -386,6 +428,10 @@ class AcademicController extends BaseController
      */
     public function postExamsRecordMarks($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->recordExamMarks(
             $data['instance_id'] ?? null,
             $data['marks_data'] ?? [],
@@ -399,6 +445,10 @@ class AcademicController extends BaseController
      */
     public function postExamsVerifyMarks($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->verifyExamMarks($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -408,6 +458,10 @@ class AcademicController extends BaseController
      */
     public function postExamsModerateMarks($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->moderateExamMarks(
             $data['instance_id'] ?? null,
             $data['moderation_data'] ?? [],
@@ -421,6 +475,10 @@ class AcademicController extends BaseController
      */
     public function postExamsCompileResults($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->compileExamResults($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -474,6 +532,10 @@ class AcademicController extends BaseController
      */
     public function postExamSchedule($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->createExamScheduleEntry($data);
         return $this->handleResponse($result);
     }
@@ -484,6 +546,10 @@ class AcademicController extends BaseController
      */
     public function putExamSchedule($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         if ($id === null) {
             return $this->badRequest('Exam schedule ID is required for update');
         }
@@ -497,6 +563,10 @@ class AcademicController extends BaseController
      */
     public function deleteExamSchedule($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage'])) {
+            return $guard;
+        }
+
         if ($id === null) {
             return $this->badRequest('Exam schedule ID is required for deletion');
         }
@@ -511,6 +581,10 @@ class AcademicController extends BaseController
      */
     public function postPromotionsStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'students_promote'])) {
+            return $guard;
+        }
+
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startPromotionWorkflow($payload);
         return $this->handleResponse($result);
@@ -521,6 +595,10 @@ class AcademicController extends BaseController
      */
     public function postPromotionsIdentifyCandidates($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'students_promote'])) {
+            return $guard;
+        }
+
         $result = $this->api->identifyPromotionCandidates($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -530,6 +608,10 @@ class AcademicController extends BaseController
      */
     public function postPromotionsValidateEligibility($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'students_promote'])) {
+            return $guard;
+        }
+
         $result = $this->api->validatePromotionEligibility($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -558,6 +640,10 @@ class AcademicController extends BaseController
      */
     public function postPromotionsGenerateReports($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'students_promote'])) {
+            return $guard;
+        }
+
         $result = $this->api->generatePromotionReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -569,6 +655,10 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startAssessmentWorkflow($payload);
         return $this->handleResponse($result);
@@ -579,6 +669,10 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsCreateItems($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->createAssessmentItems(
             $data['instance_id'] ?? null,
             $data['items'] ?? $data['assessment_items'] ?? []
@@ -591,6 +685,10 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsAdminister($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $result = $this->api->administerAssessment(
             $data['instance_id'] ?? null,
             $data['administration_data'] ?? $data
@@ -606,6 +704,10 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsMarkAndGrade($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_edit'])) {
+            return $guard;
+        }
+
         $instanceId = $data['instance_id'] ?? null;
         $assessmentId = $data['assessment_id'] ?? null;
         $gradingData = $data['grading_data'] ?? $data['marks_data'] ?? $data['marks'] ?? [];
@@ -630,6 +732,10 @@ class AcademicController extends BaseController
      */
     public function postAssessmentsAnalyzeResults($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess()) {
+            return $guard;
+        }
+
         $result = $this->api->analyzeAssessmentResults($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -641,6 +747,10 @@ class AcademicController extends BaseController
      */
     public function postReportsStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->startReportWorkflow($data);
         return $this->handleResponse($result);
     }
@@ -650,6 +760,10 @@ class AcademicController extends BaseController
      */
     public function postReportsCompileData($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->compileReportData($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -659,6 +773,10 @@ class AcademicController extends BaseController
      */
     public function postReportsGenerateStudentReports($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->generateStudentReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -668,6 +786,10 @@ class AcademicController extends BaseController
      */
     public function postReportsReviewAndApprove($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->reviewAndApproveReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -677,6 +799,10 @@ class AcademicController extends BaseController
      */
     public function postReportsDistribute($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'academic_approve'])) {
+            return $guard;
+        }
+
         $result = $this->api->distributeReports($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -693,6 +819,10 @@ class AcademicController extends BaseController
      */
     public function postLibraryReviewRequest($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'library_manage'])) {
+            return $guard;
+        }
+
         $result = $this->api->reviewLibraryRequest($data['instance_id'] ?? null, $data['decision'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -702,6 +832,10 @@ class AcademicController extends BaseController
      */
     public function postLibraryCatalogResources($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'library_manage'])) {
+            return $guard;
+        }
+
         $result = $this->api->catalogLibraryResources($data['instance_id'] ?? null, $data['resources'] ?? [], $data);
         return $this->handleResponse($result);
     }
@@ -711,6 +845,10 @@ class AcademicController extends BaseController
      */
     public function postLibraryDistributeAndTrack($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'library_manage'])) {
+            return $guard;
+        }
+
         $result = $this->api->distributeAndTrackResources($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -722,6 +860,10 @@ class AcademicController extends BaseController
      */
     public function postCurriculumStartWorkflow($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
+            return $guard;
+        }
+
         $payload = is_array($data) ? $data : [];
         $result = $this->api->startCurriculumWorkflow($payload);
         return $this->handleResponse($result);
@@ -732,6 +874,10 @@ class AcademicController extends BaseController
      */
     public function postCurriculumMapOutcomes($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
+            return $guard;
+        }
+
         $result = $this->api->mapCurriculumOutcomes($data['instance_id'] ?? null, $data['mappings'] ?? [], $data);
         return $this->handleResponse($result);
     }
@@ -741,6 +887,10 @@ class AcademicController extends BaseController
      */
     public function postCurriculumCreateScheme($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_manage', 'curriculum_manage'])) {
+            return $guard;
+        }
+
         // Assuming createCurriculumScheme expects ($instanceId, $data)
         $result = $this->api->createCurriculumScheme($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
@@ -797,6 +947,10 @@ class AcademicController extends BaseController
      */
     public function postYearTransitionArchiveData($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
         $result = $this->api->archiveAcademicData($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -806,6 +960,10 @@ class AcademicController extends BaseController
      */
     public function postYearTransitionExecutePromotions($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'students_promote', 'system_admin'])) {
+            return $guard;
+        }
+
         $result = $this->api->executeYearPromotions($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -835,6 +993,10 @@ class AcademicController extends BaseController
      */
     public function postYearTransitionMigrateCompetencyBaselines($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->requireAcademicWorkflowAccess(['academic_year_manage', 'system_admin'])) {
+            return $guard;
+        }
+
         $result = $this->api->migrateCompetencyBaselines($data['instance_id'] ?? null, $data);
         return $this->handleResponse($result);
     }
@@ -907,6 +1069,15 @@ class AcademicController extends BaseController
     public function getYearsCurrent($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getCurrentAcademicYear($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/years/get/{id} - Get academic year by ID
+     */
+    public function getYearsGet($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getAcademicYear($id);
         return $this->handleResponse($result);
     }
 

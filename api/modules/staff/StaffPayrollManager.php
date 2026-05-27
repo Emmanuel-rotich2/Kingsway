@@ -87,17 +87,43 @@ class StaffPayrollManager extends BaseAPI
 
             $status = $data['status'] ?? 'pending';
 
-            // Fetch base salary
-            $stmt = $this->db->prepare("SELECT salary FROM staff WHERE id = ? AND status = 'active'");
-            $stmt->execute([$staffId]);
-            $row = $stmt->fetch(PDO::FETCH_ASSOC);
-            if (!$row) {
-                return formatResponse(false, null, 'Staff not found');
+            // Payroll eligibility gate: staff must have all statutory IDs,
+            // payment details, at least one role, and a salary set.
+            $eligibilitySql = "SELECT
+                s.staff_no, s.department_id, s.salary, s.kra_pin, s.nssf_no,
+                s.nhif_no, s.phone, s.bank_name, s.bank_account,
+                COUNT(DISTINCT ur.role_id) AS role_count
+            FROM staff s
+            LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+            WHERE s.id = ? AND s.status = 'active'
+            GROUP BY s.id";
+            $eligStmt = $this->db->prepare($eligibilitySql);
+            $eligStmt->execute([$staffId]);
+            $profile = $eligStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$profile) {
+                return formatResponse(false, null, 'Staff is not active or does not exist');
             }
-            $baseSalary = (float) ($row['salary'] ?? 0);
-            if ($baseSalary <= 0) {
-                return formatResponse(false, null, 'Staff salary is not set');
+
+            $checks = [
+                'staff_no' => 'Staff number', 'department_id' => 'Department',
+                'role_count' => 'Assigned role', 'salary' => 'Basic salary',
+                'kra_pin' => 'KRA PIN', 'nssf_no' => 'NSSF number',
+                'nhif_no' => 'NHIF/SHIF number', 'phone' => 'Phone number',
+                'bank_name' => 'Bank name', 'bank_account' => 'Bank account',
+            ];
+            $eligMissing = [];
+            foreach ($checks as $field => $label) {
+                $val = $profile[$field] ?? null;
+                if ($field === 'role_count' && (int) $val < 1) { $eligMissing[] = $label; continue; }
+                if ($field === 'salary' && (float) $val <= 0) { $eligMissing[] = $label; continue; }
+                if ($val === null || trim((string) $val) === '') { $eligMissing[] = $label; }
             }
+            if (!empty($eligMissing)) {
+                return formatResponse(false, null, 'Staff not payroll eligible. Missing: ' . implode(', ', $eligMissing));
+            }
+
+            $baseSalary = (float) ($profile['salary'] ?? 0);
 
             // Fetch allowances
             $stmt = $this->db->prepare(
@@ -575,7 +601,7 @@ class StaffPayrollManager extends BaseAPI
                 'payroll_year' => $payslip['payroll_year']
             ]);
 
-            if ($result['success']) {
+            if (($result['status'] ?? '') === 'success') {
                 $this->logAction('download', $payslipId, "Staff ID $staffId downloaded payslip ID $payslipId");
                 $result['message'] = 'Payslip ready for download';
             }
@@ -595,7 +621,7 @@ class StaffPayrollManager extends BaseAPI
         try {
             $result = $this->getPayrollHistory($staffId, ['year' => $year]);
 
-            if (!$result['success']) {
+            if (($result['status'] ?? '') !== 'success') {
                 return $result;
             }
 
@@ -1076,7 +1102,7 @@ class StaffPayrollManager extends BaseAPI
             $childFeesDeduction = 0;
             $childFeesBreakdown = [];
 
-            if ($childFeesResult['success'] && !empty($childFeesResult['data']['children_breakdown'])) {
+            if (($childFeesResult['status'] ?? '') === 'success' && !empty($childFeesResult['data']['children_breakdown'])) {
                 $childFeesDeduction = $childFeesResult['data']['total_child_fee_deduction'];
                 $childFeesBreakdown = $childFeesResult['data']['children_breakdown'];
             }

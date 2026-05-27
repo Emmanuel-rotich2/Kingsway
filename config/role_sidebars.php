@@ -87,12 +87,6 @@ return [
             ['label' => 'System Diagnostics',      'url' => 'system_diagnostics'],
             ['label' => 'Job Inspector',           'url' => 'job_inspector'],
         ]],
-
-        ['label' => 'School Overview', 'url' => null, 'icon' => 'fas fa-school', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
-            ['label' => 'All Staff',               'url' => 'manage_staff'],
-            ['label' => 'Finance Summary',         'url' => 'finance_reports'],
-        ]],
     ],
 
     // =========================================================================

@@ -414,6 +414,18 @@ class BaseAPI
         }
     }
 
+    /**
+     * Execute a parameterized query on the raw PDO connection.
+     * Use this instead of $this->db->query($sql, $params) which calls PDO::query()
+     * (PDO::query() does not accept a params array as its 2nd argument).
+     */
+    protected function dbQuery(string $sql, array $params = []): \PDOStatement
+    {
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt;
+    }
+
     // ---------- Stored routine helpers ----------
     protected function routineExists($name, $type = 'PROCEDURE')
     {

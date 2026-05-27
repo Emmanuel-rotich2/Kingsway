@@ -24,10 +24,12 @@ const AdmissionsController = {
     requestedTab: null,
     queues: {},
     summary: {},
-    allowedTabs: {},
+    stageMatrix: null,
+    policy: null,
     selectedApplication: null,
     userRole: null,
     isLoading: false,
+    isInitializing: false,
     isInitialized: false,
     referenceData: {
       parents: [],
@@ -79,14 +81,12 @@ const AdmissionsController = {
         "admission_applications_edit",
       ],
     },
-    enrollment_pending: {
-      label: "Enrollment",
-      icon: "bi-person-check",
-      color: "dark",
+    director_confirmation_pending: {
+      label: "Director Confirmation",
+      icon: "bi-shield-check",
+      color: "secondary",
       permissions: [
-        "admission_applications_approve_final",
-        "admission_applications_approve",
-        "admission_applications_validate",
+        "admission_enrollment_confirm",
       ],
     },
   },
@@ -149,14 +149,17 @@ const AdmissionsController = {
       "admission_applications_assign",
     ],
     "record-payment": [
-      "admission_applications_approve",
+      "admission_payments_create",
+      "admission_payments_record",
+      "admission_fee_payments_record",
       "admission_applications_validate",
-      "admission_applications_edit",
     ],
     "complete-enrollment": [
+      "admission_enrollment_complete",
       "admission_applications_approve_final",
-      "admission_applications_approve",
-      "admission_applications_validate",
+    ],
+    "confirm-enrollment": [
+      "admission_enrollment_confirm",
     ],
     "new-application": [
       "admission_applications_create",
@@ -168,34 +171,60 @@ const AdmissionsController = {
    * Initialize the controller
    */
   async init() {
-    if (this.state.isInitialized) {
+    if (this.state.isInitialized || this.state.isInitializing) {
       return;
     }
 
+    this.state.isInitializing = true;
     console.log("[AdmissionsController] Initializing...");
 
-    // Get user role from session
-    this.state.userRole = this.resolveUserRole();
-    this.state.requestedTab = this.resolveRequestedTab();
+    try {
+      // Get user role from session
+      this.state.userRole = this.resolveUserRole();
+      this.state.requestedTab = this.resolveRequestedTab();
 
-    // Setup event listeners
-    this.setupEventListeners();
+      // Setup event listeners
+      this.setupEventListeners();
 
-    // Load reference data for forms
-    await this.loadReferenceData();
+      // Load server-driven admission policy and stage permissions
+      await this.loadPolicyAndStageMatrix();
 
-    // Load workflow queues
-    await this.loadQueues();
+      // Load reference data for forms
+      await this.loadReferenceData();
 
-    // Render initial view
-    this.renderTabs();
-    this.switchTab(this.getDefaultTab());
+      // Load workflow queues
+      await this.loadQueues();
 
-    this.state.isInitialized = true;
+      // Render initial view
+      this.renderTabs();
+      this.switchTab(this.getDefaultTab());
 
-    console.log("[AdmissionsController] Initialized");
+      this.state.isInitialized = true;
+
+      console.log("[AdmissionsController] Initialized");
+    } finally {
+      this.state.isInitializing = false;
+    }
   },
 
+  async loadPolicyAndStageMatrix() {
+    try {
+      const [policyResponse, matrixResponse] = await Promise.all([
+        API.admission.getPolicy(),
+        API.admission.getStageMatrix(),
+      ]);
+
+      this.state.policy = policyResponse?.data || policyResponse || null;
+      this.state.stageMatrix = matrixResponse?.data || matrixResponse || null;
+      if (this.state.stageMatrix?.allowed_tabs) {
+        this.state.allowedTabs = this.state.stageMatrix.allowed_tabs;
+      }
+    } catch (error) {
+      console.warn("[AdmissionsController] Failed to load admission policy/stage matrix:", error);
+      this.state.stageMatrix = null;
+      this.state.policy = null;
+    }
+  },
   resolveUserRole() {
     const roles = AuthContext.getRoles ? AuthContext.getRoles() : [];
     const role = roles[0]?.name || roles[0];
@@ -226,18 +255,15 @@ const AdmissionsController = {
   },
 
   canAccessStage(tabKey) {
+    if (this.state.stageMatrix?.allowed_tabs) {
+      return Boolean(this.state.stageMatrix.allowed_tabs[tabKey]);
+    }
+
     if (Object.prototype.hasOwnProperty.call(this.state.allowedTabs, tabKey)) {
       return Boolean(this.state.allowedTabs[tabKey]);
     }
 
-    const stage = this.stages[tabKey];
-    if (!stage?.permissions?.length) return false;
-
-    if (this.hasAnyPermission(stage.permissions)) {
-      return true;
-    }
-
-    return this.hasAdmissionsViewAccess();
+    return false;
   },
 
   hasAdmissionsViewAccess() {
@@ -312,6 +338,7 @@ const AdmissionsController = {
       "placement_pending",
       "payment_pending",
       "enrollment_pending",
+      "director_confirmation_pending",
     ];
 
     for (const tabKey of priority) {
@@ -358,6 +385,7 @@ const AdmissionsController = {
         "generate-placement",
         "record-payment",
         "complete-enrollment",
+        "confirm-enrollment",
         "new-application",
         "refresh",
       ]);
@@ -394,8 +422,8 @@ const AdmissionsController = {
         case "record-payment":
           this.openPaymentModal(applicationId);
           break;
-        case "complete-enrollment":
-          this.completeEnrollment(applicationId);
+        case "confirm-enrollment":
+          this.openDirectorConfirmationModal(applicationId);
           break;
         case "new-application":
           this.openNewApplicationModal();
@@ -435,6 +463,10 @@ const AdmissionsController = {
       if (e.target.id === "paymentForm") {
         e.preventDefault();
         await this.submitPaymentRecord(e.target);
+      }
+      if (e.target.id === "directorConfirmationForm") {
+        e.preventDefault();
+        await this.submitDirectorConfirmation(e.target);
       }
     });
   },
@@ -589,10 +621,14 @@ const AdmissionsController = {
         this.renderTabs();
         this.renderCurrentQueue();
       } else {
+        this.showLoadError("Admissions API returned an empty response. Please refresh or contact the administrator.");
         showNotification("Failed to load admissions", "error");
       }
     } catch (error) {
       console.error("[AdmissionsController] Error loading queues:", error);
+      this.showLoadError(
+        "Could not load admissions data. Check your connection and try again."
+      );
       showNotification("Error loading admissions data", "error");
     } finally {
       this.state.isLoading = false;
@@ -872,6 +908,10 @@ const AdmissionsController = {
         return this.canPerformAction("complete-enrollment")
           ? ["complete-enrollment"]
           : [];
+      case "director_confirmation_pending":
+        return this.canPerformAction("confirm-enrollment")
+          ? ["confirm-enrollment"]
+          : [];
       default:
         return [];
     }
@@ -916,6 +956,11 @@ const AdmissionsController = {
         icon: "bi-person-check",
         color: "dark",
         title: "Complete Enrollment",
+      },
+      "confirm-enrollment": {
+        icon: "bi-shield-check",
+        color: "success",
+        title: "Director Confirmation",
       },
     };
 
@@ -2192,6 +2237,44 @@ const AdmissionsController = {
   /**
    * Complete enrollment
    */
+  async openDirectorConfirmationModal(applicationId) {
+    const modalEl = document.getElementById("directorConfirmationModal");
+    if (!modalEl) return;
+
+    const input = modalEl.querySelector("#directorConfirmationApplicationId");
+    if (input) input.value = applicationId;
+    const notes = modalEl.querySelector('textarea[name="notes"]');
+    if (notes) notes.value = "";
+
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  },
+
+  async submitDirectorConfirmation(form) {
+    const formData = new FormData(form);
+    const applicationId = formData.get("application_id");
+    const notes = formData.get("notes") || "";
+
+    try {
+      const response = await API.admission.confirmEnrollment({
+        application_id: applicationId,
+        notes,
+      });
+
+      showNotification(
+        response.message || "Enrollment confirmed successfully",
+        "success"
+      );
+
+      bootstrap.Modal.getInstance(
+        document.getElementById("directorConfirmationModal")
+      )?.hide();
+      await this.loadQueues();
+    } catch (error) {
+      showNotification(error.message || "Failed to confirm enrollment", "error");
+    }
+  },
+
   async completeEnrollment(applicationId) {
     try {
       const response = await API.admission.getApplication(applicationId);
@@ -2217,59 +2300,44 @@ const AdmissionsController = {
       return;
     }
 
-    const confirmed = await this.confirm(
+    this.showConfirmModal(
       "Complete Enrollment",
-      "This will create the student record and finalize the admission. Continue?",
-    );
+      "Are you sure you want to enroll this student? This will create a student record and advance to Director confirmation.",
+      async () => {
+        try {
+          const response = await API.admission.completeEnrollment({
+            application_id: applicationId,
+          });
+          const result = this.unwrapPayload(response);
 
-    if (!confirmed) return;
+          showNotification(
+            "Enrollment completed successfully! Student has been created.",
+            "success",
+          );
+          await this.loadQueues();
 
-    try {
-      const response = await API.admission.completeEnrollment({
-        application_id: applicationId,
-      });
-      const payload = this.unwrapPayload(response);
-
-      showNotification(
-        "Enrollment completed successfully! Student has been created.",
-        "success",
-      );
-      await this.loadQueues();
-
-      // Optionally redirect to student profile
-      if (payload?.student_id) {
-        const viewStudent = await this.confirm(
-          "View Student",
-          "Would you like to view the new student record?",
-        );
-        if (viewStudent) {
-          const studentId = encodeURIComponent(payload.student_id);
-          const route = this.resolveStudentRecordRoute();
-          window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile`;
+          if (result?.student_id) {
+            const studentId = encodeURIComponent(result.student_id);
+            const route = this.resolveStudentRecordRoute();
+            showNotification(
+              `<a href="${(window.APP_BASE || "")}/home.php?route=${encodeURIComponent(route)}&student_id=${studentId}&view=profile" class="alert-link">View Student Record</a>`,
+              "success",
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[AdmissionsController] Error completing enrollment:",
+            error,
+          );
+          showNotification("Error completing enrollment", "error");
         }
-      }
-    } catch (error) {
-      console.error(
-        "[AdmissionsController] Error completing enrollment:",
-        error,
-      );
-      showNotification("Error completing enrollment", "error");
-    }
+      },
+    );
   },
 
   // =====================================================
   // UTILITY METHODS
   // =====================================================
-
-  /**
-   * Show a confirmation dialog
-   */
-  confirm(title, message) {
-    return new Promise((resolve) => {
-      // Use browser confirm for now, can be replaced with modal
-      resolve(window.confirm(`${title}\n\n${message}`));
-    });
-  },
 
   /**
    * Close a modal by ID
@@ -2282,6 +2350,38 @@ const AdmissionsController = {
         bsModal.hide();
       }
     }
+  },
+
+  /**
+   * Show Bootstrap confirmation modal (replaces browser confirm())
+   */
+  showConfirmModal(title, message, onConfirm) {
+    const modal = document.getElementById("admissionsConfirmModal");
+    const titleEl = document.getElementById("admissionsConfirmTitle");
+    const messageEl = document.getElementById("admissionsConfirmMessage");
+    const okBtn = document.getElementById("admissionsConfirmOk");
+
+    if (!modal) {
+      if (confirm(message)) {
+        if (typeof onConfirm === "function") onConfirm();
+      }
+      return;
+    }
+
+    if (titleEl) titleEl.textContent = title;
+    if (messageEl) messageEl.textContent = message;
+
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    const newOk = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newOk, okBtn);
+    newOk.id = "admissionsConfirmOk";
+
+    newOk.addEventListener("click", function () {
+      bsModal.hide();
+      if (typeof onConfirm === "function") onConfirm();
+    });
   },
 
   resolveStudentRecordRoute() {
@@ -2312,6 +2412,47 @@ const AdmissionsController = {
                 </div>
             `;
     }
+  },
+
+  showLoadError(message) {
+    const container = document.getElementById("admissionQueueContent");
+    if (!container) return;
+
+    container.replaceChildren();
+
+    const alert = document.createElement("div");
+    alert.className = "alert alert-warning border-0 shadow-sm mb-0";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "d-flex align-items-start gap-3";
+
+    const icon = document.createElement("i");
+    icon.className = "bi bi-wifi-off fs-3 text-warning";
+
+    const body = document.createElement("div");
+    body.className = "flex-grow-1";
+
+    const title = document.createElement("h5");
+    title.className = "mb-1";
+    title.textContent = "Admissions could not load";
+
+    const text = document.createElement("p");
+    text.className = "mb-3";
+    text.textContent = message;
+
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "btn btn-sm btn-success";
+    retry.dataset.action = "refresh";
+    retry.textContent = "Retry";
+
+    body.appendChild(title);
+    body.appendChild(text);
+    body.appendChild(retry);
+    wrapper.appendChild(icon);
+    wrapper.appendChild(body);
+    alert.appendChild(wrapper);
+    container.appendChild(alert);
   },
 
   /**

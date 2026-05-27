@@ -29,6 +29,7 @@ class AuthMiddleware
         $publicEndpoints = [
             'auth/login',
             'auth/register',
+            'auth/forgot-password',
             'auth/reset-password',
             'auth/complete-reset',
             'auth/verify-reset-token',
@@ -63,13 +64,16 @@ class AuthMiddleware
             return;
         }
 
-        // TEST MODE: Accept X-Test-Token header to inject a test user.
-        // Only active on localhost/127.0.0.1 — disabled in production automatically.
-        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $isLocalEnv = ($host === 'localhost' || strpos($host, 'localhost') !== false || strpos($host, '127.0.0.1') !== false);
+        // TEST MODE: Accept X-Test-Token header only in explicit debug mode from a loopback client.
+        $host = $_SERVER['HTTP_HOST'] ?? '';
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
+        $hostName = strtolower(parse_url('http://' . $host, PHP_URL_HOST) ?: '');
+        $isDebugMode = defined('DEBUG') && DEBUG === true;
+        $isLoopbackHost = in_array($hostName, ['localhost', '127.0.0.1', '::1'], true);
+        $isLoopbackClient = in_array($remoteAddr, ['127.0.0.1', '::1'], true);
         $headers = function_exists('getallheaders') ? getallheaders() : [];
-        if ($isLocalEnv && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
-            error_log('AuthMiddleware: DEV test token used from ' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        if ($isDebugMode && $isLoopbackHost && $isLoopbackClient && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
+            error_log('AuthMiddleware: DEV test token used from ' . $remoteAddr);
             $_SERVER['auth_user'] = self::TEST_USER;
             return;
         }

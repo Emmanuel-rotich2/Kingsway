@@ -3,13 +3,14 @@
 ./vendor
 /uploads/
 /*.lock
-
+/.remember/
 /.claude
 /uploads/
 
 .htaccess
 /.htaccess
 ./.htaccess
+.openclaude-profile.json
 
 
 /tests/

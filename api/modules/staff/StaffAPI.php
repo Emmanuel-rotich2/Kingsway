@@ -60,7 +60,7 @@ class StaffAPI extends BaseAPI {
 
             // Get total count
             $sql = "
-                SELECT COUNT(*) 
+                SELECT COUNT(*)
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN departments d ON s.department_id = d.id
@@ -70,9 +70,9 @@ class StaffAPI extends BaseAPI {
             $stmt->execute($bindings);
             $total = $stmt->fetchColumn();
 
-            // Get paginated results with user data
+            // Get paginated results with user data and role count (subquery avoids GROUP BY issues)
             $sql = "
-                SELECT 
+                SELECT
                     s.*,
                     u.first_name,
                     u.last_name,
@@ -89,7 +89,8 @@ class StaffAPI extends BaseAPI {
                         WHEN 2 THEN 'non-teaching'
                         WHEN 3 THEN 'admin'
                         ELSE NULL
-                    END as staff_type
+                    END as staff_type,
+                    (SELECT COUNT(*) FROM user_roles ur WHERE ur.user_id = s.user_id) AS role_count
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN roles r ON u.role_id = r.id
@@ -99,13 +100,41 @@ class StaffAPI extends BaseAPI {
                 ORDER BY $sort $order
                 LIMIT ? OFFSET ?
             ";
-            
+
             $stmt = $this->db->prepare($sql);
             $stmt->execute(array_merge($bindings, [$limit, $offset]));
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+            // Compute payroll eligibility for each staff member
+            $eligibilityChecks = [
+                'staff_no' => 'Staff number',
+                'department_id' => 'Department',
+                'role_count' => 'Assigned role',
+                'salary' => 'Basic salary',
+                'kra_pin' => 'KRA PIN',
+                'nssf_no' => 'NSSF number',
+                'nhif_no' => 'NHIF/SHIF number',
+                'phone' => 'Phone number',
+                'bank_name' => 'Bank name',
+                'bank_account' => 'Bank account',
+            ];
+
+            foreach ($staff as &$member) {
+                $missing = [];
+                foreach ($eligibilityChecks as $field => $label) {
+                    $val = $member[$field] ?? null;
+                    if ($field === 'role_count' && (int) $val < 1) { $missing[] = $label; continue; }
+                    if ($field === 'salary' && (float) $val <= 0) { $missing[] = $label; continue; }
+                    if ($val === null || trim((string) $val) === '') { $missing[] = $label; }
+                }
+                $member['payroll_eligible'] = empty($missing);
+                $member['payroll_missing_fields'] = $missing;
+                $member['profile_completeness'] = round((10 - count($missing)) / 10 * 100);
+            }
+            unset($member);
+
             $this->logAction('read', null, 'Listed staff members');
-            
+
             return $this->response([
                 'status' => 'success',
                 'data' => [
@@ -179,7 +208,21 @@ class StaffAPI extends BaseAPI {
     // Create new staff member
     public function create($data) {
         try {
-            $required = ['first_name', 'last_name', 'email', 'department_id', 'position', 'employment_date'];
+            $required = [
+                'first_name',
+                'last_name',
+                'email',
+                'department_id',
+                'position',
+                'employment_date',
+                'phone',
+                'kra_pin',
+                'nssf_no',
+                'nhif_no',
+                'bank_name',
+                'bank_account',
+                'salary'
+            ];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -199,7 +242,11 @@ class StaffAPI extends BaseAPI {
             } elseif (isset($data['role_id'])) {
                 $roleIds = [$data['role_id']];
             } else {
-                $roleIds = [1];
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Missing required fields',
+                    'fields' => ['role_ids']
+                ], 400);
             }
 
             // Map staff_type string to staff_type_id if provided
@@ -223,9 +270,11 @@ class StaffAPI extends BaseAPI {
                 'employment_date' => $data['employment_date'] ?? date('Y-m-d'),
                 'department_id' => $data['department_id'] ?? null,
                 'date_of_birth' => $data['date_of_birth'] ?? null,
+                'phone' => $data['phone'] ?? $data['phone_number'] ?? null,
                 'nssf_no' => $data['nssf_no'] ?? null,
                 'kra_pin' => $data['kra_pin'] ?? null,
                 'nhif_no' => $data['nhif_no'] ?? null,
+                'bank_name' => $data['bank_name'] ?? null,
                 'bank_account' => $data['bank_account'] ?? null,
                 'salary' => $data['salary'] ?? null,
                 'gender' => $data['gender'] ?? null,
@@ -533,9 +582,11 @@ class StaffAPI extends BaseAPI {
                 'position',
                 'employment_date',
                 'contract_type',
+                'phone',
                 'nssf_no',
                 'kra_pin',
                 'nhif_no',
+                'bank_name',
                 'bank_account',
                 'salary',
                 'gender',

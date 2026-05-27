@@ -2,11 +2,17 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\admission\StudentAdmissionWorkflow;
+use App\API\Modules\admission\AdmissionPolicy;
+use App\API\Modules\admission\AdmissionPaymentService;
+use App\API\Modules\admission\AdmissionStageAuthorization;
 use Exception;
 
 class AdmissionController extends BaseController
 {
     private StudentAdmissionWorkflow $api;
+    private AdmissionPolicy $policy;
+    private AdmissionPaymentService $paymentService;
+    private ?AdmissionStageAuthorization $stageAuthorization = null;
     private bool $resolvedCurrentUserParentId = false;
     private ?int $currentUserParentId = null;
     private bool $resolvedAdmissionRouteAccess = false;
@@ -60,14 +66,17 @@ class AdmissionController extends BaseController
             'admission_applications_assign'
         ],
         'record_payment' => [
-            'admission_applications_approve',
-            'admission_applications_validate',
-            'admission_applications_edit'
+            'admission_payments_create',
+            'admission_fee_payments_record',
+            'admission_payments_record',
+            'admission_applications_validate'
         ],
         'complete_enrollment' => [
-            'admission_applications_approve_final',
-            'admission_applications_approve',
-            'admission_applications_validate'
+            'admission_enrollment_complete',
+            'admission_applications_approve_final'
+        ],
+        'confirm_enrollment' => [
+            'admission_enrollment_confirm'
         ],
     ];
 
@@ -79,11 +88,14 @@ class AdmissionController extends BaseController
         'placement_offer' => ['placement_offer'],
         'record_payment' => ['fee_payment'],
         'complete_enrollment' => ['enrollment'],
+        'confirm_enrollment' => ['director_confirmation'],
     ];
 
     public function __construct() {
         parent::__construct();
         $this->api = new StudentAdmissionWorkflow();
+        $this->policy = new AdmissionPolicy();
+        $this->paymentService = new AdmissionPaymentService($this->db->getConnection());
     }
 
     public function index()
@@ -410,6 +422,67 @@ class AdmissionController extends BaseController
         return $this->handleResponse($result);
     }
 
+    public function getPolicy($id = null, $data = [], $segments = [])
+    {
+        return $this->success($this->policy->getPolicyPayload(), 'Admission policy retrieved');
+    }
+
+    public function getStageMatrix($id = null, $data = [], $segments = [])
+    {
+        if (!$this->hasAnyAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admission stages');
+        }
+
+        $matrix = $this->getStageAuthorization()->getStageMatrix(
+            $this->getCurrentUserRoleIds(),
+            $this->getCurrentUserPermissionCodes()
+        );
+
+        $allowedTabs = [
+            'documents_pending' => !empty($matrix['application']['can_view']) || !empty($matrix['document_verification']['can_view']),
+            'interview_pending' => !empty($matrix['interview_scheduling']['can_view']) || !empty($matrix['interview_assessment']['can_view']),
+            'placement_pending' => !empty($matrix['placement_offer']['can_view']),
+            'payment_pending' => !empty($matrix['fee_payment']['can_view']),
+            'enrollment_pending' => !empty($matrix['enrollment']['can_view']),
+            'director_confirmation_pending' => !empty($matrix['director_confirmation']['can_view']),
+        ];
+
+        return $this->success([
+            'workflow' => 'student_admission',
+            'stages' => array_values($matrix),
+            'allowed_tabs' => $allowedTabs,
+        ], 'Admission stage matrix retrieved');
+    }
+
+    public function getPayments($id = null, $data = [], $segments = [])
+    {
+        $applicationId = $id ?: ($segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+        if (!$this->hasAnyAdmissionPermission('view_any')) {
+            return $this->forbidden('Insufficient permission to view admission payments');
+        }
+
+        return $this->success([
+            'payments' => $this->paymentService->getPaymentsForApplication((int) $applicationId),
+            'total_recorded' => $this->paymentService->getTotalRecorded((int) $applicationId),
+        ], 'Admission payments retrieved');
+    }
+
+    public function postConfirmEnrollment($id = null, $data = [], $segments = [])
+    {
+        $applicationId = $id ?: ($data['application_id'] ?? $segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+        if (!$this->hasAnyAdmissionPermission('confirm_enrollment')) {
+            return $this->forbidden('Insufficient permission to confirm enrollment');
+        }
+
+        return $this->handleResponse($this->api->confirmEnrollment((int) $applicationId, (string) ($data['notes'] ?? '')));
+    }
+
     /**
      * GET /api/admission/queues - Get workflow queues by stage for role-based views
      * Returns counts and lists of applications at each stage
@@ -431,6 +504,7 @@ class AdmissionController extends BaseController
             $canPlacement = $this->canProcessAdmissionActionForStage('placement_offer', 'placement_offer');
             $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fee_payment');
             $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('complete_enrollment', 'enrollment');
+            $canConfirmEnrollment = $this->canProcessAdmissionActionForStage('confirm_enrollment', 'director_confirmation');
 
             // Get applications at each workflow stage
             $queues = [
@@ -438,7 +512,8 @@ class AdmissionController extends BaseController
                 'interview_pending' => [],
                 'placement_pending' => [],
                 'payment_pending' => [],
-                'enrollment_pending' => []
+                'enrollment_pending' => [],
+                'director_confirmation_pending' => []
             ];
 
             // Documents Pending (status = submitted or documents_pending)
@@ -540,6 +615,31 @@ class AdmissionController extends BaseController
                 $queues['enrollment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
+            // Director confirmation pending (post-enrollment oversight)
+            if ($canConfirmEnrollment) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at, aa.enrolled_at, aa.enrolled_student_id,
+                           aa.application_source, aa.admission_category, aa.target_term_id,
+                           aa.director_confirmed_at,
+                           p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
+                           wi.current_stage, wi.data_json,
+                           s.admission_no as student_number,
+                           COALESCE(SUM(ap.amount), 0) as total_admission_paid
+                    FROM admission_applications aa
+                    LEFT JOIN parents p ON aa.parent_id = p.id
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    LEFT JOIN students s ON s.id = aa.enrolled_student_id
+                    LEFT JOIN admission_payments ap ON ap.application_id = aa.id AND ap.status IN ('recorded', 'posted')
+                    WHERE aa.status = 'enrolled'
+                      AND aa.director_confirmed_at IS NULL
+                      AND wi.current_stage = 'director_confirmation'
+                    {$scopeFilter}
+                    GROUP BY aa.id
+                    ORDER BY aa.enrolled_at DESC, aa.created_at DESC";
+                $stmt = $db->query($sql);
+                $queues['director_confirmation_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            }
+
             // Get summary counts
             $summary = [
                 'documents_pending' => count($queues['documents_pending']),
@@ -547,9 +647,10 @@ class AdmissionController extends BaseController
                 'placement_pending' => count($queues['placement_pending']),
                 'payment_pending' => count($queues['payment_pending']),
                 'enrollment_pending' => count($queues['enrollment_pending']),
+                'director_confirmation_pending' => count($queues['director_confirmation_pending']),
                 'total_pending' => count($queues['documents_pending']) + count($queues['interview_pending'])
                     + count($queues['placement_pending']) + count($queues['payment_pending'])
-                    + count($queues['enrollment_pending'])
+                    + count($queues['enrollment_pending']) + count($queues['director_confirmation_pending'])
             ];
 
             return $this->success([
@@ -561,6 +662,7 @@ class AdmissionController extends BaseController
                     'placement_pending' => $canPlacement,
                     'payment_pending' => $canRecordPayment,
                     'enrollment_pending' => $canCompleteEnrollment,
+                    'director_confirmation_pending' => $canConfirmEnrollment,
                 ],
                 'timestamp' => date('Y-m-d H:i:s')
             ], 'Workflow queues retrieved');
@@ -656,8 +758,14 @@ class AdmissionController extends BaseController
             return $actions;
         }
 
-        if (in_array($status, ['enrolled', 'cancelled'], true)) {
+        if ($status === 'cancelled') {
             return [];
+        }
+        if ($status === 'enrolled') {
+            $normalizedStage = $this->normalizeStageCode($currentStage);
+            if ($normalizedStage !== 'director_confirmation') {
+                return [];
+            }
         }
 
         $normalizedStage = $this->normalizeStageCode($currentStage) ?? $this->inferStageFromApplication(['status' => $status]);
@@ -707,6 +815,11 @@ class AdmissionController extends BaseController
             case 'enrollment':
                 if ($this->canProcessAdmissionActionForStage('complete_enrollment', $normalizedStage)) {
                     $actions = ['complete-enrollment'];
+                }
+                break;
+            case 'director_confirmation':
+                if ($this->canProcessAdmissionActionForStage('confirm_enrollment', $normalizedStage)) {
+                    $actions = ['confirm-enrollment'];
                 }
                 break;
             default:
@@ -777,12 +890,12 @@ class AdmissionController extends BaseController
             $stats['total_applications'] = (int) $stmt->fetchColumn();
 
             // By status
-            $sql = "SELECT status, COUNT(*) as count 
+            $sql = "SELECT aa.status, COUNT(*) as count
                     FROM admission_applications aa
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                     WHERE aa.academic_year = YEAR(CURDATE())
                     {$scopeFilter}
-                    GROUP BY status";
+                    GROUP BY aa.status";
             $stmt = $db->query($sql);
             $stats['by_status'] = $stmt->fetchAll(\PDO::FETCH_KEY_PAIR);
 
@@ -1008,6 +1121,14 @@ class AdmissionController extends BaseController
         foreach ($records as &$record) {
             $currentStage = $record['current_stage'] ?? null;
             $status = $record['status'] ?? null;
+            if (($this->normalizeStageCode($currentStage) === 'director_confirmation' || $status === 'enrolled')
+                && empty($record['director_confirmed_at'])
+                && $this->canProcessAdmissionActionForStage('confirm_enrollment', 'director_confirmation')
+            ) {
+                $record['available_actions'] = ['confirm-enrollment'];
+                continue;
+            }
+
             $record['available_actions'] = $this->getAvailableActions($currentStage, $status);
         }
         unset($record);
@@ -1018,7 +1139,7 @@ class AdmissionController extends BaseController
     private function canProcessAdmissionActionForApplication(string $actionGroup, array $application): bool
     {
         $hasActionPermission = $this->hasAnyAdmissionPermission($actionGroup);
-        if (!$hasActionPermission && !$this->hasAdmissionRouteAccess()) {
+        if (!$hasActionPermission) {
             return false;
         }
 
@@ -1035,7 +1156,7 @@ class AdmissionController extends BaseController
     private function canProcessAdmissionActionForStage(string $actionGroup, ?string $stageCode): bool
     {
         $hasActionPermission = $this->hasAnyAdmissionPermission($actionGroup);
-        if (!$hasActionPermission && !$this->hasAdmissionRouteAccess()) {
+        if (!$hasActionPermission) {
             return false;
         }
 
@@ -1052,6 +1173,10 @@ class AdmissionController extends BaseController
         $expectedNormalized = array_values(array_filter(array_map([$this, 'normalizeStageCode'], $expectedStages)));
         if (!in_array($stageCode, $expectedNormalized, true)) {
             return false;
+        }
+
+        if ($this->canActViaStagePermissions($actionGroup, $stageCode)) {
+            return true;
         }
 
         $requiredRole = $this->getStageRequiredRole($stageCode);
@@ -1072,21 +1197,7 @@ class AdmissionController extends BaseController
 
     private function canBypassAdmissionStageRole(): bool
     {
-        if ($this->hasAdmissionRouteAccess()) {
-            return true;
-        }
-
-        return $this->userHasAny(
-            [
-                '*',
-                'admission_view',
-                'admission_applications_view_all',
-                'admission_applications_approve',
-                'admission_applications_approve_final'
-            ],
-            [],
-            ['System Administrator', 'Director', 'School Administrator']
-        );
+        return $this->userHasAny(['*']);
     }
 
     private function ensureApplicationActionAllowed(array $application, string $actionGroup)
@@ -1263,27 +1374,77 @@ class AdmissionController extends BaseController
             case 'documents_pending':
                 return 'document_verification';
             case 'documents_verified':
-                return $this->requiresInterviewAssessmentForGrade($application['grade_applying_for'] ?? null)
+                return $this->policy->requiresInterview((string) ($application['grade_applying_for'] ?? ''))
                     ? 'interview_scheduling'
                     : 'placement_offer';
             case 'placement_offered':
             case 'fees_pending':
                 return 'fee_payment';
             case 'enrolled':
-                return 'enrollment';
+                return 'director_confirmation';
             default:
                 return null;
         }
     }
 
-    private function requiresInterviewAssessmentForGrade(?string $grade): bool
+    private function canActViaStagePermissions(string $actionGroup, string $stageCode): bool
     {
-        if (!$grade) {
-            return true;
+        $permissionCandidates = self::PERMISSIONS[$actionGroup] ?? [];
+        if (empty($permissionCandidates)) {
+            return false;
         }
 
-        $normalized = strtolower(str_replace(' ', '', trim($grade)));
-        return in_array($normalized, ['grade2', 'grade3', 'grade4', 'grade5', 'grade6'], true);
+        return $this->getStageAuthorization()->canAct(
+            $stageCode,
+            $permissionCandidates,
+            $this->getCurrentUserRoleIds(),
+            $this->getCurrentUserPermissionCodes()
+        );
+    }
+
+    private function getStageAuthorization(): AdmissionStageAuthorization
+    {
+        if ($this->stageAuthorization === null) {
+            $this->stageAuthorization = new AdmissionStageAuthorization(
+                $this->db->getConnection(),
+                $this->getStudentAdmissionWorkflowId()
+            );
+        }
+
+        return $this->stageAuthorization;
+    }
+
+    private function getStudentAdmissionWorkflowId(): int
+    {
+        $stmt = $this->db->getConnection()->prepare("SELECT id FROM workflow_definitions WHERE code = 'student_admission' LIMIT 1");
+        $stmt->execute();
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function getCurrentUserRoleIds(): array
+    {
+        if (isset($this->user['role_ids']) && is_array($this->user['role_ids'])) {
+            return array_values(array_map('intval', $this->user['role_ids']));
+        }
+        if (!empty($this->user['role_id'])) {
+            return [(int) $this->user['role_id']];
+        }
+        return [];
+    }
+
+    private function getCurrentUserPermissionCodes(): array
+    {
+        $permissions = [];
+        foreach (['permissions', 'effective_permissions'] as $key) {
+            $source = $this->user[$key] ?? [];
+            if (is_array($source)) {
+                foreach ($source as $permission) {
+                    $permissions[] = is_array($permission) ? (string) ($permission['code'] ?? $permission['name'] ?? '') : (string) $permission;
+                }
+            }
+        }
+
+        return array_values(array_unique(array_filter($permissions)));
     }
 
     private function getWorkflowStageConfig(): array

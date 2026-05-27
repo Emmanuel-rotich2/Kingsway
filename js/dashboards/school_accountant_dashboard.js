@@ -172,11 +172,11 @@ const schoolAccountantDashboardController = Object.assign(
           const route = btn.getAttribute("data-route");
           if (route) {
             console.log("📍 Navigating to:", route);
-            if (typeof window.navigateToRoute === "function") {
-              window.navigateToRoute(route);
-              window.history.pushState({}, "", "?route=" + route);
+            const go = window.AppRouter?.go || window.navigateToRoute;
+            if (typeof go === "function") {
+              go(route);
             } else {
-              window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
+              window.location.href = (window.APP_BASE || '') + '/home.php?route=' + encodeURIComponent(route);
             }
           }
         };
@@ -2711,11 +2711,11 @@ schoolAccountantDashboardController.renderTables = function () {
       ev.preventDefault();
       const route = el.getAttribute("data-route");
       if (!route) return;
-      if (typeof window.navigateToRoute === "function") {
-        window.navigateToRoute(route);
-        window.history.pushState({}, "", "?route=" + route);
+      const go = window.AppRouter?.go || window.navigateToRoute;
+      if (typeof go === "function") {
+        go(route);
       } else {
-        window.location.href = `${window.APP_BASE || ''}/pages/${route}.php`;
+        window.location.href = `${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(route)}`;
       }
     };
     el._dashNavHandler = handler;

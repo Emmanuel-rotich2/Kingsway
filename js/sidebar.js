@@ -33,17 +33,24 @@
             item.subitems.length > 0;
           const itemId = btoa(item.label || "").replace(/=/g, ""); // Use base64 hash for unique ID
           const icon = item.icon || "bi-circle";
-          // Prefer canonical route name when url contains a route query
-          const rawUrl = item.url || "#";
-          let route = rawUrl;
-          try {
-            if (rawUrl && rawUrl.indexOf("route=") !== -1) {
-              // extract the route value from home.php?route=...
-              route = decodeURIComponent(rawUrl.split("route=")[1] || rawUrl);
+          const normalizeMenuRoute = (value) => {
+            if (!value) return "#";
+            const text = String(value).trim();
+            try {
+              const parsed = new URL(text, window.location.origin);
+              return parsed.searchParams.get("route") || text;
+            } catch (e) {
+              const match = text.match(/[?&]route=([^&#]+)/);
+              return match && match[1] ? decodeURIComponent(match[1]) : text;
             }
-          } catch (e) {
-            route = rawUrl;
-          }
+          };
+
+          // Prefer canonical route name when url contains a route query
+          const rawUrl = item.route || item.route_name || item.url || "#";
+          const route = normalizeMenuRoute(rawUrl);
+          const routeHref = route && route !== "#"
+            ? `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(route)}`
+            : "#";
 
           if (hasSubitems) {
             // Menu item with subitems (collapsible)
@@ -68,16 +75,14 @@
             item.subitems.forEach((subitem) => {
               if (!subitem) return;
               const subIcon = subitem.icon || "bi-dot";
-              const subRaw = subitem.url || "#";
-              let subRoute = subRaw;
-              if (subRaw && subRaw.indexOf("route=") !== -1) {
-                subRoute = decodeURIComponent(
-                  subRaw.split("route=")[1] || subRaw
-                );
-              }
+              const subRaw = subitem.route || subitem.route_name || subitem.url || "#";
+              const subRoute = normalizeMenuRoute(subRaw);
+              const subHref = subRoute && subRoute !== "#"
+                ? `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(subRoute)}`
+                : "#";
 
               html += `
-                        <a href="#" data-route="${escapeHtml(
+                        <a href="${escapeHtml(subHref)}" data-route="${escapeHtml(
                           subRoute
                         )}" class="list-group-item list-group-item-action ps-5 sidebar-link">
                             <i class="${subIcon} me-2"></i>
@@ -90,7 +95,7 @@
           } else {
             // Simple menu item (no subitems)
             html += `
-                    <a href="#" data-route="${escapeHtml(
+                    <a href="${escapeHtml(routeHref)}" data-route="${escapeHtml(
                       route
                     )}" class="list-group-item list-group-item-action sidebar-link">
                         <i class="${icon} me-2"></i>
@@ -104,7 +109,7 @@
 
         sidebarMenu.innerHTML = html;
 
-        // Re-attach click handlers for SPA navigation
+        // Re-attach click handlers for full-page shell navigation
         attachSidebarHandlers();
     }
 
@@ -121,7 +126,7 @@
     }
 
     /**
-     * Attach click handlers to sidebar links for SPA navigation
+     * Attach click handlers to sidebar links for full-page shell navigation
      */
     function attachSidebarHandlers() {
         const sidebarLinks = document.querySelectorAll('.sidebar-link');
@@ -145,15 +150,23 @@
                     .forEach((l) => l.classList.remove("active"));
                   // Add active class to clicked link
                   this.classList.add("active");
-                  // Navigate safely:
-                  // - if the route already looks like a path (starts with 'home.php' or '/'), navigate to it directly
-                  // - otherwise build the query string `home.php?route=<route>`
+
+                  const goToRoute = () => {
+                    if (window.AppRouter && typeof window.AppRouter.go === "function") {
+                      window.AppRouter.go(normalizedRoute);
+                    } else {
+                      window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
+                        normalizedRoute
+                      )}`;
+                    }
+                  };
+
                   if (
                     window.AppRouteAccess &&
                     typeof window.AppRouteAccess.authorizeRoute === "function"
                   ) {
                     window.AppRouteAccess
-                      .authorizeRoute(route)
+                      .authorizeRoute(normalizedRoute)
                       .then((authorization) => {
                         if (!authorization.authorized) {
                           showNotification(
@@ -161,33 +174,17 @@
                             NOTIFICATION_TYPES.WARNING
                           );
                           return window.AppRouteAccess.redirectToAllowedRoute(
-                            route
+                            normalizedRoute
                           );
                         }
 
-                        if (route.startsWith("home.php") || route.startsWith("/")) {
-                          window.location.href = (window.APP_BASE || "") + `/${route.replace(
-                            /^\/+/,
-                            ""
-                          )}`;
-                        } else {
-                          window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
-                            normalizedRoute
-                          )}`;
-                        }
+                        goToRoute();
                       })
                       .catch((error) => {
                         console.warn("Sidebar authorization failed:", error);
                       });
-                  } else if (route.startsWith("home.php") || route.startsWith("/")) {
-                    window.location.href = (window.APP_BASE || "") + `/${route.replace(
-                      /^\/+/,
-                      ""
-                    )}`;
                   } else {
-                    window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
-                      normalizedRoute
-                    )}`;
+                    goToRoute();
                   }
                 }
             });
