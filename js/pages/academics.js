@@ -25,7 +25,7 @@ const academicsController = {
         console.log('Checking prerequisites...');
         console.log('- AuthContext available:', typeof AuthContext !== 'undefined' ? '✓ Yes' : '✗ No');
         console.log('- window.API available:', typeof window.API !== 'undefined' ? '✓ Yes' : '✗ No');
-        console.log('- Token in localStorage:', localStorage.getItem('token') ? '✓ Yes' : '✗ No');
+        console.log('- Token in auth storage:', AuthContext.getToken() ? '✓ Yes' : '✗ No');
         console.log('- User authenticated:', AuthContext ? AuthContext.isAuthenticated() : 'N/A');
         
         try {
@@ -94,7 +94,7 @@ const academicsController = {
             };
 
             console.log('Loading classes with params:', params);
-            console.log('Current token:', localStorage.getItem('token') ? '✓ Present' : '✗ Missing');
+            console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
             console.log('Auth user:', AuthContext.getUser());
             console.log('Is authenticated:', AuthContext.isAuthenticated());
             
@@ -170,7 +170,7 @@ const academicsController = {
     async loadTeachers() {
         try {
             console.log('Loading teachers...');
-            console.log('Current token:', localStorage.getItem('token') ? '✓ Present' : '✗ Missing');
+            console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
             console.log('Is authenticated:', AuthContext.isAuthenticated());
             
             // Get teachers from users API

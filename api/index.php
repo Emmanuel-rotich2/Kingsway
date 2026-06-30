@@ -63,6 +63,12 @@ header('Content-Type: application/json; charset=utf-8');
 
 $router = new Router();
 $response = $router->handle();
+$response = \App\API\Includes\ApiResponse::normalize(
+    is_array($response) ? $response : ['data' => $response]
+);
+if (!headers_sent() && !$response['success']) {
+    http_response_code((int) ($response['code'] ?? 500));
+}
 
 ob_end_clean();
 

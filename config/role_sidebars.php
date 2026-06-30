@@ -98,9 +98,14 @@ return [
     3 => [
         ['label' => 'Dashboard', 'url' => 'director_owner_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // Approvals first — this is the Director's primary daily task
+        // Admissions is oversight + final confirmation after enrollment, not operational approval.
+        ['label' => 'Admissions Workflow', 'url' => null, 'icon' => 'fas fa-user-check', 'subitems' => [
+            ['label' => 'Admissions Oversight', 'url' => 'admissions/director_admissions'],
+            ['label' => 'Enrollment Confirmations', 'url' => 'admissions/enrollment_confirmations'],
+        ]],
+
+        // Remaining approvals — these are Director approval gates in other workflows
         ['label' => 'Approvals', 'url' => null, 'icon' => 'fas fa-check-double', 'subitems' => [
-            ['label' => 'Admission Approvals',     'url' => 'manage_students_admissions'],  // approve new students
             ['label' => 'Fee Structure Approval',  'url' => 'manage_fee_structure'],        // approve what accountant drafted
             ['label' => 'Payroll Approval',        'url' => 'manage_payrolls'],             // approve what admin created
             ['label' => 'Staff Appointments',      'url' => 'manage_staff'],                // approve new hires
@@ -562,7 +567,7 @@ return [
         // ── ATTENDANCE (school-wide oversight, not just own class) ────────────
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
             ['label' => 'Daily Overview',          'url' => 'view_attendance'],
-            ['label' => 'Submit Attendance',       'url' => 'submit_attendance'],
+            ['label' => 'Submit Attendance',       'url' => 'mark_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
             ['label' => 'Attendance Trends',       'url' => 'attendance_trends'],
         ]],
@@ -579,7 +584,7 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
             ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 
@@ -1204,7 +1209,7 @@ return [
         // ── ADMIN: DISCIPLINE (primary domain) ───────────────────────────────
         ['label' => 'Discipline', 'url' => null, 'icon' => 'fas fa-gavel', 'subitems' => [
             ['label' => 'All Cases',               'url' => 'discipline_cases'],
-            ['label' => 'Log New Case',            'url' => 'student_discipline'],
+            ['label' => 'Log New Case',            'url' => 'log_discipline_case'],
             ['label' => 'Open Cases',              'url' => 'discipline_cases'],
             ['label' => 'Suspensions / Expulsions','url' => 'discipline_cases'],
             ['label' => 'Sanctions',               'url' => 'policy_violations'],
@@ -1245,7 +1250,7 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
             ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 

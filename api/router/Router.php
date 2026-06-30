@@ -40,8 +40,11 @@ class Router
             if (!$routeAuth['success']) {
                 http_response_code($routeAuth['http_code']);
                 return [
+                    'success' => false,
                     'status' => 'error',
+                    'data' => null,
                     'message' => $routeAuth['message'],
+                    'errors' => [],
                     'code' => $routeAuth['http_code']
                 ];
             }
@@ -54,11 +57,18 @@ class Router
             return $this->controllerRouter->route();
 
         } catch (Exception $e) {
-            http_response_code(500);
+            $code = (int) $e->getCode();
+            if ($code < 400 || $code > 599) {
+                $code = 500;
+            }
+            http_response_code($code);
             return [
+                "success" => false,
                 "status" => "error",
+                "data" => null,
                 "message" => $e->getMessage(),
-                "code" => $e->getCode()
+                "errors" => [],
+                "code" => $code
             ];
         }
     }

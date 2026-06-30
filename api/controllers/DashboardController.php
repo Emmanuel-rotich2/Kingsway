@@ -1513,6 +1513,64 @@ class DashboardController extends BaseController
     // ============= HELPER METHODS =============
 
     /**
+     * GET /api/dashboard/config
+     * Returns PHP DashboardRouter config (role-dashboard mappings, role names, default)
+     * Used by JS router to get canonical dashboard routing from PHP
+     */
+    public function getConfig($id = null, $data = [], $segments = [])
+    {
+        $router = new \DashboardRouter();
+
+        // Get role dashboard mappings
+        $roleDashboards = $router->getRoleDashboards();
+
+        // Get role name map
+        $roleNameMap = $router->getRoleNameMap();
+
+        // Get default dashboard
+        $defaultDashboard = $router->getDefaultDashboard();
+
+        return $this->success([
+            'role_dashboards' => $roleDashboards,
+            'role_name_map' => $roleNameMap,
+            'default_dashboard' => $defaultDashboard,
+        ], 'Dashboard config retrieved');
+    }
+
+    /**
+     * GET /api/dashboard/route?role_id=X
+     * Returns dashboard key for a specific role ID
+     */
+    public function getRoute($id = null, $data = [], $segments = [])
+    {
+        $roleId = isset($_GET['role_id']) ? (int)$_GET['role_id'] : null;
+
+        if (!$roleId) {
+            return $this->badRequest('role_id required');
+        }
+
+        $router = new \DashboardRouter();
+        $dashboardKey = $router->getDashboardForRole($roleId);
+
+        return $this->success([
+            'role_id' => $roleId,
+            'dashboard_key' => $dashboardKey,
+            'dashboard_file' => $dashboardKey . '.php',
+        ], 'Dashboard route retrieved');
+    }
+
+    /**
+     * GET /api/dashboard/sidebars
+     * Returns sidebar config from role_sidebars.php
+     */
+    public function getSidebars($id = null, $data = [], $segments = [])
+    {
+        global $role_sidebars;
+
+        return $this->success($role_sidebars, 'Sidebar config retrieved');
+    }
+
+    /**
      * Get current authenticated user's role
      * Overrides parent method to use $this->user
      */

@@ -95,15 +95,20 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       const username = loginForm.querySelector('[name="username"]')?.value;
       const password = loginForm.querySelector('[name="password"]')?.value;
+      const rememberMe = Boolean(document.getElementById('rememberMe')?.checked);
       if (loginError)  loginError.classList.add('d-none');
       if (loginBtnTxt) loginBtnTxt.classList.add('d-none');
       if (loginSpinner)loginSpinner.classList.remove('d-none');
       if (loginBtn)    loginBtn.disabled = true;
       try {
-        const res = await API.auth.login(username, password);
+        const res = await API.auth.login(username, password, rememberMe);
         if (!res?.token) throw new Error(res?.message || 'Login failed. Check your credentials.');
       } catch (err) {
         showLoginErr(err.message || 'Login failed. Please try again.');
+      } finally {
+        if (loginBtnTxt) loginBtnTxt.classList.remove('d-none');
+        if (loginSpinner) loginSpinner.classList.add('d-none');
+        if (loginBtn) loginBtn.disabled = false;
       }
     });
   }

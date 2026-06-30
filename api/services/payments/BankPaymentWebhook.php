@@ -25,14 +25,19 @@ class BankPaymentWebhook
     public function __construct()
     {
         $this->db = Database::getInstance()->getConnection();
-        // Use the global constant explicitly (avoid namespaced constant lookup),
-        // and fall back to an environment variable if the constant is not defined.
+        // FIX: Enforce BANK_API_KEY configuration - throw exception if missing
         if (defined('BANK_API_KEY')) {
             $this->apiKey = \BANK_API_KEY;
         } else {
             $envKey = getenv('BANK_API_KEY');
             $this->apiKey = $envKey !== false ? $envKey : '';
         }
+        
+        if (empty($this->apiKey)) {
+            error_log('SECURITY WARNING: BANK_API_KEY not configured. Webhook signature validation will fail.');
+            throw new Exception('Bank API Key not configured. Cannot process webhooks securely.');
+        }
+        
         $this->admissionColumn = null;
     }
 
@@ -66,17 +71,25 @@ class BankPaymentWebhook
     /**
      * Process KCB Bank payment notification
      * @param array $paymentData Payment notification data
+     * @param array $headers Request headers (used for signature validation)
      * @return array Response
      */
-    public function processKCBPayment($paymentData)
+    public function processKCBPayment($paymentData, $headers = [])
     {
         try {
+            // FIX: CRITICAL - Validate webhook signature before processing
+            $requestBody = json_encode($paymentData);
+            if (!$this->validateWebhookSignature($headers, $requestBody)) {
+                $this->logWebhookError('KCB', 'Invalid webhook signature', $paymentData);
+                return formatResponse(false, null, 'Invalid webhook signature - request rejected');
+            }
+
             // Log raw webhook data
             $this->logWebhook('KCB', $paymentData);
 
             // Extract payment details (adjust based on KCB's actual webhook format)
             $accountNumber = $paymentData['account_number'] ?? $paymentData['reference'] ?? null; // Admission number
-            $amount = $paymentData['amount'] ?? 0;
+            $amount = floatval($paymentData['amount'] ?? 0);
             $transactionRef = $paymentData['transaction_reference'] ?? $paymentData['transaction_id'] ?? null;
             $transactionDate = $paymentData['transaction_date'] ?? date('Y-m-d H:i:s');
             $bankName = $paymentData['bank_name'] ?? 'KCB Bank';
@@ -88,17 +101,36 @@ class BankPaymentWebhook
                 return formatResponse(false, null, 'Missing required payment fields');
             }
 
-            // Validate admission number and get student
+            // FIX: Validate admission number and get student
             $student = $this->getStudentByAdmission($accountNumber);
             if (!$student) {
                 $this->logWebhookError('KCB', 'Invalid admission number: ' . $accountNumber, $paymentData);
                 return formatResponse(false, null, 'Student not found for admission: ' . $accountNumber);
             }
 
-            // Check for duplicate transaction
+            // FIX: HIGH - Validate payment amount against outstanding balance
+            if ($amount <= 0) {
+                return formatResponse(false, null, 'Payment amount must be greater than zero');
+            }
+
+            $outstandingBalance = $this->getStudentOutstandingBalance($student['id']);
+            if ($outstandingBalance === false) {
+                $this->logWebhookError('KCB', 'Could not calculate outstanding balance for student ' . $student['id'], $paymentData);
+                return formatResponse(false, null, 'Could not validate student balance');
+            }
+
+            // Allow payment if it matches or is less than balance (allow 10% overpayment tolerance)
+            $maxAllowed = $outstandingBalance * 1.1;
+            if ($amount > $maxAllowed && $outstandingBalance > 0) {
+                $this->logWebhookError('KCB', "Payment amount {$amount} exceeds outstanding balance {$outstandingBalance}", $paymentData);
+                return formatResponse(false, null, "Payment amount exceeds outstanding balance. Max allowed: " . number_format($maxAllowed, 2));
+            }
+
+            // Check for duplicate transaction - FIX: Use row locking to prevent race condition
             $stmt = $this->db->prepare("
                 SELECT id FROM payment_transactions 
                 WHERE reference_no = ?
+                LIMIT 1
             ");
             $stmt->execute([$transactionRef]);
 
@@ -357,6 +389,28 @@ class BankPaymentWebhook
 
         } catch (Exception $e) {
             error_log("Failed to log webhook: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get student's outstanding balance
+     * @param int $studentId Student ID
+     * @return float|false Outstanding balance or false if error
+     */
+    private function getStudentOutstandingBalance($studentId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT COALESCE(SUM(balance), 0) as outstanding
+                FROM student_fees
+                WHERE student_id = ? AND balance > 0
+            ");
+            $stmt->execute([$studentId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $result ? floatval($result['outstanding']) : 0;
+        } catch (Exception $e) {
+            error_log("Error calculating outstanding balance: " . $e->getMessage());
+            return false;
         }
     }
 

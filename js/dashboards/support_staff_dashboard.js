@@ -35,7 +35,7 @@ const supportStaffDashboardController = {
         const el = document.getElementById('todaySchedule');
         if (!el) return;
         try {
-            const token = localStorage.getItem('token');
+            const token = AuthContext.getToken();
             const res = await fetch((window.APP_BASE || '') + '/api/staff/my-schedule', {
                 headers: { 'Authorization': 'Bearer ' + token }
             }).then(r => r.json()).catch(() => null);
@@ -62,7 +62,7 @@ const supportStaffDashboardController = {
         const el = document.getElementById('announcementsList');
         if (!el) return;
         try {
-            const token = localStorage.getItem('token');
+            const token = AuthContext.getToken();
             const res = await fetch((window.APP_BASE || '') + '/api/announcements?limit=5&audience=staff', {
                 headers: { 'Authorization': 'Bearer ' + token }
             }).then(r => r.json()).catch(() => null);

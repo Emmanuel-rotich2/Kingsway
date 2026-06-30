@@ -129,20 +129,24 @@ function showNotification(message, type = NOTIFICATION_TYPES.INFO) {
 
 // Handle API Response
 function handleApiResponse(response, showSuccess = false) {
-  if (response.status === "success") {
+  const normalized = AppState.normalizeResponse(response);
+  if (normalized.success) {
     // Disabled automatic success notifications - let components handle their own
     // if (showSuccess && response.message) {
     //     showNotification(response.message, NOTIFICATION_TYPES.SUCCESS);
     // }
     // For sidebar endpoint, return the entire response
-    if (response.data?.sidebar !== undefined) {
+    if (normalized.data?.sidebar !== undefined) {
       return response;
     }
     // For other endpoints, return just the data
     return response.data !== undefined ? response.data : response;
   } else {
-    const error = new Error(response.message || "API call failed");
+    const error = new Error(normalized.message || "API call failed");
     error.response = response;
+    error.code = normalized.code;
+    error.errors = normalized.errors;
+    error.state = AppState.classify(normalized);
     throw error;
   }
 }
@@ -194,34 +198,108 @@ async function readJsonSafely(response, context = "API") {
 
 /**
  * User context manager - handles authentication state, permissions, and access control
- * Stores user info, token, roles, and permissions in localStorage + memory
+ * Stores user info, token, roles, and permissions in localStorage or sessionStorage depending on "Remember me"
  * Provides permission checking before API calls
  */
 const AuthContext = (() => {
+  const AUTH_KEYS = [
+    "token",
+    "refresh_token",
+    "user_data",
+    "user_permissions",
+    "user_roles",
+    "sidebar_items",
+    "dashboard_info",
+  ];
+
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
+  let activeStorage = localStorage.getItem("auth_storage_mode") === "local" ? localStorage : sessionStorage;
+
+  function getStorageName(storage) {
+    return storage === localStorage ? "local" : "session";
+  }
+
+  function getStorageByName(name) {
+    return name === "local" ? localStorage : sessionStorage;
+  }
+
+  function detectAuthStorage() {
+    if (sessionStorage.getItem("token")) {
+      activeStorage = sessionStorage;
+      return activeStorage;
+    }
+    if (localStorage.getItem("token")) {
+      activeStorage = localStorage;
+      return activeStorage;
+    }
+    activeStorage = getStorageByName(localStorage.getItem("auth_storage_mode"));
+    return activeStorage;
+  }
+
+  function removeAuthKeys(storage) {
+    AUTH_KEYS.forEach((key) => storage.removeItem(key));
+  }
+
+  function setPersistence(rememberMe = false) {
+    activeStorage = rememberMe ? localStorage : sessionStorage;
+    localStorage.setItem("auth_storage_mode", rememberMe ? "local" : "session");
+    removeAuthKeys(rememberMe ? sessionStorage : localStorage);
+  }
+
+  function getItem(key) {
+    return detectAuthStorage().getItem(key);
+  }
+
+  function setItem(key, value) {
+    activeStorage.setItem(key, value);
+  }
+
+  function setTokens(token, refreshToken = null) {
+    if (token) {
+      setItem("token", token);
+    }
+    if (refreshToken) {
+      setItem("refresh_token", refreshToken);
+    }
+  }
+
+  function getToken() {
+    return getItem("token");
+  }
+
+  function getRefreshToken() {
+    return getItem("refresh_token");
+  }
+
+  function getPersistenceMode() {
+    detectAuthStorage();
+    return getStorageName(activeStorage);
+  }
 
   /**
-   * Initialize user context from localStorage (on page load)
+   * Initialize user context from configured auth storage (on page load)
    */
   function initialize() {
-    const token = localStorage.getItem("token");
-    const userData = localStorage.getItem("user_data");
-    const permissionsData = localStorage.getItem("user_permissions");
+    const storage = detectAuthStorage();
+    const token = storage.getItem("token");
+    const userData = storage.getItem("user_data");
+    const permissionsData = storage.getItem("user_permissions");
 
     if (token && userData) {
       try {
         currentUser = JSON.parse(userData);
         if (permissionsData) {
           permissions = new Set(JSON.parse(permissionsData));
-          roles = JSON.parse(localStorage.getItem("user_roles") || "[]");
+          roles = JSON.parse(storage.getItem("user_roles") || "[]");
         }
       } catch (e) {
-        console.warn("Failed to restore user context from localStorage:", e);
+        console.warn("Failed to restore user context from auth storage:", e);
         currentUser = null;
         permissions.clear();
         roles = [];
+        removeAuthKeys(storage);
       }
     }
   }
@@ -231,7 +309,8 @@ const AuthContext = (() => {
    * Deduplicates permissions and extracts unique permission codes
    * Also stores sidebar menu items
    */
-  function setUser(userData, fullResponse) {
+  function setUser(userData, fullResponse, rememberMe = false) {
+    setPersistence(rememberMe);
     currentUser = userData;
 
     console.log("setUser called with:", { userData, fullResponse });
@@ -252,8 +331,8 @@ const AuthContext = (() => {
 
       console.log("Unique permissions extracted:", permissions.size);
 
-      // Store in localStorage
-      localStorage.setItem(
+      // Store in current auth storage
+      setItem(
         "user_permissions",
         JSON.stringify(Array.from(permissions))
       );
@@ -265,7 +344,7 @@ const AuthContext = (() => {
     const rolesArray = fullResponse?.roles || userData?.roles || [];
     if (Array.isArray(rolesArray) && rolesArray.length > 0) {
       roles = rolesArray.map((r) => r.name || r);
-      localStorage.setItem("user_roles", JSON.stringify(roles));
+      setItem("user_roles", JSON.stringify(roles));
       console.log("Roles extracted:", roles);
 
       // Also extract role IDs for dashboard routing
@@ -290,7 +369,7 @@ const AuthContext = (() => {
       fullResponse?.sidebar_items &&
       Array.isArray(fullResponse.sidebar_items)
     ) {
-      localStorage.setItem(
+      setItem(
         "sidebar_items",
         JSON.stringify(fullResponse.sidebar_items)
       );
@@ -314,14 +393,14 @@ const AuthContext = (() => {
           dashboardInfo.key = decodeURIComponent(routeMatch[1]);
         }
       }
-      localStorage.setItem("dashboard_info", JSON.stringify(dashboardInfo));
+      setItem("dashboard_info", JSON.stringify(dashboardInfo));
       console.log("Dashboard info stored:", dashboardInfo);
     } else {
       console.warn("No dashboard info found in response");
     }
 
     // Store user data (now includes role_ids)
-    localStorage.setItem("user_data", JSON.stringify(userData));
+    setItem("user_data", JSON.stringify(userData));
     console.log("User data stored", userData);
   }
 
@@ -332,12 +411,9 @@ const AuthContext = (() => {
     currentUser = null;
     permissions.clear();
     roles = [];
-    localStorage.removeItem("token");
-    localStorage.removeItem("user_data");
-    localStorage.removeItem("user_permissions");
-    localStorage.removeItem("user_roles");
-    localStorage.removeItem("sidebar_items");
-    localStorage.removeItem("dashboard_info");
+    removeAuthKeys(localStorage);
+    removeAuthKeys(sessionStorage);
+    localStorage.removeItem("auth_storage_mode");
   }
 
   /**
@@ -353,7 +429,9 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissions.has(permissionCode);
+    return PermissionContract.expandPermissionAliases(permissionCode).some((alias) =>
+      permissions.has(alias)
+    );
   }
 
   /**
@@ -369,7 +447,7 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissionCodes.some((code) => permissions.has(code));
+    return permissionCodes.some((code) => hasPermission(code));
   }
 
   /**
@@ -385,7 +463,14 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return permissionCodes.every((code) => permissions.has(code));
+    return permissionCodes.every((code) => hasPermission(code));
+  }
+
+  function normalizeRoleName(roleName) {
+    return String(roleName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
   }
 
   /**
@@ -395,7 +480,10 @@ const AuthContext = (() => {
    */
   function hasRole(roleName) {
     if (!currentUser) return false;
-    return roles.includes(roleName);
+    const normalizedRoleName = normalizeRoleName(roleName);
+    return roles.some((role) =>
+      role === roleName || normalizeRoleName(role) === normalizedRoleName
+    );
   }
 
   /**
@@ -420,11 +508,11 @@ const AuthContext = (() => {
   }
 
   /**
-   * Get sidebar menu items from localStorage
+   * Get sidebar menu items from current auth storage
    */
   function getSidebarItems() {
     try {
-      const items = localStorage.getItem("sidebar_items");
+      const items = getItem("sidebar_items");
       return items ? JSON.parse(items) : [];
     } catch (e) {
       console.warn("Failed to parse sidebar items:", e);
@@ -433,11 +521,11 @@ const AuthContext = (() => {
   }
 
   /**
-   * Get dashboard info from localStorage
+   * Get dashboard info from current auth storage
    */
   function getDashboardInfo() {
     try {
-      const info = localStorage.getItem("dashboard_info");
+      const info = getItem("dashboard_info");
       return info ? JSON.parse(info) : null;
     } catch (e) {
       console.warn("Failed to parse dashboard info:", e);
@@ -456,7 +544,7 @@ const AuthContext = (() => {
    * Check if user is authenticated
    */
   function isAuthenticated() {
-    return !!currentUser && !!localStorage.getItem("token");
+    return !!currentUser && !!getToken();
   }
 
   /**
@@ -490,8 +578,25 @@ const AuthContext = (() => {
   function canExport(module) {
     return hasPermission(`${module}.export`) || hasPermission(`${module}_export`);
   }
+  function canReject(module) {
+    return hasPermission(`${module}.reject`) || hasPermission(`${module}_reject`);
+  }
+  function canPrint(module) {
+    return hasPermission(`${module}.print`) || hasPermission(`${module}_print`);
+  }
   function canManage(module) {
     return hasPermission(`${module}.manage`) || hasPermission(`${module}_manage`);
+  }
+  function canAction(module, action) {
+    return PermissionContract.aliasesFor(module, action).some((permission) =>
+      hasPermission(permission)
+    );
+  }
+  function getAllowedActions(module) {
+    return PermissionContract.actions.reduce((allowed, action) => {
+      allowed[action] = canAction(module, action);
+      return allowed;
+    }, {});
   }
 
   // Initialize on load
@@ -500,6 +605,11 @@ const AuthContext = (() => {
   // Return public API
   return {
     setUser,
+    setPersistence,
+    setTokens,
+    getToken,
+    getRefreshToken,
+    getPersistenceMode,
     clearUser,
     hasPermission,
     hasAnyPermission,
@@ -519,10 +629,16 @@ const AuthContext = (() => {
     canEdit,
     canDelete,
     canApprove,
+    canReject,
     canExport,
+    canPrint,
     canManage,
+    canAction,
+    getAllowedActions,
   };
 })();
+
+window.AuthContext = AuthContext;
 
 // Lightweight state refresher registry so mutation calls can auto-refresh linked data
 const APIState = (() => {
@@ -556,6 +672,124 @@ function inferResourceKey(endpoint = "") {
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const PERMISSION_ACTIONS = [
+  "view",
+  "create",
+  "edit",
+  "approve",
+  "reject",
+  "delete",
+  "export",
+  "print",
+];
+
+const PermissionContract = (() => {
+  function normalizeModule(module) {
+    return String(module || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+  }
+
+  function normalizeAction(action) {
+    const normalized = String(action || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return normalized === "update" ? "edit" : normalized;
+  }
+
+  function aliasesFor(module, action) {
+    const mod = normalizeModule(module);
+    const act = normalizeAction(action);
+    const aliases = [`${mod}_${act}`, `${mod}.${act}`];
+
+    if (act === "edit") {
+      aliases.push(`${mod}_update`, `${mod}.update`);
+    } else if (act === "approve") {
+      aliases.push(`${mod}_approve_final`, `${mod}.approve_final`);
+    } else if (act === "view") {
+      aliases.push(`${mod}_view_all`, `${mod}_view_own`, `${mod}.view_all`, `${mod}.view_own`);
+    }
+
+    return [...new Set(aliases)];
+  }
+
+  function expandPermissionAliases(permission) {
+    const value = String(permission || "").trim();
+    if (!value) return [];
+
+    const aliases = new Set([value]);
+    if (value.includes("_")) aliases.add(value.replace(/_/g, "."));
+    if (value.includes(".")) aliases.add(value.replace(/\./g, "_"));
+    if (value.endsWith("_edit")) aliases.add(value.replace(/_edit$/, "_update"));
+    if (value.endsWith("_update")) aliases.add(value.replace(/_update$/, "_edit"));
+    if (value.endsWith(".edit")) aliases.add(value.replace(/\.edit$/, ".update"));
+    if (value.endsWith(".update")) aliases.add(value.replace(/\.update$/, ".edit"));
+    return [...aliases];
+  }
+
+  return {
+    actions: PERMISSION_ACTIONS,
+    normalizeModule,
+    normalizeAction,
+    permissionFor: (module, action) => `${normalizeModule(module)}_${normalizeAction(action)}`,
+    aliasesFor,
+    expandPermissionAliases,
+  };
+})();
+
+const AppState = (() => {
+  const STATES = {
+    LOADING: "loading",
+    SUCCESS: "success",
+    EMPTY: "empty",
+    VALIDATION_ERROR: "validation_error",
+    UNAUTHORIZED: "unauthorized",
+    FORBIDDEN: "forbidden",
+    SERVER_ERROR: "server_error",
+  };
+
+  function classify(input) {
+    const response = input?.response || input || {};
+    const code = Number(response.code || response.status_code || input?.status || 0);
+    const errors = response.errors || {};
+
+    if (code === 401) return STATES.UNAUTHORIZED;
+    if (code === 403 || input?.code === "PERMISSION_DENIED") return STATES.FORBIDDEN;
+    if (code === 422 || (errors && Object.keys(errors).length > 0)) return STATES.VALIDATION_ERROR;
+    if (code >= 500) return STATES.SERVER_ERROR;
+
+    const data = response.data !== undefined ? response.data : response;
+    if (Array.isArray(data) && data.length === 0) return STATES.EMPTY;
+    if (data && Array.isArray(data.items) && data.items.length === 0) return STATES.EMPTY;
+    if (data && Array.isArray(data.data) && data.data.length === 0) return STATES.EMPTY;
+
+    return STATES.SUCCESS;
+  }
+
+  function normalizeResponse(response) {
+    const success = response?.success !== undefined
+      ? Boolean(response.success)
+      : response?.status === "success";
+    return {
+      success,
+      status: response?.status || (success ? "success" : "error"),
+      data: response?.data ?? null,
+      message: response?.message || (success ? "OK" : "Request failed"),
+      errors: response?.errors || {},
+      code: response?.code || response?.status_code || (success ? 200 : 400),
+      raw: response,
+    };
+  }
+
+  return { STATES, classify, normalizeResponse };
+})();
+
+window.AppState = AppState;
+window.PermissionContract = PermissionContract;
 
 /**
  * Permission requirement mapping for API endpoints
@@ -881,6 +1115,29 @@ function validatePermission(endpoint, method) {
   }
 }
 
+function applyPermissionContract(container = document) {
+  if (!container || !container.querySelectorAll || !window.AuthContext) return;
+
+  container
+    .querySelectorAll("[data-permission-module][data-permission-action]")
+    .forEach((element) => {
+      const module = element.getAttribute("data-permission-module");
+      const action = element.getAttribute("data-permission-action");
+      const allowed = AuthContext.canAction(module, action);
+      element.hidden = !allowed;
+      if ("disabled" in element) {
+        element.disabled = !allowed;
+      }
+      element.setAttribute("aria-hidden", allowed ? "false" : "true");
+    });
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => applyPermissionContract(document));
+} else {
+  applyPermissionContract(document);
+}
+
 function _showSessionExpiredAndRedirect() {
   // Guard against multiple calls within the same tab (e.g. concurrent 401 responses)
   if (sessionStorage.getItem('_session_expired_redirect')) return;
@@ -912,7 +1169,7 @@ async function refreshAccessToken() {
   isRefreshingToken = true;
   refreshTokenPromise = (async () => {
     try {
-      const refreshToken = localStorage.getItem("refresh_token");
+      const refreshToken = AuthContext.getRefreshToken();
       // NOTE: Do NOT early-exit here when refreshToken is null.
       // The server sets the refresh token as an HttpOnly cookie at login.
       // When credentials:"include" is sent, the browser sends that cookie
@@ -930,8 +1187,8 @@ async function refreshAccessToken() {
         credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          ...(localStorage.getItem("token")
-            ? { Authorization: "Bearer " + localStorage.getItem("token") }
+          ...(AuthContext.getToken()
+            ? { Authorization: "Bearer " + AuthContext.getToken() }
             : {}),
         },
         body: JSON.stringify(
@@ -949,11 +1206,8 @@ async function refreshAccessToken() {
       const result = await readJsonSafely(response, "Token refresh");
 
       if (result.status === "success" && result.data.token) {
-        // Store new tokens
-        localStorage.setItem("token", result.data.token);
-        if (result.data.refresh_token) {
-          localStorage.setItem("refresh_token", result.data.refresh_token);
-        }
+        // Store new tokens in selected auth storage
+        AuthContext.setTokens(result.data.token, result.data.refresh_token || null);
         console.log("Token refreshed successfully");
         return true;
       } else {
@@ -980,7 +1234,7 @@ async function refreshAccessToken() {
  * Returns true if token is about to expire (within 60 seconds)
  */
 function isTokenExpired() {
-  const token = localStorage.getItem("token");
+  const token = AuthContext.getToken();
   if (!token) return true;
 
   try {
@@ -1031,7 +1285,7 @@ async function apiCall(
     );
 
     // Check if token exists
-    const token = localStorage.getItem("token");
+    const token = AuthContext.getToken();
     if (!token) {
       console.warn("⚠️ No JWT token found - API call will fail with 401");
     }
@@ -1071,7 +1325,7 @@ async function apiCall(
         // Retry the original request with new token
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization =
-          "Bearer " + localStorage.getItem("token");
+          "Bearer " + AuthContext.getToken();
         response = await fetch(url, fetchOptions);
       } else {
         // Refresh failed, user is logged out and redirected
@@ -1133,25 +1387,27 @@ function createFormData(data, files = {}) {
 window.API = {
   apiCall,
   showNotification,
+  applyPermissionContract,
   state: APIState,
+  appState: AppState,
+  permissions: PermissionContract,
 
   // Auth endpoints
   auth: {
     index: async () => apiCall("/auth/index", "GET"),
-    login: async (username, password) => {
+    login: async (username, password, rememberMe = false) => {
+      AuthContext.setPersistence(rememberMe);
       const response = await apiCall("/auth/login", "POST", {
         username,
         password,
+        remember_me: rememberMe,
       });
 
       console.log("Full login response:", response);
 
       if (response && response.token) {
-        // Store both access and refresh tokens
-        localStorage.setItem("token", response.token);
-        if (response.refresh_token) {
-          localStorage.setItem("refresh_token", response.refresh_token);
-        }
+        // Store both access and refresh tokens in selected auth storage
+        AuthContext.setTokens(response.token, response.refresh_token || null);
 
         // Store user context with permissions
         // The backend returns the user object in response.user
@@ -1161,7 +1417,7 @@ window.API = {
         console.log("Sidebar items:", response.sidebar_items);
         console.log("Dashboard info:", response.dashboard);
 
-        AuthContext.setUser(userData, response);
+        AuthContext.setUser(userData, response, rememberMe);
 
         console.log("After setUser - AuthContext state:");
         console.log("- User:", AuthContext.getUser());
@@ -1208,7 +1464,7 @@ window.API = {
       try {
         // Revoke the refresh token on the server. Cookie-backed sessions still
         // work even when nothing was stored in localStorage.
-        const refreshToken = localStorage.getItem("refresh_token");
+        const refreshToken = AuthContext.getRefreshToken();
         await apiCall(
           "/auth/logout-refresh",
           "POST",
@@ -1235,7 +1491,7 @@ window.API = {
     resetPassword: async (token, password) =>
       apiCall("/auth/reset-password", "POST", { token, password }, {}, { checkPermission: false }),
     refreshToken: async () => {
-      const refreshToken = localStorage.getItem("refresh_token");
+      const refreshToken = AuthContext.getRefreshToken();
       const response = await apiCall(
         "/auth/refresh-token",
         "POST",
@@ -1248,10 +1504,7 @@ window.API = {
         },
       );
       if (response && response.token) {
-        localStorage.setItem("token", response.token);
-        if (response.refresh_token) {
-          localStorage.setItem("refresh_token", response.refresh_token);
-        }
+        AuthContext.setTokens(response.token, response.refresh_token || null);
       }
       return response;
     },

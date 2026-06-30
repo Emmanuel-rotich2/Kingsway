@@ -5,6 +5,10 @@
  * Data is loaded by AdmissionsController in js/pages/admissions.js.
  */
 $roleCategory = $roleCategory ?? 'viewer';
+$admissionsPageMode = $admissionsPageMode ?? 'workflow';
+$admissionsTitle = $admissionsTitle ?? 'Student Admissions';
+$admissionsSubtitle = $admissionsSubtitle ?? 'Review applications, verify documents, and move learners through enrollment.';
+$showNewApplicationButton = $showNewApplicationButton ?? true;
 if (!isset($appBase)) {
     $p = $_SERVER['SCRIPT_NAME'] ?? '';
     $appBase = rtrim(dirname(dirname(dirname($p))), '/');
@@ -14,7 +18,9 @@ if (!isset($appBase)) {
 }
 ?>
 
-<div data-page="admissions" data-role="<?= htmlspecialchars($roleCategory) ?>">
+<div data-page="admissions"
+     data-role="<?= htmlspecialchars($roleCategory) ?>"
+     data-admissions-mode="<?= htmlspecialchars($admissionsPageMode) ?>">
 
     <!-- Stats Row — populated by JS on load -->
     <div class="row g-3 mb-4" id="admissionStatsRow" style="display:none;">
@@ -71,8 +77,8 @@ if (!isset($appBase)) {
                             <i class="bi bi-person-check text-success fs-5"></i>
                         </div>
                         <div>
-                            <div class="fs-4 fw-bold lh-1" id="stat-enrolled">–</div>
-                            <small class="text-muted">Enrolled</small>
+                            <div class="fs-4 fw-bold lh-1" id="stat-director-confirmation">–</div>
+                            <small class="text-muted"><?= $roleCategory === 'director' ? 'Need Confirmation' : 'Director Confirmations' ?></small>
                         </div>
                     </div>
                 </div>
@@ -84,15 +90,21 @@ if (!isset($appBase)) {
     <div class="card shadow-sm">
         <div class="card-header bg-success text-white">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-                <h5 class="mb-0">
-                    <i class="bi bi-person-plus-fill me-2"></i>Student Admissions
-                </h5>
+                <div>
+                    <div class="text-uppercase small fw-semibold opacity-75 mb-1">Admissions Workflow</div>
+                    <h5 class="mb-1">
+                        <i class="bi bi-person-plus-fill me-2"></i><?= htmlspecialchars($admissionsTitle) ?>
+                    </h5>
+                    <p class="mb-0 opacity-75 small"><?= htmlspecialchars($admissionsSubtitle) ?></p>
+                </div>
                 <div class="d-flex gap-2">
+                    <?php if ($showNewApplicationButton): ?>
                     <button class="btn btn-light btn-sm"
                             data-action="new-application"
                             data-permission-any="admission_applications_create,admission_applications_submit">
                         <i class="bi bi-plus-circle me-1"></i><span class="d-none d-sm-inline">New Application</span>
                     </button>
+                    <?php endif; ?>
                     <button class="btn btn-outline-light btn-sm"
                             data-action="refresh"
                             data-permission-any="admission_applications_view_all,admission_applications_view_own,admission_applications_view">

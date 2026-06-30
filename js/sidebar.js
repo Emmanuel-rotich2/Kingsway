@@ -22,9 +22,31 @@
             return;
         }
 
+        const hasRequiredPermission = (item) => {
+            const permissions = item?.permission || item?.permissions || item?.required_permissions;
+            if (!permissions || !window.AuthContext) return true;
+            const list = Array.isArray(permissions)
+                ? permissions
+                : String(permissions).split(',').map((permission) => permission.trim()).filter(Boolean);
+            return list.length === 0 || window.AuthContext.hasAnyPermission(list);
+        };
+
+        const filterMenuItem = (item) => {
+            if (!item || !hasRequiredPermission(item)) return null;
+            const subitems = Array.isArray(item.subitems)
+                ? item.subitems.map(filterMenuItem).filter(Boolean)
+                : [];
+            if (Array.isArray(item.subitems)) {
+                return subitems.length > 0 || item.url || item.route || item.route_name
+                    ? { ...item, subitems }
+                    : null;
+            }
+            return item;
+        };
+
         let html = '';
 
-        menuItems.forEach(item => {
+        menuItems.map(filterMenuItem).forEach(item => {
           if (!item) return;
 
           const hasSubitems =
@@ -34,23 +56,30 @@
           const itemId = btoa(item.label || "").replace(/=/g, ""); // Use base64 hash for unique ID
           const icon = item.icon || "bi-circle";
           const normalizeMenuRoute = (value) => {
-            if (!value) return "#";
+            if (!value) return { route: "#", params: "" };
             const text = String(value).trim();
             try {
               const parsed = new URL(text, window.location.origin);
-              return parsed.searchParams.get("route") || text;
+              const route = parsed.searchParams.get("route") || text;
+              parsed.searchParams.delete("route");
+              const params = parsed.searchParams.toString();
+              return { route, params: params ? `&${params}` : "" };
             } catch (e) {
-              const match = text.match(/[?&]route=([^&#]+)/);
-              return match && match[1] ? decodeURIComponent(match[1]) : text;
+              const [route, query = ""] = text.split("?");
+              return { route, params: query ? `&${query}` : "" };
             }
+          };
+
+          const buildMenuHref = (routeData) => {
+            if (!routeData.route || routeData.route === "#") return "#";
+            return `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(routeData.route)}${routeData.params || ""}`;
           };
 
           // Prefer canonical route name when url contains a route query
           const rawUrl = item.route || item.route_name || item.url || "#";
-          const route = normalizeMenuRoute(rawUrl);
-          const routeHref = route && route !== "#"
-            ? `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(route)}`
-            : "#";
+          const routeData = normalizeMenuRoute(rawUrl);
+          const route = routeData.route;
+          const routeHref = buildMenuHref(routeData);
 
           if (hasSubitems) {
             // Menu item with subitems (collapsible)
@@ -76,15 +105,14 @@
               if (!subitem) return;
               const subIcon = subitem.icon || "bi-dot";
               const subRaw = subitem.route || subitem.route_name || subitem.url || "#";
-              const subRoute = normalizeMenuRoute(subRaw);
-              const subHref = subRoute && subRoute !== "#"
-                ? `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(subRoute)}`
-                : "#";
+              const subRouteData = normalizeMenuRoute(subRaw);
+              const subRoute = subRouteData.route;
+              const subHref = buildMenuHref(subRouteData);
 
               html += `
                         <a href="${escapeHtml(subHref)}" data-route="${escapeHtml(
                           subRoute
-                        )}" class="list-group-item list-group-item-action ps-5 sidebar-link">
+                        )}" data-params="${escapeHtml((subRouteData.params || "").replace(/^&/, ""))}" class="list-group-item list-group-item-action ps-5 sidebar-link">
                             <i class="${subIcon} me-2"></i>
                             ${escapeHtml(subitem.label)}
                         </a>
@@ -97,7 +125,7 @@
             html += `
                     <a href="${escapeHtml(routeHref)}" data-route="${escapeHtml(
                       route
-                    )}" class="list-group-item list-group-item-action sidebar-link">
+                    )}" data-params="${escapeHtml((routeData.params || "").replace(/^&/, ""))}" class="list-group-item list-group-item-action sidebar-link">
                         <i class="${icon} me-2"></i>
                         <span class="sidebar-text">${escapeHtml(
                           item.label
@@ -137,6 +165,7 @@
                 e.stopPropagation();
                 closeMobileSidebar();
                 const route = this.getAttribute('data-route');
+                const params = this.getAttribute('data-params') || "";
 
                 if (route && route !== '#') {
                   const normalizedRoute =
@@ -153,11 +182,11 @@
 
                   const goToRoute = () => {
                     if (window.AppRouter && typeof window.AppRouter.go === "function") {
-                      window.AppRouter.go(normalizedRoute);
+                      window.AppRouter.go(`${normalizedRoute}${params ? `?${params}` : ""}`);
                     } else {
                       window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
                         normalizedRoute
-                      )}`;
+                      )}${params ? `&${params}` : ""}`;
                     }
                   };
 

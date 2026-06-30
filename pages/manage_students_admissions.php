@@ -158,8 +158,17 @@
                     "admission_applications_upload"
                 ]);
 
+                var user = AuthContext.getUser ? AuthContext.getUser() : null;
+                var roles = AuthContext.getRoles ? AuthContext.getRoles() : [];
+                var isDirector = /director|owner/i.test(user?.role || user?.role_name || user?.primary_role || "") ||
+                    roles.some(function (role) {
+                        return /director|owner/i.test(String(role?.name || role));
+                    });
+
                 var templateFile = "viewer_admissions.php";
-                if (canFullAdmissions) {
+                if (isDirector) {
+                    templateFile = "director_admissions.php";
+                } else if (canFullAdmissions) {
                     templateFile = "admin_admissions.php";
                 } else if (canManageAdmissions) {
                     templateFile = "manager_admissions.php";
@@ -182,8 +191,13 @@
 
                         var parser = new DOMParser();
                         var doc = parser.parseFromString(html, "text/html");
+                        var scripts = Array.from(doc.querySelectorAll("script"));
+                        scripts.forEach(function (script) {
+                            script.remove();
+                        });
                         var bodyChildren = Array.from(doc.body.childNodes);
 
+                        container.replaceChildren();
                         bodyChildren.forEach(function (node) {
                             container.appendChild(document.adoptNode(node));
                         });
@@ -193,10 +207,13 @@
                             window.RoleBasedUI.applyTo(container);
                         }
 
-                        var scripts = container.querySelectorAll("script");
                         var pendingScripts = 0;
-
+                        var initialized = false;
                         var initAdmissions = function () {
+                            if (initialized) {
+                                return;
+                            }
+                            initialized = true;
                             if (window.AdmissionsController && window.AdmissionsController.init) {
                                 window.AdmissionsController.init();
                             }
@@ -216,7 +233,9 @@
 
                         scripts.forEach(function (script) {
                             if (script.src) {
-                                var existingScript = document.querySelector('script[src="' + script.src + '"]');
+                                var existingScript = Array.from(document.scripts).find(function (existing) {
+                                    return existing.src === script.src;
+                                });
                                 if (existingScript) {
                                     return;
                                 }

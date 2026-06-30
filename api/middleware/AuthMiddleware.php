@@ -7,19 +7,12 @@ use Firebase\JWT\Key;
 
 class AuthMiddleware
 {
-    // Static test token for local/dev testing (header: X-Test-Token)
-    const TEST_USER = [
-        'user_id' => 2,
-        'username' => 'accountant',
-        'email' => 'accountant@school.com',
-        'role_ids' => [10],
-        'roles' => [['id' => 10, 'name' => 'School Accountant']],
-        'display_name' => 'Test Accountant',
-        'permissions' => ['*'],
-        'effective_permissions' => ['*', 'finance.view', 'finance.manage', 'finance.reconcile', 'payments.view', 'payments.reconcile']
-    ];
     /**
      * Handle JWT validation and attach user info to $_SERVER['auth_user']
+     *
+     * FIX: Removed hardcoded test credentials. Test credentials must be managed
+     * through separate test/staging environment with dedicated credentials.
+     * Production code must never contain plaintext test credentials.
      */
     public static function handle()
     {
@@ -48,6 +41,13 @@ class AuthMiddleware
             'parent-portal/login',
             'parent-portal/login-otp-request',
             'parent-portal/login-otp-verify',
+            // Public careers intake for candidates who passed recruitment screening
+            'staff-appointments/careers-candidate',
+            // Dashboard config endpoint - JS router needs to be accessible for JS router init
+            'dashboard/config',
+            'api/dashboard?action=config',
+            'api/dashboard?action=route',
+            'api/dashboard?action=sidebars',
         ];
 
         // Check if current request is to a public endpoint
@@ -61,20 +61,6 @@ class AuthMiddleware
         // Authenticated parent-portal endpoints enforce auth via $this->parentId checks
         // in ParentPortalController.
         if (strpos($path, 'parent-portal/') !== false) {
-            return;
-        }
-
-        // TEST MODE: Accept X-Test-Token header only in explicit debug mode from a loopback client.
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-        $hostName = strtolower(parse_url('http://' . $host, PHP_URL_HOST) ?: '');
-        $isDebugMode = defined('DEBUG') && DEBUG === true;
-        $isLoopbackHost = in_array($hostName, ['localhost', '127.0.0.1', '::1'], true);
-        $isLoopbackClient = in_array($remoteAddr, ['127.0.0.1', '::1'], true);
-        $headers = function_exists('getallheaders') ? getallheaders() : [];
-        if ($isDebugMode && $isLoopbackHost && $isLoopbackClient && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
-            error_log('AuthMiddleware: DEV test token used from ' . $remoteAddr);
-            $_SERVER['auth_user'] = self::TEST_USER;
             return;
         }
 
@@ -203,8 +189,11 @@ class AuthMiddleware
             header('Content-Type: application/json; charset=utf-8');
         }
         $payload = json_encode([
+            'success' => false,
             'status'  => 'error',
+            'data' => null,
             'message' => $message,
+            'errors' => [],
             'code'    => $code,
         ]);
         echo $payload !== false

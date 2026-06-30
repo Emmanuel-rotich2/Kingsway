@@ -85,7 +85,7 @@ class FinanceController extends BaseController
             return $this->badRequest('proposal_id (or budget_id) is required');
         }
         $status     = $data['status']      ?? 'approved';
-        $reviewedBy = $data['reviewed_by'] ?? $this->getCurrentUserId();
+        $reviewedBy = $data['reviewed_by'] ?? $this->getUserId();
         $result = $this->api->updateDepartmentBudgetProposalStatus($proposalId, $status, $reviewedBy);
         return $this->handleResponse($result);
     }
@@ -99,7 +99,7 @@ class FinanceController extends BaseController
         // Expecting: $data['department_id'], $data['amount'], $data['allocated_by']
         $departmentId = $data['department_id'] ?? null;
         $amount = $data['amount'] ?? null;
-        $allocatedBy = $data['allocated_by'] ?? $this->getCurrentUserId();
+        $allocatedBy = $data['allocated_by'] ?? $this->getUserId();
         if (!$departmentId || !$amount) {
             return $this->badRequest('department_id and amount are required');
         }
@@ -141,7 +141,7 @@ class FinanceController extends BaseController
         }
         $result = $this->expenseManager->approveExpense(
             $expenseId,
-            $this->getCurrentUserId(),
+            $this->getUserId(),
             $data['notes'] ?? $data['comments'] ?? null
         );
         return $this->handleResponse($result);
@@ -160,7 +160,7 @@ class FinanceController extends BaseController
         if (empty($data['reason'])) {
             return $this->badRequest('reason is required when rejecting an expense');
         }
-        $result = $this->expenseManager->rejectExpense($expenseId, $this->getCurrentUserId(), $data['reason']);
+        $result = $this->expenseManager->rejectExpense($expenseId, $this->getUserId(), $data['reason']);
         return $this->handleResponse($result);
     }
 
@@ -335,7 +335,7 @@ class FinanceController extends BaseController
     {
         if ($denied = $this->requireApprovalAccess('approve payroll')) return $denied;
         $payrollId = $data['payroll_id'] ?? $data['id'] ?? $id;
-        $approvedBy = $data['user_id'] ?? $this->getCurrentUserId();
+        $approvedBy = $data['user_id'] ?? $this->getUserId();
         $result = $this->api->approvePayroll($payrollId, $approvedBy);
         return $this->handleResponse($result);
     }
@@ -346,7 +346,7 @@ class FinanceController extends BaseController
     public function postPayrollsReject($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->requireApprovalAccess('reject payroll')) return $denied;
-        $data['user_id'] = $data['user_id'] ?? $this->getCurrentUserId();
+        $data['user_id'] = $data['user_id'] ?? $this->getUserId();
         $result = $this->api->rejectPayroll($data);
         return $this->handleResponse($result);
     }
@@ -789,7 +789,7 @@ class FinanceController extends BaseController
     public function postFeesApproveStructure($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->requireApprovalAccess('approve fee structures')) return $denied;
-        $data['approved_by'] = $data['approved_by'] ?? $this->getCurrentUserId();
+        $data['approved_by'] = $data['approved_by'] ?? $this->getUserId();
         $result = $this->api->approveFeeStructure($data);
         return $this->handleResponse($result);
     }
@@ -1254,14 +1254,6 @@ class FinanceController extends BaseController
         return $this->success($result);
     }
 
-    /**
-     * Get current authenticated user ID
-     */
-    private function getCurrentUserId()
-    {
-        return $this->user['id'] ?? null;
-    }
-
     // ========================================
     // SECTION 8: Fee Bundle Workflow
     // ========================================
@@ -1436,7 +1428,7 @@ class FinanceController extends BaseController
         if (empty($data['description']) || empty($data['amount']) || empty($data['expense_date'])) {
             return $this->badRequest('description, amount, expense_date are required');
         }
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $expNo  = 'EXP-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
         $this->db->query(
             "INSERT INTO expenses (expense_number, category_id, description, amount, expense_date,
@@ -1472,7 +1464,7 @@ class FinanceController extends BaseController
     public function putExpenses($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Expense ID required');
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
 
         if (isset($data['status'])) {
             if ($data['status'] === 'approved') return $this->postExpensesApprove($id, $data, $segments);
@@ -1556,7 +1548,7 @@ class FinanceController extends BaseController
             return $this->badRequest('type, amount, description are required');
         }
         $fundId = $data['fund_id'] ?? 1;
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $fund   = $this->db->query("SELECT current_balance FROM petty_cash_funds WHERE id=?", [$fundId])->fetch();
         if (!$fund) return $this->notFound('Petty cash fund not found');
         $balanceAfter = ($data['type'] === 'expense')
@@ -1612,7 +1604,7 @@ class FinanceController extends BaseController
         if (empty($data['reconciliation_date']) || !isset($data['system_cash_total']) || !isset($data['physical_cash_count'])) {
             return $this->badRequest('reconciliation_date, system_cash_total, physical_cash_count are required');
         }
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $existing = $this->db->query(
             "SELECT id FROM cash_reconciliation_sessions WHERE reconciliation_date=? AND cashier_id=?",
             [$data['reconciliation_date'], $userId]
@@ -1672,7 +1664,7 @@ class FinanceController extends BaseController
         if (empty($data['type']) || empty($data['amount']) || empty($data['reason'])) {
             return $this->badRequest('type, amount, reason are required');
         }
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $adjNo  = 'ADJ-' . date('Ymd') . '-' . strtoupper(substr(uniqid(), -4));
         $this->db->query(
             "INSERT INTO financial_adjustments (adjustment_number,type,student_id,amount,reason,
@@ -1691,7 +1683,7 @@ class FinanceController extends BaseController
     public function putAdjustments($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Adjustment ID required');
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status === 'approved') {
             $this->db->query(
@@ -1744,7 +1736,7 @@ class FinanceController extends BaseController
     public function putExceptionReports($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Exception ID required');
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $this->db->query(
             "UPDATE finance_exceptions SET status=?, resolved_by=?, resolved_at=NOW(), resolution_notes=? WHERE id=?",
             [$data['status'] ?? 'under_review', $userId, $data['resolution_notes'] ?? null, $id]
@@ -1787,7 +1779,7 @@ class FinanceController extends BaseController
         if (empty($data['name']) || empty($data['academic_year'])) {
             return $this->badRequest('name and academic_year are required');
         }
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $this->db->query(
             "INSERT INTO budgets (name, academic_year, term, total_amount, description, status, created_by)
              VALUES (?,?,?,?,?,'draft',?)",
@@ -1810,7 +1802,7 @@ class FinanceController extends BaseController
     public function putBudgets($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->badRequest('Budget ID required');
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $status = $data['status'] ?? null;
         if ($status) {
             $extra = '';
@@ -1870,7 +1862,7 @@ class FinanceController extends BaseController
             return $this->badRequest('student_id, discount_type, discount_value are required');
         }
         if (empty($data['reason'])) return $this->badRequest('reason is required');
-        $userId = $this->getCurrentUserId();
+        $userId = $this->getUserId();
         $this->db->query(
             "INSERT INTO fee_discounts_waivers (student_id, student_fee_obligation_id, discount_type, discount_value,
               discount_percentage, reason, academic_year, term_id, approved_by, approved_date, status, valid_until)

@@ -14,7 +14,7 @@ const cateringDashboardController = {
     refresh: function () { this.loadAll(); },
 
     loadAll: async function () {
-        const token = localStorage.getItem('token');
+        const token = AuthContext.getToken();
         const h = { 'Authorization': 'Bearer ' + token };
         const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
 

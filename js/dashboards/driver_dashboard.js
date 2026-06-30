@@ -18,8 +18,8 @@ const driverDashboardController = {
     loadAll: async function () {
         try {
             const [routeRes, vehicleRes] = await Promise.allSettled([
-                API.transport.getMyRoute ? API.transport.getMyRoute() : fetch((window.APP_BASE || '') + '/api/transport/my-route', {headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')}}).then(r => r.json()),
-                fetch((window.APP_BASE || '') + '/api/transport/my-vehicle', {headers: {'Authorization': 'Bearer ' + localStorage.getItem('token')}}).then(r => r.json())
+                API.transport.getMyRoute ? API.transport.getMyRoute() : fetch((window.APP_BASE || '') + '/api/transport/my-route', {headers: {'Authorization': 'Bearer ' + AuthContext.getToken()}}).then(r => r.json()),
+                fetch((window.APP_BASE || '') + '/api/transport/my-vehicle', {headers: {'Authorization': 'Bearer ' + AuthContext.getToken()}}).then(r => r.json())
             ]);
 
             if (routeRes.status === 'fulfilled') {
@@ -100,7 +100,7 @@ const driverDashboardController = {
         try {
             await fetch((window.APP_BASE || '') + '/api/transport/attendance', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + localStorage.getItem('token')},
+                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AuthContext.getToken()},
                 body: JSON.stringify({ students: present, date: new Date().toISOString().slice(0, 10) })
             });
             document.getElementById('presentToday').textContent = present.length;
