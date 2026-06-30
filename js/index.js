@@ -118,39 +118,43 @@ window.addEventListener('resize', function () {
     }
 });
 
-function getRouteFromUrl(url) {
-    if (!url) return '';
+function getRouteDataFromUrl(url) {
+    if (!url) return { route: '', params: '' };
     const value = String(url).trim();
 
     try {
         const parsed = new URL(value, window.location.origin);
         const route = parsed.searchParams.get('route');
         if (route) {
-            return route;
+            parsed.searchParams.delete('route');
+            const params = parsed.searchParams.toString();
+            return { route, params };
         }
     } catch (e) {
-        // Fall through to regex parsing for route fragments that are not valid URLs.
+        // Fall through to route fragment parsing.
     }
 
-    const match = value.match(/[?&]route=([^&#]+)/);
+    const match = value.match(/^([^?&#]+)(?:\?([^#]*))?/);
     if (match && match[1]) {
-        try {
-            return decodeURIComponent(match[1]);
-        } catch (e) {
-            return match[1];
-        }
+        return { route: match[1].replace(/^\/+/, ''), params: match[2] || '' };
     }
 
-    return value.replace(/^\/+/, '');
+    return { route: value.replace(/^\/+/, ''), params: '' };
+}
+
+function getRouteFromUrl(url) {
+    return getRouteDataFromUrl(url).route;
 }
 
 function navigateWithFullPageShell(route) {
-    const normalizedRoute = getRouteFromUrl(route);
+    const routeData = getRouteDataFromUrl(route);
+    const normalizedRoute = routeData.route;
     if (!normalizedRoute || normalizedRoute === '#') {
         return false;
     }
 
-    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}`;
+    const suffix = routeData.params ? `&${routeData.params}` : '';
+    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}${suffix}`;
     return true;
 }
 
@@ -251,19 +255,45 @@ function authorizeRouteAccess(route) {
         return Promise.resolve({ authorized: false, route: normalizedRoute, reason: "unauthenticated" });
     }
 
-    // Source of truth: the sidebar items stored in localStorage at login.
-    // These were built from config/role_sidebars.php — every route the user
-    // can access is already in their sidebar. No DB query needed.
+    if (window.API?.systemconfig?.authorizeRoute) {
+        return window.API.systemconfig.authorizeRoute(normalizedRoute, getCurrentUserRoleIds())
+            .then((result) => {
+                const payload = result?.data || result || {};
+                return {
+                    authorized: Boolean(payload.authorized),
+                    route: normalizedRoute,
+                    source: "api",
+                    reason: payload.reason || (payload.authorized ? "authorized" : "forbidden"),
+                    required_permissions: payload.required_permissions || [],
+                    matched_permissions: payload.matched_permissions || [],
+                };
+            })
+            .catch((error) => {
+                if (error?.code === 401) {
+                    return { authorized: false, route: normalizedRoute, reason: "unauthenticated", source: "api" };
+                }
+                if (error?.code === 403) {
+                    return { authorized: false, route: normalizedRoute, reason: "forbidden", source: "api" };
+                }
+
+                return authorizeRouteFromLocalContract(normalizedRoute);
+            });
+    }
+
+    return Promise.resolve(authorizeRouteFromLocalContract(normalizedRoute));
+}
+
+function authorizeRouteFromLocalContract(normalizedRoute) {
     const allowedRoutes = getAllowedRoutes();
     const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
     const authorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
 
-    return Promise.resolve({
+    return {
         authorized,
         route: normalizedRoute,
-        source: "sidebar",
+        source: "local_sidebar",
         reason: authorized ? "in_sidebar" : "not_in_sidebar",
-    });
+    };
 }
 
 // Route guard overlay removed — PHP serves the correct page directly.

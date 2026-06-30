@@ -178,8 +178,11 @@ class RBACMiddleware
             header('Content-Type: application/json; charset=utf-8');
         }
         $payload = json_encode([
+            'success' => false,
             'status'  => 'error',
+            'data' => null,
             'message' => $message,
+            'errors' => [],
             'code'    => $code,
         ]);
         echo $payload !== false

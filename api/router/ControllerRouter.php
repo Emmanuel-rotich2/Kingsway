@@ -117,12 +117,20 @@ class ControllerRouter
             }
 
             return [
+                'success' => true,
                 'status' => 'success',
-                'data'   => $result,
+                'data' => $result,
+                'message' => 'OK',
+                'errors' => [],
+                'code' => 200,
             ];
 
         } catch (Exception $e) {
-            return $this->abort(500, $e->getMessage());
+            $code = (int) $e->getCode();
+            if ($code < 400 || $code > 599) {
+                $code = 500;
+            }
+            return $this->abort($code, $e->getMessage());
         }
     }
 
@@ -245,8 +253,11 @@ class ControllerRouter
     {
         http_response_code($code);
         return [
+            'success' => false,
             'status' => 'error',
+            'data' => null,
             'message' => $message,
+            'errors' => [],
             'code' => $code
         ];
     }

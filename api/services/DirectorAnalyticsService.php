@@ -30,10 +30,12 @@ class DirectorAnalyticsService
      */
     public function getStaffStats()
     {
-        $query = "SELECT COUNT(*) as total, 
-                         SUM(CASE WHEN staff_type = 'teaching' THEN 1 ELSE 0 END) as teaching,
-                         SUM(CASE WHEN staff_type = 'non-teaching' THEN 1 ELSE 0 END) as non_teaching
-                  FROM staff WHERE status = 'active'";
+        $query = "SELECT COUNT(*) as total,
+                         SUM(CASE WHEN LOWER(st.name) LIKE '%teaching%' AND LOWER(st.name) NOT LIKE '%non%' THEN 1 ELSE 0 END) as teaching,
+                         SUM(CASE WHEN LOWER(st.name) LIKE '%non%teaching%' OR LOWER(st.name) LIKE '%support%' OR LOWER(st.name) = 'administration' THEN 1 ELSE 0 END) as non_teaching
+                  FROM staff s
+                  LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                  WHERE s.status = 'active'";
         $stmt = $this->db->query($query);
         $row = $stmt->fetch();
         return [
@@ -155,7 +157,10 @@ class DirectorAnalyticsService
      */
     public function getMonthlyPayrollSummary()
     {
-        $query = "SELECT SUM(amount) as total_payroll FROM payroll WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())";
+        $query = "SELECT COALESCE(SUM(net_salary), 0) as total_payroll
+                  FROM staff_payroll
+                  WHERE payroll_month = MONTH(CURRENT_DATE())
+                    AND payroll_year = YEAR(CURRENT_DATE())";
         $stmt = $this->db->query($query);
         $result = $stmt->fetch();
         return $result['total_payroll'] ?? 0;
@@ -185,7 +190,7 @@ class DirectorAnalyticsService
         $yearStmt = $this->db->query("SELECT year_name FROM academic_years WHERE status = 'active' OR is_current = 1 ORDER BY id DESC LIMIT 1");
         $result['academic_year'] = $yearStmt->fetch()['year_name'] ?? date('Y');
 
-        $termStmt = $this->db->query("SELECT name FROM academic_terms WHERE status = 'current' ORDER BY id DESC LIMIT 1");
+        $termStmt = $this->db->query("SELECT name FROM academic_terms WHERE status IN ('current', 'active') ORDER BY status = 'current' DESC, id DESC LIMIT 1");
         $result['current_term'] = $termStmt->fetch()['name'] ?? 'Term 1';
 
         // Total Students
@@ -296,7 +301,24 @@ class DirectorAnalyticsService
         $result['staff_attendance_today'] = round($stmt->fetch()['rate'] ?? 0, 1);
 
         // Pending Approvals
-        $query = "SELECT COUNT(*) as total FROM workflow_instances WHERE status IN ('pending', 'in_progress')";
+        $query = "SELECT COUNT(DISTINCT wi.id) as total
+                  FROM workflow_instances wi
+                  JOIN workflow_definitions wd ON wd.id = wi.workflow_id
+                  LEFT JOIN workflow_stage_permissions wsp
+                    ON wsp.workflow_stage_id = (
+                        SELECT ws.id
+                        FROM workflow_stages ws
+                        WHERE ws.workflow_id = wi.workflow_id
+                          AND ws.code = COALESCE(NULLIF(wi.stage_code, ''), NULLIF(wi.current_stage, ''))
+                        LIMIT 1
+                    )
+                  WHERE wi.status IN ('pending', 'in_progress')
+                    AND (
+                        wsp.role_id = 3
+                        OR LOWER(wd.code) IN ('student_admission', 'fee_structure_approval', 'payroll_approval', 'expense_approval')
+                        OR LOWER(wd.name) LIKE '%director%'
+                        OR LOWER(wd.name) LIKE '%approval%'
+                    )";
         $stmt = $this->db->query($query);
         $result['pending_approvals'] = $stmt->fetch()['total'] ?? 0;
 
@@ -510,7 +532,7 @@ class DirectorAnalyticsService
             'pass_rate_percent'   => 0.0,
             'pass_rate'           => 0.0,
             'dropout_rate'        => 0.0,
-            'transition_rate'     => 85.0,
+            'transition_rate'     => 0.0,
         ];
 
         try {

@@ -3161,7 +3161,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
     const url = `${window.APP_BASE || ''}/api/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("jwt_token") || ""}`,
+        Authorization: `Bearer ${AuthContext.getToken() || ""}`,
       },
     });
 
@@ -3252,7 +3252,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("jwt_token") || ""}`,
+              Authorization: `Bearer ${AuthContext.getToken() || ""}`,
             },
             body: JSON.stringify({
               mpesa_id: mpesaId,

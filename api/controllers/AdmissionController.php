@@ -1255,6 +1255,15 @@ class AdmissionController extends BaseController
         ) ";
     }
 
+    private function getAdmissionRouteNames(): array
+    {
+        return [
+            'manage_students_admissions',
+            'admissions/director_admissions',
+            'admissions/enrollment_confirmations',
+        ];
+    }
+
     private function hasAdmissionRouteAccess(): bool
     {
         if ($this->resolvedAdmissionRouteAccess) {
@@ -1273,16 +1282,19 @@ class AdmissionController extends BaseController
 
         try {
             if ($userId > 0) {
+                $routeNames = $this->getAdmissionRouteNames();
+                $routePlaceholders = implode(',', array_fill(0, count($routeNames), '?'));
                 $userOverrideSql = "SELECT ur.is_allowed
                     FROM user_routes ur
                     JOIN routes r ON r.id = ur.route_id
                     WHERE ur.user_id = ?
-                      AND r.name = ?
+                      AND r.name IN ({$routePlaceholders})
                       AND r.is_active = 1
                       AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+                    ORDER BY ur.is_allowed DESC
                     LIMIT 1";
                 $stmt = $this->db->getConnection()->prepare($userOverrideSql);
-                $stmt->execute([$userId, 'manage_students_admissions']);
+                $stmt->execute(array_merge([$userId], $routeNames));
                 $override = $stmt->fetch(\PDO::FETCH_ASSOC);
                 if ($override) {
                     $this->admissionRouteAccess = (bool) ($override['is_allowed'] ?? false);
@@ -1294,16 +1306,18 @@ class AdmissionController extends BaseController
                 return false;
             }
 
+            $routeNames = $this->getAdmissionRouteNames();
+            $routePlaceholders = implode(',', array_fill(0, count($routeNames), '?'));
             $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
             $sql = "SELECT 1
                 FROM role_routes rr
                 JOIN routes r ON r.id = rr.route_id
                 WHERE rr.is_allowed = 1
                   AND r.is_active = 1
-                  AND r.name = ?
+                  AND r.name IN ({$routePlaceholders})
                   AND rr.role_id IN ({$placeholders})
                 LIMIT 1";
-            $params = array_merge(['manage_students_admissions'], array_map('intval', $roleIds));
+            $params = array_merge($routeNames, array_map('intval', $roleIds));
             $stmt = $this->db->getConnection()->prepare($sql);
             $stmt->execute($params);
             $this->admissionRouteAccess = (bool) $stmt->fetchColumn();
@@ -1423,8 +1437,13 @@ class AdmissionController extends BaseController
 
     private function getCurrentUserRoleIds(): array
     {
+        $roleIds = $this->getUserRoleIds();
+        if (!empty($roleIds)) {
+            return array_values(array_unique(array_map('intval', $roleIds)));
+        }
+
         if (isset($this->user['role_ids']) && is_array($this->user['role_ids'])) {
-            return array_values(array_map('intval', $this->user['role_ids']));
+            return array_values(array_unique(array_map('intval', $this->user['role_ids'])));
         }
         if (!empty($this->user['role_id'])) {
             return [(int) $this->user['role_id']];

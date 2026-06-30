@@ -63,12 +63,14 @@ const PageShell = (() => {
      */
     function hasRole(roleNames) {
         if (typeof AuthContext === 'undefined') return false;
-        const userRoles = (AuthContext.getRoles() || []).map(r =>
-            String(r).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')
-        );
-        return roleNames.some(n =>
-            userRoles.includes(String(n).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''))
-        );
+        const normalizeRole = (role) => String(
+            typeof role === 'object' && role !== null
+                ? (role.name || role.code || role.role || role.role_name || '')
+                : role
+        ).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+
+        const userRoles = (AuthContext.getRoles() || []).map(normalizeRole);
+        return roleNames.some(n => userRoles.includes(normalizeRole(n)));
     }
 
     // -------------------------------------------------------------------------
@@ -84,13 +86,22 @@ const PageShell = (() => {
      *   if (perms.canEdit) { ... }
      */
     function modulePerms(mod) {
+        const canAction = (action) => {
+            if (typeof AuthContext !== 'undefined' && typeof AuthContext.canAction === 'function') {
+                return AuthContext.canAction(mod, action);
+            }
+            return hasAny((window.PermissionContract?.aliasesFor?.(mod, action)) || [`${mod}_${action}`, `${mod}.${action}`]);
+        };
+
         return {
-            canView:    hasAny([`${mod}_view`, `${mod}_view_all`, `${mod}_view_own`, `${mod}.view`]),
-            canCreate:  hasAny([`${mod}_create`, `${mod}.create`]),
-            canEdit:    hasAny([`${mod}_edit`, `${mod}_update`, `${mod}_edit_own`, `${mod}.edit`]),
-            canDelete:  hasAny([`${mod}_delete`, `${mod}.delete`]),
-            canApprove: hasAny([`${mod}_approve`, `${mod}_approve_final`, `${mod}.approve`]),
-            canExport:  hasAny([`${mod}_export`, `${mod}.export`]),
+            canView:    canAction('view'),
+            canCreate:  canAction('create'),
+            canEdit:    canAction('edit'),
+            canDelete:  canAction('delete'),
+            canApprove: canAction('approve'),
+            canReject:  canAction('reject'),
+            canExport:  canAction('export'),
+            canPrint:   canAction('print'),
             canManage:  hasAny([`${mod}_manage`, `${mod}_admin`, `${mod}.manage`]),
         };
     }
@@ -120,6 +131,7 @@ const PageShell = (() => {
             module: moduleName = 'this module',
             scriptSrc,
             levels = [],
+            afterLoad,
         } = options;
 
         const loadingEl = document.getElementById(loadingId);
@@ -169,9 +181,17 @@ const PageShell = (() => {
                     contentEl.style.display = 'block';
                 }
 
+                // Apply page-specific post-processing before generic role-based UI.
+                if (typeof afterLoad === 'function') {
+                    afterLoad(contentEl, match);
+                }
+
                 // Apply RoleBasedUI to injected content
                 if (window.RoleBasedUI && typeof window.RoleBasedUI.applyTo === 'function') {
                     window.RoleBasedUI.applyTo(contentEl);
+                }
+                if (window.API && typeof window.API.applyPermissionContract === 'function') {
+                    window.API.applyPermissionContract(contentEl);
                 }
 
                 // Re-execute <script> tags in injected HTML

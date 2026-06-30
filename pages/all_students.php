@@ -81,7 +81,10 @@
         const isPortalViewerRole = hasAnyRole(["parent", "student"]);
         const canViewOwnOnly = hasAnyPermissionAlias([["students_view_own"]]) && !canCreate && !canEdit && !canDelete && !canPromote;
 
-        if (isPortalViewerRole || canViewOwnOnly) {
+        const isDirector = hasAnyRole(["director", "director_owner"]);
+        if (isDirector) {
+            templateFile = "manage_students_manager.php";
+        } else if (isPortalViewerRole || canViewOwnOnly) {
             templateFile = "viewer_students.php";
         } else if (canDelete || hasAnyPermissionAlias([["students_view_all"]])) {
             templateFile = "manage_students_admin.php";

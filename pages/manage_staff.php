@@ -57,9 +57,11 @@
         }
 
         var accessLevel = 'viewer';
-        if (roleId === 1 || roleId === 3 || roleId === 4 ||
-            ['system_administrator', 'school_administrator', 'director', 'director_owner'].indexOf(firstRoleName) !== -1) {
+        if (roleId === 1 || roleId === 4 ||
+            ['system_administrator', 'school_administrator'].indexOf(firstRoleName) !== -1) {
             accessLevel = 'admin';
+        } else if (roleId === 3 || ['director', 'director_owner'].indexOf(firstRoleName) !== -1) {
+            accessLevel = 'viewer';
         } else if (roleId === 5 || firstRoleName === 'headteacher') {
             accessLevel = 'manager';
         } else if (firstRoleName === 'deputy_head_discipline' || firstRoleName === 'deputy_head_academic') {

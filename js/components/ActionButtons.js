@@ -4,6 +4,18 @@
  */
 
 class ActionButtons {
+    static can(config = {}) {
+        if (config.permission && !AuthContext.hasPermission(config.permission)) {
+            return false;
+        }
+
+        if (config.module && config.action && typeof AuthContext.canAction === 'function') {
+            return AuthContext.canAction(config.module, config.action);
+        }
+
+        return true;
+    }
+
     /**
      * Check if user has required role(s)
      * @param {string|Array} roles - Role or array of roles
@@ -28,6 +40,8 @@ class ActionButtons {
             variant = 'primary',
             size = 'md',
             permission,
+            module,
+            action,
             roles,          // NEW: Array or comma-separated string of allowed roles
             excludeRoles,   // NEW: Roles that should NOT see this button
             visible = true,
@@ -38,7 +52,7 @@ class ActionButtons {
         } = config;
 
         // Check permission
-        if (permission && !AuthContext.hasPermission(permission)) {
+        if (!ActionButtons.can({ permission, module, action })) {
             return '';
         }
 
@@ -115,7 +129,7 @@ class ActionButtons {
      */
     static createDropdownMenu(actions, label = 'Actions', variant = 'secondary') {
         const validActions = actions.filter(action => {
-            if (action.permission && !AuthContext.hasPermission(action.permission)) {
+            if (!ActionButtons.can(action)) {
                 return false;
             }
             // Check role inclusion
@@ -182,6 +196,8 @@ class ActionButtons {
             icon,
             variant = 'info',
             permission,
+            module,
+            action,
             roles,
             excludeRoles,
             visible = true,
@@ -189,7 +205,7 @@ class ActionButtons {
             onclick
         } = config;
 
-        if (permission && !AuthContext.hasPermission(permission)) {
+        if (!ActionButtons.can({ permission, module, action })) {
             return '';
         }
 
@@ -243,7 +259,7 @@ class ActionButtons {
      */
     static createWorkflowActions(status, allowedActions = []) {
         const validActions = allowedActions.filter(action => {
-            if (action.permission && !AuthContext.hasPermission(action.permission)) {
+            if (!ActionButtons.can(action)) {
                 return false;
             }
             if (action.requiresStatus && !action.requiresStatus.includes(status)) {
