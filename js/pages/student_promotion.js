@@ -1,407 +1,466 @@
 /**
- * Student Promotion Page Controller
- * Handles bulk and per-student promotion workflows
+ * Student Promotion Controller
+ * Manages student promotion between academic years
  */
-
 const StudentPromotionController = {
-  data: {
-    students: [],
+  state: {
+    candidates: [],
+    academicYears: [],
     classes: [],
     streams: [],
-    streamMap: {},
-    retainedIds: new Set(),
-    selectedClassName: "--",
+    selectedStudents: new Set(),
+    studentActions: {}, // Maps student_id -> 'promote' or 'retain'
   },
 
-  init: async function () {
-    if (!AuthContext.isAuthenticated()) {
+  ui: {},
+
+  async init() {
+    console.log("StudentPromotionController: Initializing...");
+
+    if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
-    if (!AuthContext.hasPermission('students_view')) {
-      const main = document.querySelector('.main-content, main, body');
-      if (main) main.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: you do not have permission to view student data.</div>');
-      return;
-    }
+    this.cacheDom();
+    this.attachEvents();
 
-    const canPromote = AuthContext.hasPermission('students_promote');
-    this._canPromote = canPromote;
-
-    // Hide promotion action buttons for users without promote permission
-    if (!canPromote) {
-      ['processPromotion', 'promoteAll', 'retainSelected'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.classList.add('d-none');
-      });
-    }
-
-    this.attachEventListeners();
-    await this.loadReferenceData();
+    console.log("StudentPromotionController: Loading metadata...");
+    await this.loadMeta();
+    console.log("StudentPromotionController: Initialization complete");
   },
 
-  attachEventListeners: function () {
-    document
-      .getElementById("loadStudents")
-      ?.addEventListener("click", () => this.loadStudents());
+  cacheDom() {
+    const $ = (id) => document.getElementById(id);
 
-    document
-      .getElementById("processPromotion")
-      ?.addEventListener("click", () => this.processPromotion());
+    this.ui = {
+      fromYear: $("fromYear"),
+      toYear: $("toYear"),
+      fromClass: $("fromClass"),
+      toClass: $("toClass"),
+      fromStream: $("fromStream"),
+      toStream: $("toStream"),
+      promotionRule: $("promotionRule"),
+      genderFilter: $("genderFilter"),
+      searchBox: $("searchBox"),
+      loadCandidatesBtn: $("loadCandidatesBtn"),
+      applyFiltersBtn: $("applyFiltersBtn"),
+      refreshBtn: $("refreshBtn"),
+      historyBtn: $("historyBtn"),
+      newBatchBtn: $("newBatchBtn"),
+      promoteAllBtn: $("promoteAllBtn"),
+      retainAllBtn: $("retainAllBtn"),
+      executePromotionBtn: $("executePromotionBtn"),
+      selectAllCandidates: $("selectAllCandidates"),
 
-    document
-      .getElementById("promoteAll")
-      ?.addEventListener("click", () => this.promoteAll());
+      candidatesCount: $("candidatesCount"),
+      selectedCount: $("selectedCount"),
+      retainCount: $("retainCount"),
+      reviewCount: $("reviewCount"),
+      feeIssuesCount: $("feeIssuesCount"),
+      disciplineCount: $("disciplineCount"),
 
-    document
-      .getElementById("retainSelected")
-      ?.addEventListener("click", () => this.retainSelected());
+      candidatesLoading: $("candidatesLoading"),
+      candidatesError: $("candidatesError"),
+      candidatesEmpty: $("candidatesEmpty"),
+      candidatesTableBody: $("candidatesTableBody"),
 
-    document
-      .getElementById("selectAll")
-      ?.addEventListener("change", (e) => {
-        document
-          .querySelectorAll(".student-select")
-          .forEach((checkbox) => {
-            checkbox.checked = e.target.checked;
-          });
-        this.updateStats();
-      });
-
-    document
-      .getElementById("selectClass")
-      ?.addEventListener("change", () => this.updateStats());
-
-    document
-      .querySelector("#studentsTable tbody")
-      ?.addEventListener("change", (event) => {
-        const target = event.target;
-        if (
-          target.classList.contains("student-select")
-          || target.classList.contains("promote-stream")
-        ) {
-          this.updateStats();
-        }
-      });
+      historyModal: $("historyModal"),
+      historyLoading: $("historyLoading"),
+      historyError: $("historyError"),
+      historyContent: $("historyContent"),
+      historyTableBody: $("historyTableBody"),
+    };
   },
 
-  loadReferenceData: async function () {
-    await Promise.all([
-      this.loadAcademicYears(),
-      this.loadClasses(),
-      this.loadStreams(),
-    ]);
+  attachEvents() {
+    this.ui.loadCandidatesBtn?.addEventListener("click", () => this.loadCandidates());
+    this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadCandidates());
+    this.ui.refreshBtn?.addEventListener("click", () => this.loadCandidates());
+    this.ui.historyBtn?.addEventListener("click", () => this.showHistory());
+    this.ui.newBatchBtn?.addEventListener("click", () => this.resetForm());
+    this.ui.promoteAllBtn?.addEventListener("click", () => this.setAllActions('promote'));
+    this.ui.retainAllBtn?.addEventListener("click", () => this.setAllActions('retain'));
+    this.ui.executePromotionBtn?.addEventListener("click", () => this.executePromotion());
+    this.ui.selectAllCandidates?.addEventListener("change", (e) => this.toggleSelectAll(e.target.checked));
+
+    this.ui.fromClass?.addEventListener("change", () => {
+      this.updateStreamsFilter();
+    });
   },
 
-  loadAcademicYears: async function () {
+  async loadMeta() {
     try {
-      const resp = await window.API.academic.getAllAcademicYears();
-      const years = this.unwrapPayload(resp) || [];
-      const fromSelect = document.getElementById("fromYear");
-      const toSelect = document.getElementById("toYear");
-      if (!fromSelect || !toSelect) return;
+      const response = await this.api("/students/promotion-meta-v2", "GET");
+      const data = this.unwrap(response);
 
-      fromSelect.innerHTML = '<option value="">Select Year</option>';
-      toSelect.innerHTML = '<option value="">Select Year</option>';
+      this.state.academicYears = data.academic_years || [];
+      this.state.classes = data.classes || [];
+      this.state.streams = data.streams || [];
 
-      years.forEach((year) => {
-        const opt = document.createElement("option");
-        opt.value = year.id;
-        opt.textContent = year.year_code || year.year_name || year.id;
-        if (year.is_current) opt.selected = true;
-        fromSelect.appendChild(opt.cloneNode(true));
-        toSelect.appendChild(opt);
-      });
+      this.fillSelect(this.ui.fromYear, this.state.academicYears, "Select Year");
+      this.fillSelect(this.ui.toYear, this.state.academicYears, "Select Year");
+      this.fillSelect(this.ui.fromClass, this.state.classes, "Select Class");
+      this.fillSelect(this.ui.toClass, this.state.classes, "Select Class");
+      this.fillSelect(this.ui.fromStream, this.state.streams, "All Streams");
+      this.fillSelect(this.ui.toStream, this.state.streams, "All Streams");
+
+      this.updateStreamsFilter();
     } catch (error) {
-      console.warn("Failed to load academic years", error);
+      console.error("Failed to load metadata:", error);
     }
   },
 
-  loadClasses: async function () {
-    try {
-      const resp = await window.API.academic.listClasses();
-      const classes = this.unwrapPayload(resp) || [];
-      this.data.classes = Array.isArray(classes) ? classes : [];
-
-      const select = document.getElementById("selectClass");
-      if (!select) return;
-
-      select.innerHTML = '<option value="">Select Class</option>';
-      this.data.classes.forEach((cls) => {
-        const opt = document.createElement("option");
-        opt.value = cls.id;
-        opt.textContent = cls.name || cls.class_name;
-        select.appendChild(opt);
-      });
-    } catch (error) {
-      console.warn("Failed to load classes", error);
-    }
+  updateStreamsFilter() {
+    const classId = this.ui.fromClass?.value || "";
+    const filtered = classId
+      ? this.state.streams.filter((s) => String(s.class_id) === String(classId))
+      : this.state.streams;
+    this.fillSelect(this.ui.fromStream, filtered, "All Streams");
   },
 
-  loadStreams: async function () {
-    try {
-      const resp = await window.API.academic.listStreams();
-      const streams = this.unwrapPayload(resp) || [];
-      this.data.streams = Array.isArray(streams) ? streams : [];
-      this.data.streamMap = {};
-      this.data.streams.forEach((stream) => {
-        this.data.streamMap[stream.id] = stream.class_id;
-      });
-    } catch (error) {
-      console.warn("Failed to load streams", error);
-    }
-  },
-
-  loadStudents: async function () {
-    const classSelect = document.getElementById("selectClass");
-    const classId = classSelect?.value;
-    if (!classId) {
-      this.showError("Please select a class");
-      return;
-    }
+  async loadCandidates() {
+    this.setLoading(true);
 
     try {
-      this.data.retainedIds = new Set();
-      const resp = await window.API.students.getByClass(classId);
-      const payload = this.unwrapPayload(resp) || [];
-      this.data.students = Array.isArray(payload) ? payload : payload.data || [];
-      this.data.selectedClassName = classSelect?.selectedOptions?.[0]?.textContent || "--";
-      this.renderStudents();
+      const params = this.getParams();
+      const response = await this.api(`/students/promotion-candidates-v2?${params.toString()}`, "GET");
+      const candidates = this.unwrap(response) || [];
+
+      this.state.candidates = candidates;
+      this.renderCandidates();
     } catch (error) {
-      console.error("Failed to load students", error);
-      this.showError("Failed to load students");
+      console.error("Failed to load candidates:", error);
+      this.showError(error.message || "Failed to load promotion candidates");
+    } finally {
+      this.setLoading(false);
     }
   },
 
-  renderStudents: function () {
-    const card = document.getElementById("studentsCard");
-    const tbody = document.querySelector("#studentsTable tbody");
-    if (!card || !tbody) return;
+  getParams() {
+    const params = new URLSearchParams();
+    const filters = {
+      from_academic_year_id: this.ui.fromYear?.value || "",
+      to_academic_year_id: this.ui.toYear?.value || "",
+      from_class_id: this.ui.fromClass?.value || "",
+      to_class_id: this.ui.toClass?.value || "",
+      from_stream_id: this.ui.fromStream?.value || "",
+      to_stream_id: this.ui.toStream?.value || "",
+      gender: this.ui.genderFilter?.value || "",
+      search: this.ui.searchBox?.value.trim() || "",
+    };
 
-    card.style.display = "block";
-    if (!this.data.students.length) {
-      tbody.innerHTML = `
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== "") params.set(key, val);
+    });
+
+    return params;
+  },
+
+  renderCandidates() {
+    const summary = this.calculateSummary(this.state.candidates);
+    this.renderSummary(summary);
+    this.renderTable();
+
+    this.ui.candidatesEmpty.classList.toggle("d-none", this.state.candidates.length > 0);
+  },
+
+  calculateSummary(candidates) {
+    return {
+      total: candidates.length,
+      selected: this.state.selectedStudents.size,
+      retain: Object.values(this.state.studentActions).filter(a => a === 'retain').length,
+      review: 0,
+      feeIssues: 0,
+      discipline: 0,
+    };
+  },
+
+  renderSummary(summary) {
+    this.ui.candidatesCount.textContent = summary.total ?? 0;
+    this.ui.selectedCount.textContent = summary.selected ?? 0;
+    this.ui.retainCount.textContent = summary.retain ?? 0;
+    this.ui.reviewCount.textContent = summary.review ?? 0;
+    this.ui.feeIssuesCount.textContent = summary.feeIssues ?? 0;
+    this.ui.disciplineCount.textContent = summary.discipline ?? 0;
+  },
+
+  renderTable() {
+    if (!this.state.candidates.length) {
+      this.ui.candidatesTableBody.innerHTML = `
         <tr>
-          <td colspan="7" class="text-center text-muted">No students found for this class</td>
-        </tr>
-      `;
+          <td colspan="9" class="text-center text-muted py-4">
+            No candidates found. Configure promotion settings and load students.
+          </td>
+        </tr>`;
       return;
     }
 
-    const streamOptions = this.data.streams
-      .map(
-        (stream) =>
-          `<option value="${stream.id}">${
-            stream.class_name || ""
-          } ${stream.stream_name || stream.name || ""}</option>`
-      )
-      .join("");
-
-    tbody.innerHTML = this.data.students
-      .map((student) => {
-        const fullName = `${student.first_name || ""} ${
-          student.last_name || ""
-        }`.trim();
-        const currentClassLabel = student.class_name
-          ? `${student.class_name} ${student.stream_name ? `- ${student.stream_name}` : ""}`
-          : (student.stream_name || "-");
-        const avgScore = student.year_average !== null && student.year_average !== undefined
-          ? Number(student.year_average).toFixed(2)
-          : "-";
-
+    this.ui.candidatesTableBody.innerHTML = this.state.candidates
+      .map((s) => {
+        const action = this.state.studentActions[s.id] || 'promote';
         return `
-          <tr data-student-id="${student.id}">
-            <td><input type="checkbox" class="student-select" data-id="${student.id}"></td>
-            <td>${student.admission_no || "-"}</td>
-            <td>${fullName || "-"}</td>
-            <td>${currentClassLabel}</td>
-            <td>${avgScore}</td>
+          <tr>
+            <td><input type="checkbox" class="candidate-checkbox" data-id="${s.id}"></td>
+            <td>${this.escape(s.admission_no || "-")}</td>
+            <td><strong>${this.escape(s.full_name || "-")}</strong></td>
+            <td>${this.escape(s.current_class || "-")}</td>
+            <td>${this.escape(s.current_stream || "-")}</td>
+            <td>${this.escape(s.current_year || "-")}</td>
+            <td><span class="badge bg-success">Promote</span></td>
             <td>
-              <select class="form-select form-select-sm promote-stream">
-                <option value="">Select Target Stream</option>
-                ${streamOptions}
+              <select class="form-select form-select-sm action-select" data-id="${s.id}" onchange="StudentPromotionController.setAction(${s.id}, this.value)">
+                <option value="promote" ${action === 'promote' ? 'selected' : ''}>Promote</option>
+                <option value="retain" ${action === 'retain' ? 'selected' : ''}>Retain</option>
               </select>
             </td>
-            <td>
-              ${StudentPromotionController._canPromote ? `<button class="btn btn-sm btn-outline-primary" onclick="StudentPromotionController.promoteSingle(${student.id})">Promote</button>` : ''}
-            </td>
-          </tr>
-        `;
+            <td><input type="text" class="form-control form-control-sm notes-input" data-id="${s.id}" placeholder="Notes"></td>
+          </tr>`;
       })
       .join("");
 
-    this.updateStats();
+    // Add checkbox listeners
+    document.querySelectorAll('.candidate-checkbox').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        if (e.target.checked) {
+          this.state.selectedStudents.add(parseInt(e.target.dataset.id));
+        } else {
+          this.state.selectedStudents.delete(parseInt(e.target.dataset.id));
+        }
+        this.renderSummary(this.calculateSummary(this.state.candidates));
+      });
+    });
   },
 
-  getSelectedStudentIds: function () {
-    return Array.from(document.querySelectorAll(".student-select:checked")).map(
-      (checkbox) => parseInt(checkbox.dataset.id, 10)
-    );
+  setAction(studentId, action) {
+    this.state.studentActions[studentId] = action;
+    this.renderSummary(this.calculateSummary(this.state.candidates));
   },
 
-  getTargetStreamIdForStudent: function (studentId) {
-    const row = document.querySelector(`tr[data-student-id="${studentId}"]`);
-    if (!row) return null;
-    const select = row.querySelector(".promote-stream");
-    return select?.value ? parseInt(select.value, 10) : null;
+  setAllActions(action) {
+    this.state.candidates.forEach(s => {
+      this.state.studentActions[s.id] = action;
+    });
+    this.renderTable();
+    this.renderSummary(this.calculateSummary(this.state.candidates));
   },
 
-  processPromotion: async function () {
-    const fromYearId = document.getElementById("fromYear").value;
-    const toYearId = document.getElementById("toYear").value;
+  toggleSelectAll(checked) {
+    document.querySelectorAll('.candidate-checkbox').forEach(cb => {
+      cb.checked = checked;
+      const id = parseInt(cb.dataset.id);
+      if (checked) {
+        this.state.selectedStudents.add(id);
+      } else {
+        this.state.selectedStudents.delete(id);
+      }
+    });
+    this.renderSummary(this.calculateSummary(this.state.candidates));
+  },
+
+  resetForm() {
+    [
+      this.ui.fromYear,
+      this.ui.toYear,
+      this.ui.fromClass,
+      this.ui.toClass,
+      this.ui.fromStream,
+      this.ui.toStream,
+      this.ui.genderFilter,
+      this.ui.searchBox,
+    ].forEach((el) => {
+      if (el) el.value = "";
+    });
+
+    this.state.candidates = [];
+    this.state.selectedStudents.clear();
+    this.state.studentActions = {};
+    this.renderCandidates();
+  },
+
+  async executePromotion() {
+    if (this.state.selectedStudents.size === 0) {
+      this.notify("Please select students first", "warning");
+      return;
+    }
+
+    const fromYearId = this.ui.fromYear?.value;
+    const toYearId = this.ui.toYear?.value;
+    const fromClassId = this.ui.fromClass?.value;
+    const toClassId = this.ui.toClass?.value;
+    const fromStreamId = this.ui.fromStream?.value;
+    const toStreamId = this.ui.toStream?.value;
 
     if (!fromYearId || !toYearId) {
-      this.showError("Please select both academic years");
+      this.notify("Please select from and to academic years", "warning");
       return;
     }
 
-    const selectedIds = this.getSelectedStudentIds().filter(
-      (id) => !this.data.retainedIds.has(id)
-    );
+    const students = Array.from(this.state.selectedStudents).map(id => ({
+      student_id: id,
+      final_action: this.state.studentActions[id] || 'promote',
+      notes: document.querySelector(`.notes-input[data-id="${id}"]`)?.value || null,
+    }));
 
-    if (!selectedIds.length) {
-      this.showError("Select at least one student to promote");
-      return;
-    }
-
-    const errors = [];
-    for (const studentId of selectedIds) {
-      const streamId = this.getTargetStreamIdForStudent(studentId);
-      const classId = this.data.streamMap[streamId];
-      if (!streamId || !classId) {
-        errors.push(studentId);
-        continue;
-      }
-
-      try {
-        await window.API.students.promoteSingle({
-          student_id: studentId,
-          to_class_id: classId,
-          to_stream_id: streamId,
-          from_year_id: fromYearId,
-          to_year_id: toYearId,
-        });
-      } catch (error) {
-        errors.push(studentId);
-      }
-    }
-
-    if (errors.length) {
-      this.showError(
-        `Promotion completed with ${errors.length} errors. Please review selections.`
-      );
-    } else {
-      this.showSuccess("Promotion processed successfully");
-    }
-
-    await this.loadStudents();
-    this.updateStats();
-  },
-
-  promoteSingle: async function (studentId) {
-    const fromYearId = document.getElementById("fromYear").value;
-    const toYearId = document.getElementById("toYear").value;
-    if (!fromYearId || !toYearId) {
-      this.showError("Please select both academic years");
-      return;
-    }
-
-    const streamId = this.getTargetStreamIdForStudent(studentId);
-    const classId = this.data.streamMap[streamId];
-
-    if (!streamId || !classId) {
-      this.showError("Select a target stream for this student");
+    if (!confirm(`Promote ${students.length} students from ${fromYearId} to ${toYearId}?`)) {
       return;
     }
 
     try {
-      await window.API.students.promoteSingle({
-        student_id: studentId,
-        to_class_id: classId,
-        to_stream_id: streamId,
-        from_year_id: fromYearId,
-        to_year_id: toYearId,
+      const response = await this.api("/students/promotion-execute-v2", "POST", {
+        from_academic_year_id: fromYearId,
+        to_academic_year_id: toYearId,
+        from_class_id: fromClassId || null,
+        to_class_id: toClassId || null,
+        from_stream_id: fromStreamId || null,
+        to_stream_id: toStreamId || null,
+        students: students,
+        notes: "Bulk promotion via promotion page",
       });
-      this.showSuccess("Student promoted successfully");
-      await this.loadStudents();
-      this.updateStats();
+
+      this.notify("Promotion executed successfully", "success");
+      this.resetForm();
     } catch (error) {
-      this.showError(error.message || "Failed to promote student");
+      this.notify(error.message || "Failed to execute promotion", "error");
     }
   },
 
-  promoteAll: function () {
-    document.querySelectorAll(".student-select").forEach((checkbox) => {
-      checkbox.checked = true;
-    });
-    this.updateStats();
-    this.processPromotion();
-  },
-
-  retainSelected: function () {
-    const selectedIds = this.getSelectedStudentIds();
-    if (!selectedIds.length) {
-      this.showError("Select students to retain");
-      return;
+  async showHistory() {
+    if (typeof bootstrap !== "undefined" && this.ui.historyModal) {
+      const modalInstance = new bootstrap.Modal(this.ui.historyModal);
+      modalInstance.show();
     }
 
-    selectedIds.forEach((id) => {
-      this.data.retainedIds.add(id);
-      const row = document.querySelector(`tr[data-student-id="${id}"]`);
-      if (row) {
-        row.classList.add("table-warning");
-        const select = row.querySelector(".promote-stream");
-        if (select) select.disabled = true;
-      }
+    await this.loadHistory();
+  },
+
+  async loadHistory() {
+    this.setHistoryLoading(true);
+
+    try {
+      const response = await this.api("/students/promotion-history", "GET");
+      const batches = this.unwrap(response) || [];
+
+      this.renderHistory(batches);
+    } catch (error) {
+      console.error("Failed to load history:", error);
+      this.showHistoryError(error.message || "Failed to load promotion history");
+    } finally {
+      this.setHistoryLoading(false);
+    }
+  },
+
+  renderHistory(batches) {
+    this.ui.historyTableBody.innerHTML = batches.map(b => `
+      <tr>
+        <td>${b.id || "-"}</td>
+        <td>${b.from_academic_year || "-"}</td>
+        <td>${b.to_academic_year || "-"}</td>
+        <td><span class="badge bg-${b.status === 'completed' ? 'success' : 'secondary'}">${this.escape(b.status || "-")}</span></td>
+        <td>${b.students_count || 0}</td>
+        <td>${b.total_promoted || 0}</td>
+        <td>${b.created_at || "-"}</td>
+      </tr>
+    `).join('');
+  },
+
+  setLoading(loading) {
+    this.ui.candidatesLoading?.classList.toggle("d-none", !loading);
+    this.ui.candidatesError?.classList.add("d-none");
+  },
+
+  showError(message) {
+    if (!this.ui.candidatesError) return;
+    this.ui.candidatesError.textContent = message;
+    this.ui.candidatesError.classList.remove("d-none");
+  },
+
+  setHistoryLoading(loading) {
+    this.ui.historyLoading?.classList.toggle("d-none", !loading);
+    this.ui.historyError?.classList.add("d-none");
+  },
+
+  showHistoryError(message) {
+    if (!this.ui.historyError) return;
+    this.ui.historyError.textContent = message;
+    this.ui.historyError.classList.remove("d-none");
+  },
+
+  fillSelect(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    (items || []).forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
+      option.textContent = item.name || item.class_name || item.stream_name || item.year_name || item.year_code || item.label || option.value;
+      select.appendChild(option);
     });
-
-    this.showSuccess("Selected students marked for retention");
-    this.updateStats();
   },
 
-  updateStats: function () {
-    const total = this.data.students.length;
-    const selected = this.getSelectedStudentIds();
-    const retained = selected.filter((id) => this.data.retainedIds.has(id)).length;
-    const selectedToPromote = selected.filter((id) => !this.data.retainedIds.has(id)).length;
+  api: async function (endpoint, method = "GET", data = null) {
+    if (window.API && typeof window.API.apiCall === "function") {
+      return window.API.apiCall(endpoint, method, data);
+    }
 
-    const setText = (id, value) => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = String(value);
-    };
+    const base = window.APP_BASE || "";
+    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
 
-    setText("spStudentCount", total);
-    setText("spPromoteCount", selectedToPromote);
-    setText("spRetainCount", retained);
-    setText("spCurrentClass", this.data.selectedClassName || "--");
+    const options = { method, headers: {} };
+
+    if (data) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, options);
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok || json.success === false) {
+      throw new Error(json.message || json.error || "Request failed.");
+    }
+
+    return json;
   },
 
-  unwrapPayload: function (response) {
-    if (!response) return response;
-    if (response.status && response.data !== undefined) return response.data;
-    if (response.data && response.data.data !== undefined) return response.data.data;
+  unwrap(response) {
+    if (!response) return {};
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
+    if (response.data !== undefined) return response.data;
     return response;
   },
 
-  showSuccess: function (message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "success");
-    } else {
-      alert(message);
-    }
+  escape(value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[char]
+    );
   },
 
-  showError: function (message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "error");
-    } else {
-      alert("Error: " + message);
+  notify(message, type = "info") {
+    if (typeof showNotification === "function") {
+      showNotification(message, type);
+      return;
     }
+
+    if (window.API && typeof window.API.showNotification === "function") {
+      window.API.showNotification(message, type);
+      return;
+    }
+
+    alert(message);
   },
 };
 
 document.addEventListener("DOMContentLoaded", () =>
-  StudentPromotionController.init()
+  StudentPromotionController.init(),
 );
 
 window.StudentPromotionController = StudentPromotionController;

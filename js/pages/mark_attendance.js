@@ -1,682 +1,469 @@
 /**
- * Mark Attendance Page Controller
- * Manages student attendance marking workflow
- *
- * Features:
- * - Session-based attendance (Morning Class, Afternoon Class)
- * - Permission indicators for students on leave
- * - School day awareness (holidays, weekends)
- * - Bulk marking (All Present / All Absent / All Late)
+ * Mark Attendance Controller
+ * Driver version - Mark passenger attendance for transport trips
  */
-
-const markAttendanceController = {
-  classes: [],
-  sessions: [],
-  students: [],
-  selectedStreamId: null,
-  selectedSessionId: null,
-  selectedDate: null,
-  isSchoolDay: true,
-  _context: null,          // register context from /attendance/register-context
-  _registerType: 'class',  // 'class' | 'boarding' | 'activity'
-
-  init: function () {
-    console.log("Mark Attendance Controller initialized");
-    this.setDefaultDate();
-    this.configureSharedActions();
-    this.loadClasses();
-    this.loadSessions();
-    this.bindEvents();
-
-    // Initialize tooltips
-    const tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-    tooltips.forEach((t) => new bootstrap.Tooltip(t));
+const MarkAttendanceController = {
+  state: {
+    passengers: [],
+    routes: [],
+    vehicles: [],
+    attendance: {},
+    selectedDate: new Date().toISOString().slice(0, 10),
   },
 
-  async configureSharedActions() {
-    if (!window.AppRouteAccess?.authorizeRoute) {
+  ui: {},
+
+  async init() {
+    console.log("MarkAttendanceController: Initializing...");
+
+    if (!window.AuthContext?.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
-    const boardingLink = document.getElementById("boardingRollCallLink");
-    const viewAttendanceLink = document.getElementById("viewAttendanceLink");
-    try {
-      const [boardingAccess, viewAttendanceAccess] = await Promise.all([
-        window.AppRouteAccess.authorizeRoute("boarding_roll_call"),
-        window.AppRouteAccess.authorizeRoute("view_attendance"),
-      ]);
-      if (boardingLink && boardingAccess?.authorized === false) {
-        boardingLink.classList.add("d-none");
-      }
-      if (viewAttendanceLink && viewAttendanceAccess?.authorized === false) {
-        viewAttendanceLink.classList.add("d-none");
-      }
-    } catch (error) {
-      console.warn("Could not resolve shared attendance route access:", error);
-    }
+    this.cacheDom();
+    this.attachEvents();
+
+    this.ui.attendanceDate.value = this.state.selectedDate;
+
+    const user = window.AuthContext?.getUser() || {};
+    this.ui.driverName.value = user.full_name || user.name || "Driver";
+
+    console.log("MarkAttendanceController: Loading metadata...");
+    await this.loadMeta();
+    console.log("MarkAttendanceController: Initialization complete");
   },
 
-  setDefaultDate: function () {
-    const today = new Date().toISOString().split("T")[0];
-    const dateInput = document.getElementById("attendanceDate");
-    if (dateInput) {
-      dateInput.value = today;
-    }
-    this.selectedDate = today;
-    this.checkSchoolDay(today);
-  },
+  cacheDom() {
+    const $ = (id) => document.getElementById(id);
 
-  bindEvents: function () {
-    const loadBtn = document.getElementById("loadStudentsBtn");
-    if (loadBtn) loadBtn.addEventListener("click", () => this.loadStudents());
+    this.ui = {
+      attendanceDate: $("attendanceDate"),
+      routeSelect: $("routeSelect"),
+      vehicleSelect: $("vehicleSelect"),
+      tripSession: $("tripSession"),
+      driverName: $("driverName"),
+      tripNotes: $("tripNotes"),
+      loadPassengersBtn: $("loadPassengersBtn"),
+      refreshBtn: $("refreshBtn"),
+      saveAttendanceBtn: $("saveAttendanceBtn"),
+      submitTripReportBtn: $("submitTripReportBtn"),
+      printSheetBtn: $("printSheetBtn"),
 
-    const classSelect = document.getElementById("classSelect");
-    if (classSelect) {
-      classSelect.addEventListener("change", (e) => {
-        this.selectedStreamId = e.target.value;
-      });
-    }
+      totalExpected: $("totalExpected"),
+      markedPresent: $("markedPresent"),
+      droppedOff: $("droppedOff"),
+      absent: $("absent"),
+      notRiding: $("notRiding"),
+      pending: $("pending"),
+      incidents: $("incidents"),
 
-    const sessionSelect = document.getElementById("sessionSelect");
-    if (sessionSelect) {
-      sessionSelect.addEventListener("change", (e) => {
-        this.selectedSessionId = e.target.value;
-      });
-    }
+      attendanceLoading: $("attendanceLoading"),
+      attendanceError: $("attendanceError"),
+      attendanceForbidden: $("attendanceForbidden"),
+      attendanceEmpty: $("attendanceEmpty"),
+      attendanceCard: $("attendanceCard"),
+      passengersTableBody: $("passengersTableBody"),
+      selectAll: $("selectAll"),
 
-    const dateInput = document.getElementById("attendanceDate");
-    if (dateInput) {
-      dateInput.addEventListener("change", (e) => {
-        this.selectedDate = e.target.value;
-        this.checkSchoolDay(e.target.value);
-      });
-    }
+      pickedUpCount: $("pickedUpCount"),
+      droppedOffCount: $("droppedOffCount"),
+      absentCount: $("absentCount"),
+      notRidingCount: $("notRidingCount"),
+      pendingCount: $("pendingCount"),
 
-    // Bulk actions
-    const markPresent = document.getElementById("markAllPresent");
-    if (markPresent)
-      markPresent.addEventListener("click", () => this.markAll("present"));
-    const markAbsent = document.getElementById("markAllAbsent");
-    if (markAbsent)
-      markAbsent.addEventListener("click", () => this.markAll("absent"));
-    const markLate = document.getElementById("markAllLate");
-    if (markLate)
-      markLate.addEventListener("click", () => this.markAll("late"));
+      markSelectedPickedUp: $("markSelectedPickedUp"),
+      markSelectedDroppedOff: $("markSelectedDroppedOff"),
+      markSelectedAbsent: $("markSelectedAbsent"),
+      markSelectedNotRiding: $("markSelectedNotRiding"),
+      clearSelected: $("clearSelected"),
 
-    // Submit attendance
-    const submitBtn = document.getElementById("submitAttendance");
-    if (submitBtn)
-      submitBtn.addEventListener("click", () => this.submitAttendance());
-  },
-
-  async checkSchoolDay(date) {
-    // Load full register context (replaces the old is-school-day call)
-    await this._loadRegisterContext(date);
-  },
-
-  async _loadRegisterContext(date) {
-    try {
-      const streamId  = this.selectedStreamId  || document.getElementById("classSelect")?.value || '';
-      const sessionId = this.selectedSessionId || document.getElementById("sessionSelect")?.value || '';
-      const params    = `?date=${date}${streamId ? '&stream_id=' + streamId : ''}${sessionId ? '&session_id=' + sessionId : ''}`;
-
-      const r = await window.API.apiCall(`/attendance/register-context${params}`, "GET");
-      if (!r) return;
-      this._context     = r;
-      this.isSchoolDay  = r.is_class_day;
-
-      // Update session dropdown to only show sessions applicable today
-      if (r.applicable_sessions?.length) {
-        this._updateSessionsFromContext(r.applicable_sessions);
-      }
-
-      // Show/hide the school day alert
-      const alertEl = document.getElementById("schoolDayAlert");
-      if (!alertEl) return;
-      if (r.blocked_reason) {
-        alertEl.classList.remove("d-none");
-        alertEl.className = alertEl.className.replace(/alert-\w+/g, '') + (r.is_boarding_day ? ' alert-info' : ' alert-warning');
-        const titleEl = document.getElementById("schoolDayAlertTitle");
-        const textEl  = document.getElementById("schoolDayAlertText");
-        if (titleEl) titleEl.textContent = r.day_type === 'public_holiday' ? 'Public Holiday' : (r.day_type === 'weekend' ? 'Weekend' : 'School Holiday');
-        if (textEl)  textEl.textContent  = r.blocked_reason;
-
-        // If boarding is still active (boarders in school), show boarding option
-        if (r.is_boarding_day && r.applicable_sessions?.some(s => s.session_type === 'boarding')) {
-          const boardingNote = document.getElementById("boardingNote") || this._createBoardingNote(alertEl);
-          if (boardingNote) boardingNote.style.display = '';
-        }
-      } else {
-        alertEl.classList.add("d-none");
-        const bn = document.getElementById("boardingNote");
-        if (bn) bn.style.display = 'none';
-      }
-
-      // Update header with current term/year info
-      const termInfo = r.current_term;
-      if (termInfo) {
-        const termBadge = document.getElementById("currentTermBadge");
-        if (termBadge) termBadge.textContent = `${termInfo.year_code} – ${termInfo.term_name}`;
-      }
-
-      // Show existing marks count
-      if (r.existing_marks && r.total_students > 0) {
-        const classMarked = r.existing_marks.class || 0;
-        const info = document.getElementById("marksProgressInfo");
-        if (info) info.textContent = `${classMarked}/${r.total_students} students marked`;
-      }
-    } catch (err) {
-      console.warn('Register context load failed:', err);
-    }
-  },
-
-  _createBoardingNote(alertEl) {
-    const div = document.createElement('div');
-    div.id = 'boardingNote';
-    div.className = 'mt-2';
-    div.innerHTML = '<i class="bi bi-house-door me-1"></i><strong>Boarders are present:</strong> Boarding roll call sessions are still active today.';
-    alertEl.appendChild(div);
-    return div;
-  },
-
-  _updateSessionsFromContext(applicableSessions) {
-    const select = document.getElementById("sessionSelect");
-    if (!select) return;
-
-    // Re-populate dropdown with only today's applicable sessions
-    const currentVal = select.value;
-    select.innerHTML = '<option value="">-- Select Session --</option>';
-
-    // Separate class vs boarding sessions visually
-    const classOpts    = applicableSessions.filter(s => s.session_type === 'academic');
-    const boardingOpts = applicableSessions.filter(s => s.session_type === 'boarding');
-    const activityOpts = applicableSessions.filter(s => s.session_type === 'activity');
-
-    const addGroup = (label, list) => {
-      if (!list.length) return;
-      const og = document.createElement('optgroup');
-      og.label = label;
-      list.forEach(s => {
-        const o = document.createElement('option');
-        o.value = s.id;
-        o.textContent = `${s.name} (${s.start_time?.slice(0,5)} – ${s.end_time?.slice(0,5)})`;
-        o.dataset.code = s.code;
-        o.dataset.type = s.session_type;
-        og.appendChild(o);
-      });
-      select.appendChild(og);
+      saveConfirmationModal: $("saveConfirmationModal"),
+      confirmPickedUp: $("confirmPickedUp"),
+      confirmDroppedOff: $("confirmDroppedOff"),
+      confirmAbsent: $("confirmAbsent"),
+      confirmNotRiding: $("confirmNotRiding"),
+      confirmPending: $("confirmPending"),
+      confirmSaveBtn: $("confirmSaveBtn"),
     };
-    addGroup('Class Sessions', classOpts);
-    addGroup('Boarding Sessions', boardingOpts);
-    addGroup('Activity Sessions', activityOpts);
-
-    // Restore previous selection or auto-select
-    if (currentVal) select.value = currentVal;
-    if (!select.value) this.autoSelectSession();
   },
 
-  loadClasses: async function () {
-    try {
-      const response = await window.API.apiCall("/attendance/classes", "GET");
-      // response is the data array: [{id, name, stream_id, student_count}, ...]
-      if (response && Array.isArray(response)) {
-        this.classes = response;
-        this.renderClassDropdown();
-      } else {
-        console.error("Failed to load classes:", response);
-      }
-    } catch (error) {
-      console.error("Error loading classes:", error);
-    }
-  },
+  attachEvents() {
+    this.ui.loadPassengersBtn?.addEventListener("click", () => this.loadPassengers());
+    this.ui.refreshBtn?.addEventListener("click", () => this.loadPassengers());
+    this.ui.saveAttendanceBtn?.addEventListener("click", () => this.showSaveConfirmation());
+    this.ui.printSheetBtn?.addEventListener("click", () => window.print());
 
-  loadSessions: async function () {
-    try {
-      const response = await window.API.apiCall("/attendance/sessions", "GET");
-      if (response && Array.isArray(response)) {
-        // Store all sessions; the register context will filter to applicable ones for today
-        this.sessions = response;
-        this.renderSessionDropdown();
-        // Re-apply context filter now that sessions are loaded
-        if (this._context?.applicable_sessions?.length) {
-          this._updateSessionsFromContext(this._context.applicable_sessions);
-        }
-      }
-    } catch (error) {
-      console.error("Error loading sessions:", error);
-    }
-  },
+    this.ui.markSelectedPickedUp?.addEventListener("click", () => this.markSelected("picked_up"));
+    this.ui.markSelectedDroppedOff?.addEventListener("click", () => this.markSelected("dropped_off"));
+    this.ui.markSelectedAbsent?.addEventListener("click", () => this.markSelected("absent"));
+    this.ui.markSelectedNotRiding?.addEventListener("click", () => this.markSelected("not_riding"));
+    this.ui.clearSelected?.addEventListener("click", () => this.clearSelected());
 
-  renderClassDropdown: function () {
-    const select = document.getElementById("classSelect");
-    if (!select) return;
-    select.innerHTML = '<option value="">-- Select Class --</option>';
-
-    this.classes.forEach((cls) => {
-      const option = document.createElement("option");
-      option.value = cls.stream_id;
-      option.textContent = `${cls.display_name || cls.name} (${cls.student_count} students)`;
-      select.appendChild(option);
-    });
-  },
-
-  renderSessionDropdown: function () {
-    const select = document.getElementById("sessionSelect");
-    if (!select) return;
-    select.innerHTML = '<option value="">-- Select Session --</option>';
-
-    this.sessions.forEach((session) => {
-      const option = document.createElement("option");
-      option.value = session.id;
-      option.textContent = `${session.name} (${session.start_time} - ${session.end_time})`;
-      option.dataset.code = session.code;
-      select.appendChild(option);
+    this.ui.selectAll?.addEventListener("change", (e) => {
+      document.querySelectorAll('.passenger-checkbox').forEach(cb => cb.checked = e.target.checked);
     });
 
-    // Auto-select based on current time
-    this.autoSelectSession();
+    this.ui.confirmSaveBtn?.addEventListener("click", () => this.saveAttendance());
   },
 
-  autoSelectSession: function () {
-    const now = new Date();
-    const hour = now.getHours();
+  async loadMeta() {
+    try {
+      const response = await this.api("/students/transport-meta", "GET");
+      const data = this.unwrap(response);
 
-    // Morning: 6-12, Afternoon: 12-18
-    let targetCode = hour < 12 ? "MORNING_CLASS" : "AFTERNOON_CLASS";
+      this.state.routes = data.routes || [];
+      this.state.vehicles = data.vehicles || [];
 
-    // If Saturday, try Saturday class
-    if (now.getDay() === 6) {
-      targetCode = "SATURDAY_CLASS";
-    }
-
-    const select = document.getElementById("sessionSelect");
-    if (!select) return;
-    for (let option of select.options) {
-      if (option.dataset?.code === targetCode) {
-        select.value = option.value;
-        this.selectedSessionId = option.value;
-        break;
-      }
+      this.fillSelect(this.ui.routeSelect, this.state.routes, "Select Route");
+      this.fillSelect(this.ui.vehicleSelect, this.state.vehicles, "Select Vehicle");
+    } catch (error) {
+      console.error("Failed to load metadata:", error);
     }
   },
 
-  loadStudents: async function () {
-    const streamId = document.getElementById("classSelect")?.value;
-    const sessionId = document.getElementById("sessionSelect")?.value;
-    const date = document.getElementById("attendanceDate")?.value;
+  async loadPassengers() {
+    const date = this.ui.attendanceDate.value;
+    const routeId = this.ui.routeSelect.value;
+    const vehicleId = this.ui.vehicleSelect.value;
+    const tripSession = this.ui.tripSession.value;
 
-    if (!streamId) {
-      alert("Please select a class first");
-      return;
-    }
-    if (!sessionId) {
-      alert("Please select a session");
+    if (!date || !routeId || !vehicleId || !tripSession) {
+      this.notify("Please select date, route, vehicle, and trip session", "warning");
       return;
     }
 
-    this.selectedStreamId  = streamId;
-    this.selectedSessionId = sessionId;
-    this.selectedDate      = date;
-
-    // Refresh context now that we have stream + session selected
-    await this._loadRegisterContext(date);
-
-    // If it's not a class day and the session is academic, show a prompt
-    const sessionType = document.getElementById("sessionSelect")?.selectedOptions[0]?.dataset?.type || 'academic';
-    if (!this.isSchoolDay && sessionType === 'academic') {
-      const isBoardingDay = this._context?.is_boarding_day;
-      const boardingActive = isBoardingDay && this._context?.applicable_sessions?.some(s => s.session_type === 'boarding');
-      if (!boardingActive) {
-        // Nothing to mark today — show info
-        const emptyEl = document.getElementById("emptyState");
-        if (emptyEl) {
-          emptyEl.innerHTML = `<div class="text-center py-5 text-muted">
-            <i class="bi bi-calendar-x fs-1 d-block mb-2"></i>
-            <h5>${this._context?.blocked_reason || 'Not a school day'}</h5>
-            <p>Class register is not required. No students need to be marked.</p>
-          </div>`;
-          emptyEl.style.display = "block";
-        }
-        const loadingEl = document.getElementById("loadingState");
-        const attendanceCard = document.getElementById("attendanceCard");
-        if (loadingEl) loadingEl.style.display = "none";
-        if (attendanceCard) attendanceCard.style.display = "none";
-        return;
-      }
-    }
-
-    // Show loading
-    const loadingEl = document.getElementById("loadingState");
-    const attendanceCard = document.getElementById("attendanceCard");
-    const emptyEl = document.getElementById("emptyState");
-    if (loadingEl) loadingEl.style.display = "block";
-    if (attendanceCard) attendanceCard.style.display = "none";
-    if (emptyEl) emptyEl.style.display = "none";
+    this.setLoading(true);
 
     try {
-      // Use session-aware endpoint
-      const response = await window.API.apiCall(
-        `/attendance/session-attendance`,
-        "GET",
-        null,
-        { stream_id: streamId, session_id: sessionId, date: date },
-      );
+      const params = new URLSearchParams({
+        date,
+        route_id: routeId,
+        vehicle_id: vehicleId,
+        trip_session: tripSession,
+      });
 
-      if (loadingEl) loadingEl.style.display = "none";
+      const response = await this.api(`/students/transport-passengers?${params.toString()}`, "GET");
+      const passengers = this.unwrap(response) || [];
 
-      // response is: { session: {...}, date: "...", students: [...] }
-      const students = response?.students || response || [];
-      if (Array.isArray(students) && students.length > 0) {
-        this.students = students;
-        this.renderStudentsTable();
-        if (attendanceCard) attendanceCard.style.display = "block";
-      } else {
-        if (emptyEl) emptyEl.style.display = "block";
-      }
+      this.state.passengers = passengers;
+      this.state.attendance = {};
+
+      passengers.forEach(p => {
+        this.state.attendance[p.student_id] = {
+          status: p.today_status || "pending",
+          time: "",
+          notes: "",
+        };
+      });
+
+      this.renderPassengers();
+      this.updateSummary();
+      this.ui.attendanceCard.style.display = "block";
     } catch (error) {
-      console.error("Error loading students:", error);
-      if (loadingEl) loadingEl.style.display = "none";
-      if (emptyEl) emptyEl.style.display = "block";
-    }
-  },
-
-  renderStudentsTable: function () {
-    const tbody = document.getElementById("studentsTableBody");
-    if (!tbody) return;
-    tbody.innerHTML = "";
-
-    // Get selected class and session names
-    const classSelect = document.getElementById("classSelect");
-    const sessionSelect = document.getElementById("sessionSelect");
-    const className =
-      classSelect?.options[classSelect.selectedIndex]?.textContent ||
-      "Students";
-    const sessionName =
-      sessionSelect?.options[sessionSelect.selectedIndex]?.textContent || "";
-
-    const classTitle = document.getElementById("classTitle");
-    const attendanceInfo = document.getElementById("attendanceInfo");
-    if (classTitle) classTitle.textContent = className;
-    if (attendanceInfo)
-      attendanceInfo.textContent = `${sessionName} | Date: ${this.selectedDate}`;
-
-    this.students.forEach((student, index) => {
-      const status =
-        student.effective_status ||
-        student.attendance_status ||
-        student.existing_status ||
-        "present";
-      const hasPermission = Boolean(
-        Number(student.has_permission) || student.has_permission,
-      );
-      const studentId = student.student_id || student.id;
-
-      const tr = document.createElement("tr");
-      tr.className = hasPermission ? "table-warning" : "";
-      tr.innerHTML = `
-                <td>${index + 1}</td>
-                <td><code>${student.admission_no || "N/A"}</code></td>
-                <td>
-                    <strong>${student.first_name} ${student.last_name}</strong>
-                    ${
-                      hasPermission
-                        ? '<br><small class="text-warning"><i class="bi bi-exclamation-triangle"></i> Has active permission</small>'
-                        : ""
-                    }
-                </td>
-                <td>
-                    <span class="badge ${this.getTypeBadgeClass(
-                      student.student_type_code || student.student_type,
-                    )}">
-                        ${this.getTypeShortName(
-                          student.student_type_code || student.student_type,
-                        )}
-                    </span>
-                </td>
-                <td>
-                    ${
-                      hasPermission
-                        ? `
-                        <span class="badge bg-warning text-dark" title="${
-                          student.permission_reason || "Active permission"
-                        }">
-                            ${student.permission_type_code || "PERM"}
-                        </span>
-                    `
-                        : '<span class="text-muted">-</span>'
-                    }
-                </td>
-                <td>
-                    <div class="btn-group btn-group-sm" role="group" data-student-id="${studentId}">
-                        <input type="radio" class="btn-check" name="status_${studentId}"
-                               id="present_${studentId}" value="present" ${
-                                 status === "present" ? "checked" : ""
-                               }>
-                        <label class="btn btn-outline-success" for="present_${studentId}">
-                            <i class="bi bi-check"></i>
-                        </label>
-
-                        <input type="radio" class="btn-check" name="status_${studentId}"
-                               id="absent_${studentId}" value="absent" ${
-                                 status === "absent" ? "checked" : ""
-                               }>
-                        <label class="btn btn-outline-danger" for="absent_${studentId}">
-                            <i class="bi bi-x"></i>
-                        </label>
-
-                        <input type="radio" class="btn-check" name="status_${studentId}"
-                               id="late_${studentId}" value="late" ${
-                                 status === "late" ? "checked" : ""
-                               }>
-                        <label class="btn btn-outline-warning" for="late_${studentId}">
-                            <i class="bi bi-clock"></i>
-                        </label>
-
-                        ${
-                          hasPermission
-                            ? `
-                            <input type="radio" class="btn-check" name="status_${studentId}"
-                                   id="permission_${studentId}" value="permission" ${
-                                     status === "permission" ? "checked" : ""
-                                   }>
-                            <label class="btn btn-outline-info" for="permission_${studentId}">
-                                <i class="bi bi-door-open"></i>
-                            </label>
-                        `
-                            : ""
-                        }
-                    </div>
-                </td>
-            `;
-      tbody.appendChild(tr);
-    });
-
-    // Add change listeners to update summary
-    tbody.querySelectorAll('input[type="radio"]').forEach((radio) => {
-      radio.addEventListener("change", () => this.updateSummary());
-    });
-
-    this.updateSummary();
-  },
-
-  getTypeBadgeClass: function (type) {
-    switch (String(type || "").toUpperCase()) {
-      case "BOARD":
-      case "FULL_BOARDER":
-      case "FULL BOARDER":
-        return "bg-primary";
-      case "WEEKLY":
-      case "WEEKLY_BOARDER":
-      case "WEEKLY BOARDER":
-        return "bg-info";
-      default:
-        return "bg-secondary";
-    }
-  },
-
-  getTypeShortName: function (type) {
-    switch (String(type || "").toUpperCase()) {
-      case "BOARD":
-      case "FULL_BOARDER":
-      case "FULL BOARDER":
-        return "FB";
-      case "WEEKLY":
-      case "WEEKLY_BOARDER":
-      case "WEEKLY BOARDER":
-        return "WB";
-      case "DAY":
-        return "Day";
-      default:
-        return type || "Day";
-    }
-  },
-
-  markAll: function (status) {
-    this.students.forEach((student) => {
-      const studentId = student.student_id || student.id;
-      // Students with active permissions get marked as 'permission' when marking all absent
-      if (status === "absent" && student.has_permission) {
-        const permRadio = document.getElementById(`permission_${studentId}`);
-        if (permRadio) {
-          permRadio.checked = true;
-          return;
-        }
+      console.error("Failed to load passengers:", error);
+      if (error.message.includes("forbidden") || error.message.includes("permission")) {
+        this.showForbidden();
+      } else {
+        this.showError(error.message || "Failed to load passengers");
       }
-      const radio = document.getElementById(`${status}_${studentId}`);
-      if (radio) radio.checked = true;
+    } finally {
+      this.setLoading(false);
+    }
+  },
+
+  renderPassengers() {
+    if (!this.state.passengers.length) {
+      this.ui.passengersTableBody.innerHTML = `
+        <tr>
+          <td colspan="12" class="text-center text-muted py-4">
+            No passengers found for this trip.
+          </td>
+        </tr>`;
+      return;
+    }
+
+    this.ui.passengersTableBody.innerHTML = this.state.passengers
+      .map((p) => {
+        const att = this.state.attendance[p.student_id] || {};
+        return `
+          <tr data-student-id="${p.student_id}">
+            <td><input type="checkbox" class="passenger-checkbox" data-student-id="${p.student_id}"></td>
+            <td>${this.escape(p.admission_no || "-")}</td>
+            <td><strong>${this.escape(p.full_name || "-")}</strong></td>
+            <td>${this.escape(p.class_name || "-")}</td>
+            <td>${this.escape(p.stream_name || "-")}</td>
+            <td>${this.escape(p.pickup_point || "-")}</td>
+            <td>${this.escape(p.dropoff_point || "-")}</td>
+            <td><i class="bi bi-check-circle text-success"></i></td>
+            <td>
+              <select class="form-select form-select-sm status-select" data-student-id="${p.student_id}">
+                <option value="pending" ${att.status === "pending" ? "selected" : ""}>Pending</option>
+                <option value="picked_up" ${att.status === "picked_up" ? "selected" : ""}>Picked Up</option>
+                <option value="dropped_off" ${att.status === "dropped_off" ? "selected" : ""}>Dropped Off</option>
+                <option value="absent" ${att.status === "absent" ? "selected" : ""}>Absent</option>
+                <option value="excused" ${att.status === "excused" ? "selected" : ""}>Excused</option>
+                <option value="not_riding" ${att.status === "not_riding" ? "selected" : ""}>Not Riding</option>
+              </select>
+            </td>
+            <td>
+              <input type="time" class="form-control form-control-sm time-input" data-student-id="${p.student_id}" value="${att.time || ""}">
+            </td>
+            <td>
+              <input type="text" class="form-control form-control-sm notes-input" data-student-id="${p.student_id}" value="${this.escape(att.notes || "")}" placeholder="Notes">
+            </td>
+            <td>
+              <button class="btn btn-sm btn-outline-primary" onclick="MarkAttendanceController.markOne(${p.student_id}, 'picked_up')">
+                <i class="bi bi-arrow-up"></i>
+              </button>
+            </td>
+          </tr>`;
+      })
+      .join("");
+
+    // Attach event listeners to dynamic elements
+    document.querySelectorAll('.status-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const studentId = e.target.dataset.studentId;
+        if (this.state.attendance[studentId]) {
+          this.state.attendance[studentId].status = e.target.value;
+          this.updateSummary();
+        }
+      });
+    });
+
+    document.querySelectorAll('.time-input').forEach(input => {
+      input.addEventListener('change', (e) => {
+        const studentId = e.target.dataset.studentId;
+        if (this.state.attendance[studentId]) {
+          this.state.attendance[studentId].time = e.target.value;
+        }
+      });
+    });
+
+    document.querySelectorAll('.notes-input').forEach(input => {
+      input.addEventListener('change', (e) => {
+        const studentId = e.target.dataset.studentId;
+        if (this.state.attendance[studentId]) {
+          this.state.attendance[studentId].notes = e.target.value;
+        }
+      });
+    });
+  },
+
+  updateSummary() {
+    const counts = {
+      picked_up: 0,
+      dropped_off: 0,
+      absent: 0,
+      not_riding: 0,
+      pending: 0,
+    };
+
+    Object.values(this.state.attendance).forEach(att => {
+      if (counts[att.status] !== undefined) {
+        counts[att.status]++;
+      }
+    });
+
+    this.ui.totalExpected.textContent = this.state.passengers.length;
+    this.ui.markedPresent.textContent = counts.picked_up + counts.dropped_off;
+    this.ui.droppedOff.textContent = counts.dropped_off;
+    this.ui.absent.textContent = counts.absent;
+    this.ui.notRiding.textContent = counts.not_riding;
+    this.ui.pending.textContent = counts.pending;
+
+    this.ui.pickedUpCount.textContent = `Picked Up: ${counts.picked_up}`;
+    this.ui.droppedOffCount.textContent = `Dropped Off: ${counts.dropped_off}`;
+    this.ui.absentCount.textContent = `Absent: ${counts.absent}`;
+    this.ui.notRidingCount.textContent = `Not Riding: ${counts.not_riding}`;
+    this.ui.pendingCount.textContent = `Pending: ${counts.pending}`;
+  },
+
+  markSelected(status) {
+    document.querySelectorAll('.passenger-checkbox:checked').forEach(cb => {
+      const studentId = cb.dataset.studentId;
+      if (this.state.attendance[studentId]) {
+        this.state.attendance[studentId].status = status;
+        const select = document.querySelector(`.status-select[data-student-id="${studentId}"]`);
+        if (select) select.value = status;
+      }
     });
     this.updateSummary();
   },
 
-  updateSummary: function () {
-    let present = 0,
-      absent = 0,
-      late = 0,
-      permission = 0;
-
-    this.students.forEach((student) => {
-      const studentId = student.student_id || student.id;
-      const presentRadio = document.getElementById(`present_${studentId}`);
-      const absentRadio = document.getElementById(`absent_${studentId}`);
-      const lateRadio = document.getElementById(`late_${studentId}`);
-      const permissionRadio = document.getElementById(
-        `permission_${studentId}`,
-      );
-
-      if (presentRadio?.checked) present++;
-      else if (absentRadio?.checked) absent++;
-      else if (lateRadio?.checked) late++;
-      else if (permissionRadio?.checked) permission++;
+  clearSelected() {
+    document.querySelectorAll('.passenger-checkbox:checked').forEach(cb => {
+      cb.checked = false;
     });
-
-    const el = (id, text) => {
-      const e = document.getElementById(id);
-      if (e) e.textContent = text;
-    };
-    el("presentCount", `Present: ${present}`);
-    el("absentCount", `Absent: ${absent}`);
-    el("lateCount", `Late: ${late}`);
-    el("permissionCount", `Permission: ${permission}`);
   },
 
-  submitAttendance: async function () {
-    if (!this.selectedStreamId || !this.selectedDate) {
-      alert("Please select a class and date first");
-      return;
+  markOne(studentId, status) {
+    if (this.state.attendance[studentId]) {
+      this.state.attendance[studentId].status = status;
+      this.state.attendance[studentId].time = new Date().toTimeString().slice(0, 5);
+      const select = document.querySelector(`.status-select[data-student-id="${studentId}"]`);
+      const timeInput = document.querySelector(`.time-input[data-student-id="${studentId}"]`);
+      if (select) select.value = status;
+      if (timeInput) timeInput.value = this.state.attendance[studentId].time;
+      this.updateSummary();
     }
-    if (!this.selectedSessionId) {
-      alert("Please select an attendance session");
-      return;
-    }
+  },
 
-    // Collect attendance data
-    const attendance = this.students.map((student) => {
-      const studentId = student.student_id || student.id;
-      const absentRadio = document.getElementById(`absent_${studentId}`);
-      const lateRadio = document.getElementById(`late_${studentId}`);
-      const permissionRadio = document.getElementById(
-        `permission_${studentId}`,
-      );
+  showSaveConfirmation() {
+    const counts = {
+      picked_up: 0,
+      dropped_off: 0,
+      absent: 0,
+      not_riding: 0,
+      pending: 0,
+    };
 
-      let status = "present";
-      if (absentRadio?.checked) status = "absent";
-      else if (lateRadio?.checked) status = "late";
-      else if (permissionRadio?.checked) status = "permission";
-
-      return {
-        student_id: studentId,
-        status: status,
-      };
+    Object.values(this.state.attendance).forEach(att => {
+      if (counts[att.status] !== undefined) {
+        counts[att.status]++;
+      }
     });
 
-    const submitBtn = document.getElementById("submitAttendance");
-    if (submitBtn) {
-      submitBtn.disabled = true;
-      submitBtn.innerHTML =
-        '<span class="spinner-border spinner-border-sm me-2"></span>Submitting...';
-    }
+    this.ui.confirmPickedUp.textContent = counts.picked_up;
+    this.ui.confirmDroppedOff.textContent = counts.dropped_off;
+    this.ui.confirmAbsent.textContent = counts.absent;
+    this.ui.confirmNotRiding.textContent = counts.not_riding;
+    this.ui.confirmPending.textContent = counts.pending;
 
-    // Guard: if not a school day and selected session is academic → warn but allow boarding
-    const sessionSelect = document.getElementById("sessionSelect");
-    const sessionType   = sessionSelect?.selectedOptions[0]?.dataset?.type || 'academic';
-    if (!this.isSchoolDay && sessionType === 'academic') {
-      const force = confirm(
-        (this._context?.blocked_reason || 'This is not a regular school day') +
-        '\n\nAre you sure you want to mark class attendance today?'
-      );
-      if (!force) { if (submitBtn) { submitBtn.disabled = false; submitBtn.innerHTML = '<i class="bi bi-check-circle me-2"></i>Submit Attendance'; } return; }
+    if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {
+      const modalInstance = new bootstrap.Modal(this.ui.saveConfirmationModal);
+      modalInstance.show();
     }
-    // Determine register_type from selected session
-    this._registerType = sessionType === 'boarding' ? 'boarding' : (sessionType === 'activity' ? 'activity' : 'class');
+  },
+
+  async saveAttendance() {
+    const date = this.ui.attendanceDate.value;
+    const routeId = this.ui.routeSelect.value;
+    const vehicleId = this.ui.vehicleSelect.value;
+    const tripSession = this.ui.tripSession.value;
+
+    const records = Object.entries(this.state.attendance).map(([studentId, att]) => ({
+      student_id: parseInt(studentId),
+      status: att.status,
+      marked_time: att.time,
+      notes: att.notes,
+    }));
+
+    const data = {
+      attendance_date: date,
+      route_id: parseInt(routeId),
+      vehicle_id: parseInt(vehicleId),
+      trip_session: tripSession,
+      records,
+    };
 
     try {
-      const response = await window.API.apiCall(
-        "/attendance/mark-session",
-        "POST",
-        {
-          stream_id:     this.selectedStreamId,
-          session_id:    this.selectedSessionId,
-          date:          this.selectedDate,
-          register_type: this._registerType,
-          attendance:    attendance,
-        },
-      );
-
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML =
-          '<i class="bi bi-check-circle me-2"></i>Submit Attendance';
-      }
-
-      // response is the data directly: { created, updated, excused, total, session_id, date }
-      if (response && response.total !== undefined) {
-        alert(
-          `Attendance submitted successfully!\n\nCreated: ${
-            response.created || 0
-          }\nUpdated: ${response.updated || 0}\nTotal: ${response.total || 0}`,
-        );
-        // Reload to show updated status
-        this.loadStudents();
-      } else {
-        alert("Attendance submitted.");
-        this.loadStudents();
+      const response = await this.api("/students/transport-attendance", "POST", data);
+      this.notify("Attendance saved successfully", "success");
+      if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {
+        const modalInstance = bootstrap.Modal.getInstance(this.ui.saveConfirmationModal);
+        modalInstance?.hide();
       }
     } catch (error) {
-      console.error("Error submitting attendance:", error);
-      if (submitBtn) {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML =
-          '<i class="bi bi-check-circle me-2"></i>Submit Attendance';
-      }
-      alert(
-        "Failed to submit attendance: " +
-          (error.message || "Please try again."),
-      );
+      this.notify(error.message || "Failed to save attendance", "error");
     }
+  },
+
+  setLoading(loading) {
+    this.ui.attendanceLoading?.classList.toggle("d-none", !loading);
+    this.ui.attendanceError?.classList.add("d-none");
+    this.ui.attendanceForbidden?.classList.add("d-none");
+  },
+
+  showError(message) {
+    if (!this.ui.attendanceError) return;
+    this.ui.attendanceError.textContent = message;
+    this.ui.attendanceError.classList.remove("d-none");
+  },
+
+  showForbidden() {
+    this.ui.attendanceLoading?.classList.add("d-none");
+    this.ui.attendanceError?.classList.add("d-none");
+    this.ui.attendanceEmpty?.classList.add("d-none");
+    this.ui.attendanceForbidden?.classList.remove("d-none");
+  },
+
+  fillSelect(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    (items || []).forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id ?? item.value ?? "";
+      option.textContent = item.name || item.route_name || item.vehicle_name || item.label || option.value;
+      select.appendChild(option);
+    });
+  },
+
+  api: async function (endpoint, method = "GET", data = null) {
+    if (window.API && typeof window.API.apiCall === "function") {
+      return window.API.apiCall(endpoint, method, data);
+    }
+
+    const base = window.APP_BASE || "";
+    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+    const options = { method, headers: {} };
+
+    if (data) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, options);
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok || json.success === false) {
+      throw new Error(json.message || json.error || "Request failed.");
+    }
+
+    return json;
+  },
+
+  unwrap(response) {
+    if (!response) return {};
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
+    if (response.data !== undefined) return response.data;
+    return response;
+  },
+
+  escape(value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[char]
+    );
+  },
+
+  notify(message, type = "info") {
+    if (typeof showNotification === "function") {
+      showNotification(message, type);
+      return;
+    }
+
+    if (window.API && typeof window.API.showNotification === "function") {
+      window.API.showNotification(message, type);
+      return;
+    }
+
+    alert(message);
   },
 };
 
-// Initialize on page load
 document.addEventListener("DOMContentLoaded", () =>
-  markAttendanceController.init()
+  MarkAttendanceController.init(),
 );
+
+window.MarkAttendanceController = MarkAttendanceController;

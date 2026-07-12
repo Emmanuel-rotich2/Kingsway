@@ -1177,7 +1177,7 @@ class AcademicController extends BaseController
      */
     public function getLearningAreasList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->list($data);
+        $result = $this->api->getLearningAreasList($data);
         return $this->handleResponse($result);
     }
 
@@ -1296,6 +1296,15 @@ class AcademicController extends BaseController
     public function getResultsAnalysis($id = null, $data = [], $segments = [])
     {
         $result = $this->api->getResultsAnalysis($data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/academic/performance-overview - Performance overview for student/class/stream/school views
+     */
+    public function getPerformanceOverview($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->getPerformanceOverview($data);
         return $this->handleResponse($result);
     }
 

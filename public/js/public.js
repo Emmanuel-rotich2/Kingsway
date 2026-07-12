@@ -116,7 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ── Smooth scroll for anchor links ─────────────────────────────────────────── */
   document.querySelectorAll('a[href^="#"]').forEach(a => {
     a.addEventListener('click', e => {
-      const target = document.querySelector(a.getAttribute('href'));
+      const href = a.getAttribute('href');
+      // Skip if href is just "#" (common for buttons styled as links)
+      if (href === '#') return;
+      const target = document.querySelector(href);
       if (target) { e.preventDefault(); target.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     });
   });

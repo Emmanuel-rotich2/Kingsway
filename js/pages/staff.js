@@ -1635,7 +1635,7 @@ const staffManagementController = {
     if (!content) return;
     const win = window.open("", "_blank");
     win.document.write("<html><head><title>Payslip</title>");
-    win.document.write('<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">');
+    win.document.write('<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">');
     win.document.write("</head><body class='p-4'>");
     win.document.write(content.innerHTML);
     win.document.write("</body></html>");

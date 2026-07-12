@@ -255,31 +255,6 @@ function authorizeRouteAccess(route) {
         return Promise.resolve({ authorized: false, route: normalizedRoute, reason: "unauthenticated" });
     }
 
-    if (window.API?.systemconfig?.authorizeRoute) {
-        return window.API.systemconfig.authorizeRoute(normalizedRoute, getCurrentUserRoleIds())
-            .then((result) => {
-                const payload = result?.data || result || {};
-                return {
-                    authorized: Boolean(payload.authorized),
-                    route: normalizedRoute,
-                    source: "api",
-                    reason: payload.reason || (payload.authorized ? "authorized" : "forbidden"),
-                    required_permissions: payload.required_permissions || [],
-                    matched_permissions: payload.matched_permissions || [],
-                };
-            })
-            .catch((error) => {
-                if (error?.code === 401) {
-                    return { authorized: false, route: normalizedRoute, reason: "unauthenticated", source: "api" };
-                }
-                if (error?.code === 403) {
-                    return { authorized: false, route: normalizedRoute, reason: "forbidden", source: "api" };
-                }
-
-                return authorizeRouteFromLocalContract(normalizedRoute);
-            });
-    }
-
     return Promise.resolve(authorizeRouteFromLocalContract(normalizedRoute));
 }
 

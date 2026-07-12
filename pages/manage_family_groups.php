@@ -1,369 +1,284 @@
 <?php
 /**
- * Manage Family Groups Page
- * HTML structure only - all logic in js/pages/family_groups.js (FamilyGroupsController)
- * Embedded in app_layout.php via DashboardRouter
- * 
- * Stateless design - authentication handled by JWT tokens in JavaScript
+ * Family Groups Page
+ * Manage siblings, guardians, and household relationships
+ * Embedded in app_layout.php
  */
+
+// Ensure $appBase is available for script loading
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    if ($appBase === '.' || $appBase === '/') {
+        $appBase = '';
+    }
+}
 ?>
 
-<style>
-    .family-card {
-        transition: all 0.3s ease;
-        border-left: 4px solid #0d6efd;
-    }
+<div class="container-fluid py-4" id="familyGroupsPage">
 
-    .family-card:hover {
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        transform: translateY(-2px);
-    }
-
-    .child-card {
-        border-left: 3px solid #198754;
-        background: #f8f9fa;
-    }
-
-    .relationship-badge {
-        font-size: 0.75rem;
-        font-weight: 500;
-    }
-
-    .search-highlight {
-        background-color: #fff3cd;
-        padding: 0 2px;
-        border-radius: 2px;
-    }
-
-    .stats-card {
-        border: none;
-        border-radius: 10px;
-        transition: transform 0.2s;
-    }
-
-    .stats-card:hover {
-        transform: translateY(-3px);
-    }
-
-    .stats-icon {
-        width: 50px;
-        height: 50px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 10px;
-    }
-</style>
-
-<div>
-    <!-- Page Header -->
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="mb-1"><i class="fas fa-users me-2"></i>Family Groups</h2>
-            <p class="text-muted mb-0">Manage parent/guardian family groups and student relationships</p>
-        </div>
-        <div class="btn-group">
-            <button class="btn btn-primary" onclick="FamilyGroupsController.showCreateParentModal()" data-permission="family_groups_create">
-                <i class="fas fa-plus me-1"></i>Add Parent/Guardian
-            </button>
-            <button class="btn btn-outline-primary" onclick="FamilyGroupsController.refresh()">
-                <i class="fas fa-sync-alt me-1"></i>Refresh
-            </button>
-        </div>
-    </div>
-
-    <!-- Stats Cards -->
-    <div class="row mb-4">
-        <div class="col-md-3 col-sm-6 mb-3">
-            <div class="card stats-card bg-primary text-white h-100">
-                <div class="card-body d-flex align-items-center">
-                    <div class="stats-icon bg-white bg-opacity-25 me-3">
-                        <i class="fas fa-user-tie fa-lg"></i>
-                    </div>
-                    <div>
-                        <h3 class="mb-0" id="statTotalParents">0</h3>
-                        <small>Total Parents</small>
-                    </div>
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-success text-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h4 class="mb-0">
+                        <i class="fas fa-users me-2"></i>
+                        Family Groups
+                    </h4>
+                    <small id="scopeSubtitle">Manage siblings, guardians, and household relationships</small>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" id="refreshBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="exportBtn">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-light btn-sm" id="addParentBtn">
+                        <i class="bi bi-plus-circle"></i> Add Parent
+                    </button>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 col-sm-6 mb-3">
-            <div class="card stats-card bg-success text-white h-100">
-                <div class="card-body d-flex align-items-center">
-                    <div class="stats-icon bg-white bg-opacity-25 me-3">
-                        <i class="fas fa-link fa-lg"></i>
-                    </div>
-                    <div>
-                        <h3 class="mb-0" id="statParentsWithChildren">0</h3>
-                        <small>With Children Linked</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6 mb-3">
-            <div class="card stats-card bg-warning text-dark h-100">
-                <div class="card-body d-flex align-items-center">
-                    <div class="stats-icon bg-white bg-opacity-25 me-3">
-                        <i class="fas fa-child fa-lg"></i>
-                    </div>
-                    <div>
-                        <h3 class="mb-0" id="statAvgChildren">0</h3>
-                        <small>Avg Children/Parent</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6 mb-3">
-            <div class="card stats-card bg-danger text-white h-100">
-                <div class="card-body d-flex align-items-center">
-                    <div class="stats-icon bg-white bg-opacity-25 me-3">
-                        <i class="fas fa-unlink fa-lg"></i>
-                    </div>
-                    <div>
-                        <h3 class="mb-0" id="statStudentsWithoutParents">0</h3>
-                        <small>Students w/o Parents</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Search & Filters -->
-    <div class="card mb-4">
         <div class="card-body">
-            <div class="row g-3">
-                <div class="col-md-5">
-                    <div class="input-group">
-                        <span class="input-group-text"><i class="fas fa-search"></i></span>
-                        <input type="text" id="searchFamilyGroups" class="form-control"
-                            placeholder="Search by name, ID number, phone, or student...">
-                    </div>
+
+            <!-- Filters -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-3 col-md-6">
+                    <label class="form-label fw-semibold">Class</label>
+                    <select class="form-select" id="classFilter">
+                        <option value="">All Classes</option>
+                    </select>
                 </div>
-                <div class="col-md-3">
-                    <select id="filterStatus" class="form-select">
+
+                <div class="col-xl-3 col-md-6">
+                    <label class="form-label fw-semibold">Stream</label>
+                    <select class="form-select" id="streamFilter">
+                        <option value="">All Streams</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <label class="form-label fw-semibold">Guardian Name/Phone</label>
+                    <input type="text" class="form-control" id="guardianFilter"
+                           placeholder="Search guardian...">
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <label class="form-label fw-semibold">Family Status</label>
+                    <select class="form-select" id="statusFilter">
                         <option value="">All Status</option>
-                        <option value="active" selected>Active</option>
+                        <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <select id="filterChildrenCount" class="form-select">
-                        <option value="">All</option>
-                        <option value="0">No Children</option>
-                        <option value="1">1 Child</option>
-                        <option value="2">2 Children</option>
-                        <option value="3+">3+ Children</option>
-                    </select>
-                </div>
-                <div class="col-md-2 text-end">
-                    <span class="text-muted" id="resultCount">0 results</span>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Family Groups List -->
-    <div class="row" id="familyGroupsContainer">
-        <!-- Family group cards will be loaded here -->
-        <div class="col-12 text-center py-5">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="text-muted mt-2">Loading family groups...</p>
-        </div>
-    </div>
-
-    <!-- Pagination -->
-    <nav class="mt-4">
-        <ul class="pagination justify-content-center" id="familyPagination"></ul>
-    </nav>
-</div>
-
-<!-- Create/Edit Parent Modal -->
-<div class="modal fade" id="parentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="parentModalTitle">Add Parent/Guardian</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="parentForm">
-                <div class="modal-body">
-                    <input type="hidden" id="parentId" name="parent_id">
-
-                    <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label">First Name <span class="text-danger">*</span></label>
-                            <input type="text" id="parentFirstName" name="first_name" class="form-control" required>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Middle Name</label>
-                            <input type="text" id="parentMiddleName" name="middle_name" class="form-control">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Last Name <span class="text-danger">*</span></label>
-                            <input type="text" id="parentLastName" name="last_name" class="form-control" required>
-                        </div>
-                    </div>
-
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-4">
-                            <label class="form-label">ID Number (National ID)</label>
-                            <input type="text" id="parentIdNumber" name="id_number" class="form-control"
-                                placeholder="e.g., 12345678">
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Gender</label>
-                            <select id="parentGender" name="gender" class="form-select">
-                                <option value="">Select...</option>
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="col-md-4">
-                            <label class="form-label">Date of Birth</label>
-                            <input type="date" id="parentDob" name="date_of_birth" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-6">
-                            <label class="form-label">Phone (Primary) <span class="text-danger">*</span></label>
-                            <input type="tel" id="parentPhone1" name="phone_1" class="form-control"
-                                placeholder="e.g., 254712345678" required>
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Phone (Secondary)</label>
-                            <input type="tel" id="parentPhone2" name="phone_2" class="form-control"
-                                placeholder="e.g., 254722345678">
-                        </div>
-                    </div>
-
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-6">
-                            <label class="form-label">Email</label>
-                            <input type="email" id="parentEmail" name="email" class="form-control">
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Occupation</label>
-                            <input type="text" id="parentOccupation" name="occupation" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="mt-3">
-                        <label class="form-label">Address</label>
-                        <textarea id="parentAddress" name="address" class="form-control" rows="2"></textarea>
+                <div class="col-xl-4 col-md-8">
+                    <label class="form-label fw-semibold">Search</label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" class="form-control" id="searchBox"
+                               placeholder="Search by student, guardian, phone, or family code">
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="saveParentBtn">
-                        <i class="fas fa-save me-1"></i>Save Parent
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-success w-100" id="applyFiltersBtn">
+                        <i class="fas fa-filter me-1"></i> Apply
                     </button>
                 </div>
-            </form>
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
+                        <i class="fas fa-undo me-1"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-success text-white p-3">
+                                    <i class="fas fa-users"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Total Families</small>
+                                    <h4 class="mb-0" id="totalFamilies">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-primary text-white p-3">
+                                    <i class="fas fa-user-graduate"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Students Linked</small>
+                                    <h4 class="mb-0" id="studentsLinked">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-warning text-dark p-3">
+                                    <i class="fas fa-user-minus"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">No Family Group</small>
+                                    <h4 class="mb-0" id="studentsWithoutFamily">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-info text-white p-3">
+                                    <i class="fas fa-users-cog"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Multiple Students</small>
+                                    <h4 class="mb-0" id="multipleStudents">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-danger text-white p-3">
+                                    <i class="fas fa-phone-slash"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Missing Contact</small>
+                                    <h4 class="mb-0" id="missingContact">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-secondary text-white p-3">
+                                    <i class="fas fa-money-bill"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Outstanding</small>
+                                    <h4 class="mb-0" id="outstandingBalance">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- States -->
+            <div id="familiesLoading" class="alert alert-info d-none">
+                <i class="fas fa-spinner fa-spin me-2"></i> Loading family groups...
+            </div>
+
+            <div id="familiesError" class="alert alert-danger d-none"></div>
+
+            <div id="familiesEmpty" class="alert alert-warning d-none">
+                <i class="fas fa-info-circle me-2"></i> No family groups found for the selected filters.
+            </div>
+
+            <!-- Main Table -->
+            <div class="card border-0 shadow-sm" id="familiesCard">
+                <div class="card-header bg-white">
+                    <strong>
+                        <i class="fas fa-list me-2 text-success"></i>
+                        Parent/Guardian List
+                    </strong>
+                </div>
+
+                <div class="card-body table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Guardian</th>
+                                <th>Phone</th>
+                                <th>Email</th>
+                                <th>Students Count</th>
+                                <th>Student Names</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="familiesTableBody">
+                            <tr>
+                                <td class="text-center text-muted">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
 </div>
 
-<!-- View Family Details Modal -->
-<div class="modal fade" id="viewFamilyModal" tabindex="-1">
+<!-- Family Detail Modal -->
+<div class="modal fade" id="familyModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-xl">
-        <div class="modal-content">
-            <div class="modal-header bg-primary text-white">
-                <h5 class="modal-title"><i class="fas fa-users me-2"></i>Family Group Details</h5>
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header bg-success text-white">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <i class="fas fa-users me-2"></i>
+                        Family Group Details
+                    </h5>
+                    <small id="modalSubtitle">Parent and linked students</small>
+                </div>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="modal-body" id="familyDetailsContent">
-                <!-- Content loaded dynamically -->
+
+            <div class="modal-body">
+                <div id="modalLoading" class="alert alert-info d-none">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Loading family details...
+                </div>
+
+                <div id="modalError" class="alert alert-danger d-none"></div>
+
+                <div id="modalFamilyContent">
+                    <!-- Family details will be rendered here -->
+                </div>
             </div>
+
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-success" onclick="FamilyGroupsController.showLinkChildModal()" data-permission="family_groups_edit">
-                    <i class="fas fa-link me-1"></i>Link Child
-                </button>
-                <button type="button" class="btn btn-primary" id="editFamilyBtn" data-permission="family_groups_edit">
-                    <i class="fas fa-edit me-1"></i>Edit Parent
+                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-success" id="linkStudentBtn">
+                    <i class="bi bi-link me-1"></i> Link Student
                 </button>
             </div>
+
         </div>
     </div>
 </div>
 
-<!-- Link Child Modal -->
-<div class="modal fade" id="linkChildModal" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title"><i class="fas fa-link me-2"></i>Link Child to Parent</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <form id="linkChildForm">
-                <div class="modal-body">
-                    <input type="hidden" id="linkParentId">
-
-                    <div class="mb-3">
-                        <label class="form-label">Select Student</label>
-                        <select id="linkStudentId" class="form-select" required>
-                            <option value="">Loading students...</option>
-                        </select>
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label">Relationship</label>
-                        <select id="linkRelationship" class="form-select" required>
-                            <option value="guardian">Guardian</option>
-                            <option value="father">Father</option>
-                            <option value="mother">Mother</option>
-                            <option value="step_father">Step Father</option>
-                            <option value="step_mother">Step Mother</option>
-                            <option value="grandparent">Grandparent</option>
-                            <option value="uncle">Uncle</option>
-                            <option value="aunt">Aunt</option>
-                            <option value="sibling">Sibling</option>
-                            <option value="other">Other</option>
-                        </select>
-                    </div>
-
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-check">
-                                <input type="checkbox" class="form-check-input" id="linkIsPrimary">
-                                <label class="form-check-label" for="linkIsPrimary">Primary Contact</label>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-check">
-                                <input type="checkbox" class="form-check-input" id="linkIsEmergency">
-                                <label class="form-check-label" for="linkIsEmergency">Emergency Contact</label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="mt-3">
-                        <label class="form-label">Financial Responsibility (%)</label>
-                        <input type="number" id="linkFinancialResp" class="form-control" value="100" min="0"
-                            max="100" step="5">
-                        <small class="text-muted">Percentage of fees this parent is responsible for</small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-success" id="linkChildBtn">
-                        <i class="fas fa-link me-1"></i>Link Child
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-</div>
-
-<!-- Page-specific JavaScript -->
-<script src="<?= $appBase ?>/js/pages/family_groups.js"></script>
-<script>
-    // Initialize controller when page loads
-    document.addEventListener('DOMContentLoaded', function() {
-        if (typeof FamilyGroupsController !== 'undefined') {
-            FamilyGroupsController.init();
-        }
-    });
-</script>
+<script src="<?php echo $appBase; ?>/js/pages/family_groups.js?v=<?php echo time(); ?>"></script>

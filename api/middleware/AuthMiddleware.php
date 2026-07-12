@@ -43,11 +43,6 @@ class AuthMiddleware
             'parent-portal/login-otp-verify',
             // Public careers intake for candidates who passed recruitment screening
             'staff-appointments/careers-candidate',
-            // Dashboard config endpoint - JS router needs to be accessible for JS router init
-            'dashboard/config',
-            'api/dashboard?action=config',
-            'api/dashboard?action=route',
-            'api/dashboard?action=sidebars',
         ];
 
         // Check if current request is to a public endpoint

@@ -4,8 +4,10 @@
  * This ensures JS router uses PHP config as single source of truth
  */
 
-require_once __DIR__ . '/../../config/DashboardRouter.php';
-require_once __DIR__ . '/../../config/role_sidebars.php';
+require_once __DIR__ . '/../../../config/DashboardRouter.php';
+require_once __DIR__ . '/../../../config/role_sidebars.php';
+
+use App\Config\DashboardRouter;
 
 class DashboardAPI
 {
@@ -36,16 +38,14 @@ class DashboardAPI
 
     private function getConfig()
     {
-        $router = new \DashboardRouter();
-
         // Get role dashboard mappings
-        $roleDashboards = $router->getRoleDashboards();
+        $roleDashboards = DashboardRouter::getRoleDashboards();
 
         // Get role name map
-        $roleNameMap = $router->getRoleNameMap();
+        $roleNameMap = DashboardRouter::getRoleNameMap();
 
         // Get default dashboard
-        $defaultDashboard = $router->getDefaultDashboard();
+        $defaultDashboard = DashboardRouter::getDefaultDashboard();
 
         return [
             'success' => true,
@@ -53,6 +53,7 @@ class DashboardAPI
                 'role_dashboards' => $roleDashboards,
                 'role_name_map' => $roleNameMap,
                 'default_dashboard' => $defaultDashboard,
+                'dashboard_registry' => DashboardRouter::getDashboardRegistry(),
             ],
             'message' => 'Dashboard config retrieved',
         ];
@@ -67,8 +68,7 @@ class DashboardAPI
             return ['success' => false, 'message' => 'role_id required'];
         }
 
-        $router = new \DashboardRouter();
-        $dashboardKey = $router->getDashboardForRole($roleId);
+        $dashboardKey = DashboardRouter::getDashboardForRole($roleId);
 
         return [
             'success' => true,
@@ -76,6 +76,8 @@ class DashboardAPI
                 'role_id' => $roleId,
                 'dashboard_key' => $dashboardKey,
                 'dashboard_file' => $dashboardKey . '.php',
+                'dashboard_exists' => DashboardRouter::dashboardExists($dashboardKey),
+                'controller_exists' => DashboardRouter::getDashboardJsPath($dashboardKey) !== null,
             ],
             'message' => 'Dashboard route retrieved',
         ];

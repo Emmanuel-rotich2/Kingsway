@@ -42,9 +42,9 @@ $roles = [$main_role];
     <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
     <link rel="manifest" href="images/favicon/site.webmanifest" />
     <!-- CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="<?= $appBase ?>/public/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" rel="stylesheet" referrerpolicy="no-referrer">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" referrerpolicy="no-referrer">
     <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css">
     <link rel="stylesheet" href="<?= $appBase ?>/css/dashboards.css">
     <link rel="stylesheet" href="<?= $appBase ?>/king.css">
@@ -81,9 +81,9 @@ $roles = [$main_role];
     $v = time();
     ?>
     <!-- Third-party libraries -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" referrerpolicy="no-referrer"></script>
+    <script src="<?= $appBase ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" referrerpolicy="no-referrer"></script>
     <!-- Application scripts -->
     <script src="<?= $appBase ?>/js/api.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/ActionButtons.js?v=<?= $v ?>"></script>

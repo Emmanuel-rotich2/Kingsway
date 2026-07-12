@@ -377,7 +377,7 @@
     }).join('');
 
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fee Statement</title>' +
-      '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">' +
+      '<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">' +
       '</head><body class="p-4">' +
       '<h3 class="text-center">Kingsway Preparatory School</h3>' +
       '<h5 class="text-center text-muted">Fee Statement</h5><hr>' +

@@ -252,16 +252,22 @@ function kw_grade_spaces(): array {
 
 function kw_save_admission_application(array $d): string|false {
     $db = kw_db();
-    $ref = 'KWA-' . strtoupper(substr(md5(uniqid()), 0, 6));
-    if (!$db) return $ref;
+    $webRef = 'WEB-' . strtoupper(substr(md5(uniqid()), 0, 6));
+    $appRef = 'KWA-' . strtoupper(substr(md5(uniqid()), 0, 6));
+    if (!$db) return $webRef;
+    
     try {
-        $db->prepare(
-            "INSERT INTO admission_applications
+        $db->beginTransaction();
+        
+        // 1. Insert raw data into web_admission_applications (audit copy)
+        $stmt = $db->prepare(
+            "INSERT INTO web_admission_applications
              (child_full_name,child_dob,child_gender,child_nationality,child_prev_school,child_prev_grade,
               parent_name,parent_relationship,parent_id_number,parent_phone,parent_alt_phone,parent_email,parent_address,
               grade_applying,boarding_preference,preferred_start,referral_source,special_needs,application_ref,ip_address)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        )->execute([
+        );
+        $stmt->execute([
             $d['child_name'], $d['child_dob'] ?: null, $d['child_gender'] ?: null,
             $d['child_nationality'] ?: 'Kenyan', $d['child_prev_school'] ?: null, $d['child_prev_grade'] ?: null,
             $d['parent_name'], $d['parent_relationship'] ?: null, $d['parent_id'] ?: null,
@@ -269,10 +275,91 @@ function kw_save_admission_application(array $d): string|false {
             $d['parent_address'] ?: null,
             $d['grade'], $d['boarding'] ?: 'day', $d['start_term'] ?: null,
             $d['referral'] ?: null, $d['special_needs'] ?: null,
-            $ref, $d['ip'] ?? null
+            $webRef, $d['ip'] ?? null
         ]);
-        return $ref;
-    } catch (\Throwable $e) { return false; }
+        $webAppId = $db->lastInsertId();
+        
+        // 2. Create or find parent record in parents table
+        $parentId = null;
+        
+        // Try to find existing parent by phone or ID number
+        $parentStmt = $db->prepare(
+            "SELECT id FROM parents WHERE phone_1 = ? OR id_number = ? LIMIT 1"
+        );
+        $parentStmt->execute([$d['parent_phone'], $d['parent_id'] ?: '']);
+        $existingParent = $parentStmt->fetchColumn();
+        
+        if ($existingParent) {
+            $parentId = $existingParent;
+        } else {
+            // Parse parent name into first/last
+            $parentNameParts = explode(' ', trim($d['parent_name']), 2);
+            $parentFirstName = $parentNameParts[0] ?? '';
+            $parentLastName = $parentNameParts[1] ?? $parentNameParts[0] ?? '';
+            
+            // Create new parent record
+            $parentInsert = $db->prepare(
+                "INSERT INTO parents (first_name, last_name, id_number, phone_1, phone_2, email, address, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active')"
+            );
+            $parentInsert->execute([
+                $parentFirstName,
+                $parentLastName,
+                $d['parent_id'] ?: null,
+                $d['parent_phone'],
+                $d['parent_alt_phone'] ?: null,
+                $d['parent_email'] ?: null,
+                $d['parent_address'] ?: null
+            ]);
+            $parentId = $db->lastInsertId();
+        }
+        
+        // 3. Map grade from web form to admission_applications enum
+        $gradeMapping = [
+            'PP1' => 'PP1',
+            'PP2' => 'PP2',
+            'Grade 1' => 'Grade1',
+            'Grade 2' => 'Grade2',
+            'Grade 3' => 'Grade3',
+            'Grade 4' => 'Grade4',
+            'Grade 5' => 'Grade5',
+            'Grade 6' => 'Grade6',
+            'Grade 7' => 'Grade7',
+            'Grade 8' => 'Grade8',
+            'Grade 9' => 'Grade9',
+        ];
+        $mappedGrade = $gradeMapping[$d['grade']] ?? 'Grade1';
+        
+        // 4. Insert into admission_applications (canonical workflow record)
+        $admissionStmt = $db->prepare(
+            "INSERT INTO admission_applications
+             (application_no, applicant_name, date_of_birth, gender, grade_applying_for, academic_year,
+              previous_school, parent_id, application_source, web_application_id, has_special_needs, special_needs_details, status)
+             VALUES (?, ?, ?, ?, ?, YEAR(CURDATE() + INTERVAL 6 MONTH), ?, ?, 'online', ?, ?, ?, 'submitted')"
+        );
+        $admissionStmt->execute([
+            $appRef,
+            $d['child_name'],
+            $d['child_dob'] ?: null,
+            $d['child_gender'] ?: 'other',
+            $mappedGrade,
+            $d['child_prev_school'] ?: null,
+            $parentId,
+            $webAppId,
+            !empty($d['special_needs']) ? 1 : 0,
+            $d['special_needs'] ?: null
+        ]);
+        
+        $db->commit();
+        return $appRef;
+        
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log('Admission submission error: ' . $e->getMessage());
+        return false;
+    }
 }
 
 /* ── Content / Rich Text ─────────────────────────────────────────────────── */

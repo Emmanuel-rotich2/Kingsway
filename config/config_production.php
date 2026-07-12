@@ -18,12 +18,13 @@ define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? '/home/kingswa4/uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
+define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
 
 // Create upload directories if they don't exist
-$directories = [UPLOAD_PATH, STUDENT_PHOTOS, STAFF_PHOTOS, DOCUMENTS];
+$directories = [UPLOAD_PATH, STUDENT_PHOTOS, STAFF_PHOTOS, DOCUMENTS, ADMISSION_DOCUMENTS];
 foreach ($directories as $dir) {
     if (!file_exists($dir)) {
-        mkdir($dir, 0755, true);
+        mkdir($dir, 0775, true);
     }
 }
 

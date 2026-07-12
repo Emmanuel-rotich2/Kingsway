@@ -4063,6 +4063,22 @@ class AcademicAPI extends BaseAPI
             }
 
             $subjects = [];
+            $classAverageJoin = '';
+            $classAverageBindings = [];
+            if ($termId !== null) {
+                $classAverageJoin = "
+                    LEFT JOIN (
+                        SELECT
+                            subject_id,
+                            ROUND(AVG(overall_percentage), 2) AS class_average
+                        FROM term_subject_scores
+                        WHERE term_id = ?
+                        GROUP BY subject_id
+                    ) class_subject_avg ON class_subject_avg.subject_id = tss.subject_id
+                ";
+                $classAverageBindings[] = $termId;
+            }
+
             if ($termId !== null) {
                 $scoresSql = "
                     SELECT
@@ -4073,15 +4089,17 @@ class AcademicAPI extends BaseAPI
                         tss.overall_percentage AS percentage,
                         tss.overall_score AS score,
                         tss.overall_grade AS grade,
-                        tss.assessment_count
+                        tss.assessment_count,
+                        class_subject_avg.class_average
                     FROM term_subject_scores tss
                     LEFT JOIN learning_areas la ON la.id = tss.subject_id
                     LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
+                    {$classAverageJoin}
                     WHERE tss.student_id = ? AND tss.term_id = ?
                     ORDER BY subject_name ASC
                 ";
                 $scoresStmt = $this->db->prepare($scoresSql);
-                $scoresStmt->execute([$studentId, $termId]);
+                $scoresStmt->execute(array_merge($classAverageBindings, [$studentId, $termId]));
                 $subjects = $scoresStmt->fetchAll(PDO::FETCH_ASSOC);
             }
 
@@ -4101,7 +4119,8 @@ class AcademicAPI extends BaseAPI
                             2
                         ) AS percentage,
                         ROUND(AVG(ar.marks_obtained), 2) AS score,
-                        COUNT(ar.id) AS assessment_count
+                        COUNT(ar.id) AS assessment_count,
+                        NULL AS class_average
                     FROM assessment_results ar
                     JOIN assessments a ON a.id = ar.assessment_id
                     LEFT JOIN learning_areas la ON la.id = a.subject_id
@@ -4164,6 +4183,367 @@ class AcademicAPI extends BaseAPI
                     'days_present' => isset($student['days_present']) ? (int) $student['days_present'] : null,
                     'days_absent' => isset($student['days_absent']) ? (int) $student['days_absent'] : null
                 ]
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Get overview rows for student performance screens.
+     * Supports students, class, stream, and school view modes.
+     * Route: GET /api/academic/performance-overview
+     */
+    public function getPerformanceOverview($params = [])
+    {
+        try {
+            $viewMode = strtolower((string) ($params['view_mode'] ?? 'students'));
+            if (!in_array($viewMode, ['students', 'class', 'stream', 'school'], true)) {
+                $viewMode = 'students';
+            }
+
+            $page = max(1, (int) ($params['page'] ?? 1));
+            $limit = max(1, min(500, (int) ($params['limit'] ?? 250)));
+            $offset = ($page - 1) * $limit;
+
+            $yearId = null;
+            foreach (['academic_year_id', 'academic_year', 'year_id'] as $key) {
+                if (!empty($params[$key]) && ctype_digit((string) $params[$key])) {
+                    $yearId = (int) $params[$key];
+                    break;
+                }
+            }
+
+            if ($yearId === null) {
+                $yearStmt = $this->db->prepare(
+                    "SELECT id
+                     FROM academic_years
+                     WHERE is_current = 1 OR status = 'active'
+                     ORDER BY is_current DESC, start_date DESC, id DESC
+                     LIMIT 1"
+                );
+                $yearStmt->execute();
+                $resolvedYear = $yearStmt->fetchColumn();
+                $yearId = $resolvedYear ? (int) $resolvedYear : null;
+            }
+
+            $termId = !empty($params['term_id']) && ctype_digit((string) $params['term_id'])
+                ? (int) $params['term_id']
+                : null;
+
+            $termJoin = '';
+            $termBindings = [];
+            if ($termId !== null) {
+                $termJoin = "
+                    LEFT JOIN (
+                        SELECT
+                            student_id,
+                            ROUND(AVG(overall_percentage), 2) AS term_average,
+                            MAX(overall_grade) AS term_grade
+                        FROM term_subject_scores
+                        WHERE term_id = ?
+                        GROUP BY student_id
+                    ) term_scores ON term_scores.student_id = s.id
+                ";
+                $termBindings[] = $termId;
+            }
+
+            $feeJoin = "
+                LEFT JOIN (
+                    SELECT
+                        student_id,
+                        COALESCE(SUM(balance), 0) AS balance
+                    FROM student_fee_obligations
+                    " . ($yearId !== null ? "WHERE academic_year = ?" : "") . "
+                    GROUP BY student_id
+                ) fee_summary ON fee_summary.student_id = s.id
+            ";
+            $feeBindings = $yearId !== null ? [$yearId] : [];
+
+            $attendanceJoin = $yearId !== null
+                ? "LEFT JOIN class_enrollments ce ON ce.student_id = s.id AND ce.academic_year_id = ?"
+                : "LEFT JOIN class_enrollments ce ON ce.student_id = s.id";
+            $attendanceBindings = $yearId !== null ? [$yearId] : [];
+
+            $search = trim((string) ($params['search'] ?? ''));
+            $gender = trim((string) ($params['gender'] ?? ''));
+
+            $baseWhere = ["s.status = 'active'"];
+            $bindings = [];
+
+            if (!empty($params['class_id'])) {
+                $baseWhere[] = 'c.id = ?';
+                $bindings[] = (int) $params['class_id'];
+            }
+
+            if (!empty($params['stream_id'])) {
+                $baseWhere[] = 's.stream_id = ?';
+                $bindings[] = (int) $params['stream_id'];
+            }
+
+            if ($gender !== '') {
+                $baseWhere[] = 's.gender = ?';
+                $bindings[] = $gender;
+            }
+
+            if ($search !== '') {
+                $baseWhere[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?)";
+                $term = '%' . $search . '%';
+                array_push($bindings, $term, $term, $term, $term);
+            }
+
+            $whereClause = 'WHERE ' . implode(' AND ', $baseWhere);
+
+            $sql = "
+                SELECT
+                    s.id AS student_id,
+                    s.admission_no,
+                    s.first_name,
+                    s.middle_name,
+                    s.last_name,
+                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                    s.gender,
+                    s.photo_url,
+                    c.id AS class_id,
+                    c.name AS class_name,
+                    cs.id AS stream_id,
+                    cs.stream_name,
+                    COALESCE(term_scores.term_average, ce.year_average) AS average_score,
+                    COALESCE(term_scores.term_grade, ce.overall_grade) AS grade,
+                    COALESCE(ce.attendance_percentage, 0) AS attendance_rate,
+                    COALESCE(ce.class_rank, ce.stream_rank) AS position,
+                    COALESCE(fee_summary.balance, 0) AS fee_balance,
+                    COALESCE(ce.days_present, 0) AS days_present,
+                    COALESCE(ce.days_absent, 0) AS days_absent
+                FROM students s
+                LEFT JOIN class_streams cs ON cs.id = s.stream_id
+                LEFT JOIN classes c ON c.id = cs.class_id
+                {$attendanceJoin}
+                {$termJoin}
+                {$feeJoin}
+                {$whereClause}
+                ORDER BY c.name ASC, cs.stream_name ASC, s.last_name ASC, s.first_name ASC
+                LIMIT ? OFFSET ?
+            ";
+
+            $queryBindings = array_merge($attendanceBindings, $termBindings, $feeBindings, $bindings, [$limit, $offset]);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($queryBindings);
+            $students = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            $rows = [];
+            if ($viewMode === 'students') {
+                foreach ($students as $student) {
+                    $average = isset($student['average_score']) && $student['average_score'] !== null
+                        ? round((float) $student['average_score'], 2)
+                        : null;
+
+                    $rows[] = [
+                        'student_id' => (int) $student['student_id'],
+                        'admission_no' => $student['admission_no'],
+                        'full_name' => $student['full_name'],
+                        'first_name' => $student['first_name'],
+                        'last_name' => $student['last_name'],
+                        'gender' => $student['gender'],
+                        'class_id' => $student['class_id'],
+                        'class_name' => $student['class_name'],
+                        'stream_id' => $student['stream_id'],
+                        'stream_name' => $student['stream_name'],
+                        'average_score' => $average,
+                        'grade' => $student['grade'] ?: $this->deriveGradeFromPercentage($average),
+                        'attendance_rate' => isset($student['attendance_rate']) ? round((float) $student['attendance_rate'], 2) : 0,
+                        'position' => $student['position'],
+                        'fee_balance' => isset($student['fee_balance']) ? (float) $student['fee_balance'] : 0,
+                    ];
+                }
+            } elseif ($viewMode === 'class') {
+                $groups = [];
+                foreach ($students as $student) {
+                    $key = (string) ($student['class_id'] ?? $student['class_name'] ?? 'Unknown');
+                    if (!isset($groups[$key])) {
+                        $groups[$key] = [
+                            'class_id' => $student['class_id'],
+                            'class_name' => $student['class_name'] ?: 'Unknown',
+                            'total_students' => 0,
+                            'total_score' => 0,
+                            'score_count' => 0,
+                            'attendance_total' => 0,
+                            'attendance_count' => 0,
+                            'top_student' => null,
+                            'lowest_student' => null,
+                        ];
+                    }
+
+                    $group = &$groups[$key];
+                    $average = isset($student['average_score']) ? (float) $student['average_score'] : null;
+                    $group['total_students']++;
+
+                    if ($average !== null) {
+                        $group['total_score'] += $average;
+                        $group['score_count']++;
+                        $group['attendance_total'] += (float) ($student['attendance_rate'] ?? 0);
+                        $group['attendance_count']++;
+
+                        if (!$group['top_student'] || $average > (float) ($group['top_student']['average_score'] ?? -1)) {
+                            $group['top_student'] = $student;
+                        }
+                        if (!$group['lowest_student'] || $average < (float) ($group['lowest_student']['average_score'] ?? 101)) {
+                            $group['lowest_student'] = $student;
+                        }
+                    }
+                    unset($group);
+                }
+
+                foreach ($groups as $group) {
+                    $rows[] = [
+                        'class_id' => $group['class_id'],
+                        'class_name' => $group['class_name'],
+                        'total_students' => $group['total_students'],
+                        'average_score' => $group['score_count'] ? round($group['total_score'] / $group['score_count'], 2) : 0,
+                        'attendance_rate' => $group['attendance_count'] ? round($group['attendance_total'] / $group['attendance_count'], 2) : 0,
+                        'top_student' => $group['top_student']['full_name'] ?? '-',
+                        'lowest_student' => $group['lowest_student']['full_name'] ?? '-',
+                    ];
+                }
+            } elseif ($viewMode === 'stream') {
+                $groups = [];
+                foreach ($students as $student) {
+                    $key = (string) ($student['stream_id'] ?? $student['stream_name'] ?? 'Unknown');
+                    if (!isset($groups[$key])) {
+                        $groups[$key] = [
+                            'class_name' => $student['class_name'] ?: 'Unknown',
+                            'stream_id' => $student['stream_id'],
+                            'stream_name' => $student['stream_name'] ?: 'Unknown',
+                            'total_students' => 0,
+                            'total_score' => 0,
+                            'score_count' => 0,
+                            'attendance_total' => 0,
+                            'attendance_count' => 0,
+                            'top_student' => null,
+                        ];
+                    }
+
+                    $group = &$groups[$key];
+                    $average = isset($student['average_score']) ? (float) $student['average_score'] : null;
+                    $group['total_students']++;
+
+                    if ($average !== null) {
+                        $group['total_score'] += $average;
+                        $group['score_count']++;
+                        $group['attendance_total'] += (float) ($student['attendance_rate'] ?? 0);
+                        $group['attendance_count']++;
+
+                        if (!$group['top_student'] || $average > (float) ($group['top_student']['average_score'] ?? -1)) {
+                            $group['top_student'] = $student;
+                        }
+                    }
+                    unset($group);
+                }
+
+                foreach ($groups as $group) {
+                    $rows[] = [
+                        'class_name' => $group['class_name'],
+                        'stream_id' => $group['stream_id'],
+                        'stream_name' => $group['stream_name'],
+                        'total_students' => $group['total_students'],
+                        'average_score' => $group['score_count'] ? round($group['total_score'] / $group['score_count'], 2) : 0,
+                        'attendance_rate' => $group['attendance_count'] ? round($group['attendance_total'] / $group['attendance_count'], 2) : 0,
+                        'top_student' => $group['top_student']['full_name'] ?? '-',
+                    ];
+                }
+            } else {
+                $totalStudents = count($students);
+                $averageScores = [];
+                $attendanceScores = [];
+                $topStudent = null;
+                $topScore = null;
+                $bestGroup = null;
+                $bestGroupScore = null;
+
+                foreach ($students as $student) {
+                    $average = isset($student['average_score']) ? (float) $student['average_score'] : null;
+                    if ($average !== null) {
+                        $averageScores[] = $average;
+                        $attendanceScores[] = (float) ($student['attendance_rate'] ?? 0);
+
+                        if ($topStudent === null || $average > $topScore) {
+                            $topStudent = $student;
+                            $topScore = $average;
+                        }
+
+                        $groupName = $student['class_name'] ?: $student['stream_name'] ?: 'Unknown';
+                        if ($bestGroupScore === null || $average > $bestGroupScore) {
+                            $bestGroup = $groupName;
+                            $bestGroupScore = $average;
+                        }
+                    }
+                }
+
+                $rows[] = [
+                    'scope' => 'Whole School',
+                    'total_students' => $totalStudents,
+                    'average_score' => $averageScores ? round(array_sum($averageScores) / count($averageScores), 2) : 0,
+                    'attendance_rate' => $attendanceScores ? round(array_sum($attendanceScores) / count($attendanceScores), 2) : 0,
+                    'top_class' => $bestGroup ?: '-',
+                    'top_student' => $topStudent['full_name'] ?? '-',
+                ];
+            }
+
+            $summary = [
+                'total_students' => $viewMode === 'students'
+                    ? count($rows)
+                    : array_sum(array_map(static fn($row) => (int) ($row['total_students'] ?? 0), $rows)),
+                'average_score' => 0,
+                'top_student' => '-',
+                'best_group' => '-',
+            ];
+
+            $summaryScores = [];
+            foreach ($rows as $row) {
+                if (isset($row['average_score']) && $row['average_score'] !== null) {
+                    $summaryScores[] = (float) $row['average_score'];
+                }
+            }
+
+            if (!empty($summaryScores)) {
+                $summary['average_score'] = round(array_sum($summaryScores) / count($summaryScores), 2);
+            }
+
+            if ($viewMode === 'students') {
+                $top = null;
+                foreach ($rows as $row) {
+                    if ($top === null || (float) ($row['average_score'] ?? 0) > (float) ($top['average_score'] ?? 0)) {
+                        $top = $row;
+                    }
+                }
+                if ($top) {
+                    $summary['top_student'] = $top['full_name'] ?? '-';
+                    $summary['best_group'] = $top['class_name'] ?? $top['stream_name'] ?? '-';
+                }
+            } elseif ($viewMode === 'class' || $viewMode === 'stream') {
+                $top = null;
+                foreach ($rows as $row) {
+                    if ($top === null || (float) ($row['average_score'] ?? 0) > (float) ($top['average_score'] ?? 0)) {
+                        $top = $row;
+                    }
+                }
+                if ($top) {
+                    $summary['top_student'] = $top['top_student'] ?? '-';
+                    $summary['best_group'] = $viewMode === 'class'
+                        ? ($top['class_name'] ?? '-')
+                        : (($top['class_name'] ?? '-') . ' / ' . ($top['stream_name'] ?? '-'));
+                }
+            } else {
+                $summary['top_student'] = $rows[0]['top_student'] ?? '-';
+                $summary['best_group'] = $rows[0]['top_class'] ?? '-';
+            }
+
+            return successResponse([
+                'view_mode' => $viewMode,
+                'academic_year_id' => $yearId,
+                'term_id' => $termId,
+                'rows' => $rows,
+                'summary' => $summary,
             ]);
         } catch (Exception $e) {
             return $this->handleException($e);

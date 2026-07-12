@@ -38,6 +38,14 @@ class DashboardRouter
 
     private const DEFAULT_DASHBOARD = 'headteacher_dashboard';
 
+    private const DASHBOARD_ALIASES = [
+        'dashboard' => self::DEFAULT_DASHBOARD,
+        'home' => self::DEFAULT_DASHBOARD,
+        'director_dashboard' => 'director_owner_dashboard',
+        'school_admin_dashboard' => 'school_administrative_officer_dashboard',
+        'accountant_controls_dashboard' => 'store_manager_dashboard',
+    ];
+
     // role name → role_id for string-based lookups
     private const ROLE_NAME_MAP = [
         'system administrator'    => 2,
@@ -99,20 +107,69 @@ class DashboardRouter
         return self::dashboardExists($constructed) ? $constructed : self::DEFAULT_DASHBOARD;
     }
 
+    public static function normalizeDashboardKey(string $key): string
+    {
+        $key = trim($key);
+        return self::DASHBOARD_ALIASES[$key] ?? $key;
+    }
+
     public static function getDefaultDashboard(): string
     {
         return self::DEFAULT_DASHBOARD;
     }
 
+    public static function getRoleDashboards(): array
+    {
+        return self::ROLE_DASHBOARDS;
+    }
+
+    public static function getRoleNameMap(): array
+    {
+        return self::ROLE_NAME_MAP;
+    }
+
     public static function dashboardExists(string $key): bool
     {
+        $key = self::normalizeDashboardKey($key);
         return file_exists(__DIR__ . '/../components/dashboards/' . $key . '.php');
     }
 
     public static function getDashboardPath(string $key): ?string
     {
+        $key = self::normalizeDashboardKey($key);
         $path = __DIR__ . '/../components/dashboards/' . $key . '.php';
         return file_exists($path) ? $path : null;
+    }
+
+    public static function getDashboardJsPath(string $key): ?string
+    {
+        $key = self::normalizeDashboardKey($key);
+        $path = __DIR__ . '/../js/dashboards/' . $key . '.js';
+        return file_exists($path) ? $path : null;
+    }
+
+    public static function getDashboardRegistry(): array
+    {
+        $registry = [];
+        foreach (array_unique(self::ROLE_DASHBOARDS) as $key) {
+            $registry[$key] = [
+                'key' => $key,
+                'php' => self::dashboardExists($key),
+                'js' => self::getDashboardJsPath($key) !== null,
+            ];
+        }
+
+        foreach (self::DASHBOARD_ALIASES as $alias => $target) {
+            $registry[$alias] = [
+                'key' => $alias,
+                'alias_for' => $target,
+                'php' => self::dashboardExists($target),
+                'js' => self::getDashboardJsPath($target) !== null,
+            ];
+        }
+
+        ksort($registry);
+        return array_values($registry);
     }
 
     public static function getDashboardUrl($role): string

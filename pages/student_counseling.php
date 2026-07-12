@@ -1,270 +1,339 @@
 <?php
 /**
  * Student Counseling Page
- * HTML structure only - logic will be in js/pages/student_counseling.js
+ * Track counseling cases, welfare concerns, interventions, and follow-ups
  * Embedded in app_layout.php
  */
+
+// Ensure $appBase is available for script loading
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    if ($appBase === '.' || $appBase === '/') {
+        $appBase = '';
+    }
+}
 ?>
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-info text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-hands-helping"></i> Student Counseling</h4>
-            <button class="btn btn-light btn-sm" id="addSessionBtn" data-permission="counseling_manage">
-                <i class="bi bi-plus-circle"></i> New Session
-            </button>
+<div class="container-fluid py-4" id="studentCounselingPage">
+
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-info text-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h4 class="mb-0">
+                        <i class="fas fa-hands-helping me-2"></i>
+                        Student Counseling
+                    </h4>
+                    <small id="scopeSubtitle">Track counseling cases, welfare concerns, interventions, and follow-ups</small>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" id="refreshBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="exportBtn">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-light btn-sm" id="addCaseBtn">
+                        <i class="bi bi-plus-circle"></i> Add Case
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body">
+
+            <!-- Filters -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Academic Year</label>
+                    <select class="form-select" id="academicYearFilter">
+                        <option value="">All Years</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Term</label>
+                    <select class="form-select" id="termFilter">
+                        <option value="">All Terms</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Class</label>
+                    <select class="form-select" id="classFilter">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Stream</label>
+                    <select class="form-select" id="streamFilter">
+                        <option value="">All Streams</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Case Type</label>
+                    <select class="form-select" id="caseTypeFilter">
+                        <option value="">All Types</option>
+                        <option value="academic">Academic</option>
+                        <option value="behavioral">Behavioral</option>
+                        <option value="personal">Personal</option>
+                        <option value="family">Family</option>
+                        <option value="career">Career</option>
+                        <option value="disciplinary">Disciplinary</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Priority</label>
+                    <select class="form-select" id="priorityFilter">
+                        <option value="">All</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Status</label>
+                    <select class="form-select" id="statusFilter">
+                        <option value="">All Status</option>
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Gender</label>
+                    <select class="form-select" id="genderFilter">
+                        <option value="">All</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-4 col-md-8">
+                    <label class="form-label fw-semibold">Search</label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" class="form-control" id="searchBox"
+                               placeholder="Search by student name, admission number, counselor, or case title">
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-info w-100" id="applyFiltersBtn">
+                        <i class="fas fa-filter me-1"></i> Apply
+                    </button>
+                </div>
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
+                        <i class="fas fa-undo me-1"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-info text-white p-3">
+                                    <i class="fas fa-folder-open"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Total Cases</small>
+                                    <h4 class="mb-0" id="totalCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-primary text-white p-3">
+                                    <i class="fas fa-folder-open"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Open Cases</small>
+                                    <h4 class="mb-0" id="openCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-warning text-dark p-3">
+                                    <i class="fas fa-clock"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Follow-ups Due</small>
+                                    <h4 class="mb-0" id="followUpsDue">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-success text-white p-3">
+                                    <i class="fas fa-check-circle"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Resolved</small>
+                                    <h4 class="mb-0" id="resolvedCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-danger text-white p-3">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">High Priority</small>
+                                    <h4 class="mb-0" id="highPriorityCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-secondary text-white p-3">
+                                    <i class="fas fa-calendar-alt"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">This Term</small>
+                                    <h4 class="mb-0" id="thisTermCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- States -->
+            <div id="casesLoading" class="alert alert-info d-none">
+                <i class="fas fa-spinner fa-spin me-2"></i> Loading counseling cases...
+            </div>
+
+            <div id="casesError" class="alert alert-danger d-none"></div>
+
+            <div id="casesEmpty" class="alert alert-warning d-none">
+                <i class="fas fa-info-circle me-2"></i> No counseling cases found for the selected filters.
+            </div>
+
+            <!-- Main Table -->
+            <div class="card border-0 shadow-sm" id="casesCard">
+                <div class="card-header bg-white">
+                    <strong>
+                        <i class="fas fa-list me-2 text-info"></i>
+                        Counseling Cases
+                    </strong>
+                </div>
+
+                <div class="card-body table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Case ID</th>
+                                <th>Student Name</th>
+                                <th>Adm No</th>
+                                <th>Class</th>
+                                <th>Stream</th>
+                                <th>Case Type</th>
+                                <th>Priority</th>
+                                <th>Status</th>
+                                <th>Counselor</th>
+                                <th>Last Session</th>
+                                <th>Next Follow-up</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="casesTableBody">
+                            <tr>
+                                <td class="text-center text-muted">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         </div>
     </div>
+</div>
 
-    <div class="card-body">
-        <!-- Summary Cards -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Sessions</h6>
-                        <h3 class="text-primary mb-0" id="totalSessions">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Scheduled</h6>
-                        <h3 class="text-warning mb-0" id="scheduledSessions">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Completed</h6>
-                        <h3 class="text-success mb-0" id="completedSessions">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Active Cases</h6>
-                        <h3 class="text-info mb-0" id="activeCases">0</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
+<!-- Case Details Modal -->
+<div class="modal fade" id="caseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow">
 
-        <!-- Filter Row -->
-        <div class="row mb-3">
-            <div class="col-md-3">
-                <input type="text" class="form-control" id="searchBox" placeholder="Search student...">
+            <div class="modal-header bg-info text-white">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <i class="fas fa-hands-helping me-2"></i>
+                        Counseling Case Details
+                    </h5>
+                    <small id="modalSubtitle">Case #<span id="modalCaseId"></span></small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <div class="col-md-2">
-                <select class="form-select" id="statusFilter">
-                    <option value="">All Status</option>
-                    <option value="scheduled">Scheduled</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                </select>
+
+            <div class="modal-body">
+                <div id="modalLoading" class="alert alert-info d-none">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Loading case details...
+                </div>
+
+                <div id="modalError" class="alert alert-danger d-none"></div>
+
+                <div id="modalCaseContent">
+                    <!-- Case details will be rendered here -->
+                </div>
             </div>
-            <div class="col-md-2">
-                <select class="form-select" id="categoryFilter">
-                    <option value="">All Categories</option>
-                    <option value="academic">Academic</option>
-                    <option value="behavioral">Behavioral</option>
-                    <option value="personal">Personal/Social</option>
-                    <option value="family">Family</option>
-                    <option value="career">Career Guidance</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <input type="date" class="form-control" id="dateFilter">
-            </div>
-            <div class="col-md-2">
-                <button class="btn btn-outline-secondary w-100" id="exportBtn">
-                    <i class="bi bi-download"></i> Export
+
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-success" id="addSessionBtn">
+                    <i class="bi bi-plus-circle me-1"></i> Add Session Note
+                </button>
+                <button class="btn btn-warning" id="scheduleFollowUpBtn">
+                    <i class="bi bi-calendar me-1"></i> Schedule Follow-up
+                </button>
+                <button class="btn btn-danger" id="closeCaseBtn">
+                    <i class="bi bi-x-circle me-1"></i> Close Case
                 </button>
             </div>
-        </div>
 
-        <!-- Sessions Table -->
-        <div class="table-responsive">
-            <table class="table table-hover" id="sessionsTable">
-                <thead class="table-light">
-                    <tr>
-                        <th>Date/Time</th>
-                        <th>Student</th>
-                        <th>Class</th>
-                        <th>Category</th>
-                        <th>Issue Summary</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- Dynamic content -->
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Pagination -->
-        <nav>
-            <ul class="pagination justify-content-center" id="pagination">
-                <!-- Dynamic pagination -->
-            </ul>
-        </nav>
-    </div>
-</div>
-
-<!-- Add/Edit Session Modal -->
-<div class="modal fade" id="sessionModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="sessionModalTitle">New Counseling Session</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <form id="sessionForm">
-                    <input type="hidden" id="sessionId">
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Student*</label>
-                            <select class="form-select" id="student" required></select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Date & Time*</label>
-                            <input type="datetime-local" class="form-control" id="sessionDateTime" required>
-                        </div>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Category*</label>
-                            <select class="form-select" id="category" required>
-                                <option value="academic">Academic</option>
-                                <option value="behavioral">Behavioral</option>
-                                <option value="personal">Personal/Social</option>
-                                <option value="family">Family</option>
-                                <option value="career">Career Guidance</option>
-                                <option value="other">Other</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Priority*</label>
-                            <select class="form-select" id="priority" required>
-                                <option value="low">Low</option>
-                                <option value="medium">Medium</option>
-                                <option value="high">High</option>
-                                <option value="urgent">Urgent</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Issue/Concern*</label>
-                        <textarea class="form-control" id="issue" rows="3" required></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Session Notes</label>
-                        <textarea class="form-control" id="sessionNotes" rows="4" placeholder="Discussion points, observations..."></textarea>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Action Plan</label>
-                        <textarea class="form-control" id="actionPlan" rows="3" placeholder="Recommended actions, follow-up..."></textarea>
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Status*</label>
-                            <select class="form-select" id="status" required>
-                                <option value="scheduled">Scheduled</option>
-                                <option value="completed">Completed</option>
-                                <option value="cancelled">Cancelled</option>
-                            </select>
-                        </div>
-                        <div class="col-md-6 mb-3">
-                            <label class="form-label">Follow-up Required?</label>
-                            <select class="form-select" id="followUp">
-                                <option value="no">No</option>
-                                <option value="yes">Yes</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="mb-3" id="followUpDateDiv" style="display: none;">
-                        <label class="form-label">Follow-up Date</label>
-                        <input type="date" class="form-control" id="followUpDate">
-                    </div>
-                    <div class="mb-3">
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="notifyParent">
-                            <label class="form-check-label" for="notifyParent">
-                                Notify Parent/Guardian
-                            </label>
-                        </div>
-                        <div class="form-check">
-                            <input type="checkbox" class="form-check-input" id="confidential">
-                            <label class="form-check-label" for="confidential">
-                                Mark as Confidential
-                            </label>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveSessionBtn">Save Session</button>
-            </div>
         </div>
     </div>
 </div>
 
-<!-- View Session Details Modal -->
-<div class="modal fade" id="viewSessionModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header bg-light">
-                <h5 class="modal-title">Session Details</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <p><strong>Student:</strong> <span id="viewStudent"></span></p>
-                        <p><strong>Class:</strong> <span id="viewClass"></span></p>
-                        <p><strong>Date:</strong> <span id="viewDate"></span></p>
-                    </div>
-                    <div class="col-md-6">
-                        <p><strong>Category:</strong> <span id="viewCategory"></span></p>
-                        <p><strong>Priority:</strong> <span id="viewPriority"></span></p>
-                        <p><strong>Status:</strong> <span id="viewStatus"></span></p>
-                    </div>
-                </div>
-                <div class="mb-3">
-                    <strong>Issue/Concern:</strong>
-                    <p id="viewIssue" class="mt-2"></p>
-                </div>
-                <div class="mb-3">
-                    <strong>Session Notes:</strong>
-                    <p id="viewNotes" class="mt-2"></p>
-                </div>
-                <div class="mb-3">
-                    <strong>Action Plan:</strong>
-                    <p id="viewAction" class="mt-2"></p>
-                </div>
-                <div class="row">
-                    <div class="col-md-6">
-                        <p><strong>Follow-up Required:</strong> <span id="viewFollowUp"></span></p>
-                    </div>
-                    <div class="col-md-6">
-                        <p><strong>Confidential:</strong> <span id="viewConfidential"></span></p>
-                    </div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-primary" id="editFromViewBtn">
-                    <i class="bi bi-pencil"></i> Edit
-                </button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script src="<?= $appBase ?>/js/pages/student_counseling.js"></script>
+<script src="<?php echo $appBase; ?>/js/pages/student_counseling.js?v=<?php echo time(); ?>"></script>

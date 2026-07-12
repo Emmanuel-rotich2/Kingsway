@@ -875,6 +875,21 @@ const ENDPOINT_PERMISSIONS = {
   "/students/academic-year-set-current": "students_promote",
   "/students/academic-year-update-status": "students_promote",
   "/students/academic-year-archive": "students_promote",
+  "/students/my-profile": ["students_view_own", "students_view"],
+  "/students/my-children": ["students_view_own", "students_view", "students_parents_view"],
+  "/students/parents-get": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents-add": "students_edit",
+  "/students/parents-update": "students_edit",
+  "/students/parents-remove": "students_edit",
+  "/students/parents/list": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/get": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/children": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/create": "students_create",
+  "/students/parents/delete": "students_edit",
+  "/students/parents/link-child": "students_edit",
+  "/students/parents/unlink-child": "students_edit",
+  "/students/parents/available-students": "students_edit",
+  "/students/without-parents": ["students_parents_view", "students_view"],
 
   // Academic
   "/academic/index": "academic_view",
@@ -1028,7 +1043,7 @@ function getRequiredPermission(endpoint, method = "GET") {
     return null;
   }
 
-  if (typeof requirement === "string") {
+  if (typeof requirement === "string" || Array.isArray(requirement)) {
     // Simple string permission requirement (same for all methods)
     return requirement;
   }
@@ -1075,19 +1090,22 @@ function validatePermission(endpoint, method) {
   }
 
   // Check exact permission and common edit/update aliases for backward compatibility.
-  const aliases = new Set([requiredPermission]);
-  if (requiredPermission.endsWith("_edit")) {
-    aliases.add(requiredPermission.replace(/_edit$/, "_update"));
-  }
-  if (requiredPermission.endsWith("_update")) {
-    aliases.add(requiredPermission.replace(/_update$/, "_edit"));
-  }
-  if (requiredPermission.endsWith(".edit")) {
-    aliases.add(requiredPermission.replace(/\.edit$/, ".update"));
-  }
-  if (requiredPermission.endsWith(".update")) {
-    aliases.add(requiredPermission.replace(/\.update$/, ".edit"));
-  }
+  const requiredPermissions = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+  const aliases = new Set(requiredPermissions);
+  requiredPermissions.forEach((permission) => {
+    if (permission.endsWith("_edit")) {
+      aliases.add(permission.replace(/_edit$/, "_update"));
+    }
+    if (permission.endsWith("_update")) {
+      aliases.add(permission.replace(/_update$/, "_edit"));
+    }
+    if (permission.endsWith(".edit")) {
+      aliases.add(permission.replace(/\.edit$/, ".update"));
+    }
+    if (permission.endsWith(".update")) {
+      aliases.add(permission.replace(/\.update$/, ".edit"));
+    }
+  });
 
   const hasPermission = [...aliases].some((permissionCode) =>
     AuthContext.hasPermission(permissionCode)
@@ -1107,7 +1125,7 @@ function validatePermission(endpoint, method) {
 
   if (!hasPermission) {
     const error = new Error(
-      `Access Denied: You do not have permission "${requiredPermission}" to ${method} ${endpoint}`
+      `Access Denied: You do not have permission "${requiredPermissions.join(" or ")}" to ${method} ${endpoint}`
     );
     error.code = "PERMISSION_DENIED";
     error.permission = requiredPermission;
@@ -1673,6 +1691,12 @@ window.API = {
     // List helpers
     list: async (params = {}) =>
       apiCall("/students/student", "GET", null, params),
+    contextList: async (params = {}) =>
+      apiCall("/students/context-list", "GET", null, params),
+    contextProfile: async (id, params = {}) =>
+      apiCall(`/students/context-profile/${id}`, "GET", null, params),
+    contextMeta: async (params = {}) =>
+      apiCall("/students/context-meta", "GET", null, params),
     getAll: async (params = {}) => {
       const resp = await apiCall("/students/student", "GET", null, params);
       const payload = resp?.data?.data ?? resp?.data ?? resp;

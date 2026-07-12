@@ -1,244 +1,323 @@
 <?php
 /**
- * Student Health Records — PARTIAL
- * View/manage student medical profiles and vaccination records.
- * JS controller: js/pages/student_health.js
+ * Student Health Records Page
+ * Track health alerts, clinic visits, medication, allergies, and emergency information
+ * Embedded in app_layout.php
  */
-/* PARTIAL — no DOCTYPE/html/head/body */
+
+// Ensure $appBase is available for script loading
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    if ($appBase === '.' || $appBase === '/') {
+        $appBase = '';
+    }
+}
 ?>
-<div class="container-fluid mt-3">
 
-  <!-- Header -->
-  <div class="d-flex justify-content-between align-items-center mb-4">
-    <div>
-      <h2 class="mb-0"><i class="bi bi-heart-pulse me-2 text-danger"></i>Student Health Records</h2>
-      <small class="text-muted">Medical profiles · Vaccinations · Health history</small>
-    </div>
-    <button class="btn btn-primary" onclick="healthController.showRecordModal()">
-      <i class="bi bi-plus-circle me-1"></i> Add / Update Record
-    </button>
-  </div>
+<div class="container-fluid py-4" id="studentHealthPage">
 
-  <!-- Stats -->
-  <div class="row g-3 mb-4">
-    <div class="col-6 col-md-3">
-      <div class="card border-0 shadow-sm text-center">
-        <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-danger" id="hStatActiveSickBay">—</div>
-          <div class="text-muted small">In Sick Bay</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card border-0 shadow-sm text-center">
-        <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-info" id="hStatToday">—</div>
-          <div class="text-muted small">Visits Today</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card border-0 shadow-sm text-center">
-        <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-success" id="hStatRecords">—</div>
-          <div class="text-muted small">Health Profiles</div>
-        </div>
-      </div>
-    </div>
-    <div class="col-6 col-md-3">
-      <div class="card border-0 shadow-sm text-center">
-        <div class="card-body py-3">
-          <div class="fs-2 fw-bold text-warning" id="hStatVaxDue">—</div>
-          <div class="text-muted small">Vax Due (30d)</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Tabs -->
-  <ul class="nav nav-tabs mb-3" id="healthTabs">
-    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#hTabRecords">Health Profiles</button></li>
-    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#hTabVax">Vaccinations</button></li>
-  </ul>
-
-  <div class="tab-content">
-
-    <!-- HEALTH RECORDS TAB -->
-    <div class="tab-pane fade show active" id="hTabRecords">
-      <div class="card border-0 shadow-sm">
-        <div class="card-body">
-          <div class="row g-2 mb-3">
-            <div class="col-md-4">
-              <input type="text" id="hSearch" class="form-control" placeholder="Search by name or admission no…"
-                     oninput="healthController.loadRecords()">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-danger text-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h4 class="mb-0">
+                        <i class="bi bi-heart-pulse me-2"></i>
+                        Student Health Records
+                    </h4>
+                    <small id="scopeSubtitle">Track health alerts, clinic visits, medication, allergies, and emergency information</small>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" id="refreshBtn">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="exportBtn">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-light btn-sm" id="addRecordBtn">
+                        <i class="bi bi-plus-circle"></i> Add Record
+                    </button>
+                </div>
             </div>
-          </div>
-          <div id="healthRecordsContainer">
-            <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
-          </div>
         </div>
-      </div>
-    </div>
 
-    <!-- VACCINATIONS TAB -->
-    <div class="tab-pane fade" id="hTabVax">
-      <div class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" id="vaxDueOnly"
-                     onchange="healthController.loadVaccinations()">
-              <label class="form-check-label" for="vaxDueOnly">Show due in 30 days only</label>
+
+            <!-- Filters -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Academic Year</label>
+                    <select class="form-select" id="academicYearFilter">
+                        <option value="">All Years</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Class</label>
+                    <select class="form-select" id="classFilter">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Stream</label>
+                    <select class="form-select" id="streamFilter">
+                        <option value="">All Streams</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Health Category</label>
+                    <select class="form-select" id="healthCategoryFilter">
+                        <option value="">All Categories</option>
+                        <option value="general">General</option>
+                        <option value="allergy">Allergy</option>
+                        <option value="condition">Condition</option>
+                        <option value="medication">Medication</option>
+                        <option value="injury">Injury</option>
+                        <option value="incident">Incident</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Alert Status</label>
+                    <select class="form-select" id="alertStatusFilter">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="resolved">Resolved</option>
+                        <option value="monitoring">Monitoring</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Severity</label>
+                    <select class="form-select" id="severityFilter">
+                        <option value="">All</option>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <label class="form-label fw-semibold">Search</label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" class="form-control" id="searchBox"
+                               placeholder="Search by student name, admission number, condition, allergy, or medication">
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-danger w-100" id="applyFiltersBtn">
+                        <i class="fas fa-filter me-1"></i> Apply
+                    </button>
+                </div>
+
+                <div class="col-xl-2 col-md-4 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
+                        <i class="fas fa-undo me-1"></i> Reset
+                    </button>
+                </div>
             </div>
-            <button class="btn btn-outline-primary btn-sm" onclick="healthController.showVaxModal()">
-              <i class="bi bi-plus me-1"></i> Record Vaccination
-            </button>
-          </div>
-          <div id="vaccinationsContainer">
-            <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
-          </div>
-        </div>
-      </div>
-    </div>
 
-  </div>
+            <!-- Summary cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-danger text-white p-3">
+                                    <i class="fas fa-file-medical"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Total Records</small>
+                                    <h4 class="mb-0" id="totalRecords">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-warning text-dark p-3">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Active Alerts</small>
+                                    <h4 class="mb-0" id="activeAlerts">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-info text-white p-3">
+                                    <i class="fas fa-ambulance"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Clinic Visits</small>
+                                    <h4 class="mb-0" id="clinicVisits">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-primary text-white p-3">
+                                    <i class="fas fa-allergies"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Allergies</small>
+                                    <h4 class="mb-0" id="allergiesCount">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-success text-white p-3">
+                                    <i class="fas fa-pills"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">On Medication</small>
+                                    <h4 class="mb-0" id="medicationCount">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-secondary text-white p-3">
+                                    <i class="fas fa-exclamation-circle"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Emergency</small>
+                                    <h4 class="mb-0" id="emergencyCount">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- States -->
+            <div id="recordsLoading" class="alert alert-info d-none">
+                <i class="fas fa-spinner fa-spin me-2"></i> Loading health records...
+            </div>
+
+            <div id="recordsError" class="alert alert-danger d-none"></div>
+
+            <div id="recordsEmpty" class="alert alert-warning d-none">
+                <i class="fas fa-info-circle me-2"></i> No health records found for the selected filters.
+            </div>
+
+            <!-- Main Table -->
+            <div class="card border-0 shadow-sm" id="recordsCard">
+                <div class="card-header bg-white">
+                    <strong>
+                        <i class="fas fa-list me-2 text-danger"></i>
+                        Health Records
+                    </strong>
+                </div>
+
+                <div class="card-body table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Record ID</th>
+                                <th>Student Name</th>
+                                <th>Adm No</th>
+                                <th>Class</th>
+                                <th>Stream</th>
+                                <th>Category</th>
+                                <th>Alert Type</th>
+                                <th>Severity</th>
+                                <th>Status</th>
+                                <th>Last Visit</th>
+                                <th>Next Review</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recordsTableBody">
+                            <tr>
+                                <td class="text-center text-muted">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
 </div>
 
-<!-- HEALTH RECORD MODAL -->
-<div class="modal fade" id="healthRecordModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Add / Update Health Profile</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-md-12">
-            <label class="form-label fw-semibold">Student <span class="text-danger">*</span></label>
-            <select id="hrStudentId" class="form-select">
-              <option value="">— Select student —</option>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Blood Group</label>
-            <select id="hrBloodGroup" class="form-select">
-              <option value="Unknown">Unknown</option>
-              <option value="A+">A+</option><option value="A-">A-</option>
-              <option value="B+">B+</option><option value="B-">B-</option>
-              <option value="AB+">AB+</option><option value="AB-">AB-</option>
-              <option value="O+">O+</option><option value="O-">O-</option>
-            </select>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Medical Aid Provider</label>
-            <input type="text" id="hrMedAidProvider" class="form-control" placeholder="Insurance/NHIF">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Medical Aid No.</label>
-            <input type="text" id="hrMedAidNo" class="form-control">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Allergies</label>
-            <textarea id="hrAllergies" class="form-control" rows="2" placeholder="e.g. Penicillin, peanuts…"></textarea>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Chronic Conditions</label>
-            <textarea id="hrChronic" class="form-control" rows="2" placeholder="e.g. Asthma, diabetes…"></textarea>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Special Diet Requirements</label>
-            <textarea id="hrDiet" class="form-control" rows="2" placeholder="e.g. Vegetarian, gluten-free…"></textarea>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Disability / Special Needs Notes</label>
-            <textarea id="hrDisability" class="form-control" rows="2"></textarea>
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Doctor / GP Name</label>
-            <input type="text" id="hrDoctorName" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Doctor Phone</label>
-            <input type="tel" id="hrDoctorPhone" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Emergency Contact Name</label>
-            <input type="text" id="hrEcName" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Emergency Contact Phone</label>
-            <input type="tel" id="hrEcPhone" class="form-control">
-          </div>
-          <div class="col-md-8">
-            <label class="form-label fw-semibold">Additional Notes</label>
-            <textarea id="hrNotes" class="form-control" rows="2"></textarea>
-          </div>
+<!-- Health Record Details Modal -->
+<div class="modal fade" id="recordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header bg-danger text-white">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <i class="bi bi-heart-pulse me-2"></i>
+                        Health Record Details
+                    </h5>
+                    <small id="modalSubtitle">Record #<span id="modalRecordId"></span></small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <div id="modalLoading" class="alert alert-info d-none">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Loading record details...
+                </div>
+
+                <div id="modalError" class="alert alert-danger d-none"></div>
+
+                <div id="modalRecordContent">
+                    <!-- Record details will be rendered here -->
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-success" id="addClinicVisitBtn">
+                    <i class="bi bi-plus-circle me-1"></i> Add Clinic Visit
+                </button>
+                <button class="btn btn-warning" id="addMedicationBtn">
+                    <i class="bi bi-pill me-1"></i> Add Medication Note
+                </button>
+                <button class="btn btn-info" id="markReviewedBtn">
+                    <i class="bi bi-check-circle me-1"></i> Mark Reviewed
+                </button>
+            </div>
+
         </div>
-        <div id="hrError" class="alert alert-danger mt-3 d-none"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="healthController.saveRecord()">Save Profile</button>
-      </div>
     </div>
-  </div>
 </div>
 
-<!-- VACCINATION MODAL -->
-<div class="modal fade" id="vaxModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Record Vaccination</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label fw-semibold">Student <span class="text-danger">*</span></label>
-            <select id="vaxStudentId" class="form-select">
-              <option value="">— Select student —</option>
-            </select>
-          </div>
-          <div class="col-md-8">
-            <label class="form-label fw-semibold">Vaccine Name <span class="text-danger">*</span></label>
-            <input type="text" id="vaxName" class="form-control" placeholder="e.g. Polio OPV, BCG, MMR…">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Dose #</label>
-            <input type="number" id="vaxDose" class="form-control" value="1" min="1">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Date Given <span class="text-danger">*</span></label>
-            <input type="date" id="vaxDateGiven" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Next Due Date</label>
-            <input type="date" id="vaxNextDue" class="form-control">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Given By</label>
-            <input type="text" id="vaxGivenBy" class="form-control" placeholder="Nurse / clinic">
-          </div>
-          <div class="col-md-4">
-            <label class="form-label fw-semibold">Batch Number</label>
-            <input type="text" id="vaxBatch" class="form-control">
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Notes</label>
-            <textarea id="vaxNotes" class="form-control" rows="2"></textarea>
-          </div>
-        </div>
-        <div id="vaxError" class="alert alert-danger mt-3 d-none"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-        <button type="button" class="btn btn-primary" onclick="healthController.saveVax()">Save</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script src="<?= $appBase ?>/js/pages/student_health.js?v=<?= time() ?>"></script>
-<script>document.addEventListener('DOMContentLoaded', () => healthController.init());</script>
+<script src="<?php echo $appBase; ?>/js/pages/student_health.js?v=<?php echo time(); ?>"></script>

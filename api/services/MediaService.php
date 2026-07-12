@@ -16,7 +16,7 @@ class MediaService
     }
 
     // 1. Upload Media
-    public function uploadMedia($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '')
+    public function uploadMedia($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '', $preferredBaseName = null)
     {
         $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv', 'zip', 'mp3', 'mp4', 'avi', 'mov'];
         $maxSize = 20 * 1024 * 1024; // 20MB
@@ -30,12 +30,15 @@ class MediaService
         if (!in_array($ext, $allowedTypes))
             throw new Exception('File type not allowed');
         $dir = $this->uploadBase . "/$context" . ($entityId ? "/$entityId" : '') . ($albumId ? "/album_$albumId" : '');
-        if (!is_dir($dir))
-            mkdir($dir, 0755, true);
-        $filename = uniqid('media_') . '_' . time() . ".$ext";
+        $this->ensureWritableDirectory($dir);
+        $baseName = $preferredBaseName
+            ? $this->sanitizeFilenameBase($preferredBaseName)
+            : uniqid('media_') . '_' . time();
+        $filename = $this->uniqueFilename($dir, $baseName, $ext);
         $path = "$dir/$filename";
-        if (!move_uploaded_file($file['tmp_name'], $path))
-            throw new Exception('Failed to move file');
+        if (!move_uploaded_file($file['tmp_name'], $path)) {
+            throw new Exception('Failed to move file into upload directory: ' . $dir);
+        }
         // Save metadata
         $stmt = $this->db->prepare("INSERT INTO media_files (filename, original_name, file_type, file_size, uploader_id, context, entity_id, album_id, description, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$filename, $file['name'], $ext, $file['size'], $uploaderId, $context, $entityId, $albumId, $description, $tags]);
@@ -55,8 +58,7 @@ class MediaService
         }
 
         $dir = $this->uploadBase . "/$context" . ($entityId ? "/$entityId" : '');
-        if (!is_dir($dir))
-            mkdir($dir, 0755, true);
+        $this->ensureWritableDirectory($dir);
         $filename = uniqid('media_') . '_' . time() . ".{$ext}";
         $path = "$dir/$filename";
         if (!@copy($sourcePath, $path)) {
@@ -222,8 +224,7 @@ class MediaService
         $baseDir = $this->uploadBase . "/{$media['context']}" . ($media['entity_id'] ? "/{$media['entity_id']}" : '') . ($media['album_id'] ? "/album_{$media['album_id']}" : '');
         $filePath = $baseDir . "/{$media['filename']}";
         $thumbDir = $baseDir . '/thumbnails';
-        if (!is_dir($thumbDir))
-            mkdir($thumbDir, 0755, true);
+        $this->ensureWritableDirectory($thumbDir);
         $thumbPath = $thumbDir . "/thumb_{$media['filename']}";
 
         // Generate thumbnail if it doesn't exist
@@ -233,6 +234,59 @@ class MediaService
         // Return relative path for web access (adjust as needed for your routing)
         $relativeThumb = str_replace($this->uploadBase, '/uploads', $thumbPath);
         return file_exists($thumbPath) ? $relativeThumb : null;
+    }
+
+    public function getFileUrl($mediaId)
+    {
+        $stmt = $this->db->prepare("SELECT filename, context, entity_id, album_id FROM media_files WHERE id = ?");
+        $stmt->execute([$mediaId]);
+        $media = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$media) {
+            return null;
+        }
+
+        $filePath = $this->uploadBase . "/{$media['context']}"
+            . ($media['entity_id'] ? "/{$media['entity_id']}" : '')
+            . ($media['album_id'] ? "/album_{$media['album_id']}" : '')
+            . "/{$media['filename']}";
+
+        return file_exists($filePath) ? str_replace($this->uploadBase, '/uploads', $filePath) : null;
+    }
+
+    private function sanitizeFilenameBase($value)
+    {
+        $base = preg_replace('/[^a-zA-Z0-9]+/', '_', trim((string) $value));
+        $base = trim($base, '_');
+        return $base !== '' ? substr($base, 0, 140) : uniqid('media_') . '_' . time();
+    }
+
+    private function ensureWritableDirectory($dir)
+    {
+        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new Exception('Upload directory could not be created: ' . $dir);
+        }
+
+        if (!is_writable($dir)) {
+            throw new Exception('Upload directory is not writable: ' . $dir);
+        }
+    }
+
+    private function uniqueFilename($dir, $baseName, $ext)
+    {
+        $filename = "{$baseName}.{$ext}";
+        if (!file_exists("{$dir}/{$filename}")) {
+            return $filename;
+        }
+
+        $suffix = date('YmdHis');
+        $filename = "{$baseName}_{$suffix}.{$ext}";
+        $counter = 2;
+        while (file_exists("{$dir}/{$filename}")) {
+            $filename = "{$baseName}_{$suffix}_{$counter}.{$ext}";
+            $counter++;
+        }
+
+        return $filename;
     }
 
     // Helper: Generate thumbnail for images
@@ -284,5 +338,3 @@ class MediaService
         return true;
     }
 }
-
-

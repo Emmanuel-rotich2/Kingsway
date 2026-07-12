@@ -154,20 +154,14 @@ class StudentIDCardGenerator extends BaseAPI
         try {
             // Get comprehensive student details
             $stmt = $this->db->prepare("
-                SELECT 
+                SELECT
                     s.id, s.admission_no, s.first_name, s.last_name,
                     s.date_of_birth, s.status, s.admission_date,
                     c.name as class_name,
-                    cs.stream_name,
-                    COALESCE(fb.balance, 0) as fees_balance
+                    cs.stream_name
                 FROM students s
                 LEFT JOIN class_streams cs ON s.stream_id = cs.id
                 LEFT JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN (
-                    SELECT student_id, SUM(amount) as balance 
-                    FROM fee_balances 
-                    GROUP BY student_id
-                ) fb ON s.id = fb.student_id
                 WHERE s.id = ?
             ");
             $stmt->execute([$studentId]);
@@ -182,17 +176,13 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'QR code library not installed. Run: composer require endroid/qr-code');
             }
 
-            // Create QR data (JSON format for rich information)
+            // Create QR data as a system verification target. Keep sensitive details behind RBAC.
             $qrData = json_encode([
-                'type' => 'student_id',
-                'id' => $student['id'],
+                'type' => 'student_verification',
+                'student_id' => (int) $student['id'],
                 'admission_no' => $student['admission_no'],
-                'name' => $student['first_name'] . ' ' . $student['last_name'],
-                'class' => $student['class_name'] . ' - ' . $student['stream_name'],
-                'status' => $student['status'],
-                'fees_balance' => $student['fees_balance'],
-                'generated' => date('Y-m-d H:i:s'),
-                'verify_url' => 'https://kingsway.ac.ke/verify/' . base64_encode($student['admission_no'])
+                'verify_path' => '/api/students/qr-info-get/' . (int) $student['id'],
+                'generated' => date('Y-m-d H:i:s')
             ]);
 
             // Generate QR code
@@ -388,7 +378,7 @@ class StudentIDCardGenerator extends BaseAPI
 <head>
     <meta charset="UTF-8">
     <title>Student ID Card - {$admissionNo}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     <style>
         @media print {
             .no-print { display: none; }
