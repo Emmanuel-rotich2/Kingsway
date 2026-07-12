@@ -1,119 +1,170 @@
-# CODEX IMPLEMENTATION PROMPT — Students Module
+You are working inside the Kingsway School Management System.
 
-You are a Senior Enterprise Software Engineer and System Rescue Architect working inside the Kingsway School Management System codebase.
+Task:
+Rescue and rebuild the Students module by replacing the current confused shared-page design with a clean role-context architecture.
 
-You are not here to produce generic advice. You are here to complete production-grade MVP implementation.
+This is an implementation task, not a general audit.
 
-Read and obey:
-- AI_DOS_README.md
-- specs/SYSTEM_CONSTITUTION.md
-- specs/ARCHITECTURE_RECOVERY_PLAN.md
-- matrices/MVP_MODULE_COMPLETION_MATRIX.md
-- AGENTS.md
-- CLAUDE.md
+Problem:
+The Students module is currently accessed by many roles for different reasons. The same pages such as manage_students, all_students, and student_profiles are being reused for incompatible workflows. This causes errors, permission confusion, broken UI, and incomplete workflows.
 
-Execution rules:
-1. Work as an implementer, not an endless auditor.
-2. Inspect only the files needed for this module and its dependencies.
-3. Do not redesign unrelated UI.
-4. Do not create duplicate pages/controllers/modules if existing ones can be completed.
-5. Do not use mock, dummy, placeholder, or fallback data as real production data.
-6. Do not bypass auth, RBAC, router, API client, or shared layouts.
-7. Every change must preserve existing users and workflows unless clearly broken.
-8. Server-side permission enforcement is mandatory.
-9. Frontend permission hiding is mandatory but not sufficient.
-10. Document exactly what changed.
+Goal:
+Create a clean Students MVP where each role sees the exact student view they need, while all views share one backend student domain.
 
-Required working method:
-A. Identify canonical files for the module.
-B. Identify duplicate/dead/placeholder files.
-C. Identify required database tables and existing schema.
-D. Identify required permissions.
-E. Implement backend API first.
-F. Implement/repair frontend page and JS controller.
-G. Implement role-aware action visibility.
-H. Implement loading/empty/error/forbidden states.
-I. Add/repair audit logging for sensitive actions.
-J. Add manual test checklist.
-K. Run syntax checks where possible.
-L. Search for regressions and missing references before finishing.
+Do not create duplicate backend logic.
 
-Response at end must include:
-- files changed
-- workflows completed
-- permissions enforced
-- APIs completed
-- remaining risks
-- exact manual tests to run
+Architecture required:
 
+1. Backend domain:
+Create or repair:
 
-## Module objective
+- StudentsController
+- StudentService
+- StudentRepository
+- StudentScopeService
+- StudentPermissionService
 
-Complete the student master record module because admissions, attendance, fees, academics, boarding, transport, parents, discipline, and reports depend on it.
+The backend must expose scoped student reads:
 
-## Primary files and areas to inspect first
+- full_management
+- oversight
+- academic
+- discipline
+- boarding
+- transport
+- catering
+- welfare
+- teacher_class
+- subject_teacher
+- parent_children
 
-Inspect:
-- pages/students/
-- pages/manage_students*.php
-- js/pages/*student*.js
-- api/controllers/StudentsController.php
-- api/modules/students/
-- database schema tables containing student, guardian, parent, enrollment, class_enrollments
-- templates/import/
+1. Frontend page strategy:
+Do not force all roles into one all_students page.
 
+Create or normalize these page contexts:
 
-## MVP workflows that must work
+- manage_students: School Admin full CRUD
+- students_overview: Director/Headteacher read-only oversight
+- my_students_list: Class teacher assigned class
+- academic_students: Deputy Academic academic view
+- discipline_students: Deputy Discipline discipline view
+- boarding_students: Boarding Master/Matron boarders only
+- catering_boarding_students: Cateress meal-planning boarders only
+- transport_passengers: Driver assigned route passengers only
+- student_welfare: Counselor/Chaplain welfare view
+- student_profiles: profile view with role-aware tabs/actions
 
-MVP workflows:
-1. Admin/Registrar creates student record.
-2. User views student list filtered by permission.
-3. User opens student profile.
-4. User edits allowed student fields.
-5. User assigns/updates class/stream where permitted.
-6. User links parent/guardian information.
-7. User uploads/serves documents/photos if infrastructure exists.
-8. Teacher can only see assigned students.
-9. Parent can only see own children.
+1. Legacy route handling:
+Find current references to:
 
+- all_students
+- manage_students
+- student_profiles
 
-## Implementation requirements
+For each one:
 
-1. Complete the full vertical slice for this module.
-2. Use existing controllers/modules where present.
-3. If route/page/controller naming is inconsistent, normalize through the existing router and document any redirects/aliases.
-4. Ensure all API responses use the shared response contract.
-5. Ensure all list screens support real data loading, empty state, error state, and permission-aware actions.
-6. Ensure all create/edit/approve/delete/export actions are permission checked on frontend and backend.
-7. Remove production use of placeholder/mock/dummy/fallback data from this module.
-8. Do not delete files blindly. If a file is duplicate, deprecate safely or route it to the canonical implementation.
-9. Add audit logs for sensitive create/update/delete/approve/payment actions where audit infrastructure exists.
-10. Update documentation.
+- decide whether to keep, redirect, or replace
+- do not delete blindly
+- if all_students is too generic, convert it into a safe read-only directory or redirect based on role
 
-## Module-specific deliverables
+1. Permission behavior:
+Server-side permissions are mandatory.
 
+Implement role/action rules:
+
+- Admin can create/edit/archive students
+- Director can view oversight, not operational edit
+- Headteacher can view academic/discipline/health overview
+- Deputy Academic can view academic data and promotion tools
+- Deputy Discipline can view discipline-related student data
+- Class Teacher can only view assigned class students
+- Subject Teacher can only view students in assigned classes/subjects
+- Boarding Master can only view boarders and boarding fields
+- Cateress can only view boarding meal-planning fields, no private student details
+- Driver can only view assigned passengers and transport attendance
+- Counselor can view welfare/counseling-relevant profile data
+- Parent can only view own children
+
+1. Data privacy:
+Different roles must not see unnecessary sensitive fields.
+
+Examples:
+
+- Driver must not see medical, fee, discipline, or family financial details
+- Cateress must not see fees or discipline details
+- Counselor may see welfare notes but not finance
+- Accountant may see billing identity but not counseling notes
+- Director can see summaries and reports, not necessarily every private note
+
+1. Frontend behavior:
+Every student page must have:
+
+- loading state
+- empty state
+- forbidden state
+- error state
+- role-specific page title
+- role-specific filters
+- role-specific actions
+- no mock data
+- no placeholder fallback data
+
+1. API contract:
+All Students APIs must return a consistent shape:
+{
+  success: boolean,
+  data: any,
+  message: string,
+  errors?: any,
+  meta?: any
+}
+
+2. Implementation order:
+A. Map current student pages and JS files.
+B. Pick canonical backend files.
+C. Implement StudentScopeService.
+D. Implement StudentPermissionService.
+E. Repair StudentsController endpoints.
+F. Repair manage_students for Admin.
+G. Repair student_profiles with role-aware tabs.
+H. Replace or redirect all_students safely.
+I. Create role-context pages only where needed.
+J. Update sidebars to point to correct role-context pages.
+K. Add testing checklist.
+
+3. Do not:
+
+- create separate student databases per role
+- duplicate CRUD logic
+- hardcode role names inside many pages
+- expose all student fields to all roles
+- leave all_students as a broken shared dumping page
+- use mock data
+- remove legacy files without documenting redirects
+
+1. Deliverables:
 Create/update:
+
+- docs/AI_DOS/STUDENTS_ROLE_CONTEXT_ARCHITECTURE.md
 - docs/AI_DOS/STUDENTS_IMPLEMENTATION_NOTES.md
 - docs/AI_DOS/STUDENTS_TESTING_CHECKLIST.md
 
-Implement:
-- canonical student list page/controller
-- canonical student profile page/controller
-- Students API CRUD and scoped reads
-- validation for required fields
-- duplicate student prevention where possible
-- audit logs for create/update/delete/class assignment
+At the end report:
+
+- pages created
+- pages repaired
+- pages deprecated
+- sidebar routes changed
+- APIs created/repaired
+- permissions enforced
+- remaining risks
+- exact manual tests per role
+
+Currently this is the situation at config/role_sidebars.php
+
+Director......// Students — oversight, not operational ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'manage_students'], ['label' => 'Admissions Overview', 'url' => 'manage_students_admissions'], ['label' => 'Performance Overview', 'url' => 'student_performance'], ['label' => 'Discipline Overview', 'url' => 'discipline_cases'], ['label' => 'Special Needs', 'url' => 'special_needs'], ]], school admin.........// STUDENTS — manage all student records ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'manage_students'], ['label' => 'Student Profiles', 'url' => 'student_profiles'], ['label' => 'ID Cards', 'url' => 'student_id_cards'], ['label' => 'Family Groups', 'url' => 'manage_family_groups'], ['label' => 'Special Needs', 'url' => 'special_needs'], ['label' => 'Student Promotion', 'url' => 'student_promotion'], // end-of-year promotion ]], Headteacher - // STUDENTS ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'manage_students'], ['label' => 'Performance Overview', 'url' => 'student_performance'], ['label' => 'Discipline Cases', 'url' => 'discipline_cases'], ['label' => 'Counseling', 'url' => 'student_counseling'], ['label' => 'Special Needs', 'url' => 'special_needs'], ['label' => 'Health Records', 'url' => 'student_health'], ]], Deputy Head (Academic) - // ── STUDENTS ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'all_students'], ['label' => 'Performance Overview', 'url' => 'student_performance'], ['label' => 'Student Promotion', 'url' => 'student_promotion'], ['label' => 'Special Needs', 'url' => 'special_needs'], ]], Cateress / Catering Manager - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'Boarding Students', 'url' => 'manage_students'], // to plan meal quantities ]], Boarding Master / Matron / Housemother - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Boarding Students', 'url' => 'manage_students'], ['label' => 'Student Profiles', 'url' => 'student_profiles'], ['label' => 'Special Needs', 'url' => 'special_needs'], ]], Talent Development / HoD Activities - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'manage_students'], ['label' => 'Participant Registration','url' => 'manage_activities'], ['label' => 'Achievement Records', 'url' => 'manage_activities'], ]], Driver - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-users', 'subitems' => [ ['label' => 'My Passengers', 'url' => 'manage_students'], ['label' => 'Passenger Attendance', 'url' => 'mark_attendance'], ]], Chaplain / School Counselor - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'Student Profiles', 'url' => 'student_profiles'], ['label' => 'Welfare Records', 'url' => 'student_counseling'], ]], Deputy Head (Discipline) - ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [ ['label' => 'All Students', 'url' => 'all_students'], ['label' => 'Student Profiles', 'url' => 'all_students'], ['label' => 'Special Needs', 'url' => 'special_needs'], ]],
 
 
-## Definition of done
+and am getting this error on the browser
 
-This module is done only when:
-- canonical page(s) load without blank screens
-- page JS is actually loaded by the page
-- all MVP workflows persist real database data
-- unauthorized users are blocked
-- authorized users see correct role-specific actions
-- API endpoints cannot be abused directly
-- no MVP path depends on mock, dummy, placeholder, or fake fallback data
-- syntax checks pass
-- testing checklist is written
+Authentication system not loaded. Please refresh the page.

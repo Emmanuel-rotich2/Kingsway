@@ -3,7 +3,7 @@
  * Manages student CRUD operations, parent linking, and data loading
  */
 
-const studentsManagementController = {
+window.studentsManagementController = window.studentsManagementController || {
   data: {
     students: [],
     classes: [],
@@ -15,8 +15,17 @@ const studentsManagementController = {
   editingId: null,
 
   init: async function () {
+    if (this.initialized) {
+      return;
+    }
+    this.initialized = true;
+
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
+      return;
+    }
+    if (!this.canPerformAction("view")) {
+      this.renderForbidden();
       return;
     }
     await this.loadInitialData();
@@ -35,9 +44,19 @@ const studentsManagementController = {
 
   canPerformAction: function (action) {
     if (window.RoleBasedUI?.canPerformAction) {
-      return window.RoleBasedUI.canPerformAction("students", action);
+      const roleBased = window.RoleBasedUI.canPerformAction("students", action);
+      if (roleBased) return true;
     }
-    return AuthContext.hasPermission?.(`students_${action}`) || false;
+    const aliases = {
+      view: ["students_view", "students_view_all", "students_view_own", "students_edit", "students_create"],
+      create: ["students_create"],
+      edit: ["students_edit", "students_update"],
+      delete: ["students_delete"],
+      promote: ["students_promote", "students_generate", "students_edit"],
+      export: ["students_export", "students_print"],
+    };
+    const permissions = aliases[action] || [`students_${action}`];
+    return permissions.some((permission) => AuthContext.hasPermission?.(permission));
   },
 
   canViewSensitiveInfo: function () {
@@ -282,10 +301,7 @@ const studentsManagementController = {
       const feeStatus = document.getElementById("feeStatusFilter")?.value;
       if (feeStatus) params.append("fee_status", feeStatus);
 
-      const resp = await window.API.apiCall(
-        `/students?${params.toString()}`,
-        "GET",
-      );
+      const resp = await window.API.students.list(Object.fromEntries(params.entries()));
 
       const payload = this.unwrapPayload(resp);
       if (payload) {
@@ -296,8 +312,38 @@ const studentsManagementController = {
       }
     } catch (error) {
       console.error("Error loading students:", error);
-      this.showError("Failed to load students");
+      if (Number(error?.code || error?.response?.code || 0) === 403) {
+        this.renderForbidden();
+        return;
+      }
+      this.renderTableError(error.message || "Failed to load students");
+      this.showError(error.message || "Failed to load students");
     }
+  },
+
+  renderForbidden: function () {
+    const container = document.getElementById("studentsTableContainer") || document.getElementById("all-students-content");
+    if (container) {
+      container.innerHTML = `
+        <div class="alert alert-warning mb-0">
+          <i class="bi bi-shield-lock me-2"></i>
+          You do not have permission to view student records.
+        </div>`;
+    }
+    document.querySelectorAll('[data-permission="students_create"], [data-permission="students_edit"], [data-permission="students_delete"]').forEach((el) => {
+      el.style.display = "none";
+    });
+  },
+
+  renderTableError: function (message) {
+    const tbody = document.getElementById("studentsTableBody");
+    if (!tbody) return;
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="8" class="text-center py-4 text-danger">
+          <i class="bi bi-exclamation-triangle me-2"></i>${this.escapeHtml(message)}
+        </td>
+      </tr>`;
   },
 
   renderTable: function () {
@@ -306,6 +352,7 @@ const studentsManagementController = {
 
     if (!this.data.students.length) {
       tbody.innerHTML = `<tr><td colspan="8" class="text-center py-4 text-muted">No students found</td></tr>`;
+      this.renderPagination();
       return;
     }
 
@@ -395,7 +442,7 @@ const studentsManagementController = {
     const { page, total, limit } = this.data.pagination;
     const totalPages = Math.ceil(total / limit);
 
-    document.getElementById("showingFrom").textContent = (page - 1) * limit + 1;
+    document.getElementById("showingFrom").textContent = total > 0 ? (page - 1) * limit + 1 : 0;
     document.getElementById("showingTo").textContent = Math.min(
       page * limit,
       total,
@@ -687,24 +734,51 @@ const studentsManagementController = {
       const photoFile = document.getElementById("studentProfilePic")?.files[0];
 
       if (id) {
-        response = await window.API.apiCall(
-          `/students/${id}`,
-          "PUT",
-          studentData,
+        response = await window.API.students.update(id, studentData);
+      } else {
+        response = await window.API.students.create(studentData);
+      }
+
+      let photoUploaded = false;
+      let photoUploadFailed = false;
+      if (photoFile) {
+        const savedStudentId =
+          id ||
+          response?.data?.id ||
+          response?.data?.data?.id ||
+          response?.id;
+
+        if (savedStudentId) {
+          const photoData = new FormData();
+          photoData.append("student_id", savedStudentId);
+          photoData.append("photo", photoFile);
+          try {
+            await window.API.students.uploadPhoto(photoData);
+            photoUploaded = true;
+          } catch (photoError) {
+            console.error("Photo upload error:", photoError);
+            photoUploadFailed = true;
+          }
+        }
+      }
+
+      if (photoUploadFailed) {
+        this.showError(
+          id
+            ? "Student updated, but photo upload failed"
+            : "Student created, but photo upload failed",
         );
       } else {
-        response = await window.API.apiCall("/students", "POST", studentData);
-      }
-
-      if (photoFile) {
-        this.showInfo(
-          "Student saved. Photo upload is not available yet for this form.",
+        this.showSuccess(
+          photoUploaded
+            ? id
+              ? "Student updated successfully with photo"
+              : "Student created successfully with photo"
+            : id
+              ? "Student updated successfully"
+              : "Student created successfully",
         );
       }
-
-      this.showSuccess(
-        id ? "Student updated successfully" : "Student created successfully",
-      );
       bootstrap.Modal.getInstance(
         document.getElementById("studentModal"),
       ).hide();
@@ -717,7 +791,7 @@ const studentsManagementController = {
 
   editStudent: async function (id) {
     try {
-      const resp = await window.API.apiCall(`/students/${id}`, "GET");
+      const resp = await window.API.students.get(id);
       const payload = this.unwrapPayload(resp);
       if (payload) {
         this.showStudentModal(payload);
@@ -746,7 +820,7 @@ const studentsManagementController = {
         performanceResp,
         disciplineResp,
       ] = await Promise.allSettled([
-        window.API.apiCall(`/students/${id}`, "GET"),
+        window.API.students.get(id),
         window.API.students.getParents(id),
         window.API.students.getFees(id),
         window.API.students.getAttendance(id),
@@ -1172,10 +1246,16 @@ const studentsManagementController = {
   },
 
   deleteStudent: async function (id) {
-    if (!confirm("Are you sure you want to delete this student?")) return;
+    const confirmed = await this.showConfirmModal({
+      title: "Delete student",
+      message: "This will remove the student master record. Continue only if this is intentional.",
+      confirmText: "Delete Student",
+      confirmClass: "btn-danger",
+    });
+    if (!confirmed) return;
 
     try {
-      await window.API.apiCall(`/students/${id}`, "DELETE");
+      await window.API.students.delete(id);
       this.showSuccess("Student deleted successfully");
       await this.loadStudents();
     } catch (error) {
@@ -1184,13 +1264,20 @@ const studentsManagementController = {
   },
 
   deactivateStudent: async function (id) {
-    const reason = prompt("Reason for deactivating this student:", "");
-    if (reason === null) return;
+    const result = await this.showConfirmModal({
+      title: "Deactivate student",
+      message: "Record the reason for deactivating this student.",
+      confirmText: "Deactivate Student",
+      confirmClass: "btn-warning",
+      requireReason: true,
+      reasonLabel: "Deactivation reason",
+    });
+    if (!result.confirmed) return;
 
     try {
       await window.API.students.update(id, {
         status: "inactive",
-        deactivation_reason: reason,
+        deactivation_reason: result.reason,
       });
       this.showSuccess("Student deactivated");
       await this.loadStudents();
@@ -1200,7 +1287,13 @@ const studentsManagementController = {
   },
 
   activateStudent: async function (id) {
-    if (!confirm("Reactivate this student?")) return;
+    const confirmed = await this.showConfirmModal({
+      title: "Reactivate student",
+      message: "This will restore the student to active status.",
+      confirmText: "Reactivate Student",
+      confirmClass: "btn-success",
+    });
+    if (!confirmed) return;
 
     try {
       await window.API.students.update(id, { status: "active" });
@@ -1409,11 +1502,7 @@ const studentsManagementController = {
   },
 
   exportStudents: async function () {
-    try {
-      window.open((window.APP_BASE || '') + '/api/?route=students/export&format=csv', "_blank");
-    } catch (error) {
-      this.showError("Failed to export students");
-    }
+    this.showInfo("Student export is disabled until a routed, permission-checked export API is available.");
   },
 
   downloadTemplate: function () {
@@ -1443,9 +1532,9 @@ const studentsManagementController = {
         .map(
           (item) => `
             <tr>
-              <td>${item.row || "-"}</td>
-              <td>${item.admission_no || "-"}</td>
-              <td>${item.message || item.error || "-"}</td>
+              <td>${this.escapeHtml(item.row || "-")}</td>
+              <td>${this.escapeHtml(item.admission_no || "-")}</td>
+              <td>${this.escapeHtml(item.message || item.error || "-")}</td>
             </tr>
           `,
         )
@@ -1548,32 +1637,148 @@ const studentsManagementController = {
       });
   },
 
+  showConfirmModal: function ({
+    title,
+    message,
+    confirmText = "Confirm",
+    confirmClass = "btn-primary",
+    requireReason = false,
+    reasonLabel = "Reason",
+  }) {
+    const modalId = "studentsConfirmModal";
+    document.getElementById(modalId)?.remove();
+
+    const modalEl = document.createElement("div");
+    modalEl.className = "modal fade";
+    modalEl.id = modalId;
+    modalEl.tabIndex = -1;
+
+    const dialog = document.createElement("div");
+    dialog.className = "modal-dialog modal-dialog-centered";
+    const content = document.createElement("div");
+    content.className = "modal-content";
+
+    const header = document.createElement("div");
+    header.className = "modal-header bg-primary text-white";
+    const titleEl = document.createElement("h5");
+    titleEl.className = "modal-title";
+    titleEl.textContent = title;
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "btn-close btn-close-white";
+    closeButton.setAttribute("data-bs-dismiss", "modal");
+    header.append(titleEl, closeButton);
+
+    const body = document.createElement("div");
+    body.className = "modal-body";
+    const messageEl = document.createElement("p");
+    messageEl.textContent = message;
+    body.appendChild(messageEl);
+
+    let reasonInput = null;
+    let reasonError = null;
+    if (requireReason) {
+      const label = document.createElement("label");
+      label.className = "form-label";
+      label.setAttribute("for", "studentsConfirmReason");
+      label.textContent = `${reasonLabel} *`;
+      reasonInput = document.createElement("textarea");
+      reasonInput.id = "studentsConfirmReason";
+      reasonInput.className = "form-control";
+      reasonInput.rows = 3;
+      reasonInput.required = true;
+      reasonError = document.createElement("div");
+      reasonError.className = "text-danger small mt-1";
+      reasonError.style.display = "none";
+      reasonError.textContent = "Reason is required.";
+      body.append(label, reasonInput, reasonError);
+    }
+
+    const footer = document.createElement("div");
+    footer.className = "modal-footer";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "btn btn-secondary";
+    cancelButton.setAttribute("data-bs-dismiss", "modal");
+    cancelButton.textContent = "Cancel";
+    const actionButton = document.createElement("button");
+    actionButton.type = "button";
+    actionButton.className = `btn ${confirmClass}`;
+    actionButton.textContent = confirmText;
+    footer.append(cancelButton, actionButton);
+
+    content.append(header, body, footer);
+    dialog.appendChild(content);
+    modalEl.appendChild(dialog);
+    document.body.appendChild(modalEl);
+
+    return new Promise((resolve) => {
+      const modal = new bootstrap.Modal(modalEl);
+      let resolved = false;
+
+      const finish = (value) => {
+        resolved = true;
+        modal.hide();
+        resolve(value);
+      };
+
+      actionButton.addEventListener("click", () => {
+        const reason = reasonInput?.value.trim() || "";
+        if (requireReason && !reason) {
+          reasonError.style.display = "block";
+          reasonInput.focus();
+          return;
+        }
+        finish(requireReason ? { confirmed: true, reason } : true);
+      });
+
+      modalEl.addEventListener("hidden.bs.modal", () => {
+        modalEl.remove();
+        if (!resolved) {
+          resolve(requireReason ? { confirmed: false, reason: "" } : false);
+        }
+      });
+
+      modal.show();
+    });
+  },
+
   showSuccess: function (message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "success");
+    } else if (typeof showNotification === "function") {
+      showNotification(message, "success");
     } else {
-      alert(message);
+      console.info(message);
     }
   },
 
   showError: function (message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "error");
+    } else if (typeof showNotification === "function") {
+      showNotification(message, "error");
     } else {
-      alert("Error: " + message);
+      console.error(message);
     }
   },
 
   showInfo: function (message) {
     if (window.API && window.API.showNotification) {
       window.API.showNotification(message, "info");
+    } else if (typeof showNotification === "function") {
+      showNotification(message, "info");
     } else {
-      alert(message);
+      console.info(message);
     }
   },
 };
 
-// Initialize on DOM ready
-document.addEventListener("DOMContentLoaded", () =>
-  studentsManagementController.init()
-);
+// Initialize whether this file was loaded with the page or injected by all_students.php.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () =>
+    window.studentsManagementController.init()
+  );
+} else {
+  window.studentsManagementController.init();
+}

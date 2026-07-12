@@ -1,76 +1,195 @@
 <?php
 /**
- * Student Performance Page (Individual Student Analysis)
- * HTML structure only - logic will be in js/pages/student_performance.js
- * Embedded in app_layout.php
+ * Student Performance Overview
+ * One-page module:
+ * - overview list
+ * - filters
+ * - view modes
+ * - student performance modal
+ *
+ * Embedded inside app_layout.php
  */
+
+// Ensure $appBase is available for script loading
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? ''))), '/');
+    if ($appBase === '.' || $appBase === '/') {
+        $appBase = '';
+    }
+}
 ?>
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-success text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-user-graduate"></i> Student Performance Analysis</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="exportBtn">
-                    <i class="bi bi-download"></i> Export Report
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="printBtn">
-                    <i class="bi bi-printer"></i> Print
-                </button>
-            </div>
-        </div>
+<div class="container-fluid py-4" id="studentPerformancePage">
+
+    <!-- Print Header (only visible when printing) -->
+    <div class="print-header">
+        <h1>KINGSWAY PREPARATORY ACADEMY</h1>
+        <h2>Student Performance Report</h2>
+        <div class="date">Printed on: <span id="printDate"></span></div>
     </div>
 
-    <div class="card-body">
-        <!-- Student Selection -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <label class="form-label">Select Student*</label>
-                <select class="form-select" id="studentSelect">
-                    <option value="">Choose a student...</option>
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Academic Year</label>
-                <select class="form-select" id="academicYear"></select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Term</label>
-                <select class="form-select" id="term">
-                    <option value="">All Terms</option>
-                    <option value="" disabled>Loading terms...</option>
-                </select>
-            </div>
-            <div class="col-md-2">
-                <label class="form-label">&nbsp;</label>
-                <button class="btn btn-primary w-100" id="loadBtn">Load Report</button>
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-success text-white">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <h4 class="mb-0">
+                        <i class="fas fa-chart-line me-2"></i>
+                        Student Performance Overview
+                    </h4>
+                    <small>Analyze performance by student, class, stream, term, month, or whole school.</small>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" id="exportOverviewBtn">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="printOverviewBtn">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                </div>
             </div>
         </div>
 
-        <div id="reportContent" style="display: none;">
-            <!-- Student Info Card -->
-            <div class="card bg-light mb-4">
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3 text-center">
-                            <img id="studentPhoto" src="" class="rounded-circle" style="width: 120px; height: 120px;"
-                                alt="Student Photo">
-                        </div>
-                        <div class="col-md-9">
-                            <h4 id="studentName"></h4>
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <p class="mb-1"><strong>Admission No:</strong> <span id="admNo"></span></p>
-                                    <p class="mb-1"><strong>Class:</strong> <span id="studentClass"></span></p>
-                                    <p class="mb-1"><strong>Stream:</strong> <span id="stream"></span></p>
+        <div class="card-body">
+
+            <!-- Filters -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">View Mode</label>
+                    <select class="form-select" id="viewMode">
+                        <option value="students">Students</option>
+                        <option value="class">Class</option>
+                        <option value="stream">Stream</option>
+                        <option value="school">Whole School</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Academic Year</label>
+                    <select class="form-select" id="academicYearFilter">
+                        <option value="">All Years</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Term</label>
+                    <select class="form-select" id="termFilter">
+                        <option value="">All Terms</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Class</label>
+                    <select class="form-select" id="classFilter">
+                        <option value="">All Classes</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Stream</label>
+                    <select class="form-select" id="streamFilter">
+                        <option value="">All Streams</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Gender</label>
+                    <select class="form-select" id="genderFilter">
+                        <option value="">All Genders</option>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                    </select>
+                </div>
+
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label fw-semibold">Month</label>
+                    <input type="month" class="form-control" id="monthFilter">
+                </div>
+
+                <div class="col-xl-4 col-md-8">
+                    <label class="form-label fw-semibold">Search Student</label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input type="text" class="form-control" id="studentSearch"
+                               placeholder="Search by name, admission number, student ID, or UPI">
+                    </div>
+                </div>
+
+                <div class="col-xl-2 col-md-6 d-flex align-items-end">
+                    <button class="btn btn-success w-100" id="applyFiltersBtn">
+                        <i class="fas fa-filter me-1"></i> Apply
+                    </button>
+                </div>
+
+                <div class="col-xl-2 col-md-6 d-flex align-items-end">
+                    <button class="btn btn-outline-secondary w-100" id="resetFiltersBtn">
+                        <i class="fas fa-undo me-1"></i> Reset
+                    </button>
+                </div>
+            </div>
+
+            <!-- Summary cards -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-3 col-md-6">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-success text-white p-3">
+                                    <i class="fas fa-users"></i>
                                 </div>
-                                <div class="col-md-6">
-                                    <p class="mb-1"><strong>Overall Average:</strong> <span id="overallAvg"
-                                            class="badge bg-primary">0%</span></p>
-                                    <p class="mb-1"><strong>Class Position:</strong> <span id="position"
-                                            class="badge bg-success">-</span></p>
-                                    <p class="mb-1"><strong>Grade:</strong> <span id="overallGrade"
-                                            class="badge bg-info">-</span></p>
+                                <div>
+                                    <small class="text-muted">Students</small>
+                                    <h4 class="mb-0" id="summaryStudents">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-primary text-white p-3">
+                                    <i class="fas fa-percentage"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Average Score</small>
+                                    <h4 class="mb-0" id="summaryAverage">0%</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-warning text-dark p-3">
+                                    <i class="fas fa-trophy"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Top Performer</small>
+                                    <h6 class="mb-0" id="summaryTopStudent">-</h6>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-xl-3 col-md-6">
+                    <div class="card border-0 bg-light h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3">
+                                <div class="rounded-circle bg-info text-white p-3">
+                                    <i class="fas fa-school"></i>
+                                </div>
+                                <div>
+                                    <small class="text-muted">Best Class / Stream</small>
+                                    <h6 class="mb-0" id="summaryBestGroup">-</h6>
                                 </div>
                             </div>
                         </div>
@@ -78,114 +197,616 @@
                 </div>
             </div>
 
-            <!-- Performance Summary -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card border-success">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted mb-2">Total Marks</h6>
-                            <h3 class="text-success mb-0" id="totalMarks">0</h3>
-                        </div>
-                    </div>
+            <!-- States -->
+            <div id="overviewLoading" class="alert alert-info d-none">
+                <i class="fas fa-spinner fa-spin me-2"></i> Loading performance records...
+            </div>
+
+            <div id="overviewError" class="alert alert-danger d-none"></div>
+
+            <div id="overviewEmpty" class="alert alert-warning d-none">
+                <i class="fas fa-info-circle me-2"></i> No performance records found for the selected filters.
+            </div>
+
+            <!-- Overview Table -->
+            <div class="card border-0 shadow-sm" id="overviewCard">
+                <div class="card-header bg-white d-flex justify-content-between align-items-center">
+                    <strong>
+                        <i class="fas fa-list me-2 text-success"></i>
+                        Performance Records
+                    </strong>
+                    <span class="badge bg-success" id="viewModeBadge">Students View</span>
                 </div>
-                <div class="col-md-3">
-                    <div class="card border-primary">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted mb-2">Mean Score</h6>
-                            <h3 class="text-primary mb-0" id="meanScore">0</h3>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card border-info">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted mb-2">Subjects</h6>
-                            <h3 class="text-info mb-0" id="subjectsCount">0</h3>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card border-warning">
-                        <div class="card-body text-center">
-                            <h6 class="text-muted mb-2">Attendance</h6>
-                            <h3 class="text-warning mb-0" id="attendanceRate">0%</h3>
-                        </div>
-                    </div>
+
+                <div class="card-body table-responsive">
+                    <table class="table table-hover align-middle">
+                        <thead class="table-light" id="overviewTableHead"></thead>
+                        <tbody id="performanceOverviewBody">
+                            <tr>
+                                <td class="text-center text-muted">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- Charts -->
-            <div class="row mb-4">
-                <div class="col-md-8">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Performance by Subject</h5>
-                            <canvas id="subjectPerformanceChart" height="80"></canvas>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">Progress Trend</h5>
-                            <canvas id="progressTrendChart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Subject Performance Table -->
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h5 class="card-title">Subject-wise Performance</h5>
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th>Subject</th>
-                                    <th>Score</th>
-                                    <th>Grade</th>
-                                    <th>Class Average</th>
-                                    <th>Position</th>
-                                    <th>Teacher</th>
-                                    <th>Remarks</th>
-                                </tr>
-                            </thead>
-                            <tbody id="subjectsTableBody">
-                                <!-- Dynamic content -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Teacher Comments -->
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h5 class="card-title">Teacher Comments</h5>
-                    <div id="teacherComments">
-                        <!-- Dynamic comments -->
-                    </div>
-                </div>
-            </div>
-
-            <!-- Recommendations -->
-            <div class="card">
-                <div class="card-body">
-                    <h5 class="card-title">Recommendations</h5>
-                    <div id="recommendations">
-                        <!-- AI-generated or manual recommendations -->
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Empty State -->
-        <div id="emptyState" class="text-center py-5">
-            <i class="fas fa-user-graduate fa-4x text-muted mb-3"></i>
-            <h5 class="text-muted">Select a student to view performance analysis</h5>
         </div>
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/student_performance.js"></script>
+<!-- Student Performance Modal -->
+<div class="modal fade" id="studentPerformanceModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header bg-success text-white">
+                <div>
+                    <h5 class="modal-title mb-0">
+                        <i class="fas fa-user-graduate me-2"></i>
+                        Individual Student Performance Report
+                    </h5>
+                    <small id="modalStudentSubtitle">Student full school profile</small>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+
+                <!-- Modal Filters -->
+                <div class="card border-0 bg-light mb-4">
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold">Academic Year</label>
+                                <select class="form-select" id="modalAcademicYear"></select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold">Term</label>
+                                <select class="form-select" id="modalTerm"></select>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label class="form-label fw-semibold">Assessment</label>
+                                <select class="form-select" id="modalAssessment">
+                                    <option value="">All Assessments</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-12 text-end">
+                                <button class="btn btn-success" id="reloadStudentReportBtn">
+                                    <i class="fas fa-sync-alt me-1"></i> Reload Report
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="modalLoading" class="alert alert-info d-none">
+                    <i class="fas fa-spinner fa-spin me-2"></i> Loading student report...
+                </div>
+
+                <div id="modalError" class="alert alert-danger d-none"></div>
+
+                <div id="modalReportContent">
+
+                    <!-- Student Info -->
+                    <div class="card bg-light border-0 mb-4">
+                        <div class="card-body">
+                            <div class="row g-3 align-items-center">
+                                <div class="col-md-2 text-center">
+                                    <img id="studentPhoto" src="" class="rounded-circle border"
+                                         style="width: 120px; height: 120px; object-fit: cover;"
+                                         alt="Student Photo">
+                                </div>
+
+                                <div class="col-md-10">
+                                    <h4 id="studentName" class="mb-2">-</h4>
+
+                                    <div class="row g-2">
+                                        <div class="col-md-4">
+                                            <strong>Admission No:</strong>
+                                            <span id="admNo">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Class:</strong>
+                                            <span id="studentClass">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Stream:</strong>
+                                            <span id="stream">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Overall Average:</strong>
+                                            <span id="overallAvg" class="badge bg-primary">0%</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Position:</strong>
+                                            <span id="position" class="badge bg-success">-</span>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <strong>Grade:</strong>
+                                            <span id="overallGrade" class="badge bg-info">-</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-success h-100">
+                                <div class="card-body text-center">
+                                    <small class="text-muted">Total Marks</small>
+                                    <h3 class="text-success mb-0" id="totalMarks">0</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-primary h-100">
+                                <div class="card-body text-center">
+                                    <small class="text-muted">Mean Score</small>
+                                    <h3 class="text-primary mb-0" id="meanScore">0%</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-info h-100">
+                                <div class="card-body text-center">
+                                    <small class="text-muted">Subjects</small>
+                                    <h3 class="text-info mb-0" id="subjectsCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-warning h-100">
+                                <div class="card-body text-center">
+                                    <small class="text-muted">Attendance</small>
+                                    <h3 class="text-warning mb-0" id="attendanceRate">0%</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Extra school profile summaries -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-3">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-body">
+                                    <small class="text-muted">Discipline Cases</small>
+                                    <h4 id="disciplineCases">0</h4>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-body">
+                                    <small class="text-muted">Activities</small>
+                                    <h4 id="activitiesCount">0</h4>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-body">
+                                    <small class="text-muted">Fee Balance</small>
+                                    <h4 id="feeBalance">-</h4>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-3">
+                            <div class="card border-0 bg-light h-100">
+                                <div class="card-body">
+                                    <small class="text-muted">Health Alerts</small>
+                                    <h4 id="healthAlerts">0</h4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-8">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Performance by Subject</h5>
+                                    <canvas id="subjectPerformanceChart" height="90"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">Progress Trend</h5>
+                                    <canvas id="progressTrendChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Subject table -->
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Subject-wise Performance</h5>
+                            <div class="table-responsive">
+                                <table class="table table-bordered table-hover">
+                                    <thead class="table-light">
+                                    <tr>
+                                        <th>Subject</th>
+                                        <th>Score</th>
+                                        <th>Grade</th>
+                                        <th>Class Average</th>
+                                        <th>Position</th>
+                                        <th>Teacher</th>
+                                        <th>Remarks</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="subjectsTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Student profile tabs -->
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#commentsTab" type="button">
+                                Teacher Comments
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#disciplineTab" type="button">
+                                Discipline
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#activitiesTab" type="button">
+                                Co-curricular
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#attendanceTab" type="button">
+                                Attendance
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#financeTab" type="button">
+                                Finance
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#recommendationsTab" type="button">
+                                Recommendations
+                            </button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="commentsTab">
+                            <div id="teacherComments"></div>
+                        </div>
+
+                        <div class="tab-pane fade" id="disciplineTab">
+                            <div id="disciplineDetails"></div>
+                        </div>
+
+                        <div class="tab-pane fade" id="activitiesTab">
+                            <div id="activitiesDetails"></div>
+                        </div>
+
+                        <div class="tab-pane fade" id="attendanceTab">
+                            <div id="attendanceDetails"></div>
+                        </div>
+
+                        <div class="tab-pane fade" id="financeTab">
+                            <div id="financeDetails"></div>
+                        </div>
+
+                        <div class="tab-pane fade" id="recommendationsTab">
+                            <div id="recommendations"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-success" id="printStudentReportBtn">
+                    <i class="bi bi-printer me-1"></i> Print Student Report
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<script src="<?php echo $appBase; ?>/js/pages/student_performance.js?v=<?php echo time(); ?>"></script>
+
+<style>
+/* Print Styles - Only applies when printing */
+@media print {
+    /* Hide unnecessary elements */
+    .sidebar,
+    .main-flex-layout > header,
+    .main-flex-layout > footer,
+    #sidebar-overlay,
+    .btn,
+    .btn-group,
+    .card-header .btn,
+    .modal-footer,
+    #overviewCard .card-header .btn-group,
+    #viewModeBadge,
+    .input-group,
+    .form-select,
+    .form-control,
+    #exportOverviewBtn,
+    #printOverviewBtn,
+    #resetFiltersBtn,
+    #applyFiltersBtn,
+    #modalLoading,
+    #modalError,
+    .alert:not(.alert-success):not(.alert-info) {
+        display: none !important;
+    }
+
+    /* When printing modal, hide overview */
+    body.printing-modal #studentPerformancePage > .card:not(.modal),
+    body.printing-modal #overviewCard {
+        display: none !important;
+    }
+
+    /* When printing overview, hide modal */
+    body.printing-overview #studentPerformanceModal {
+        display: none !important;
+    }
+
+    /* Always hide filters in print */
+    #studentPerformancePage > .card > .card-body > .row.g-3.mb-4:nth-of-type(1) {
+        display: none !important;
+    }
+
+    /* Hide modal filters when printing */
+    #studentPerformanceModal .card.bg-light:first-of-type {
+        display: none !important;
+    }
+
+    /* Hide loading/error states in print */
+    #overviewLoading,
+    #overviewError,
+    #overviewEmpty,
+    #modalLoading,
+    #modalError {
+        display: none !important;
+    }
+
+    /* Show only content */
+    body {
+        background: white !important;
+        color: black !important;
+    }
+
+    /* Main content area */
+    #main-content-area,
+    #main-content-segment {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Print-specific container */
+    .container-fluid {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Card styling for print */
+    .card {
+        border: 1px solid #000 !important;
+        box-shadow: none !important;
+        margin-bottom: 20px !important;
+        page-break-inside: avoid;
+    }
+
+    .card-header {
+        background: #f8f9fa !important;
+        border-bottom: 2px solid #000 !important;
+        color: #000 !important;
+        padding: 10px !important;
+    }
+
+    .card-body {
+        padding: 15px !important;
+    }
+
+    /* Table styling for print */
+    .table {
+        border-collapse: collapse !important;
+        width: 100% !important;
+    }
+
+    .table th,
+    .table td {
+        border: 1px solid #000 !important;
+        padding: 8px !important;
+        font-size: 12px !important;
+    }
+
+    .table thead {
+        background: #f0f0f0 !important;
+    }
+
+    .table thead th {
+        color: #000 !important;
+        font-weight: bold !important;
+    }
+
+    /* Badge styling for print */
+    .badge {
+        border: 1px solid #000 !important;
+        color: #000 !important;
+        background: white !important;
+        padding: 2px 6px !important;
+        font-size: 11px !important;
+    }
+
+    /* Summary cards for print */
+    .card.border-success,
+    .card.border-primary,
+    .card.border-info,
+    .card.border-warning,
+    .card.bg-light {
+        border: 2px solid #000 !important;
+        margin-bottom: 15px !important;
+        page-break-inside: avoid;
+    }
+
+    /* Student profile in modal */
+    #modalReportContent {
+        display: block !important;
+    }
+
+    #studentPerformanceModal,
+    #studentPerformanceModal.print-mode {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        display: block !important;
+    }
+
+    .modal-dialog {
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+
+    .modal-content {
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    /* Show all tab content when printing */
+    .tab-content .tab-pane {
+        display: block !important;
+        margin-bottom: 20px;
+        page-break-inside: avoid;
+    }
+
+    /* Hide tab navigation */
+    .nav-tabs {
+        display: none !important;
+    }
+
+    .modal-header {
+        background: #f8f9fa !important;
+        border-bottom: 2px solid #000 !important;
+        color: #000 !important;
+        padding: 10px !important;
+    }
+
+    .modal-body {
+        padding: 15px !important;
+    }
+
+    /* Print header */
+    .print-header {
+        display: block !important;
+        text-align: center;
+        margin-bottom: 20px;
+        border-bottom: 2px solid #000;
+        padding-bottom: 10px;
+    }
+
+    .print-header h1 {
+        font-size: 18px;
+        margin: 0;
+        font-weight: bold;
+    }
+
+    .print-header h2 {
+        font-size: 14px;
+        margin: 5px 0 0 0;
+        font-weight: normal;
+    }
+
+    .print-header .date {
+        font-size: 12px;
+        margin-top: 5px;
+    }
+
+    /* Page breaks */
+    .page-break {
+        page-break-before: always;
+    }
+
+    /* Ensure charts don't break */
+    canvas {
+        max-width: 100% !important;
+        page-break-inside: avoid;
+        max-height: 300px !important;
+    }
+
+    /* Chart containers - using parent selector */
+    .row.g-3.mb-4 .card {
+        page-break-inside: avoid;
+    }
+
+    /* Table rows - prevent breaking inside */
+    tr {
+        page-break-inside: avoid;
+    }
+
+    /* Table headers repeat on each page */
+    thead {
+        display: table-header-group;
+    }
+
+    tfoot {
+        display: table-footer-group;
+    }
+
+    /* Text colors */
+    .text-success,
+    .text-primary,
+    .text-info,
+    .text-warning,
+    .text-danger {
+        color: #000 !important;
+    }
+
+    /* Background colors */
+    .bg-success,
+    .bg-primary,
+    .bg-info,
+    .bg-warning,
+    .bg-light {
+        background: white !important;
+        color: #000 !important;
+    }
+
+    /* Remove links */
+    a {
+        text-decoration: none !important;
+        color: #000 !important;
+    }
+
+    /* Hide tooltips */
+    [data-bs-toggle="tooltip"] {
+        display: none !important;
+    }
+}
+
+/* Print header (hidden on screen) */
+.print-header {
+    display: none;
+}
+</style>

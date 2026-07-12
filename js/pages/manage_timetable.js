@@ -441,7 +441,7 @@ const timetableController = (() => {
       document.getElementById("classFilter")?.selectedOptions[0]?.textContent || "All Classes";
     const w = window.open("", "", "width=900,height=700");
     w.document.write(
-      `<html><head><title>Timetable - ${classText}</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"></head><body class="p-4"><h3>Timetable - ${classText}</h3>${table}</body></html>`,
+      `<html><head><title>Timetable - ${classText}</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"></head><body class="p-4"><h3>Timetable - ${classText}</h3>${table}</body></html>`,
     );
     w.document.close();
     w.print();

@@ -18,6 +18,7 @@ define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? __DIR__ . '/../uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
+define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
 
 // Database Configuration - Development
 define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');

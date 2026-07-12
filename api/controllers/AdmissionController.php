@@ -37,39 +37,62 @@ class AdmissionController extends BaseController
         ],
         'submit_application' => [
             'admission_applications_create',
-            'admission_applications_submit'
+            'admission_applications_submit',
+            'admission_manage'
+        ],
+        'review_application' => [
+            'admission_manage'
         ],
         'upload_document' => [
+            'admission_manage',
             'admission_documents_upload',
             'admission_documents_create',
             'admission_applications_upload'
         ],
         'verify_document' => [
+            'admission_manage',
             'admission_documents_verify',
             'admission_documents_approve',
             'admission_documents_validate',
             'admission_applications_verify'
         ],
         'schedule_interview' => [
+            'admission_manage',
             'admission_interviews_schedule',
             'admission_applications_schedule'
         ],
         'record_interview' => [
+            'admission_manage',
             'admission_interviews_create',
             'admission_interviews_edit',
             'admission_interviews_approve',
             'admission_interviews_verify'
         ],
-        'placement_offer' => [
-            'admission_applications_generate',
-            'admission_applications_approve',
-            'admission_applications_assign'
+        'check_class_space' => [
+            'admission_manage',
+            'admission_applications_verify'
+        ],
+        'admit_student' => [
+            'admission_approve',
+            'admission_applications_approve_final'
+        ],
+        'create_provisional_student' => [
+            'admission_approve',
+            'admission_applications_create'
         ],
         'record_payment' => [
             'admission_payments_create',
             'admission_fee_payments_record',
             'admission_payments_record',
             'admission_applications_validate'
+        ],
+        'generate_id_card' => [
+            'admission_manage',
+            'admission_documents_create'
+        ],
+        'final_approval' => [
+            'admission_approve',
+            'admission_applications_approve_final'
         ],
         'complete_enrollment' => [
             'admission_enrollment_complete',
@@ -81,14 +104,20 @@ class AdmissionController extends BaseController
     ];
 
     private const ACTION_STAGE_RULES = [
-        'upload_document' => ['application', 'document_verification'],
-        'verify_document' => ['document_verification'],
-        'schedule_interview' => ['interview_scheduling'],
-        'record_interview' => ['interview_assessment'],
-        'placement_offer' => ['placement_offer'],
-        'record_payment' => ['fee_payment'],
+        'review_application' => ['application_received', 'application_review'],
+        'upload_document' => ['application_review', 'documents_upload', 'documents_verification'],
+        'verify_document' => ['documents_upload', 'documents_verification'],
+        'check_class_space' => ['documents_verification', 'class_space_check'],
+        'schedule_interview' => ['class_space_check', 'interview_scheduling'],
+        'record_interview' => ['interview_scheduling', 'interview_results'],
+        'placement_offer' => ['admission_decision', 'fees_payment'],
+        'admit_student' => ['interview_results', 'admission_decision', 'class_space_check'],
+        'create_provisional_student' => ['provisional_student_creation'],
+        'record_payment' => ['fees_payment', 'student_id_generation'],
+        'generate_id_card' => ['student_id_generation', 'final_approval'],
+        'final_approval' => ['final_approval', 'enrollment'],
         'complete_enrollment' => ['enrollment'],
-        'confirm_enrollment' => ['director_confirmation'],
+        'confirm_enrollment' => ['enrolled', 'director_confirmation'],
     ];
 
     public function __construct() {
@@ -484,6 +513,276 @@ class AdmissionController extends BaseController
     }
 
     /**
+     * POST /api/admission/check-class-space/{id} - Record the class-space decision.
+     * The read-only availability is GET getCheckClassSpace; this persists the
+     * registrar/director decision (available vs. blocked) via the workflow proc.
+     */
+    public function postCheckClassSpace($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($id ?? $segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application) {
+            return $this->notFound('Application not found');
+        }
+        if (!$this->canViewApplicationRecord($application)) {
+            return $this->forbidden('You do not have access to this admission application');
+        }
+        if (!$this->canProcessAdmissionActionForApplication('check_class_space', $application)) {
+            return $this->forbidden('Insufficient permission to check class space');
+        }
+        $guard = $this->ensureApplicationActionAllowed($application, 'check_class_space');
+        if ($guard !== true) {
+            return $guard;
+        }
+
+        $available = !empty($data['available']) && $data['available'] !== 'false';
+        $notes = $data['notes'] ?? null;
+        return $this->handleResponse($this->api->checkClassSpace($applicationId, (bool) $available, $notes ? (string) $notes : null));
+    }
+
+    /**
+     * POST /api/admission/admit-student/{id} - Director/Headteacher admits the student.
+     */
+    public function postAdmitStudent($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($id ?? $segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application) {
+            return $this->notFound('Application not found');
+        }
+        if (!$this->canViewApplicationRecord($application)) {
+            return $this->forbidden('You do not have access to this admission application');
+        }
+        if (!$this->canProcessAdmissionActionForApplication('admit_student', $application)) {
+            return $this->forbidden('Insufficient permission to admit student');
+        }
+        $guard = $this->ensureApplicationActionAllowed($application, 'admit_student');
+        if ($guard !== true) {
+            return $guard;
+        }
+
+        return $this->handleResponse($this->api->admitStudent($applicationId));
+    }
+
+    /**
+     * POST /api/admission/generate-student-id-card/{id} - Generate the ID card.
+     */
+    public function postGenerateStudentIdCard($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($id ?? $segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application) {
+            return $this->notFound('Application not found');
+        }
+        if (!$this->canViewApplicationRecord($application)) {
+            return $this->forbidden('You do not have access to this admission application');
+        }
+        if (!$this->canProcessAdmissionActionForApplication('generate_id_card', $application)) {
+            return $this->forbidden('Insufficient permission to generate student ID card');
+        }
+        $guard = $this->ensureApplicationActionAllowed($application, 'generate_id_card');
+        if ($guard !== true) {
+            return $guard;
+        }
+
+        return $this->handleResponse($this->api->generateStudentIdCard($applicationId));
+    }
+
+    /**
+     * POST /api/admission/final-approval/{id} - Final approval before enrollment.
+     */
+    public function postFinalApproval($id = null, $data = [], $segments = [])
+    {
+        $applicationId = (int) ($id ?? $segments[0] ?? null);
+        if (!$applicationId) {
+            return $this->badRequest('Application ID is required');
+        }
+
+        $application = $this->getApplicationScopeRecord($applicationId);
+        if (!$application) {
+            return $this->notFound('Application not found');
+        }
+        if (!$this->canViewApplicationRecord($application)) {
+            return $this->forbidden('You do not have access to this admission application');
+        }
+        if (!$this->canProcessAdmissionActionForApplication('final_approval', $application)) {
+            return $this->forbidden('Insufficient permission to grant final approval');
+        }
+        $guard = $this->ensureApplicationActionAllowed($application, 'final_approval');
+        if ($guard !== true) {
+            return $guard;
+        }
+
+        return $this->handleResponse($this->api->finalApproval($applicationId));
+    }
+
+    /**
+     * GET /api/admission/check-class-space/{id} - Check class space availability for an application
+     */
+    public function getCheckClassSpace($id = null, $data = [], $segments = [])
+    {
+        try {
+            $applicationId = (int) ($id ?? $segments[0] ?? null);
+            if (!$applicationId) {
+                return $this->badRequest('Application ID is required');
+            }
+
+            if (!$this->hasAnyAdmissionPermission('view_any')) {
+                return $this->forbidden('Insufficient permission to check class space');
+            }
+
+            $db = $this->db->getConnection();
+            $userId = $_SERVER['auth_user']['id'] ?? null;
+
+            // Call the stored procedure
+            $stmt = $db->prepare("CALL sp_check_class_space_availability(?, ?)");
+            $stmt->execute([$applicationId, $userId]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $stmt->closeCursor();
+
+            return $this->handleResponse([
+                'success' => true,
+                'space_check' => $result
+            ]);
+        } catch (Exception $e) {
+            return $this->errorResponse('Failed to check class space: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/admission/advance-workflow-stage - Advance workflow stage with proper validation
+     */
+    public function postAdvanceWorkflowStage($id = null, $data = [], $segments = [])
+    {
+        try {
+            $applicationId = (int) ($data['application_id'] ?? null);
+            $toStage = $data['to_stage'] ?? null;
+            $action = $data['action'] ?? 'workflow_advance';
+            $notes = $data['notes'] ?? null;
+            $workflowUpdates = $data['workflow_updates'] ?? null;
+
+            if (!$applicationId || !$toStage) {
+                return $this->badRequest('Application ID and target stage are required');
+            }
+
+            // Validate workflow transition
+            if (!$this->isValidWorkflowTransition($applicationId, $toStage)) {
+                return $this->badRequest('Invalid workflow transition for current stage');
+            }
+
+            $db = $this->db->getConnection();
+            $userId = $_SERVER['auth_user']['id'] ?? null;
+
+            // Call the stored procedure for workflow advancement
+            $stmt = $db->prepare("CALL sp_advance_admission_workflow_stage(?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                $applicationId,
+                $toStage,
+                $action,
+                $userId,
+                $notes,
+                $workflowUpdates
+            ]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $stmt->closeCursor();
+
+            return $this->handleResponse([
+                'success' => true,
+                'message' => 'Workflow stage advanced successfully',
+                'workflow_instance_id' => $result['workflow_instance_id'] ?? null,
+                'from_stage' => $result['from_stage'] ?? null,
+                'to_stage' => $result['to_stage'] ?? null
+            ]);
+        } catch (Exception $e) {
+            return $this->errorResponse('Failed to advance workflow stage: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/admission/create-provisional-student/{id} - Create provisional student record
+     */
+    public function postCreateProvisionalStudent($id = null, $data = [], $segments = [])
+    {
+        try {
+            $applicationId = (int) ($id ?? $segments[0] ?? null);
+            if (!$applicationId) {
+                return $this->badRequest('Application ID is required');
+            }
+
+            if (!$this->hasAnyAdmissionPermission('submit_application')) {
+                return $this->forbidden('Insufficient permission to create student record');
+            }
+
+            $result = $this->api->createProvisionalStudent($applicationId);
+
+            // NOTE: createProvisionalStudent() already advances the workflow
+            // instance to fees_payment and writes the student linkage, so no
+            // second sp_advance_admission_workflow_stage call is needed here.
+
+            return $this->handleResponse($result);
+        } catch (Exception $e) {
+            return $this->errorResponse('Failed to create provisional student: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Helper method to validate workflow transitions
+     */
+    private function isValidWorkflowTransition($applicationId, $toStage)
+    {
+        $db = $this->db->getConnection();
+        
+        // Get current stage
+        $stmt = $db->prepare("
+            SELECT current_stage 
+            FROM workflow_instances 
+            WHERE reference_type = 'admission_application' AND reference_id = ?
+        ");
+        $stmt->execute([$applicationId]);
+        $current = $stmt->fetch(\PDO::FETCH_ASSOC);
+        
+        if (!$current) {
+            // No workflow instance exists, allow creation
+            return true;
+        }
+        
+        $currentStage = $current['current_stage'];
+        
+        // Define valid transitions
+        $validTransitions = [
+            'application_received' => ['application_review', 'rejected'],
+            'application_review' => ['documents_upload', 'rejected'],
+            'documents_upload' => ['documents_verification', 'rejected'],
+            'documents_verification' => ['class_space_check', 'documents_upload', 'rejected'],
+            'class_space_check' => ['interview_scheduling', 'rejected'],
+            'interview_scheduling' => ['interview_results', 'cancelled'],
+            'interview_results' => ['admission_decision', 'rejected'],
+            'admission_decision' => ['provisional_student_creation', 'rejected'],
+            'provisional_student_creation' => ['fees_payment', 'rejected'],
+            'fees_payment' => ['student_id_generation', 'cancelled'],
+            'student_id_generation' => ['final_approval', 'rejected'],
+            'final_approval' => ['enrollment', 'rejected'],
+            'enrollment' => ['enrolled'],
+            'rejected' => [],
+            'enrolled' => []
+        ];
+        
+        return in_array($toStage, $validTransitions[$currentStage] ?? []);
+    }
+
+    /**
      * GET /api/admission/queues - Get workflow queues by stage for role-based views
      * Returns counts and lists of applications at each stage
      */
@@ -496,59 +795,124 @@ class AdmissionController extends BaseController
 
             $db = $this->db;
             $scopeFilter = $this->buildScopeFilter('aa', 'wi');
-            $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application')
-                || $this->canProcessAdmissionActionForStage('upload_document', 'document_verification');
-            $canVerifyDocuments = $this->canProcessAdmissionActionForStage('verify_document', 'document_verification');
-            $canScheduleInterview = $this->canProcessAdmissionActionForStage('schedule_interview', 'interview_scheduling');
-            $canRecordInterview = $this->canProcessAdmissionActionForStage('record_interview', 'interview_assessment');
-            $canPlacement = $this->canProcessAdmissionActionForStage('placement_offer', 'placement_offer');
-            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fee_payment');
+            $canReview = $this->canProcessAdmissionActionForStage('review_application', 'application_review')
+                || $this->canProcessAdmissionActionForStage('review_application', 'application_received');
+            $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application_review')
+                || $this->canProcessAdmissionActionForStage('upload_document', 'documents_upload');
+            $canVerifyDocuments = $this->canProcessAdmissionActionForStage('verify_document', 'documents_upload')
+                || $this->canProcessAdmissionActionForStage('verify_document', 'documents_verification');
+            $canCheckSpace = $this->canProcessAdmissionActionForStage('check_class_space', 'documents_verification')
+                || $this->canProcessAdmissionActionForStage('check_class_space', 'class_space_check');
+            $canScheduleInterview = $this->canProcessAdmissionActionForStage('schedule_interview', 'class_space_check')
+                || $this->canProcessAdmissionActionForStage('schedule_interview', 'interview_scheduling');
+            $canRecordInterview = $this->canProcessAdmissionActionForStage('record_interview', 'interview_scheduling')
+                || $this->canProcessAdmissionActionForStage('record_interview', 'interview_results');
+            $canAdmit = $this->canProcessAdmissionActionForStage('admit_student', 'interview_results')
+                || $this->canProcessAdmissionActionForStage('admit_student', 'admission_decision')
+                || $this->canProcessAdmissionActionForStage('admit_student', 'class_space_check');
+            $canCreateProvisional = $this->canProcessAdmissionActionForStage('create_provisional_student', 'provisional_student_creation');
+            $canRecordPayment = $this->canProcessAdmissionActionForStage('record_payment', 'fees_payment')
+                || $this->canProcessAdmissionActionForStage('record_payment', 'student_id_generation');
+            $canGenerateId = $this->canProcessAdmissionActionForStage('generate_id_card', 'student_id_generation')
+                || $this->canProcessAdmissionActionForStage('generate_id_card', 'final_approval');
+            $canFinalApproval = $this->canProcessAdmissionActionForStage('final_approval', 'final_approval')
+                || $this->canProcessAdmissionActionForStage('final_approval', 'enrollment');
             $canCompleteEnrollment = $this->canProcessAdmissionActionForStage('complete_enrollment', 'enrollment');
-            $canConfirmEnrollment = $this->canProcessAdmissionActionForStage('confirm_enrollment', 'director_confirmation');
 
-            // Get applications at each workflow stage
+            // NEW-key workflow buckets, keyed by current_stage.
             $queues = [
-                'documents_pending' => [],
-                'interview_pending' => [],
-                'placement_pending' => [],
-                'payment_pending' => [],
-                'enrollment_pending' => [],
-                'director_confirmation_pending' => []
+                'review_pending'        => [],
+                'documents_pending'     => [],
+                'space_check_pending'   => [],
+                'interview_pending'      => [],
+                'decision_pending'       => [],
+                'payment_pending'        => [],
+                'id_generation_pending'  => [],
+                'final_approval_pending' => [],
+                'enrollment_pending'     => [],
+                'completed'              => [],
             ];
 
-            // Documents Pending (status = submitted or documents_pending)
-            if ($canUploadDocuments || $canVerifyDocuments) {
-                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, 
-                           aa.status, aa.created_at,
+            $baseSelect = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at, aa.application_source, aa.updated_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
-                           wi.current_stage,
+                           wi.current_stage, wi.data_json,
+                           aa.workflow_data_json,
                            (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id) as doc_count,
-                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'verified') as verified_count
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'verified') as verified_count,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'rejected') as rejected_count
+                    FROM admission_applications aa
+                    LEFT JOIN parents p ON aa.parent_id = p.id
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
+
+            // Review pending (application_received / application_review)
+            if ($canReview) {
+                $sql = "$baseSelect
+                    WHERE wi.current_stage IN ('application_received', 'application_review')
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
+                    {$scopeFilter}
+                    ORDER BY aa.created_at DESC";
+                $stmt = $db->query($sql);
+                $queues['review_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            }
+
+            // Documents Pending (documents_upload / documents_verification)
+            if ($canUploadDocuments || $canVerifyDocuments) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at, aa.application_source, aa.updated_at,
+                           p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
+                           wi.current_stage, wi.data_json,
+                           aa.workflow_data_json,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id) as doc_count,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'verified') as verified_count,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'rejected') as rejected_count
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                    WHERE aa.status IN ('submitted', 'documents_pending')
+                    WHERE wi.current_stage IN ('documents_upload', 'documents_verification')
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
                     {$scopeFilter}
                     ORDER BY aa.created_at DESC";
                 $stmt = $db->query($sql);
                 $queues['documents_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Interview Pending (status = documents_verified)
+            // Class space check pending (class_space_check)
+            if ($canCheckSpace) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at, aa.application_source, aa.updated_at,
+                           p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
+                           wi.current_stage, wi.data_json,
+                           aa.workflow_data_json,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id) as doc_count,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'verified') as verified_count,
+                           (SELECT COUNT(*) FROM admission_documents WHERE application_id = aa.id AND verification_status = 'rejected') as rejected_count
+                    FROM admission_applications aa
+                    LEFT JOIN parents p ON aa.parent_id = p.id
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    WHERE wi.current_stage = 'class_space_check'
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
+                    {$scopeFilter}
+                    ORDER BY aa.created_at DESC";
+                $stmt = $db->query($sql);
+                $queues['space_check_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            }
+
+            // Interview Pending (interview_scheduling / interview_results)
             if ($canScheduleInterview || $canRecordInterview) {
                 $interviewStageFilters = [];
                 if ($canScheduleInterview) {
                     $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
                 }
                 if ($canRecordInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_assessment'";
+                    $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
                 }
 
                 $interviewStageSql = empty($interviewStageFilters)
                     ? '1 = 0'
                     : implode(' OR ', $interviewStageFilters);
 
-                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, 
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
                            wi.current_stage, wi.data_json
@@ -563,9 +927,8 @@ class AdmissionController extends BaseController
                 $queues['interview_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Placement Pending: workflow is at placement_offer stage but placement hasn't been generated yet.
-            // Auto-qualified students land here with status=documents_verified; interview-passed students also arrive here.
-            if ($canPlacement) {
+            // Admission decision pending (admission_decision / provisional_student_creation)
+            if ($canAdmit || $canCreateProvisional) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -573,17 +936,17 @@ class AdmissionController extends BaseController
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                    WHERE wi.current_stage = 'placement_offer'
-                      AND aa.status NOT IN ('placement_offered', 'fees_pending', 'enrolled', 'cancelled')
+                    WHERE wi.current_stage IN ('admission_decision', 'provisional_student_creation')
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
                     {$scopeFilter}
                     ORDER BY aa.created_at DESC";
                 $stmt = $db->query($sql);
-                $queues['placement_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+                $queues['decision_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Payment Pending (status = placement_offered or fees_pending)
+            // Payment Pending (fees_payment)
             if ($canRecordPayment) {
-                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, 
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
                            wi.current_stage, wi.data_json,
@@ -592,77 +955,114 @@ class AdmissionController extends BaseController
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                    WHERE aa.status IN ('placement_offered', 'fees_pending')
+                    WHERE wi.current_stage = 'fees_payment'
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
                     {$scopeFilter}
                     ORDER BY aa.created_at DESC";
                 $stmt = $db->query($sql);
                 $queues['payment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Enrollment Pending (payment recorded, ready for final enrollment)
-            if ($canCompleteEnrollment) {
-                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for, 
+            // Student ID generation pending (student_id_generation)
+            if ($canGenerateId) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
                            wi.current_stage, wi.data_json
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                    WHERE wi.current_stage = 'enrollment' AND aa.status != 'enrolled'
+                    WHERE wi.current_stage = 'student_id_generation'
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
+                    {$scopeFilter}
+                    ORDER BY aa.created_at DESC";
+                $stmt = $db->query($sql);
+                $queues['id_generation_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            }
+
+            // Final approval pending (final_approval)
+            if ($canFinalApproval) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at,
+                           p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
+                           wi.current_stage, wi.data_json
+                    FROM admission_applications aa
+                    LEFT JOIN parents p ON aa.parent_id = p.id
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    WHERE wi.current_stage = 'final_approval'
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
+                    {$scopeFilter}
+                    ORDER BY aa.created_at DESC";
+                $stmt = $db->query($sql);
+                $queues['final_approval_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            }
+
+            // Enrollment Pending (enrollment)
+            if ($canCompleteEnrollment) {
+                $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
+                           aa.status, aa.created_at,
+                           p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
+                           wi.current_stage, wi.data_json
+                    FROM admission_applications aa
+                    LEFT JOIN parents p ON aa.parent_id = p.id
+                    LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
+                    WHERE wi.current_stage = 'enrollment'
+                      AND aa.status NOT IN ('cancelled', 'enrolled')
                     {$scopeFilter}
                     ORDER BY aa.created_at DESC";
                 $stmt = $db->query($sql);
                 $queues['enrollment_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Director confirmation pending (post-enrollment oversight)
-            if ($canConfirmEnrollment) {
+            // Completed (enrolled) — terminal, shown for confirmation/oversight
+            {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
-                           aa.status, aa.created_at, aa.enrolled_at, aa.enrolled_student_id,
-                           aa.application_source, aa.admission_category, aa.target_term_id,
-                           aa.director_confirmed_at,
+                           aa.status, aa.created_at, aa.enrolled_student_id, aa.application_source,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
-                           wi.current_stage, wi.data_json,
-                           s.admission_no as student_number,
-                           COALESCE(SUM(ap.amount), 0) as total_admission_paid
+                           wi.current_stage, wi.data_json
                     FROM admission_applications aa
                     LEFT JOIN parents p ON aa.parent_id = p.id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
-                    LEFT JOIN students s ON s.id = aa.enrolled_student_id
-                    LEFT JOIN admission_payments ap ON ap.application_id = aa.id AND ap.status IN ('recorded', 'posted')
-                    WHERE aa.status = 'enrolled'
-                      AND aa.director_confirmed_at IS NULL
-                      AND wi.current_stage = 'director_confirmation'
+                    WHERE wi.current_stage = 'enrolled'
                     {$scopeFilter}
-                    GROUP BY aa.id
-                    ORDER BY aa.enrolled_at DESC, aa.created_at DESC";
+                    ORDER BY aa.created_at DESC";
                 $stmt = $db->query($sql);
-                $queues['director_confirmation_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
+                $queues['completed'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
             // Get summary counts
             $summary = [
-                'documents_pending' => count($queues['documents_pending']),
-                'interview_pending' => count($queues['interview_pending']),
-                'placement_pending' => count($queues['placement_pending']),
-                'payment_pending' => count($queues['payment_pending']),
-                'enrollment_pending' => count($queues['enrollment_pending']),
-                'director_confirmation_pending' => count($queues['director_confirmation_pending']),
-                'total_pending' => count($queues['documents_pending']) + count($queues['interview_pending'])
-                    + count($queues['placement_pending']) + count($queues['payment_pending'])
-                    + count($queues['enrollment_pending']) + count($queues['director_confirmation_pending'])
+                'review_pending'        => count($queues['review_pending']),
+                'documents_pending'     => count($queues['documents_pending']),
+                'space_check_pending'   => count($queues['space_check_pending']),
+                'interview_pending'      => count($queues['interview_pending']),
+                'decision_pending'       => count($queues['decision_pending']),
+                'payment_pending'        => count($queues['payment_pending']),
+                'id_generation_pending'  => count($queues['id_generation_pending']),
+                'final_approval_pending' => count($queues['final_approval_pending']),
+                'enrollment_pending'     => count($queues['enrollment_pending']),
+                'completed'              => count($queues['completed']),
+                'total_pending' => count($queues['review_pending']) + count($queues['documents_pending'])
+                    + count($queues['space_check_pending']) + count($queues['interview_pending'])
+                    + count($queues['decision_pending']) + count($queues['payment_pending'])
+                    + count($queues['id_generation_pending']) + count($queues['final_approval_pending'])
+                    + count($queues['enrollment_pending'])
             ];
 
             return $this->success([
                 'queues' => $queues,
                 'summary' => $summary,
                 'allowed_tabs' => [
-                    'documents_pending' => ($canUploadDocuments || $canVerifyDocuments),
-                    'interview_pending' => ($canScheduleInterview || $canRecordInterview),
-                    'placement_pending' => $canPlacement,
-                    'payment_pending' => $canRecordPayment,
-                    'enrollment_pending' => $canCompleteEnrollment,
-                    'director_confirmation_pending' => $canConfirmEnrollment,
+                    'review_pending'        => $canReview,
+                    'documents_pending'     => ($canUploadDocuments || $canVerifyDocuments),
+                    'space_check_pending'   => $canCheckSpace,
+                    'interview_pending'      => ($canScheduleInterview || $canRecordInterview),
+                    'decision_pending'       => ($canAdmit || $canCreateProvisional),
+                    'payment_pending'        => $canRecordPayment,
+                    'id_generation_pending'  => $canGenerateId,
+                    'final_approval_pending' => $canFinalApproval,
+                    'enrollment_pending'     => $canCompleteEnrollment,
+                    'completed'              => true,
                 ],
                 'timestamp' => date('Y-m-d H:i:s')
             ], 'Workflow queues retrieved');
@@ -714,13 +1114,27 @@ class AdmissionController extends BaseController
             }
 
             // Get documents
-            $sql = "SELECT * FROM admission_documents WHERE application_id = ? ORDER BY is_mandatory DESC, document_type";
+            $sql = "SELECT ad.*,
+                           mf.filename as media_filename,
+                           mf.original_name as media_original_name,
+                           mf.file_type as media_file_type,
+                           mf.context as media_context,
+                           mf.entity_id as media_entity_id,
+                           mf.album_id as media_album_id
+                    FROM admission_documents ad
+                    LEFT JOIN media_files mf
+                      ON ad.document_path REGEXP '^[0-9]+$'
+                     AND mf.id = CAST(ad.document_path AS UNSIGNED)
+                    WHERE ad.application_id = ?
+                    ORDER BY ad.is_mandatory DESC, ad.document_type";
             $stmt = $connection->prepare($sql);
             $stmt->execute([$id]);
-            $documents = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $documents = $this->normalizeAdmissionDocuments($stmt->fetchAll(\PDO::FETCH_ASSOC));
 
-            // Parse workflow data
+            // Parse workflow data. Identity fields in workflow_instances.data_json are denormalized
+            // and can become stale; the admission_applications row is the source of truth.
             $workflowData = json_decode($application['data_json'] ?? '{}', true) ?: [];
+            $workflowData = $this->syncWorkflowIdentityData($workflowData, $application);
 
             // Determine what actions are available based on current stage
             $availableActions = $this->getAvailableActions($application['current_stage'], $application['status']);
@@ -745,6 +1159,50 @@ class AdmissionController extends BaseController
         } catch (\Exception $e) {
             return $this->error('Failed to fetch application: ' . $e->getMessage());
         }
+    }
+
+    private function syncWorkflowIdentityData(array $workflowData, array $application): array
+    {
+        $workflowData['application_no'] = $application['application_no'] ?? ($workflowData['application_no'] ?? null);
+        $workflowData['applicant_name'] = $application['applicant_name'] ?? ($workflowData['applicant_name'] ?? null);
+        $workflowData['grade'] = $application['grade_applying_for'] ?? ($workflowData['grade'] ?? null);
+
+        return $workflowData;
+    }
+
+    private function normalizeAdmissionDocuments(array $documents): array
+    {
+        return array_map(function (array $document): array {
+            $fileUrl = $this->resolveAdmissionDocumentUrl($document);
+            $document['file_url'] = $fileUrl;
+            $document['download_url'] = $fileUrl;
+            $document['display_name'] = $document['media_original_name']
+                ?: basename((string) ($fileUrl ?: $document['document_path'] ?? ''));
+
+            return $document;
+        }, $documents);
+    }
+
+    private function resolveAdmissionDocumentUrl(array $document): ?string
+    {
+        $path = trim((string) ($document['document_path'] ?? ''));
+        if ($path !== '' && !ctype_digit($path)) {
+            return $path;
+        }
+
+        if (empty($document['media_filename']) || empty($document['media_context'])) {
+            return $path !== '' ? $path : null;
+        }
+
+        $url = '/uploads/' . $document['media_context'];
+        if (!empty($document['media_entity_id'])) {
+            $url .= '/' . $document['media_entity_id'];
+        }
+        if (!empty($document['media_album_id'])) {
+            $url .= '/album_' . $document['media_album_id'];
+        }
+
+        return $url . '/' . $document['media_filename'];
     }
 
     /**
@@ -778,13 +1236,17 @@ class AdmissionController extends BaseController
         }
 
         switch ($normalizedStage) {
-            case 'application':
-            case 'application_submission':
+            case 'application_received':
+            case 'application_review':
+                if ($this->canProcessAdmissionActionForStage('review_application', $normalizedStage)) {
+                    $actions[] = 'review-application';
+                }
                 if ($this->canProcessAdmissionActionForStage('upload_document', $normalizedStage)) {
                     $actions[] = 'upload-documents';
                 }
                 break;
-            case 'document_verification':
+            case 'documents_upload':
+            case 'documents_verification':
                 if ($this->canProcessAdmissionActionForStage('upload_document', $normalizedStage)) {
                     $actions[] = 'upload-documents';
                 }
@@ -792,24 +1254,46 @@ class AdmissionController extends BaseController
                     $actions[] = 'verify-documents';
                 }
                 break;
+            case 'class_space_check':
+                if ($this->canProcessAdmissionActionForStage('check_class_space', $normalizedStage)) {
+                    $actions[] = 'check-class-space';
+                }
+                break;
             case 'interview_scheduling':
                 if ($this->canProcessAdmissionActionForStage('schedule_interview', $normalizedStage)) {
                     $actions = ['schedule-interview'];
                 }
                 break;
-            case 'interview_assessment':
+            case 'interview_results':
                 if ($this->canProcessAdmissionActionForStage('record_interview', $normalizedStage)) {
                     $actions = ['record-interview'];
                 }
-                break;
-            case 'placement_offer':
-                if ($this->canProcessAdmissionActionForStage('placement_offer', $normalizedStage)) {
-                    $actions = ['generate-placement'];
+                if ($this->canProcessAdmissionActionForStage('admit_student', $normalizedStage)) {
+                    $actions[] = 'admit-student';
                 }
                 break;
-            case 'fee_payment':
+            case 'admission_decision':
+                if ($this->canProcessAdmissionActionForStage('admit_student', $normalizedStage)) {
+                    $actions = ['admit-student'];
+                }
+                break;
+            case 'provisional_student_creation':
+                if ($this->canProcessAdmissionActionForStage('create_provisional_student', $normalizedStage)) {
+                    $actions = ['create-provisional-student'];
+                }
+                break;
+            case 'fees_payment':
+            case 'student_id_generation':
                 if ($this->canProcessAdmissionActionForStage('record_payment', $normalizedStage)) {
-                    $actions = ['record-payment'];
+                    $actions[] = 'record-payment';
+                }
+                if ($this->canProcessAdmissionActionForStage('generate_id_card', $normalizedStage)) {
+                    $actions[] = 'generate-id-card';
+                }
+                break;
+            case 'final_approval':
+                if ($this->canProcessAdmissionActionForStage('final_approval', $normalizedStage)) {
+                    $actions = ['final-approval'];
                 }
                 break;
             case 'enrollment':
@@ -817,6 +1301,7 @@ class AdmissionController extends BaseController
                     $actions = ['complete-enrollment'];
                 }
                 break;
+            case 'enrolled':
             case 'director_confirmation':
                 if ($this->canProcessAdmissionActionForStage('confirm_enrollment', $normalizedStage)) {
                     $actions = ['confirm-enrollment'];
@@ -1091,6 +1576,12 @@ class AdmissionController extends BaseController
                 } else {
                     $response = $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
                 }
+            } elseif (isset($result['status'])) {
+                if ($result['status'] === 'success') {
+                    $response = $this->success($result['data'] ?? null, $result['message'] ?? 'Success');
+                } else {
+                    $response = $this->badRequest($result['error'] ?? $result['message'] ?? 'Operation failed');
+                }
             } else {
                 $response = $this->success($result);
             }
@@ -1109,8 +1600,44 @@ class AdmissionController extends BaseController
             return true;
         }
 
+        if ($this->admissionRoleCanProcessGroup($group)) {
+            return true;
+        }
+
         if ($group === 'view_any') {
             return $this->hasAdmissionRouteAccess();
+        }
+
+        return false;
+    }
+
+    private function admissionRoleCanProcessGroup(string $group): bool
+    {
+        $schoolAdminGroups = [
+            'review_application',
+            'upload_document',
+            'verify_document',
+            'check_class_space',
+            'schedule_interview',
+            'record_interview',
+            'admit_student',
+            'create_provisional_student',
+            'record_payment',
+            'generate_id_card',
+            'final_approval',
+            'complete_enrollment',
+        ];
+
+        if (in_array($group, $schoolAdminGroups, true)
+            && $this->userHasAny([], [4], ['School Administrator'])
+        ) {
+            return true;
+        }
+
+        if ($group === 'verify_document'
+            && $this->userHasAny([], [5, 6], ['Headteacher', 'Deputy Head - Academic'])
+        ) {
+            return true;
         }
 
         return false;
@@ -1373,7 +1900,22 @@ class AdmissionController extends BaseController
         }
 
         if ($stageCode === 'application_submission') {
-            return 'application';
+            return 'application_received';
+        }
+
+        $legacyMap = [
+            'application' => 'application_review',
+            'document_verification' => 'documents_verification',
+            'class_capacity_check' => 'class_space_check',
+            'interview_assessment' => 'interview_results',
+            'placement_offer' => 'admission_decision',
+            'fee_payment' => 'fees_payment',
+            'enrollment_confirmation' => 'enrollment',
+            'director_confirmation' => 'enrolled',
+        ];
+
+        if (isset($legacyMap[$stageCode])) {
+            return $legacyMap[$stageCode];
         }
 
         return $stageCode;
@@ -1384,18 +1926,18 @@ class AdmissionController extends BaseController
         $status = strtolower((string) ($application['status'] ?? ''));
         switch ($status) {
             case 'submitted':
-                return 'application';
+                return 'application_review';
             case 'documents_pending':
-                return 'document_verification';
+                return 'documents_verification';
             case 'documents_verified':
                 return $this->policy->requiresInterview((string) ($application['grade_applying_for'] ?? ''))
                     ? 'interview_scheduling'
-                    : 'placement_offer';
+                    : 'admission_decision';
             case 'placement_offered':
             case 'fees_pending':
-                return 'fee_payment';
+                return 'fees_payment';
             case 'enrolled':
-                return 'director_confirmation';
+                return 'enrolled';
             default:
                 return null;
         }
@@ -1648,7 +2190,7 @@ class AdmissionController extends BaseController
     private function getApplicationScopeRecord(int $applicationId): ?array
     {
         try {
-            $sql = "SELECT aa.*, wi.data_json, wi.started_by
+            $sql = "SELECT aa.*, wi.data_json, wi.current_stage, wi.started_by
                     FROM admission_applications aa
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id
                     WHERE aa.id = ?
@@ -1666,7 +2208,7 @@ class AdmissionController extends BaseController
     private function getApplicationScopeRecordByDocument(int $documentId): ?array
     {
         try {
-            $sql = "SELECT aa.*, wi.data_json, wi.started_by
+            $sql = "SELECT aa.*, wi.data_json, wi.current_stage, wi.started_by
                     FROM admission_documents ad
                     JOIN admission_applications aa ON aa.id = ad.application_id
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id

@@ -14,6 +14,7 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\Config\DashboardRouter;
 
 /**
  * DashboardController - Role-specific dashboard endpoints
@@ -1519,21 +1520,20 @@ class DashboardController extends BaseController
      */
     public function getConfig($id = null, $data = [], $segments = [])
     {
-        $router = new \DashboardRouter();
-
         // Get role dashboard mappings
-        $roleDashboards = $router->getRoleDashboards();
+        $roleDashboards = DashboardRouter::getRoleDashboards();
 
         // Get role name map
-        $roleNameMap = $router->getRoleNameMap();
+        $roleNameMap = DashboardRouter::getRoleNameMap();
 
         // Get default dashboard
-        $defaultDashboard = $router->getDefaultDashboard();
+        $defaultDashboard = DashboardRouter::getDefaultDashboard();
 
         return $this->success([
             'role_dashboards' => $roleDashboards,
             'role_name_map' => $roleNameMap,
             'default_dashboard' => $defaultDashboard,
+            'dashboard_registry' => DashboardRouter::getDashboardRegistry(),
         ], 'Dashboard config retrieved');
     }
 
@@ -1549,13 +1549,14 @@ class DashboardController extends BaseController
             return $this->badRequest('role_id required');
         }
 
-        $router = new \DashboardRouter();
-        $dashboardKey = $router->getDashboardForRole($roleId);
+        $dashboardKey = DashboardRouter::getDashboardForRole($roleId);
 
         return $this->success([
             'role_id' => $roleId,
             'dashboard_key' => $dashboardKey,
             'dashboard_file' => $dashboardKey . '.php',
+            'dashboard_exists' => DashboardRouter::dashboardExists($dashboardKey),
+            'controller_exists' => DashboardRouter::getDashboardJsPath($dashboardKey) !== null,
         ], 'Dashboard route retrieved');
     }
 

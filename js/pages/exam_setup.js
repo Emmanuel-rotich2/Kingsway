@@ -1218,7 +1218,7 @@ const examSetupController = (() => {
     const win = window.open("", "_blank");
     win.document.write(`
             <html><head><title>Exam Configurations</title>
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
             <style>
                 body { padding: 20px; font-size: 12px; }
                 @media print { .no-print { display: none; } }

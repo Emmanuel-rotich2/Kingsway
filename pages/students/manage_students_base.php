@@ -1,7 +1,7 @@
 <?php
 /**
  * Manage Students Page
- * HTML structure only - all logic in js/pages/students.js (studentsManagementController)
+ * HTML structure only - all logic in js/pages/manage_students.js (studentsManagementController)
  * Embedded in app_layout.php
  * 
  * Role-based access:
@@ -31,11 +31,7 @@
                         data-role="registrar,school_administrator,admin">
                     <i class="bi bi-upload"></i> Bulk Import
                 </button>
-                <!-- Export available to most roles -->
-                <button class="btn btn-outline-light btn-sm" onclick="studentsManagementController.exportStudents()"
-                        data-permission="students_view">
-                    <i class="bi bi-download"></i> Export
-                </button>
+                <!-- Export will be added after a routed Students export API is available. -->
             </div>
         </div>
     </div>
@@ -215,10 +211,10 @@
                         <div class="col-md-6">
                             <label class="form-label">Student Photo</label>
                             <input type="file" id="studentProfilePic" name="profile_pic" class="form-control" accept="image/*">
-                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB. Optional for now.</small>
+                            <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="<?= $appBase ?>/images/default-avatar.png" 
+                            <img id="studentPhotoPreview" src="images/default-avatar.png"
                                 class="rounded-circle" width="80" height="80" 
                                 onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
@@ -612,5 +608,5 @@ $admissionNumber = generateAdmissionNumber();
 </div>
 
 <!-- Link Controller Script -->
-<script src="<?= $appBase ?>/js/pages/manage_students.js"></script>
-<script src="<?= $appBase ?>/js/pages/student_schedule_extension.js"></script>
+<script src="js/pages/manage_students.js?v=20260702"></script>
+<script src="js/pages/student_schedule_extension.js?v=20260702"></script>

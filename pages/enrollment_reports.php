@@ -1,36 +1,170 @@
 <?php
 /**
  * Enrollment Reports Page
- * HTML structure only - logic will be in js/pages/enrollment_reports.js
- * Embedded in app_layout.php
+ *
+ * Comprehensive admissions and enrollment reporting dashboard.
+ * Shows statistics, trends, conversion rates, and exportable reports.
  */
+$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($appBase === '.')
+    $appBase = '';
 ?>
+<style>
+    .enrollment-reports-page {
+        min-height: calc(100vh - 110px);
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #f7fbf8 0%, #eef7f1 48%, #fff8e1 100%);
+    }
 
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-info text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-user-graduate"></i> Enrollment Reports</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="exportExcelBtn">
-                    <i class="bi bi-file-excel"></i> Export Excel
+    .enrollment-reports-hero {
+        border: 1px solid rgba(23, 162, 184, 0.18);
+        border-radius: 1.25rem;
+        background: linear-gradient(135deg, #17a2b8 0%, #138496 72%);
+        color: #fff;
+        box-shadow: 0 1rem 2.5rem rgba(19, 132, 150, 0.18);
+    }
+
+    .enrollment-reports-hero .text-muted {
+        color: rgba(255, 255, 255, 0.78) !important;
+    }
+
+    .enrollment-reports-panel {
+        border-radius: 1.25rem;
+        background: rgba(255, 255, 255, 0.96);
+        box-shadow: 0 0.75rem 2rem rgba(23, 162, 184, 0.08);
+    }
+
+    .enrollment-reports-panel .card {
+        border-color: rgba(23, 162, 184, 0.16);
+    }
+
+    .stat-card {
+        border: none;
+        border-radius: 1rem;
+        background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+        box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.05);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .stat-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.1);
+    }
+
+    .stat-icon {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.5rem;
+    }
+
+    .chart-container {
+        position: relative;
+        height: 300px;
+    }
+
+    @media (max-width: 767.98px) {
+        .enrollment-reports-page {
+            padding: 1rem;
+        }
+    }
+</style>
+
+<div class="enrollment-reports-page">
+    <!-- Hero Section -->
+    <div class="enrollment-reports-hero p-4 mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <p class="text-muted text-uppercase fw-semibold small mb-1">Admissions Analytics</p>
+                <h4 class="mb-1">Enrollment Reports</h4>
+                <p class="mb-0 text-muted">Comprehensive admissions and enrollment statistics</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-light" onclick="enrollmentReportsController.refreshData()">
+                    <i class="bi bi-arrow-clockwise me-2"></i>Refresh
                 </button>
-                <button class="btn btn-outline-light btn-sm" id="printBtn">
-                    <i class="bi bi-printer"></i> Print
+                <button class="btn btn-light" onclick="enrollmentReportsController.exportReport()">
+                    <i class="bi bi-download me-2"></i>Export
                 </button>
             </div>
         </div>
     </div>
 
-    <div class="card-body">
+    <!-- Summary Cards -->
+    <div class="row g-3 mb-4" id="summaryCards">
+        <div class="col-6 col-md-3">
+            <div class="stat-card p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-file-earmark-text"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold" id="statTotalApplications">—</div>
+                        <div class="text-muted small">Total Applications</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="stat-icon bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-check-circle"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold" id="statApproved">—</div>
+                        <div class="text-muted small">Approved</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                        <i class="bi bi-pause-circle"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold" id="statWaitlisted">—</div>
+                        <div class="text-muted small">Waitlisted</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="stat-card p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="stat-icon bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-person-check"></i>
+                    </div>
+                    <div>
+                        <div class="fs-4 fw-bold" id="statEnrolled">—</div>
+                        <div class="text-muted small">Enrolled</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Panel -->
+    <div class="enrollment-reports-panel p-3 p-lg-4">
         <!-- Report Filters -->
-        <div class="row mb-4">
+        <div class="row g-3 mb-4">
             <div class="col-md-3">
-                <label class="form-label">Academic Year</label>
-                <select class="form-select" id="academicYear"></select>
+                <label class="form-label small fw-semibold">Academic Year</label>
+                <select id="filterAcademicYear" class="form-select">
+                    <option value="">All Years</option>
+                    <option value="2024">2024</option>
+                    <option value="2025">2025</option>
+                    <option value="2026">2026</option>
+                </select>
             </div>
             <div class="col-md-3">
-                <label class="form-label">Term</label>
-                <select class="form-select" id="term">
+                <label class="form-label small fw-semibold">Term</label>
+                <select id="filterTerm" class="form-select">
                     <option value="">All Terms</option>
                     <option value="1">Term 1</option>
                     <option value="2">Term 2</option>
@@ -38,140 +172,105 @@
                 </select>
             </div>
             <div class="col-md-3">
-                <label class="form-label">Class/Level</label>
-                <select class="form-select" id="classLevel">
-                    <option value="">All Classes</option>
+                <label class="form-label small fw-semibold">Report Type</label>
+                <select id="filterReportType" class="form-select">
+                    <option value="overview">Overview</option>
+                    <option value="by_class">By Class</option>
+                    <option value="by_gender">By Gender</option>
+                    <option value="by_month">Monthly Trend</option>
+                    <option value="conversion">Conversion Rate</option>
                 </select>
             </div>
             <div class="col-md-3">
-                <label class="form-label">&nbsp;</label>
-                <button class="btn btn-primary w-100" id="generateReportBtn">Generate Report</button>
+                <label class="form-label small fw-semibold">Date Range</label>
+                <input type="date" id="filterDateFrom" class="form-control mb-1">
+                <input type="date" id="filterDateTo" class="form-control">
             </div>
         </div>
 
-        <!-- Enrollment Summary -->
-        <div class="row mb-4">
-            <div class="col-md-3">
-                <div class="card border-primary">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Total Students</h6>
-                        <h3 class="text-primary mb-0" id="totalStudents">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-success">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">New Admissions</h6>
-                        <h3 class="text-success mb-0" id="newAdmissions">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-warning">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Transfers Out</h6>
-                        <h3 class="text-warning mb-0" id="transfersOut">0</h3>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card border-info">
-                    <div class="card-body text-center">
-                        <h6 class="text-muted mb-2">Retention Rate</h6>
-                        <h3 class="text-info mb-0" id="retentionRate">0%</h3>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Charts -->
-        <div class="row mb-4">
+        <!-- Charts Row -->
+        <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <div class="card">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">Applications by Status</h6>
+                    </div>
                     <div class="card-body">
-                        <h5 class="card-title">Enrollment by Class</h5>
-                        <canvas id="enrollmentByClassChart" height="80"></canvas>
+                        <div class="chart-container">
+                            <canvas id="statusChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Enrollment Trend</h5>
-                        <canvas id="enrollmentTrendChart" height="80"></canvas>
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">Applications by Class</h6>
                     </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Gender Distribution -->
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card">
                     <div class="card-body">
-                        <h5 class="card-title">Gender Distribution</h5>
-                        <canvas id="genderChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="card-title">Enrollment by Stream/Section</h5>
-                        <div class="table-responsive">
-                            <table class="table table-sm">
-                                <thead>
-                                    <tr>
-                                        <th>Class</th>
-                                        <th>Boys</th>
-                                        <th>Girls</th>
-                                        <th>Total</th>
-                                        <th>Capacity</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="streamEnrollment">
-                                    <!-- Dynamic content -->
-                                </tbody>
-                            </table>
+                        <div class="chart-container">
+                            <canvas id="classChart"></canvas>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Detailed Report -->
+        <!-- Additional Charts Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">Gender Distribution</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="genderChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h6 class="mb-0">Monthly Admissions Trend</h6>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Reports Table -->
         <div class="card">
-            <div class="card-body">
-                <h5 class="card-title">Detailed Enrollment Report</h5>
+            <div class="card-header bg-light">
+                <h6 class="mb-0">Detailed Applications Report</h6>
+            </div>
+            <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-bordered table-hover" id="enrollmentTable">
-                        <thead class="table-light">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light">
                             <tr>
-                                <th>Class</th>
-                                <th>Stream</th>
-                                <th>Boys</th>
-                                <th>Girls</th>
-                                <th>Total</th>
-                                <th>Boarding</th>
-                                <th>Day</th>
-                                <th>Teacher</th>
+                                <th>Application No</th>
+                                <th>Applicant Name</th>
+                                <th>Grade</th>
+                                <th>Gender</th>
+                                <th>Status</th>
+                                <th>Submitted Date</th>
+                                <th>Current Stage</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <!-- Dynamic content -->
-                        </tbody>
-                        <tfoot class="table-light fw-bold">
+                        <tbody id="reportsTableBody">
                             <tr>
-                                <td colspan="2">TOTALS</td>
-                                <td id="totalBoys">0</td>
-                                <td id="totalGirls">0</td>
-                                <td id="grandTotal">0</td>
-                                <td id="totalBoarding">0</td>
-                                <td id="totalDay">0</td>
-                                <td></td>
+                                <td colspan="7" class="text-center py-4">
+                                    <div class="spinner-border text-info" role="status"></div>
+                                    <div class="mt-2 text-muted">Loading report data...</div>
+                                </td>
                             </tr>
-                        </tfoot>
+                        </tbody>
                     </table>
                 </div>
             </div>
@@ -179,4 +278,12 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/enrollment_reports.js"></script>
+<script>
+    window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
+</script>
+
+<script
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/enrollment_reports.js?v=<?= time() ?>"
+    onload="console.log('enrollment_reports.js script tag loaded successfully')"
+    onerror="console.error('FAILED to load enrollment_reports.js. Check path:', this.src)">
+</script>

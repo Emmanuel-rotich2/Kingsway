@@ -1297,7 +1297,7 @@ const PayrollManagerController = {
 
     const bootstrap = doc.createElement("link");
     bootstrap.rel = "stylesheet";
-    bootstrap.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    bootstrap.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
     doc.head.appendChild(bootstrap);
 
     const style = doc.createElement("style");
@@ -1324,7 +1324,7 @@ const PayrollManagerController = {
 
     var bsLink = doc.createElement("link");
     bsLink.rel = "stylesheet";
-    bsLink.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    bsLink.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
     doc.head.appendChild(bsLink);
 
     var style = doc.createElement("style");

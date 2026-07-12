@@ -14,9 +14,9 @@ class MediaManager
     }
 
     // Upload media file
-    public function upload($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '')
+    public function upload($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '', $preferredBaseName = null)
     {
-        return $this->mediaService->uploadMedia($file, $context, $entityId, $albumId, $uploaderId, $description, $tags);
+        return $this->mediaService->uploadMedia($file, $context, $entityId, $albumId, $uploaderId, $description, $tags, $preferredBaseName);
     }
 
     // Create album
@@ -71,6 +71,11 @@ class MediaManager
     public function getPreviewUrl($mediaId)
     {
         return $this->mediaService->getPreviewUrl($mediaId);
+    }
+
+    public function getFileUrl($mediaId)
+    {
+        return $this->mediaService->getFileUrl($mediaId);
     }
 
     // Import existing file from disk into uploads and register metadata

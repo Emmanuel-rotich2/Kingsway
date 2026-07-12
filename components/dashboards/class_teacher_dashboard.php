@@ -149,7 +149,7 @@
     <div class="card dash-card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <h6 class="mb-0"><i class="bi bi-people me-2 text-primary"></i>Class Roster</h6>
-            <a href="<?= $appBase ?>home.php?route=all_students" class="btn btn-sm btn-outline-primary">View All Students</a>
+            <a href="<?= $appBase ?>home.php?route=my_students_list" class="btn btn-sm btn-outline-primary">View My Students</a>
         </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0" id="studentRosterTable">

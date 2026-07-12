@@ -1,8 +1,8 @@
 <?php
 /**
- * Manage Students - Legacy Entry
+ * School Admin student management.
  *
- * Canonical students routing now lives in all_students.php.
- * Keep this file as a compatibility alias so old links keep working.
+ * This page intentionally keeps the existing CRUD controller/template as the
+ * operational admin surface. Non-admin roles should use role-context pages.
  */
-include __DIR__ . '/all_students.php';
+include __DIR__ . '/students/manage_students_base.php';

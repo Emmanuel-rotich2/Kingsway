@@ -90,49 +90,22 @@ const DashboardRouter = {
 
     if (cachedConfig && cachedVersion) {
       try {
-        // Verify version with server (lightweight check)
-        const versionResponse = await fetch('/api/dashboard?action=config', {
-          method: 'HEAD',
-          headers: {
-            'Accept': 'application/json',
-          },
-          credentials: 'include',
-        });
-
-        // If server version matches cache, use cached config
-        const serverVersion = versionResponse.headers.get('X-Config-Version');
-        if (serverVersion && serverVersion === cachedVersion) {
-          console.log('[DashboardRouter] Using cached config');
-          return JSON.parse(cachedConfig);
-        }
+        console.log('[DashboardRouter] Using cached config');
+        return JSON.parse(cachedConfig);
       } catch (e) {
-        // Cache validation failed, fetch fresh
-        console.warn('[DashboardRouter] Cache validation failed, fetching fresh config');
+        sessionStorage.removeItem(cacheKey);
+        sessionStorage.removeItem(versionKey);
+        console.warn('[DashboardRouter] Cached config invalid, fetching fresh config');
       }
     }
 
-    // Fetch fresh config from API
-    const response = await fetch('/api/dashboard?action=config', {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
+    // Fetch fresh config from authenticated API
+    const config = await apiCall('/dashboard/config', 'GET', null, {}, {
+      checkPermission: false,
+      showSuccess: false,
     });
 
-    if (!response.ok) {
-      throw new Error(`Dashboard config fetch failed: ${response.status}`);
-    }
-
-    const result = await response.json();
-
-    if (!result.success) {
-      throw new Error(result.message || 'Failed to fetch dashboard config');
-    }
-
-    const config = result.data;
-    config.version = result.version || Date.now();
+    config.version = Date.now();
 
     // Cache in sessionStorage
     sessionStorage.setItem(cacheKey, JSON.stringify(config));
@@ -207,7 +180,18 @@ const DashboardRouter = {
     }
 
     const dashboards = this._configCache.role_dashboards || {};
-    return dashboards[roleId] || this._configCache.default_dashboard || 'headteacher_dashboard';
+    return this.normalizeDashboardKey(dashboards[roleId] || this._configCache.default_dashboard || 'headteacher_dashboard');
+  },
+
+  normalizeDashboardKey(dashboardKey) {
+    const aliases = {
+      dashboard: "headteacher_dashboard",
+      home: "headteacher_dashboard",
+      director_dashboard: "director_owner_dashboard",
+      school_admin_dashboard: "school_administrative_officer_dashboard",
+      accountant_controls_dashboard: "store_manager_dashboard",
+    };
+    return aliases[dashboardKey] || dashboardKey;
   },
 
   /**
@@ -272,10 +256,11 @@ const DashboardRouter = {
    * Returns promise that resolves when controller is available
    */
   loadDashboardScript(dashboardKey) {
+    dashboardKey = this.normalizeDashboardKey(dashboardKey);
     // Convert dashboard key to JS file name
     // e.g., "class_teacher_dashboard" -> "class_teacher_dashboard.js"
     const fileName = `${dashboardKey}.js`;
-    const scriptUrl = `js/dashboards/${fileName}`;
+    const scriptUrl = `${window.APP_BASE || ""}/js/dashboards/${fileName}`;
 
     // Check if already loaded
     if (document.querySelector(`script[src*="${fileName}"]`)) {
@@ -285,7 +270,6 @@ const DashboardRouter = {
     return new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = scriptUrl;
-      script.type = 'module';
       script.onload = () => resolve();
       script.onerror = () => reject(new Error(`Failed to load dashboard script: ${fileName}`));
       document.head.appendChild(script);
@@ -397,8 +381,5 @@ const DashboardRouter = {
   },
 };
 
-// Export for module usage
-export default DashboardRouter;
-
-// Also attach to window for backward compatibility with inline scripts
+// Attach to window for page scripts
 window.DashboardRouter = DashboardRouter;

@@ -1,17 +1,26 @@
 /**
- * Student Performance Page Controller
- * Real-data implementation with schema-aware normalization.
+ * Student Performance Overview Controller
+ * One page:
+ * - overview list
+ * - class/stream/school modes
+ * - modal drill-down for individual student
  */
 
 const StudentPerformanceController = {
   state: {
-    students: [],
+    overviewRows: [],
     academicYears: [],
     terms: [],
+    classes: [],
+    streams: [],
+    selectedStudentId: null,
     profile: null,
     performance: [],
-    attendanceRecords: [],
     attendanceSummary: {},
+    discipline: [],
+    activities: [],
+    financeSummary: {},
+    healthSummary: {},
     charts: {
       subject: null,
       trend: null,
@@ -21,636 +30,1023 @@ const StudentPerformanceController = {
   ui: {},
 
   init: async function () {
-    if (!AuthContext.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
+    console.log("StudentPerformanceController: Initializing...");
+
+    // 1. Check authentication safely if AuthContext exists
+    if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+      if (!window.AuthContext.isAuthenticated()) {
+        console.warn("StudentPerformanceController: Not authenticated, redirecting to login");
+        window.location.href = (window.APP_BASE || "") + "/index.php";
+        return;
+      }
+    } else {
+      console.warn("StudentPerformanceController: AuthContext not available");
     }
 
     this.cacheDom();
-    this.attachEventListeners();
-    await this.loadReferenceData();
+    this.attachEvents();
+
+    console.log("StudentPerformanceController: Loading metadata...");
+    // 2. Load meta first, then overview immediately
+    await this.loadMeta();
+    console.log("StudentPerformanceController: Loading overview...");
+    await this.loadOverview();
+    console.log("StudentPerformanceController: Initialization complete");
   },
 
   cacheDom: function () {
+    const $ = (id) => document.getElementById(id);
+
     this.ui = {
-      studentSelect: document.getElementById("studentSelect"),
-      academicYear: document.getElementById("academicYear"),
-      term: document.getElementById("term"),
-      loadBtn: document.getElementById("loadBtn"),
-      exportBtn: document.getElementById("exportBtn"),
-      printBtn: document.getElementById("printBtn"),
-      reportContent: document.getElementById("reportContent"),
-      emptyState: document.getElementById("emptyState"),
-      subjectsTableBody: document.getElementById("subjectsTableBody"),
-      teacherComments: document.getElementById("teacherComments"),
-      recommendations: document.getElementById("recommendations"),
-      studentPhoto: document.getElementById("studentPhoto"),
-      studentName: document.getElementById("studentName"),
-      admNo: document.getElementById("admNo"),
-      studentClass: document.getElementById("studentClass"),
-      stream: document.getElementById("stream"),
-      overallAvg: document.getElementById("overallAvg"),
-      position: document.getElementById("position"),
-      overallGrade: document.getElementById("overallGrade"),
-      totalMarks: document.getElementById("totalMarks"),
-      meanScore: document.getElementById("meanScore"),
-      subjectsCount: document.getElementById("subjectsCount"),
-      attendanceRate: document.getElementById("attendanceRate"),
-      subjectChart: document.getElementById("subjectPerformanceChart"),
-      trendChart: document.getElementById("progressTrendChart"),
+      viewMode: $("viewMode"),
+      academicYearFilter: $("academicYearFilter"),
+      termFilter: $("termFilter"),
+      classFilter: $("classFilter"),
+      streamFilter: $("streamFilter"),
+      genderFilter: $("genderFilter"),
+      monthFilter: $("monthFilter"),
+      studentSearch: $("studentSearch"),
+      applyFiltersBtn: $("applyFiltersBtn"),
+      resetFiltersBtn: $("resetFiltersBtn"),
+      exportOverviewBtn: $("exportOverviewBtn"),
+      printOverviewBtn: $("printOverviewBtn"),
+
+      summaryStudents: $("summaryStudents"),
+      summaryAverage: $("summaryAverage"),
+      summaryTopStudent: $("summaryTopStudent"),
+      summaryBestGroup: $("summaryBestGroup"),
+      viewModeBadge: $("viewModeBadge"),
+
+      overviewLoading: $("overviewLoading"),
+      overviewError: $("overviewError"),
+      overviewEmpty: $("overviewEmpty"),
+      overviewTableHead: $("overviewTableHead"),
+      performanceOverviewBody: $("performanceOverviewBody"),
+
+      modal: $("studentPerformanceModal"),
+      modalStudentSubtitle: $("modalStudentSubtitle"),
+      modalAcademicYear: $("modalAcademicYear"),
+      modalTerm: $("modalTerm"),
+      modalAssessment: $("modalAssessment"),
+      reloadStudentReportBtn: $("reloadStudentReportBtn"),
+      printStudentReportBtn: $("printStudentReportBtn"),
+      modalLoading: $("modalLoading"),
+      modalError: $("modalError"),
+      modalReportContent: $("modalReportContent"),
+
+      studentPhoto: $("studentPhoto"),
+      studentName: $("studentName"),
+      admNo: $("admNo"),
+      studentClass: $("studentClass"),
+      stream: $("stream"),
+      overallAvg: $("overallAvg"),
+      position: $("position"),
+      overallGrade: $("overallGrade"),
+
+      totalMarks: $("totalMarks"),
+      meanScore: $("meanScore"),
+      subjectsCount: $("subjectsCount"),
+      attendanceRate: $("attendanceRate"),
+
+      disciplineCases: $("disciplineCases"),
+      activitiesCount: $("activitiesCount"),
+      feeBalance: $("feeBalance"),
+      healthAlerts: $("healthAlerts"),
+
+      subjectChart: $("subjectPerformanceChart"),
+      trendChart: $("progressTrendChart"),
+      subjectsTableBody: $("subjectsTableBody"),
+
+      teacherComments: $("teacherComments"),
+      disciplineDetails: $("disciplineDetails"),
+      activitiesDetails: $("activitiesDetails"),
+      attendanceDetails: $("attendanceDetails"),
+      financeDetails: $("financeDetails"),
+      recommendations: $("recommendations"),
     };
-  },
 
-  attachEventListeners: function () {
-    this.ui.loadBtn?.addEventListener("click", () => this.loadReport());
-    this.ui.exportBtn?.addEventListener("click", () => this.exportReport());
-    this.ui.printBtn?.addEventListener("click", () => window.print());
-
-    this.ui.academicYear?.addEventListener("change", async () => {
-      await this.loadTerms(this.ui.academicYear.value || "");
-    });
-  },
-
-  loadReferenceData: async function () {
-    await Promise.all([this.loadStudents(), this.loadAcademicYears()]);
-    await this.loadTerms(this.ui.academicYear?.value || "");
-  },
-
-  loadStudents: async function () {
-    try {
-      const response = await window.API.students.getAll({
-        page: 1,
-        limit: 1000,
-        status: "active",
-      });
-      this.state.students = Array.isArray(response?.data) ? response.data : [];
-      this.populateStudents();
-    } catch (error) {
-      console.warn("Failed to load students", error);
-      this.state.students = [];
-      this.populateStudents();
+    // Check if critical DOM elements exist
+    if (!this.ui.performanceOverviewBody) {
+      console.error("StudentPerformanceController: Critical DOM element 'performanceOverviewBody' not found");
+    }
+    if (!this.ui.overviewTableHead) {
+      console.error("StudentPerformanceController: Critical DOM element 'overviewTableHead' not found");
     }
   },
 
-  loadAcademicYears: async function () {
+  attachEvents: function () {
+    this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadOverview());
+    this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
+    this.ui.printOverviewBtn?.addEventListener("click", () => this.prepareAndPrint('overview'));
+    this.ui.exportOverviewBtn?.addEventListener("click", () => this.exportOverview());
+
+    this.ui.studentSearch?.addEventListener(
+      "input",
+      this.debounce(() => this.loadOverview(), 400)
+    );
+
+    this.ui.viewMode?.addEventListener("change", () => this.loadOverview());
+
+    this.ui.classFilter?.addEventListener("change", () => {
+      this.updateStreamsFilter();
+      this.loadOverview();
+    });
+
+    this.ui.streamFilter?.addEventListener("change", () => this.loadOverview());
+    this.ui.academicYearFilter?.addEventListener("change", () => this.loadOverview());
+    this.ui.termFilter?.addEventListener("change", () => this.loadOverview());
+
+    this.ui.reloadStudentReportBtn?.addEventListener("click", () => {
+      if (this.state.selectedStudentId) {
+        this.loadStudentReport(this.state.selectedStudentId);
+      }
+    });
+
+    this.ui.printStudentReportBtn?.addEventListener("click", () => this.prepareAndPrint('modal'));
+
+    // Set print date on load
+    this.setPrintDate();
+  },
+
+  loadMeta: async function () {
     try {
-      const response = await window.API.academic.getAllAcademicYears();
-      const years = this.extractList(response);
-      this.state.academicYears = years;
-      this.populateAcademicYears();
+      console.log("StudentPerformanceController: Fetching performance metadata...");
+      const response = await this.api("/students/performance-meta", "GET");
+      console.log("StudentPerformanceController: Metadata response:", response);
+      const data = this.unwrap(response);
+      console.log("StudentPerformanceController: Unwrapped metadata:", data);
+
+      this.state.classes = data.classes || [];
+      this.state.streams = data.streams || [];
+      this.state.academicYears = data.academic_years || [];
+      this.state.terms = data.terms || [];
+
+      console.log("StudentPerformanceController: Loaded classes:", this.state.classes.length);
+      console.log("StudentPerformanceController: Loaded streams:", this.state.streams.length);
+      console.log("StudentPerformanceController: Loaded academic years:", this.state.academicYears.length);
+      console.log("StudentPerformanceController: Loaded terms:", this.state.terms.length);
+
+      // Fill overview filters
+      this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
+      this.fillSelect(this.ui.termFilter, this.state.terms, "All Terms");
+      this.fillSelect(this.ui.classFilter, this.state.classes, "All Classes");
+
+      this.updateStreamsFilter();
+
+      // Fill modal filters
+      this.fillSelect(this.ui.modalAcademicYear, this.state.academicYears, "All Years");
+      this.fillSelect(this.ui.modalTerm, this.state.terms, "All Terms");
+
+      const assessments = data.assessments || [];
+      this.fillSelect(this.ui.modalAssessment, assessments, "All Assessments");
     } catch (error) {
-      console.warn("Failed to load academic years", error);
+      console.error("StudentPerformanceController: Failed to load metadata:", error);
+      // Don't show error for metadata failure - just log it and continue with empty data
+      console.warn("StudentPerformanceController: Continuing with empty filter data");
+      this.state.classes = [];
+      this.state.streams = [];
       this.state.academicYears = [];
-      this.populateAcademicYears();
-    }
-  },
-
-  loadTerms: async function (academicYear = "") {
-    try {
-      const params = {};
-      if (academicYear) {
-        params.academic_year = academicYear;
-        params.year = academicYear;
-      }
-
-      const response = await window.API.academic.listTerms(params);
-      const terms = this.extractList(response);
-      this.state.terms = terms;
-      this.populateTerms(terms);
-    } catch (error) {
-      console.warn("Failed to load terms", error);
       this.state.terms = [];
-      this.populateTerms([]);
     }
   },
 
-  populateStudents: function () {
-    if (!this.ui.studentSelect) {
-      return;
-    }
-
-    this.ui.studentSelect.innerHTML =
-      '<option value="">Choose a student...</option>';
-
-    this.state.students.forEach((student) => {
-      const firstName = student.first_name || "";
-      const lastName = student.last_name || "";
-      const admissionNo = student.admission_no || "";
-
-      const option = document.createElement("option");
-      option.value = student.id;
-      option.textContent = `${admissionNo} - ${firstName} ${lastName}`.trim();
-      this.ui.studentSelect.appendChild(option);
-    });
+  updateStreamsFilter: function () {
+    const classId = this.ui.classFilter?.value || "";
+    const filtered = classId
+      ? this.state.streams.filter((s) => String(s.class_id) === String(classId))
+      : this.state.streams;
+    this.fillSelect(this.ui.streamFilter, filtered, "All Streams");
   },
 
-  populateAcademicYears: function () {
-    if (!this.ui.academicYear) {
-      return;
-    }
-
-    this.ui.academicYear.innerHTML = '<option value="">All Years</option>';
-
-    let selectedValue = "";
-    this.state.academicYears.forEach((year) => {
-      const yearValue = this.resolveAcademicYearValue(year);
-      if (!yearValue) {
-        return;
-      }
-
-      const option = document.createElement("option");
-      option.value = String(yearValue);
-      option.textContent = year.year_code || year.year_name || String(yearValue);
-      this.ui.academicYear.appendChild(option);
-
-      const isCurrent = year.is_current === 1 || year.is_current === "1" ||
-        year.is_current === true;
-      if (isCurrent) {
-        selectedValue = String(yearValue);
-      }
-    });
-
-    if (selectedValue) {
-      this.ui.academicYear.value = selectedValue;
-    } else if (this.ui.academicYear.options.length > 1) {
-      this.ui.academicYear.selectedIndex = 1;
-    }
-  },
-
-  populateTerms: function (terms) {
-    if (!this.ui.term) {
-      return;
-    }
-
-    this.ui.term.innerHTML = '<option value="">All Terms</option>';
-
-    const filtered = (terms || [])
-      .filter((term) => term && term.id !== undefined && term.id !== null)
-      .sort((a, b) => {
-        const ayA = parseInt(a.year || 0, 10);
-        const ayB = parseInt(b.year || 0, 10);
-        if (ayA !== ayB) {
-          return ayB - ayA;
-        }
-        return (parseInt(a.term_number || 0, 10) - parseInt(b.term_number || 0, 10));
-      });
-
-    filtered.forEach((term) => {
-      const option = document.createElement("option");
-      option.value = term.id;
-      const termLabel = term.term_number ? `Term ${term.term_number}` : (term.name || "Term");
-      const yearLabel = term.year ? ` (${term.year})` : "";
-      option.textContent = `${termLabel}${yearLabel}`;
-      this.ui.term.appendChild(option);
-    });
-  },
-
-  loadReport: async function () {
-    const studentId = this.ui.studentSelect?.value || "";
-    const year = this.ui.academicYear?.value || "";
-    const termId = this.ui.term?.value || "";
-
-    if (!studentId) {
-      this.showError("Please select a student.");
-      return;
-    }
-
-    this.setLoading(true);
+  loadOverview: async function () {
+    this.setOverviewLoading(true);
 
     try {
-      const profileResp = await window.API.students.getProfile(studentId);
-      this.state.profile = this.unwrapPayload(profileResp) || null;
+      const params = this.getOverviewParams();
+      console.log("StudentPerformanceController: Loading overview with params:", params.toString());
+      const response = await this.api(`/students/performance-overview?${params.toString()}`, "GET");
+      console.log("StudentPerformanceController: Overview response:", response);
+      const rows = this.unwrap(response) || [];
+      console.log("StudentPerformanceController: Unwrapped rows:", rows.length);
 
+      this.state.overviewRows = rows;
+      this.renderOverview();
+    } catch (error) {
+      console.error("StudentPerformanceController: Failed to load overview:", error);
+      this.showOverviewError(error.message || "Failed to load performance overview.");
+    } finally {
+      this.setOverviewLoading(false);
+    }
+  },
+
+  getOverviewParams: function () {
+    const params = new URLSearchParams();
+    params.set("view_mode", this.ui.viewMode?.value || "students");
+
+    const filters = {
+      academic_year: this.ui.academicYearFilter?.value || "",
+      term_id: this.ui.termFilter?.value || "",
+      class_id: this.ui.classFilter?.value || "",
+      stream_id: this.ui.streamFilter?.value || "",
+      gender: this.ui.genderFilter?.value || "",
+      month: this.ui.monthFilter?.value || "",
+      search: this.ui.studentSearch?.value.trim() || "",
+    };
+
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== "") params.set(key, val);
+    });
+
+    return params;
+  },
+
+  renderOverview: function () {
+    const viewMode = this.ui.viewMode?.value || "students";
+    const summary = this.calculateOverviewSummary(this.state.overviewRows);
+
+    this.renderSummary(summary);
+    this.renderOverviewHeader(viewMode);
+    this.renderOverviewRows(viewMode, this.state.overviewRows);
+
+    this.ui.viewModeBadge.textContent = this.labelForViewMode(viewMode);
+    this.ui.overviewEmpty.classList.toggle("d-none", this.state.overviewRows.length > 0);
+  },
+
+  renderSummary: function (summary) {
+    this.ui.summaryStudents.textContent = summary.total_students ?? 0;
+    this.ui.summaryAverage.textContent = `${summary.average_score ?? 0}%`;
+    this.ui.summaryTopStudent.textContent = summary.top_student ?? "-";
+    this.ui.summaryBestGroup.textContent = summary.best_group ?? "-";
+  },
+
+  renderOverviewHeader: function (viewMode) {
+    if (viewMode === "class") {
+      this.ui.overviewTableHead.innerHTML = `
+        <tr>
+          <th>Class</th>
+          <th>Students</th>
+          <th>Average Score</th>
+          <th>Grade</th>
+          <th>Attendance Rate</th>
+          <th>Total Fee Balance</th>
+          <th>Discipline Cases</th>
+          <th>Activities</th>
+        </tr>
+      `;
+      return;
+    }
+
+    if (viewMode === "stream") {
+      this.ui.overviewTableHead.innerHTML = `
+        <tr>
+          <th>Class</th>
+          <th>Stream</th>
+          <th>Students</th>
+          <th>Average Score</th>
+          <th>Grade</th>
+          <th>Attendance Rate</th>
+          <th>Total Fee Balance</th>
+          <th>Discipline Cases</th>
+          <th>Activities</th>
+        </tr>
+      `;
+      return;
+    }
+
+    if (viewMode === "school") {
+      this.ui.overviewTableHead.innerHTML = `
+        <tr>
+          <th>Scope</th>
+          <th>Students</th>
+          <th>Average Score</th>
+          <th>Grade</th>
+          <th>Attendance Rate</th>
+          <th>Total Fee Balance</th>
+          <th>Discipline Cases</th>
+          <th>Activities</th>
+        </tr>
+      `;
+      return;
+    }
+
+    // Default: students view
+    this.ui.overviewTableHead.innerHTML = `
+      <tr>
+        <th>Student ID</th>
+        <th>Adm No</th>
+        <th>Name</th>
+        <th>Class</th>
+        <th>Stream</th>
+        <th>Gender</th>
+        <th>Average Score</th>
+        <th>Grade</th>
+        <th>Position</th>
+        <th>Attendance %</th>
+        <th>Fee Balance</th>
+        <th>Discipline Cases</th>
+        <th>Activities</th>
+        <th>Action</th>
+      </tr>
+    `;
+  },
+
+  renderOverviewRows: function (viewMode, rows) {
+    if (!rows.length) {
+      this.ui.performanceOverviewBody.innerHTML = `
+        <tr>
+          <td colspan="14" class="text-center text-muted py-4">
+            No records found.
+          </td>
+        </tr>
+      `;
+      return;
+    }
+
+    if (viewMode === "class") {
+      this.ui.performanceOverviewBody.innerHTML = rows
+        .map(
+          (row) => `
+        <tr>
+          <td>${this.escape(row.class_name || "-")}</td>
+          <td>${row.total_students ?? 0}</td>
+          <td>${row.average_score ?? 0}%</td>
+          <td><span class="badge bg-primary">${this.escape(row.grade || "-")}</span></td>
+          <td>${row.attendance_rate ?? 0}%</td>
+          <td>${this.formatMoney(row.fee_balance)}</td>
+          <td>${row.discipline_cases ?? 0}</td>
+          <td>${row.activities_count ?? 0}</td>
+        </tr>
+      `
+        )
+        .join("");
+      return;
+    }
+
+    if (viewMode === "stream") {
+      this.ui.performanceOverviewBody.innerHTML = rows
+        .map(
+          (row) => `
+        <tr>
+          <td>${this.escape(row.class_name || "-")}</td>
+          <td>${this.escape(row.stream_name || "-")}</td>
+          <td>${row.total_students ?? 0}</td>
+          <td>${row.average_score ?? 0}%</td>
+          <td><span class="badge bg-primary">${this.escape(row.grade || "-")}</span></td>
+          <td>${row.attendance_rate ?? 0}%</td>
+          <td>${this.formatMoney(row.fee_balance)}</td>
+          <td>${row.discipline_cases ?? 0}</td>
+          <td>${row.activities_count ?? 0}</td>
+        </tr>
+      `
+        )
+        .join("");
+      return;
+    }
+
+    if (viewMode === "school") {
+      this.ui.performanceOverviewBody.innerHTML = rows
+        .map(
+          (row) => `
+        <tr>
+          <td>${this.escape(row.scope || "Whole School")}</td>
+          <td>${row.total_students ?? 0}</td>
+          <td>${row.average_score ?? 0}%</td>
+          <td><span class="badge bg-primary">${this.escape(row.grade || "-")}</span></td>
+          <td>${row.attendance_rate ?? 0}%</td>
+          <td>${this.formatMoney(row.fee_balance)}</td>
+          <td>${row.discipline_cases ?? 0}</td>
+          <td>${row.activities_count ?? 0}</td>
+        </tr>
+      `
+        )
+        .join("");
+      return;
+    }
+
+    // Default: students view
+    this.ui.performanceOverviewBody.innerHTML = rows
+      .map((row) => {
+        const id = row.student_id;
+        return `
+        <tr>
+          <td>${this.escape(id || "-")}</td>
+          <td>${this.escape(row.admission_no || "-")}</td>
+          <td><strong>${this.escape(row.full_name || "-")}</strong></td>
+          <td>${this.escape(row.class_name || "-")}</td>
+          <td>${this.escape(row.stream_name || "-")}</td>
+          <td>${this.escape(row.gender || "-")}</td>
+          <td>${row.average_score ?? 0}%</td>
+          <td><span class="badge bg-primary">${this.escape(row.grade || "-")}</span></td>
+          <td>${this.escape(row.position || "-")}</td>
+          <td>${row.attendance_rate ?? 0}%</td>
+          <td class="${row.fee_balance > 0 ? "text-danger fw-semibold" : ""}">${this.formatMoney(row.fee_balance)}</td>
+          <td><span class="badge bg-${row.discipline_cases > 0 ? "danger" : "secondary"}">${row.discipline_cases ?? 0}</span></td>
+          <td>${row.activities_count ?? 0}</td>
+          <td>
+            <button class="btn btn-sm btn-success"
+                    onclick="StudentPerformanceController.openStudentModal(${Number(id)})">
+              <i class="bi bi-eye me-1"></i> View
+            </button>
+          </td>
+        </tr>
+      `;
+      })
+      .join("");
+  },
+
+  openStudentModal: async function (studentId) {
+    if (!studentId) return;
+
+    this.state.selectedStudentId = studentId;
+
+    if (typeof bootstrap !== "undefined" && this.ui.modal) {
+      const modalInstance = new bootstrap.Modal(this.ui.modal);
+      modalInstance.show();
+    }
+
+    await this.loadStudentReport(studentId);
+  },
+
+  loadStudentReport: async function (studentId) {
+    this.setModalLoading(true);
+
+    try {
       const params = new URLSearchParams();
-      if (year) {
-        params.append("academic_year", year);
-        params.append("year", year);
-      }
-      if (termId) {
-        params.append("term_id", termId);
-        params.append("term", termId);
-      }
+      const academicYear = this.ui.modalAcademicYear?.value || this.ui.academicYearFilter?.value || "";
+      const termId = this.ui.modalTerm?.value || this.ui.termFilter?.value || "";
+      const assessmentId = this.ui.modalAssessment?.value || "";
+
+      if (academicYear) params.set("academic_year", academicYear);
+      if (termId) params.set("term_id", termId);
+      if (assessmentId) params.set("assessment_id", assessmentId);
 
       const query = params.toString();
-      const performanceResp = await window.API.apiCall(
-        `/students/performance-get/${studentId}${query ? `?${query}` : ""}`,
-        "GET",
-      );
-      const performancePayload = this.unwrapPayload(performanceResp);
-
-      const attendanceResp = await window.API.apiCall(
-        `/students/attendance-get/${studentId}${query ? `?${query}` : ""}`,
-        "GET",
-      );
-      const attendancePayload = this.unwrapPayload(attendanceResp);
-
-      this.state.performance = this.normalizePerformanceRecords(performancePayload);
-      this.state.attendanceRecords = this.extractAttendanceRecords(attendancePayload);
-      this.state.attendanceSummary = this.extractAttendanceSummary(
-        attendancePayload,
-        this.state.attendanceRecords,
+      const response = await this.api(
+        `/students/performance-full/${studentId}${query ? `?${query}` : ""}`,
+        "GET"
       );
 
-      this.renderReport();
+      const data = this.unwrap(response);
+
+      this.state.profile = data.student || {};
+      this.state.performance = data.performance || [];
+      this.state.attendanceSummary = data.attendance_summary || {};
+      this.state.discipline = data.discipline_summary?.records || data.discipline || [];
+      this.state.activities = data.activities || [];
+      this.state.financeSummary = data.finance_summary || {};
+      this.state.healthSummary = data.health_summary || {};
+
+      this.renderStudentReport(data);
     } catch (error) {
-      console.error("Failed to load report", error);
-      this.showError(error.message || "Failed to load student performance report.");
-      this.hideReport();
+      console.error(error);
+      this.showModalError(error.message || "Failed to load student report.");
     } finally {
-      this.setLoading(false);
+      this.setModalLoading(false);
     }
   },
 
-  renderReport: function () {
-    this.ui.emptyState.style.display = "none";
-    this.ui.reportContent.style.display = "block";
-
+  renderStudentReport: function (data) {
     this.renderProfile();
-    this.renderSummary();
+    this.renderStudentSummary();
     this.renderSubjectsTable();
     this.renderCharts();
-    this.renderComments();
-  },
-
-  hideReport: function () {
-    this.ui.reportContent.style.display = "none";
-    this.ui.emptyState.style.display = "block";
+    this.renderTabs(data);
   },
 
   renderProfile: function () {
     const profile = this.state.profile || {};
-    const photo = profile.photo_url || (window.APP_BASE || "") + "/images/default-avatar.png";
+    const fullName = profile.full_name || `${profile.first_name || ""} ${profile.last_name || ""}`.trim();
 
-    this.ui.studentPhoto.src = photo;
-    this.ui.studentName.textContent = `${profile.first_name || ""} ${profile.last_name || ""}`.trim();
+    this.ui.studentPhoto.src =
+      profile.photo_url ||
+      profile.photo ||
+      `${window.APP_BASE || ""}/images/default-avatar.png`;
+    this.ui.studentName.textContent = fullName || "-";
+    this.ui.modalStudentSubtitle.textContent = fullName || "Student full school profile";
     this.ui.admNo.textContent = profile.admission_no || "-";
     this.ui.studentClass.textContent = profile.class_name || "-";
     this.ui.stream.textContent = profile.stream_name || "-";
   },
 
-  renderSummary: function () {
+  renderStudentSummary: function () {
     const totals = this.calculateTotals(this.state.performance);
     const attendanceRate = this.calculateAttendanceRate(this.state.attendanceSummary);
-    const classPosition = this.state.profile?.class_position || this.state.profile?.position || "-";
+    const finance = this.state.financeSummary || {};
+    const health = this.state.healthSummary || {};
 
     this.ui.totalMarks.textContent = totals.totalMarks;
-    this.ui.meanScore.textContent = totals.meanScore;
+    this.ui.meanScore.textContent = `${totals.meanScore}%`;
     this.ui.subjectsCount.textContent = totals.subjects;
     this.ui.attendanceRate.textContent = `${attendanceRate}%`;
 
     this.ui.overallAvg.textContent = `${totals.meanScore}%`;
     this.ui.overallGrade.textContent = this.gradeFromScore(totals.meanScore);
-    this.ui.position.textContent = classPosition;
+    this.ui.position.textContent = this.state.profile?.position || "-";
+
+    this.ui.disciplineCases.textContent = this.state.discipline.length;
+    this.ui.activitiesCount.textContent = this.state.activities.length;
+    this.ui.feeBalance.textContent = this.formatMoney(finance.balance);
+    this.ui.healthAlerts.textContent = health.alerts_count ?? 0;
   },
 
   renderSubjectsTable: function () {
-    if (!this.ui.subjectsTableBody) {
-      return;
-    }
+    const rows = this.groupBySubject(this.state.performance);
 
-    const subjectStats = this.groupBySubject(this.state.performance);
-    if (!subjectStats.length) {
+    if (!rows.length) {
       this.ui.subjectsTableBody.innerHTML = `
         <tr>
-          <td colspan="7" class="text-center text-muted">No performance data available for this selection.</td>
+          <td colspan="7" class="text-center text-muted">No performance data available.</td>
         </tr>
       `;
       return;
     }
 
-    this.ui.subjectsTableBody.innerHTML = subjectStats
-      .map((item) => `
-        <tr>
-          <td>${item.subject}</td>
-          <td>${item.score}%</td>
-          <td>${this.gradeFromScore(item.score)}</td>
-          <td>${item.classAverage !== null ? `${item.classAverage}%` : "-"}</td>
-          <td>${item.position || "-"}</td>
-          <td>${item.teacher || "-"}</td>
-          <td>${item.remarks || this.remarkFromScore(item.score)}</td>
-        </tr>
-      `)
+    this.ui.subjectsTableBody.innerHTML = rows
+      .map(
+        (row) => `
+      <tr>
+        <td>${this.escape(row.subject)}</td>
+        <td>${row.score}%</td>
+        <td><span class="badge bg-primary">${this.gradeFromScore(row.score)}</span></td>
+        <td>${row.classAverage !== null ? `${row.classAverage}%` : "-"}</td>
+        <td>${this.escape(row.position || "-")}</td>
+        <td>${this.escape(row.teacher || "-")}</td>
+        <td>${this.escape(row.remarks || this.remarkFromScore(row.score))}</td>
+      </tr>
+    `
+      )
       .join("");
   },
 
   renderCharts: function () {
-    if (!window.Chart) {
-      return;
-    }
+    if (!window.Chart) return;
 
     this.destroyCharts();
 
-    const subjectStats = this.groupBySubject(this.state.performance);
-    const subjectLabels = subjectStats.map((item) => item.subject);
-    const subjectScores = subjectStats.map((item) => item.score);
+    const subjects = this.groupBySubject(this.state.performance);
 
-    if (this.ui.subjectChart && subjectLabels.length) {
+    if (subjects.length && this.ui.subjectChart) {
       this.state.charts.subject = new Chart(this.ui.subjectChart, {
         type: "bar",
         data: {
-          labels: subjectLabels,
-          datasets: [{
-            label: "Score %",
-            data: subjectScores,
-            backgroundColor: "rgba(25, 135, 84, 0.65)",
-            borderColor: "rgba(25, 135, 84, 1)",
-            borderWidth: 1,
-          }],
+          labels: subjects.map((s) => s.subject),
+          datasets: [
+            {
+              label: "Score %",
+              data: subjects.map((s) => s.score),
+              backgroundColor: "rgba(25, 135, 84, 0.65)",
+              borderColor: "rgba(25, 135, 84, 1)",
+              borderWidth: 1,
+            },
+          ],
         },
         options: {
           responsive: true,
-          plugins: {
-            legend: { display: false },
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-            },
-          },
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, max: 100 } },
         },
       });
     }
 
     const trend = this.buildTrendData(this.state.performance);
-    if (this.ui.trendChart && trend.labels.length) {
+
+    if (trend.labels.length && this.ui.trendChart) {
       this.state.charts.trend = new Chart(this.ui.trendChart, {
         type: "line",
         data: {
           labels: trend.labels,
-          datasets: [{
-            label: "Average %",
-            data: trend.values,
-            borderColor: "#198754",
-            backgroundColor: "rgba(25, 135, 84, 0.15)",
-            fill: true,
-            tension: 0.2,
-            pointRadius: 4,
-          }],
+          datasets: [
+            {
+              label: "Average %",
+              data: trend.values,
+              borderColor: "#198754",
+              backgroundColor: "rgba(25, 135, 84, 0.15)",
+              fill: true,
+              tension: 0.25,
+            },
+          ],
         },
         options: {
           responsive: true,
-          plugins: {
-            legend: { display: false },
-          },
-          scales: {
-            y: {
-              beginAtZero: true,
-              max: 100,
-            },
-          },
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, max: 100 } },
         },
       });
     }
   },
 
-  renderComments: function () {
-    const records = this.state.performance || [];
-    const totals = this.calculateTotals(records);
-    const weakSubjects = this.groupBySubject(records).filter((row) => row.score < 50);
+  renderTabs: function (data) {
+    this.renderTeacherComments(data.teacher_comments || []);
+    this.renderDiscipline(data.discipline_summary?.records || data.discipline || []);
+    this.renderActivities(data.activities || []);
+    this.renderAttendanceDetails(data.attendance_summary || {});
+    this.renderFinanceDetails(data.finance_summary || {});
+    this.renderRecommendations(data.recommendations || []);
+  },
 
-    const comments = records
-      .map((row) => row.remarks || "")
-      .filter((text) => text && text.trim().length > 0);
-
-    if (this.ui.teacherComments) {
-      if (comments.length > 0) {
-        this.ui.teacherComments.innerHTML = comments
-          .slice(0, 6)
-          .map((comment) => `<div class="alert alert-light border mb-2">${comment}</div>`)
-          .join("");
-      } else {
-        this.ui.teacherComments.innerHTML = `
-          <div class="alert alert-info mb-0">
-            No teacher comments were submitted for the selected period.
-          </div>
-        `;
-      }
+  renderTeacherComments: function (comments) {
+    const list = comments || [];
+    if (!list.length) {
+      this.ui.teacherComments.innerHTML = `<div class="alert alert-info">No teacher comments available.</div>`;
+      return;
     }
 
-    const recommendationItems = [];
-    if (totals.meanScore >= 75) {
-      recommendationItems.push("Maintain current performance and introduce enrichment tasks.");
-    } else if (totals.meanScore >= 50) {
-      recommendationItems.push("Schedule weekly revision for core learning areas to improve consistency.");
-    } else {
-      recommendationItems.push("Set up targeted academic intervention with subject teachers and guardians.");
-    }
-
-    if (weakSubjects.length > 0) {
-      recommendationItems.push(
-        `Focus remedial support on: ${weakSubjects.map((row) => row.subject).join(", ")}.`,
-      );
-    }
-
-    const attendanceRate = this.calculateAttendanceRate(this.state.attendanceSummary);
-    if (attendanceRate < 85) {
-      recommendationItems.push("Attendance is below target; follow up with class teacher/guardian for regular attendance.");
-    }
-
-    if (this.ui.recommendations) {
-      this.ui.recommendations.innerHTML = `
-        <ul class="mb-0">
-          ${recommendationItems.map((item) => `<li>${item}</li>`).join("")}
-        </ul>
+    this.ui.teacherComments.innerHTML = list
+      .map((item) => {
+        const text = typeof item === "string" ? item : item.comment || item.remarks || "";
+        const teacher = typeof item === "object" ? item.teacher_name || item.teacher || "" : "";
+        return `
+        <div class="alert alert-light border">
+          ${teacher ? `<strong>${this.escape(teacher)}:</strong> ` : ""}
+          ${this.escape(text)}
+        </div>
       `;
+      })
+      .join("");
+  },
+
+  renderDiscipline: function (records) {
+    const list = records || [];
+    if (!list.length) {
+      this.ui.disciplineDetails.innerHTML = `<div class="alert alert-success">No discipline records found.</div>`;
+      return;
     }
+
+    this.ui.disciplineDetails.innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>Date</th>
+              <th>Case</th>
+              <th>Status</th>
+              <th>Action Taken</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map(
+              (row) => `
+              <tr>
+                <td>${this.escape(row.date || "-")}</td>
+                <td>${this.escape(row.case_title || "-")}</td>
+                <td><span class="badge bg-${row.status === "resolved" ? "success" : "warning"}">${this.escape(row.status || "pending")}</span></td>
+                <td>${this.escape(row.action_taken || "-")}</td>
+              </tr>
+            `
+            ).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  renderActivities: function (activities) {
+    const list = activities || [];
+    if (!list.length) {
+      this.ui.activitiesDetails.innerHTML = `<div class="alert alert-info">No co-curricular activities found.</div>`;
+      return;
+    }
+
+    this.ui.activitiesDetails.innerHTML = `
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered">
+          <thead class="table-light">
+            <tr>
+              <th>Activity</th>
+              <th>Joined Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${list.map(
+              (row) => `
+              <tr>
+                <td>${this.escape(row.title || "-")}</td>
+                <td>${this.escape(row.joined_at ? new Date(row.joined_at).toLocaleDateString() : "-")}</td>
+              </tr>
+            `
+            ).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  renderAttendanceDetails: function (summary) {
+    const s = summary || {};
+    this.ui.attendanceDetails.innerHTML = `
+      <div class="card border-0 bg-light p-3">
+        <div class="row g-3 text-center">
+          <div class="col-md-4">
+            <small class="text-muted">Days Present</small>
+            <h4 class="mb-0 text-success">${s.days_present ?? 0}</h4>
+          </div>
+          <div class="col-md-4">
+            <small class="text-muted">Days Absent</small>
+            <h4 class="mb-0 text-danger">${s.days_absent ?? 0}</h4>
+          </div>
+          <div class="col-md-4">
+            <small class="text-muted">Attendance Rate</small>
+            <h4 class="mb-0 text-primary">${s.attendance_rate ?? 100}%</h4>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  renderFinanceDetails: function (finance) {
+    const f = finance || {};
+    this.ui.financeDetails.innerHTML = `
+      <div class="card border-0 bg-light p-3">
+        <div class="row g-3 text-center">
+          <div class="col-md-4">
+            <small class="text-muted">Total Due</small>
+            <h4 class="mb-0 text-dark">${this.formatMoney(f.total_due ?? 0)}</h4>
+          </div>
+          <div class="col-md-4">
+            <small class="text-muted">Total Paid</small>
+            <h4 class="mb-0 text-success">${this.formatMoney(f.total_paid ?? 0)}</h4>
+          </div>
+          <div class="col-md-4">
+            <small class="text-muted">Outstanding Balance</small>
+            <h4 class="mb-0 text-danger fw-bold">${this.formatMoney(f.balance ?? 0)}</h4>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  renderRecommendations: function (recommendations) {
+    const list = recommendations || [];
+    if (!list.length) {
+      this.ui.recommendations.innerHTML = `<div class="alert alert-info">No academic recommendations available.</div>`;
+      return;
+    }
+
+    this.ui.recommendations.innerHTML = list
+      .map(
+        (rec) => `
+        <div class="alert alert-warning border border-warning-subtle">
+          <i class="bi bi-lightbulb text-warning me-2"></i>
+          ${this.escape(typeof rec === "string" ? rec : rec.recommendation || "")}
+        </div>
+      `
+      )
+      .join("");
+  },
+
+  calculateOverviewSummary: function (rows) {
+    if (!rows.length) {
+      return {
+        total_students: 0,
+        average_score: 0,
+        top_student: "-",
+        best_group: "-",
+      };
+    }
+
+    let total = 0;
+    let count = 0;
+    let top = null;
+
+    rows.forEach((row) => {
+      const avg = Number(row.average_score);
+      if (Number.isFinite(avg)) {
+        total += avg;
+        count += 1;
+      }
+      if (Number.isFinite(avg) && (!top || avg > Number(top.average_score))) {
+        top = row;
+      }
+    });
+
+    return {
+      total_students: rows.length,
+      average_score: count ? Math.round(total / count) : 0,
+      top_student: top ? top.full_name || "-" : "-",
+      best_group: top ? top.class_name || "-" : "-",
+    };
   },
 
   calculateTotals: function (records) {
-    if (!Array.isArray(records) || records.length === 0) {
+    if (!Array.isArray(records) || !records.length) {
       return { totalMarks: 0, meanScore: 0, subjects: 0 };
     }
 
     let obtained = 0;
-    let max = 0;
     let percentageSum = 0;
     let percentageCount = 0;
     const subjects = new Set();
 
     records.forEach((row) => {
-      if (row.subject) {
-        subjects.add(row.subject);
-      }
+      const subject = row.subject;
+      if (subject) subjects.add(subject);
 
-      if (row.scoreMax > 0) {
-        obtained += row.scoreObtained;
-        max += row.scoreMax;
-      }
-
-      if (this.isFiniteNumber(row.percentage)) {
-        percentageSum += row.percentage;
+      const score = Number(row.score ?? 0);
+      if (Number.isFinite(score)) {
+        obtained += score;
+        percentageSum += score;
         percentageCount += 1;
       }
     });
 
-    const meanScore = max > 0
-      ? Math.round((obtained / max) * 100)
-      : (percentageCount > 0 ? Math.round(percentageSum / percentageCount) : 0);
-
     return {
       totalMarks: Math.round(obtained),
-      meanScore,
+      meanScore: percentageCount ? Math.round(percentageSum / percentageCount) : 0,
       subjects: subjects.size,
     };
   },
 
-  calculateAttendanceRate: function (summary) {
-    const present = parseInt(summary.present || 0, 10);
-    const total = parseInt(summary.total || summary.total_days || 0, 10);
-    if (total <= 0) {
-      return 0;
-    }
-    return Math.round((present / total) * 100);
-  },
-
   groupBySubject: function (records) {
-    const grouped = new Map();
-
-    (records || []).forEach((row) => {
-      const subject = row.subject || "Unknown";
-      if (!grouped.has(subject)) {
-        grouped.set(subject, {
-          subject,
-          percentageTotal: 0,
-          percentageCount: 0,
-          classAverageTotal: 0,
-          classAverageCount: 0,
-          position: row.position || null,
-          teacher: row.teacher || null,
-          remarks: row.remarks || null,
-        });
-      }
-
-      const entry = grouped.get(subject);
-
-      if (this.isFiniteNumber(row.percentage)) {
-        entry.percentageTotal += row.percentage;
-        entry.percentageCount += 1;
-      }
-
-      if (this.isFiniteNumber(row.classAverage)) {
-        entry.classAverageTotal += row.classAverage;
-        entry.classAverageCount += 1;
-      }
-
-      if (!entry.position && row.position) {
-        entry.position = row.position;
-      }
-      if (!entry.teacher && row.teacher) {
-        entry.teacher = row.teacher;
-      }
-      if (!entry.remarks && row.remarks) {
-        entry.remarks = row.remarks;
-      }
-    });
-
-    return Array.from(grouped.values()).map((entry) => ({
-      subject: entry.subject,
-      score: entry.percentageCount > 0
-        ? Math.round(entry.percentageTotal / entry.percentageCount)
-        : 0,
-      classAverage: entry.classAverageCount > 0
-        ? Math.round(entry.classAverageTotal / entry.classAverageCount)
-        : null,
-      position: entry.position,
-      teacher: entry.teacher,
-      remarks: entry.remarks,
-    }));
+    return records || [];
   },
 
   buildTrendData: function (records) {
+    if (!Array.isArray(records) || !records.length) {
+      return { labels: [], values: [] };
+    }
     const grouped = new Map();
-
-    (records || []).forEach((row) => {
-      const year = row.academicYear || "";
-      const termNumber = row.termNumber || "";
-      const label = `${year ? `${year} - ` : ""}${termNumber ? `Term ${termNumber}` : (row.termName || "Term")}`;
-
-      if (!grouped.has(label)) {
-        grouped.set(label, { total: 0, count: 0 });
+    records.forEach((row) => {
+      const subject = row.subject || "Unknown";
+      const score = Number(row.score ?? 0);
+      if (!grouped.has(subject)) {
+        grouped.set(subject, { total: 0, count: 0 });
       }
-
-      if (this.isFiniteNumber(row.percentage)) {
-        const item = grouped.get(label);
-        item.total += row.percentage;
-        item.count += 1;
-      }
+      const item = grouped.get(subject);
+      item.total += score;
+      item.count += 1;
     });
 
     const labels = Array.from(grouped.keys());
     const values = labels.map((label) => {
       const item = grouped.get(label);
-      if (!item || item.count === 0) {
-        return 0;
-      }
-      return Math.round(item.total / item.count);
+      return item.count ? Math.round(item.total / item.count) : 0;
     });
 
     return { labels, values };
   },
 
-  normalizePerformanceRecords: function (payload) {
-    const rows = this.extractList(payload);
-    return rows.map((row) => {
-      const subject = row.subject_name || row.subject || row.learning_area || "Unknown";
-      const scoreObtained = this.parseNumber(
-        row.marks_obtained ?? row.overall_score ?? row.score ?? 0,
-      );
-      const scoreMax = this.parseNumber(
-        row.max_marks ?? row.overall_max ?? 100,
-      );
+  calculateAttendanceRate: function (summary) {
+    if (summary && summary.attendance_rate !== undefined) {
+      return Math.round(Number(summary.attendance_rate || 0));
+    }
+    const total = Number(summary.days_present ?? 0) + Number(summary.days_absent ?? 0);
+    const present = Number(summary.days_present ?? 0);
+    return total > 0 ? Math.round((present / total) * 100) : 100;
+  },
 
-      let percentage = null;
-      if (this.isFiniteNumber(row.overall_percentage)) {
-        percentage = this.parseNumber(row.overall_percentage);
-      } else if (scoreMax > 0) {
-        percentage = (scoreObtained / scoreMax) * 100;
-      } else if (this.isFiniteNumber(row.score)) {
-        percentage = this.parseNumber(row.score);
-      }
+  resetFilters: function () {
+    [
+      this.ui.viewMode,
+      this.ui.academicYearFilter,
+      this.ui.termFilter,
+      this.ui.classFilter,
+      this.ui.streamFilter,
+      this.ui.genderFilter,
+      this.ui.monthFilter,
+      this.ui.studentSearch,
+    ].forEach((el) => {
+      if (el) el.value = "";
+    });
 
-      return {
-        subject,
-        percentage: percentage === null ? 0 : Math.round(percentage * 100) / 100,
-        scoreObtained,
-        scoreMax,
-        grade: row.overall_grade || row.grade || null,
-        classAverage: this.parseNullableNumber(row.class_average || row.class_avg),
-        position: row.subject_position || row.position || null,
-        teacher: row.teacher_name || row.teacher || null,
-        remarks: row.remarks || row.teacher_comment || null,
-        termName: row.term_name || null,
-        termNumber: row.term_number || null,
-        academicYear: row.academic_year || row.year || null,
-      };
+    if (this.ui.viewMode) this.ui.viewMode.value = "students";
+    this.updateStreamsFilter();
+    this.loadOverview();
+  },
+
+  exportOverview: function () {
+    if (!this.state.overviewRows.length) {
+      this.notify("No data available to export.", "warning");
+      return;
+    }
+
+    const rows = this.state.overviewRows;
+    const headers = Object.keys(rows[0]);
+
+    const csv = [
+      headers,
+      ...rows.map((row) => headers.map((key) => row[key] ?? "")),
+    ]
+      .map((line) =>
+        line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
+      )
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `student_performance_overview_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  },
+
+  fillSelect: function (select, items, placeholder) {
+    if (!select) return;
+
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+
+    (items || []).forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id ?? item.year ?? item.academic_year ?? item.value ?? "";
+      option.textContent =
+        item.name ||
+        item.class_name ||
+        item.stream_name ||
+        item.year_name ||
+        item.year_code ||
+        item.label ||
+        option.value;
+      select.appendChild(option);
     });
   },
 
-  extractAttendanceRecords: function (payload) {
-    if (Array.isArray(payload)) {
-      return payload;
+  api: async function (endpoint, method = "GET", data = null) {
+    if (window.API && typeof window.API.apiCall === "function") {
+      return window.API.apiCall(endpoint, method, data);
     }
-    if (Array.isArray(payload?.records)) {
-      return payload.records;
+
+    const base = window.APP_BASE || "";
+    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+    const options = { method, headers: {} };
+
+    if (data) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(data);
     }
-    if (Array.isArray(payload?.data)) {
-      return payload.data;
+
+    const response = await fetch(url, options);
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok || json.success === false) {
+      throw new Error(json.message || json.error || "Request failed.");
     }
-    return [];
+
+    return json;
   },
 
-  extractAttendanceSummary: function (payload, records = []) {
-    if (payload && typeof payload === "object" && payload.summary) {
-      return payload.summary;
+  unwrap: function (response) {
+    if (!response) return {};
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
+    if (response.data !== undefined) return response.data;
+    return response;
+  },
+
+  setOverviewLoading: function (loading) {
+    this.ui.overviewLoading?.classList.toggle("d-none", !loading);
+    this.ui.overviewError?.classList.add("d-none");
+  },
+
+  setModalLoading: function (loading) {
+    this.ui.modalLoading?.classList.toggle("d-none", !loading);
+    this.ui.modalError?.classList.add("d-none");
+    this.ui.modalReportContent?.classList.toggle("opacity-50", loading);
+  },
+
+  showOverviewError: function (message) {
+    if (!this.ui.overviewError) return;
+    this.ui.overviewError.textContent = message;
+    this.ui.overviewError.classList.remove("d-none");
+  },
+
+  showModalError: function (message) {
+    if (!this.ui.modalError) return;
+    this.ui.modalError.textContent = message;
+    this.ui.modalError.classList.remove("d-none");
+  },
+
+  destroyCharts: function () {
+    if (this.state.charts.subject) {
+      this.state.charts.subject.destroy();
+      this.state.charts.subject = null;
     }
 
-    const total = records.length;
-    const present = records.filter((row) => String(row.status).toLowerCase() === "present").length;
-    const absent = records.filter((row) => String(row.status).toLowerCase() === "absent").length;
-    const late = records.filter((row) => String(row.status).toLowerCase() === "late").length;
+    if (this.state.charts.trend) {
+      this.state.charts.trend.destroy();
+      this.state.charts.trend = null;
+    }
+  },
 
-    return { total, total_days: total, present, absent, late };
+  labelForViewMode: function (mode) {
+    return (
+      {
+        students: "Students View",
+        class: "Class View",
+        stream: "Stream View",
+        school: "Whole School View",
+      }[mode] || "Students View"
+    );
+  },
+
+  gradeFromScore: function (score) {
+    const value = Number(score);
+    if (value >= 80) return "A";
+    if (value >= 70) return "B";
+    if (value >= 60) return "C";
+    if (value >= 50) return "D";
+    return "E";
   },
 
   remarkFromScore: function (score) {
@@ -660,128 +1056,92 @@ const StudentPerformanceController = {
     return "Needs Support";
   },
 
-  gradeFromScore: function (score) {
-    const value = this.parseNumber(score);
-    if (value >= 80) return "A";
-    if (value >= 70) return "B";
-    if (value >= 60) return "C";
-    if (value >= 50) return "D";
-    return "E";
+  formatMoney: function (value) {
+    const amount = Number(value);
+    if (!Number.isFinite(amount)) return "-";
+    return `KES ${amount.toLocaleString()}`;
   },
 
-  exportReport: function () {
-    const rows = this.groupBySubject(this.state.performance);
-    if (!rows.length) {
-      this.showError("No data available to export.");
-      return;
-    }
-
-    const csvRows = [
-      ["Subject", "Score (%)", "Grade", "Class Average (%)", "Position", "Teacher", "Remarks"],
-      ...rows.map((row) => ([
-        row.subject,
-        row.score,
-        this.gradeFromScore(row.score),
-        row.classAverage === null ? "" : row.classAverage,
-        row.position || "",
-        row.teacher || "",
-        row.remarks || "",
-      ])),
-    ];
-
-    const csv = csvRows.map((line) => line
-      .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
-      .join(",")).join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `student_performance_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+  debounce: function (fn, delay) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
   },
 
-  setLoading: function (loading) {
-    if (!this.ui.loadBtn) {
-      return;
-    }
-    this.ui.loadBtn.disabled = loading;
-    this.ui.loadBtn.textContent = loading ? "Loading..." : "Load Report";
+  escape: function (value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[char]
+    );
   },
 
-  destroyCharts: function () {
-    if (this.state.charts.subject) {
-      this.state.charts.subject.destroy();
-      this.state.charts.subject = null;
-    }
-    if (this.state.charts.trend) {
-      this.state.charts.trend.destroy();
-      this.state.charts.trend = null;
+  setPrintDate: function () {
+    const printDateEl = document.getElementById("printDate");
+    if (printDateEl) {
+      const now = new Date();
+      printDateEl.textContent = now.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric'
+      });
     }
   },
 
-  unwrapPayload: function (response) {
-    if (!response) return response;
-    if (response.status && response.data !== undefined) return response.data;
-    if (response.data && response.data.data !== undefined) return response.data.data;
-    return response;
-  },
+  prepareAndPrint: function (printType) {
+    // Set print date
+    this.setPrintDate();
 
-  extractList: function (response) {
-    const payload = this.unwrapPayload(response);
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.items)) return payload.items;
-    if (Array.isArray(payload?.data)) return payload.data;
-    if (Array.isArray(payload?.students)) return payload.students;
-    return [];
-  },
+    // Remove any existing print classes
+    document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
 
-  resolveAcademicYearValue: function (year) {
-    if (this.isFiniteNumber(year?.year)) return parseInt(year.year, 10);
-    if (this.isFiniteNumber(year?.academic_year)) return parseInt(year.academic_year, 10);
-    if (this.isFiniteNumber(year?.year_code)) return parseInt(year.year_code, 10);
-
-    const code = String(year?.year_code || "");
-    const match = code.match(/(\d{4})/);
-    if (match) {
-      return parseInt(match[1], 10);
+    // Add appropriate print class to body for CSS targeting
+    if (printType === 'modal') {
+      document.body.classList.add('printing-modal');
+      if (this.ui.modal) {
+        this.ui.modal.classList.add('print-mode');
+      }
+    } else {
+      document.body.classList.add('printing-overview');
     }
 
-    return null;
+    // Print
+    window.print();
+
+    // Clean up after print dialog closes
+    setTimeout(() => {
+      document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
+      if (printType === 'modal' && this.ui.modal) {
+        this.ui.modal.classList.remove('print-mode');
+      }
+    }, 1000);
   },
 
-  parseNumber: function (value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : 0;
-  },
-
-  parseNullableNumber: function (value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-  },
-
-  isFiniteNumber: function (value) {
-    const number = Number(value);
-    return Number.isFinite(number);
-  },
-
-  showError: function (message) {
+  notify: function (message, type = "info") {
     if (typeof showNotification === "function") {
-      showNotification(message, "error");
+      showNotification(message, type);
       return;
     }
+
     if (window.API && typeof window.API.showNotification === "function") {
-      window.API.showNotification(message, "error");
+      window.API.showNotification(message, type);
       return;
     }
-    alert(`Error: ${message}`);
+
+    alert(message);
   },
 };
 
-document.addEventListener("DOMContentLoaded", () =>
-  StudentPerformanceController.init(),
-);
+document.addEventListener("DOMContentLoaded", () => {
+  StudentPerformanceController.init();
+});
 
 window.StudentPerformanceController = StudentPerformanceController;

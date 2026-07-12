@@ -15,6 +15,7 @@ use App\Config\DashboardRouter;
 // Get route from URL (authentication verified by JWT in JavaScript)
 $route = $_GET['route'] ?? 'loading';
 $route = is_string($route) ? trim($route) : 'loading';
+$route = $route === 'loading' ? $route : DashboardRouter::normalizeDashboardKey($route);
 $isCanonicalRoute = $route === 'loading' || preg_match('/^[A-Za-z0-9_\-\/]+$/', $route);
 
 // Verify the requested route/page exists
