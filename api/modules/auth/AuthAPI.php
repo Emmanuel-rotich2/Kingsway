@@ -699,6 +699,7 @@ class AuthAPI extends BaseAPI
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
+                    'refresh_token' => $refreshToken,
                     'token_expires_in' => JWT_EXPIRY,
                     'remember_me' => $rememberMe,
                     'user' => $userData,
@@ -954,6 +955,7 @@ class AuthAPI extends BaseAPI
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
+                'refresh_token' => $refreshToken,
                 'token_expires_in' => JWT_EXPIRY,
                 'remember_me' => $rememberMe,
                 'user' => $userData,

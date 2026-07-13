@@ -26,6 +26,8 @@ class AuthMiddleware
             'auth/reset-password',
             'auth/complete-reset',
             'auth/verify-reset-token',
+            'auth/refresh-token',
+            'auth/logout-refresh',
             'users/login',
             'users/register',
             // Payment webhook endpoints (should be public for bank/M-Pesa callbacks)
@@ -53,9 +55,25 @@ class AuthMiddleware
         }
 
         // Parent portal routes bypass staff JWT auth entirely.
-        // Authenticated parent-portal endpoints enforce auth via $this->parentId checks
-        // in ParentPortalController.
+        // Login/OTP endpoints are public; every other parent-portal endpoint enforces
+        // auth via ParentAuthMiddleware, which sets $_SERVER['parent_auth'] for the
+        // controller (ParentPortalController reads $this->parentId from it).
+        // NOTE: ParentAuthMiddleware::handle() must be invoked here — the router
+        // pipeline does not call it, so without this line every authed portal
+        // endpoint returns 401 (parentId is never populated).
         if (strpos($path, 'parent-portal/') !== false) {
+            $publicPortal = [
+                'parent-portal/login',
+                'parent-portal/login-otp-request',
+                'parent-portal/login-otp-verify',
+            ];
+            $isPublic = false;
+            foreach ($publicPortal as $ep) {
+                if (strpos($path, $ep) !== false) { $isPublic = true; break; }
+            }
+            if (!$isPublic) {
+                \App\API\Middleware\ParentAuthMiddleware::handle();
+            }
             return;
         }
 
