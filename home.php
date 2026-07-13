@@ -48,6 +48,7 @@ $roles = [$main_role];
     <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css">
     <link rel="stylesheet" href="<?= $appBase ?>/css/dashboards.css">
     <link rel="stylesheet" href="<?= $appBase ?>/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>/assets/css/print.css">
     <style>
         /* route-guard overlay removed — PHP already serves the correct page */
     </style>
@@ -58,6 +59,18 @@ $roles = [$main_role];
         window.USER_ROLES = <?php echo json_encode($roles); ?>;
         window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
         window.REQUESTED_ROUTE = <?php echo json_encode($route); ?>;
+        window.SCHOOL_CONFIG = {
+            name: <?php echo json_encode(defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School'); ?>,
+            code: <?php echo json_encode(defined('SCHOOL_CODE') ? SCHOOL_CODE : 'KWPS'); ?>,
+            motto: <?php echo json_encode(defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'In God We Soar'); ?>,
+            logo: <?php echo json_encode(defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : ($appBase . '/images/logo.jpg')); ?>,
+            address: <?php echo json_encode(defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : 'P.O Box 203-20203, Londiani, Kenya'); ?>,
+            phone: <?php echo json_encode(defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '+254-720-113030 / +254-720-113031'); ?>,
+            email: <?php echo json_encode(defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingswaypreparatoryschool.sc.ke'); ?>,
+            website: <?php echo json_encode(defined('SCHOOL_WEBSITE') ? SCHOOL_WEBSITE : 'www.kingswaypreparatoryschool.sc.ke'); ?>,
+            principal: <?php echo json_encode(defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr Bett Junior'); ?>,
+            principalTitle: <?php echo json_encode(defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher'); ?>
+        };
     </script>
 </head>
 
@@ -94,6 +107,7 @@ $roles = [$main_role];
     <script src="<?= $appBase ?>/js/components/UIComponents.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/PageNavigator.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/PageShell.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/utils/print_manager.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/sidebar.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/main.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/index.js?v=<?= $v ?>"></script>

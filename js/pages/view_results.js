@@ -95,10 +95,10 @@ const viewResultsCtrl = (() => {
 
     function buildStudentProfile(student) {
         const fullName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
-        const photoUrl = student.photo_url || (window.APP_BASE || '') + '/images/students/default.png';
+        const photoUrl = student.photo_url || (window.APP_BASE || '') + '/uploads/students/avatar.jpg';
         return `<div class="student-profile-card">
             <div class="d-flex align-items-center gap-3 mb-3">
-                <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src=(window.APP_BASE || '') + '/images/students/default.png'"></div>
+                <div class="profile-avatar"><img src="${photoUrl}" alt="photo" onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'"></div>
                 <div>
                     <h5 class="mb-0">${fullName}</h5>
                     <small class="text-muted">Adm: ${student.admission_no || '—'} &bull; ${student.class_name || '—'} / ${student.stream_name || '—'}</small>
@@ -164,7 +164,67 @@ const viewResultsCtrl = (() => {
         }
     }
 
-    function printResults() { window.print(); }
+    function printResults() {
+        const container = document.getElementById('resultsContainer');
+        if (!container || container.querySelector('.vr-empty')) {
+            toast('No results to print', 'warning');
+            return;
+        }
+
+        const subjectRows = [...container.querySelectorAll('.subject-row')];
+        if (!subjectRows.length) {
+            toast('No subject rows available for printing', 'warning');
+            return;
+        }
+
+        // Extract student info from the container
+        const studentInfoEl = container.querySelector('.vr-header .fw-bold');
+        const studentName = studentInfoEl?.textContent?.trim() || 'Student';
+        
+        const overallEl = container.querySelector('.vr-header .d-flex span strong');
+        const overall = overallEl?.textContent?.trim() || '';
+        
+        const gradeEl = container.querySelector('.vr-header .d-flex span[class*="badge"]');
+        const grade = gradeEl?.textContent?.trim() || '';
+
+        // Build sections
+        const sections = [
+            {
+                title: 'Student Results',
+                fields: [
+                    { label: 'Student Name', value: studentName },
+                    { label: 'Overall Score', value: overall },
+                    { label: 'Grade', value: grade }
+                ]
+            },
+            {
+                title: 'Subject Results',
+                content: subjectRows.map(row => {
+                    const subject = row.querySelector('.fw-semibold')?.textContent?.trim() || '';
+                    const metricEls = row.querySelectorAll('.d-flex.gap-2.align-items-center span');
+                    const pct = metricEls[0]?.textContent?.trim() || '';
+                    const grade = metricEls[1]?.textContent?.trim() || '';
+                    return `<div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee;">
+                        <span>${subject}</span>
+                        <span>${pct} (${grade})</span>
+                    </div>`;
+                }).join('')
+            }
+        ];
+
+        window.PrintManager.printRecord({
+            title: 'Student Results Report',
+            subtitle: studentName,
+            sections: sections,
+            orientation: 'portrait',
+            paperSize: 'A4',
+            reportCode: 'RES-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+            signatureSection: [
+                { label: 'Class Teacher' },
+                { label: 'Principal' }
+            ]
+        });
+    }
 
     function exportCSV() {
         const container = document.getElementById('resultsContainer');

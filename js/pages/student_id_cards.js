@@ -805,25 +805,80 @@ const StudentIdCardsController = {
             const response = await this.apiCall(`/students/id-card-details/${studentId}`, 'GET');
             const data = this.unwrapPayload(response);
 
-            this.renderCardPreview(data);
+            // Generate card HTML for printing
+            const cardHTML = this.generatePrintCardHTML(data);
 
-            // Show modal
-            if (typeof bootstrap !== "undefined" && this.dom.previewModal) {
-                let modal = bootstrap.Modal.getInstance(this.dom.previewModal);
-                if (!modal) {
-                    modal = new bootstrap.Modal(this.dom.previewModal);
-                }
-                modal.show();
-
-                // Trigger print after modal is shown
-                setTimeout(() => {
-                    window.print();
-                }, 500);
-            }
+            // Use PrintManager for ID card printing
+            window.PrintManager.printIdCard({
+                front: cardHTML.front,
+                back: cardHTML.back
+            });
         } catch (error) {
             console.error('Failed to print card:', error);
             this.notify("error", "Failed to print card");
         }
+    },
+
+    generatePrintCardHTML: function(data) {
+        const student = data.student || {};
+        const school = data.school_settings || data.school_profile || {};
+        const appBase = window.APP_BASE || "";
+        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
+        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/images/kings%20logo.png`);
+        const fullName = this.getFullName(student);
+        const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
+        const cardNumber = student.card_number || "Not generated";
+        const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
+        const expiryYear = student.expiry_year || "—";
+        const schoolName = school.school_name || "Kingsway Preparatory Academy";
+        const schoolAddress = school.school_address || "Londiani, Kenya";
+        const schoolPhone = school.school_phone || "";
+        const schoolEmail = school.school_email || "";
+        const schoolMotto = school.school_motto || "Education for Excellence";
+
+        const frontHTML = `
+            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 0; overflow: hidden; position: relative; font-family: Arial, sans-serif;">
+                <div style="background: rgba(255,255,255,0.95); padding: 8px; text-align: center; border-bottom: 3px solid #667eea;">
+                    <img src="${logo}" style="width: 40px; height: 40px; border-radius: 50%; margin-bottom: 5px;" alt="Logo">
+                    <div style="font-size: 11px; font-weight: bold; color: #333; margin: 0;">${schoolName}</div>
+                    <div style="font-size: 7px; color: #666; font-style: italic; margin: 0;">${schoolMotto}</div>
+                </div>
+                <div style="display: flex; padding: 10px; background: white; height: calc(100% - 70px);">
+                    <div style="width: 35%; padding-right: 10px;">
+                        <img src="${photo}" style="width: 100%; height: 110px; object-fit: cover; border: 2px solid #667eea; border-radius: 8px;" alt="Student Photo">
+                    </div>
+                    <div style="width: 65%; padding-left: 10px;">
+                        <div style="font-size: 14px; font-weight: bold; color: #333; margin: 0 0 5px 0;">${fullName}</div>
+                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.admission_no || 'N/A'}</div>
+                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.class_name || 'N/A'} ${student.stream_name || ''}</div>
+                        <div style="font-size: 9px; color: #999; margin: 5px 0 0 0;">Card: ${cardNumber}</div>
+                        <div style="font-size: 9px; color: #999; margin: 2px 0;">Valid: ${issueDate} - ${expiryYear}</div>
+                    </div>
+                </div>
+                <div style="position: absolute; bottom: 8px; right: 8px;">
+                    <img src="${qrCodePath}" style="width: 40px; height: 40px;" alt="QR Code">
+                </div>
+            </div>
+        `;
+
+        const backHTML = `
+            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #764ba2 0%, #667eea 100%); border-radius: 15px; padding: 15px; overflow: hidden; font-family: Arial, sans-serif; color: white;">
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <div style="font-size: 12px; font-weight: bold; margin: 0 0 5px 0;">${schoolName}</div>
+                    <div style="font-size: 8px; opacity: 0.9; margin: 0;">${schoolAddress}</div>
+                </div>
+                <div style="font-size: 9px; line-height: 1.4;">
+                    <div style="margin-bottom: 8px;"><strong>Terms & Conditions:</strong></div>
+                    <div style="font-size: 8px;">This card is property of ${schoolName}. It must be carried at all times while on school premises.</div>
+                    <div style="margin-top: 15px; font-size: 8px; opacity: 0.8;">Lost cards should be reported immediately to the administration office.</div>
+                </div>
+                <div style="position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 8px; opacity: 0.7;">
+                    ${schoolPhone} | ${schoolEmail}
+                </div>
+            </div>
+        `;
+
+        return { front: frontHTML, back: backHTML };
     },
 
     renderCardPreview: function(data) {
@@ -920,7 +975,19 @@ const StudentIdCardsController = {
     },
 
     printSingleCard: function() {
-        window.print();
+        // Get the currently displayed card
+        const cardFront = this.dom.cardFrontPreview?.innerHTML;
+        const cardBack = this.dom.cardBackPreview?.innerHTML;
+        
+        if (!cardFront) {
+            this.notify("warning", "No card preview available");
+            return;
+        }
+
+        window.PrintManager.printIdCard({
+            front: cardFront,
+            back: cardBack || ''
+        });
     },
 
     printSelected: function() {
@@ -931,8 +998,63 @@ const StudentIdCardsController = {
             return;
         }
 
-        // This would need to be implemented to render printable cards
-        this.notify("info", "Bulk print functionality - use browser print for now");
+        // Generate bulk card HTML
+        const cardsHTML = selectedStudentIds.map((studentId, index) => {
+            const student = this.students.find(s => s.id === studentId);
+            if (!student) return '';
+            
+            const cardData = {
+                student: student,
+                school_settings: this.metadata.schoolProfile
+            };
+            
+            const cardHTML = this.generatePrintCardHTML(cardData);
+            return `
+                <div style="page-break-after: always;">
+                    ${cardHTML.front}
+                    ${cardHTML.back}
+                </div>
+            `;
+        }).join('');
+
+        // Use PrintManager with custom content
+        const printWindow = window.open('', '_blank');
+        if (!printWindow) {
+            alert('Please allow popups for bulk printing');
+            return;
+        }
+
+        const printDocument = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>Bulk ID Cards Print</title>
+                <style>
+                    @page {
+                        size: auto;
+                        margin: 0;
+                    }
+                    body {
+                        margin: 0;
+                        padding: 0;
+                    }
+                </style>
+            </head>
+            <body>
+                ${cardsHTML}
+            </body>
+            </html>
+        `;
+
+        printWindow.document.write(printDocument);
+        printWindow.document.close();
+        
+        printWindow.onload = function() {
+            setTimeout(() => {
+                printWindow.print();
+            }, 250);
+        };
     },
 
     exportData: function() {
@@ -941,29 +1063,23 @@ const StudentIdCardsController = {
             return;
         }
 
-        const headers = ["Admission No", "Name", "Class", "Stream", "Gender", "Card Number", "Status", "Issue Date", "Expiry Year"];
-        const rows = this.students.map(s => [
-            s.admission_no || "",
-            s.full_name || "",
-            s.class_name || "",
-            s.stream_name || "",
-            s.gender || "",
-            s.card_number || "",
-            s.card_status || "",
-            s.issue_date || "",
-            s.expiry_year || "",
-        ]);
+        const columns = [
+            { key: 'admission_no', label: 'Admission No' },
+            { key: 'full_name', label: 'Name' },
+            { key: 'class_name', label: 'Class' },
+            { key: 'stream_name', label: 'Stream' },
+            { key: 'gender', label: 'Gender' },
+            { key: 'card_number', label: 'Card Number' },
+            { key: 'card_status', label: 'Status' },
+            { key: 'issue_date', label: 'Issue Date' },
+            { key: 'expiry_year', label: 'Expiry Year' }
+        ];
 
-        const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-        const blob = new Blob([csv], { type: "text/csv" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `student_id_cards_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        window.PrintManager.exportToCSV({
+            columns: columns,
+            rows: this.students,
+            filename: 'student_id_cards'
+        });
     },
 
     showGenerateModal: function() {

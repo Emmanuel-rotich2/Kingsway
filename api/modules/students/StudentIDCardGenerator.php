@@ -26,7 +26,7 @@ class StudentIDCardGenerator extends BaseAPI
     public function __construct()
     {
         parent::__construct('student_id_cards');
-        $this->uploadsPath = $this->resolveWritablePath(__DIR__ . '/../../../images/students/', 'students');
+        $this->uploadsPath = $this->resolveWritablePath(__DIR__ . '/../../../uploads/students/', 'students');
         $this->qrCodesPath = $this->resolveWritablePath(__DIR__ . '/../../../images/qr_codes/', 'qr_codes');
         $this->templatesPath = $this->resolveWritablePath(__DIR__ . '/../../../templates/id_cards/', 'id_cards_templates');
     }
@@ -96,27 +96,27 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'File size exceeds 5MB limit');
             }
 
-            // Generate unique filename
-            $extension = pathinfo($fileData['name'], PATHINFO_EXTENSION);
-            $filename = $student['admission_no'] . '_' . time() . '.' . $extension;
+            // Generate unique filename: photo_{YYYYMMDD}_{HHMMSS}.{ext} under uploads/students/images/{studentId}/
+            $extension = strtolower(pathinfo($fileData['name'], PATHINFO_EXTENSION)) ?: 'jpg';
+            $filename = 'photo_' . date('Ymd_His') . '.' . $extension;
             $filepath = $this->uploadsPath . $filename;
 
             // Resize and optimize image
             $this->resizeImage($fileData['tmp_name'], $filepath, 400, 500);
 
-            // Import into MediaManager to register under uploads/students/{studentId}
+            // Import into MediaManager to register under uploads/students/images/{studentId}/
             try {
                 $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
                 $projectRoot = realpath(__DIR__ . '/../../..');
                 $fullSource = $projectRoot ? ($projectRoot . DIRECTORY_SEPARATOR . trim($filepath, '/')) : $filepath;
                 $mediaId = null;
                 if (file_exists($fullSource)) {
-                    $mediaId = $mediaManager->import($fullSource, 'students', $studentId, $fileData['name'], null, 'student photo');
+                    $mediaId = $mediaManager->import($fullSource, 'students/images', $studentId, $filename, null, 'student photo');
                 }
-                $preview = $mediaId ? $mediaManager->getPreviewUrl($mediaId) : null;
+                // Prefer the original managed file URL (full-res), fall back to thumbnail.
+                $dbPath = $mediaId ? ($mediaManager->getFileUrl($mediaId) ?: $mediaManager->getPreviewUrl($mediaId)) : null;
+                $dbPath = $dbPath ?? ('/uploads/students/images/' . $studentId . '/' . $filename);
 
-                // Update database with managed preview URL if available, else local images path
-                $dbPath = $preview ?? ('/images/students/' . $filename);
                 $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
                 $stmt->execute([$dbPath, $studentId]);
 
@@ -128,12 +128,13 @@ class StudentIDCardGenerator extends BaseAPI
                     'media_id' => $mediaId
                 ], 'Photo uploaded successfully');
             } catch (\Exception $e) {
-                // fallback behavior
+                // Fallback: record the local uploads path served under /uploads/students/images/{studentId}/.
+                $dbPath = '/uploads/students/images/' . $studentId . '/' . $filename;
                 $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute(['/images/students/' . $filename, $studentId]);
+                $stmt->execute([$dbPath, $studentId]);
                 $this->logAction('update', $studentId, "Uploaded student photo (fallback): {$filename}");
                 return formatResponse(true, [
-                    'photo_url' => '/images/students/' . $filename,
+                    'photo_url' => $dbPath,
                     'filename' => $filename
                 ], 'Photo uploaded (fallback)');
             }
@@ -264,8 +265,9 @@ class StudentIDCardGenerator extends BaseAPI
             }
 
             // Ensure photo exists
+            $defaultAvatar = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
             if (empty($student['photo_url']) || !file_exists('.' . $student['photo_url'])) {
-                $student['photo_url'] = '/images/default_avatar.png';
+                $student['photo_url'] = '/' . ltrim($defaultAvatar, '/');
             }
 
             // Ensure QR code exists, generate if not
@@ -566,7 +568,7 @@ class StudentIDCardGenerator extends BaseAPI
                 
                 <div class="card-body">
                     <div class="photo-section">
-                        <img src="{$photoUrl}" alt="Student Photo" class="student-photo" onerror="this.src='/images/default_avatar.png'">
+                        <img src="{$photoUrl}" alt="Student Photo" class="student-photo" onerror="this.src='/uploads/students/avatar.jpg'">
                     </div>
                     
                     <div class="info-section">

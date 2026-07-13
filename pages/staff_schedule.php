@@ -11,7 +11,7 @@
       <select class="form-select form-select-sm" id="ssTermFilter" style="width:auto;" onchange="staffScheduleController.loadTimetable()">
         <option value="">Current Term</option>
       </select>
-      <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+      <button class="btn btn-outline-secondary btn-sm" onclick="staffScheduleController.printSchedule()">
         <i class="bi bi-printer me-1"></i> Print
       </button>
     </div>

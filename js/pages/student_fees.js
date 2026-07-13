@@ -156,12 +156,7 @@ const StudentFeesController = {
 
     if (this.ui.printStatementBtn) {
       this.ui.printStatementBtn.addEventListener("click", () => {
-        if (this.ui.feeDetailsModal) {
-          const modal = bootstrap.Modal.getInstance(this.ui.feeDetailsModal);
-          if (modal) {
-            window.print();
-          }
-        }
+        this.printFeeStatement();
       });
     }
   },
@@ -763,6 +758,72 @@ const StudentFeesController = {
     });
 
     document.getElementById('billingHistoryContent').innerHTML = html;
+  },
+
+  printFeeStatement: function () {
+    if (!this.data.selectedStudent) {
+      this.notify("No student selected", "warning");
+      return;
+    }
+
+    const student = this.data.selectedStudent;
+    const billingHistory = this.data.billingHistory || [];
+
+    // Build fee statement rows
+    const feeRows = [];
+    billingHistory.forEach(term => {
+      (term.fee_items || []).forEach(item => {
+        feeRows.push({
+          term: term.term_name || term.academic_year || '—',
+          fee_type: item.fee_type_name || '—',
+          amount_due: item.amount_due || 0,
+          amount_paid: item.amount_paid || 0,
+          amount_waived: item.amount_waived || 0,
+          balance: item.balance || 0,
+          status: item.payment_status || 'pending'
+        });
+      });
+    });
+
+    const columns = [
+      { key: 'term', label: 'Term' },
+      { key: 'fee_type', label: 'Fee Type' },
+      { key: 'amount_due', label: 'Amount Due' },
+      { key: 'amount_paid', label: 'Amount Paid' },
+      { key: 'amount_waived', label: 'Waived' },
+      { key: 'balance', label: 'Balance' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    // Calculate totals
+    const totalDue = feeRows.reduce((sum, row) => sum + Number(row.amount_due || 0), 0);
+    const totalPaid = feeRows.reduce((sum, row) => sum + Number(row.amount_paid || 0), 0);
+    const totalWaived = feeRows.reduce((sum, row) => sum + Number(row.amount_waived || 0), 0);
+    const totalBalance = feeRows.reduce((sum, row) => sum + Number(row.balance || 0), 0);
+
+    window.PrintManager.printTable({
+      title: 'Student Fee Statement',
+      subtitle: `${student.first_name || ''} ${student.last_name || ''} (${student.admission_no || '—'})`,
+      columns: columns,
+      rows: feeRows,
+      summary: {
+        'Student Name': `${student.first_name || ''} ${student.last_name || ''}`,
+        'Admission No': student.admission_no || '—',
+        'Class': student.class_name || '—',
+        'Total Due': `KES ${totalDue.toLocaleString()}`,
+        'Total Paid': `KES ${totalPaid.toLocaleString()}`,
+        'Total Waived': `KES ${totalWaived.toLocaleString()}`,
+        'Outstanding Balance': `KES ${totalBalance.toLocaleString()}`,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'FEE-' + (student.student_id || student.id || '0'),
+      signatureSection: [
+        { label: 'Accountant' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   debounce: function (fn, delay) {

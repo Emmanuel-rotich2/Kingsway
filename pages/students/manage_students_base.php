@@ -214,9 +214,9 @@
                             <small class="text-muted">Accepted formats: JPG, PNG, GIF. Max 2MB.</small>
                         </div>
                         <div class="col-md-6 d-flex align-items-center">
-                            <img id="studentPhotoPreview" src="images/default-avatar.png"
-                                class="rounded-circle" width="80" height="80" 
-                                onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'"
+                            <img id="studentPhotoPreview" src="uploads/students/avatar.jpg"
+                                class="rounded-circle" width="80" height="80"
+                                onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'"
                                 style="object-fit: cover; border: 2px solid #dee2e6;">
                         </div>
                     </div>

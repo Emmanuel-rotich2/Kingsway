@@ -17,6 +17,7 @@ define('BASE_URL', $baseUrl);
 // Paths
 define('UPLOAD_PATH', '/home/kingswa4/uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
 define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');

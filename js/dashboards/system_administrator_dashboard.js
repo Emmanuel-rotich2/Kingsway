@@ -620,7 +620,15 @@ const sysAdminDashboardController = {
         if (printBtn) {
             printBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                window.print();
+                if (window.PrintManager) {
+                    window.PrintManager.printElement({
+                        elementId: 'dashboardContent',
+                        title: 'System Administrator Dashboard',
+                        subtitle: 'System Overview and Statistics'
+                    });
+                } else {
+                    window.print();
+                }
             });
         }
         

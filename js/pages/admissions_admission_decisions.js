@@ -5,14 +5,36 @@
 const admissionDecisionsController = {
     applications: [],
     filteredApplications: [],
-    
-    init: function() {
-        console.log('Initializing Admission Decisions Controller');
-        this.loadApplications();
-        this.setupEventListeners();
+    initialized: false,
+
+    init: async function() {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        console.log("admissionDecisionsController: Initializing...");
+
+        try {
+            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                if (!window.AuthContext.isAuthenticated()) {
+                    console.warn("admissionDecisionsController: Not authenticated, redirecting to login");
+                    window.location.href = `${window.APP_BASE || ""}/index.php`;
+                    return;
+                }
+            } else {
+                console.warn("admissionDecisionsController: AuthContext not available");
+            }
+
+            this.setupEventListeners();
+            await this.loadApplications();
+
+            console.log("admissionDecisionsController: Initialization complete");
+        } catch (error) {
+            console.error("Failed to initialize Admission Decisions Controller:", error);
+            this.showError(error.message || "Failed to initialize admission decisions page.");
+        }
     },
-    
-    loadApplications: function() {
+
+    loadApplications: async function() {
         document.getElementById('applicationsGrid').innerHTML = `
             <div class="col-12 text-center py-4">
                 <div class="spinner-border text-success" role="status"></div>
@@ -20,33 +42,29 @@ const admissionDecisionsController = {
             </div>
         `;
         
-        API.callAPI('/admission/queues', 'GET')
-            .then(response => {
-                if (response.success && response.data) {
-                    // Focus on placement queue (interviews completed, awaiting decision)
-                    const decisionApplications = [];
-                    const queues = response.data.queues || {};
-                    
-                    // Add applications from placement queue
-                    if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
-                        queues.placement_pending.forEach(app => {
-                            decisionApplications.push({
-                                ...app,
-                                queue_name: 'placement_pending',
-                                decision_status: 'pending'
-                            });
-                        });
-                    }
-                    
-                    this.applications = decisionApplications;
-                    this.applyFilters();
-                    this.updateSummaryCards();
-                }
-            })
-            .catch(error => {
-                console.error('Failed to load applications:', error);
-                this.showError('Failed to load applications');
-            });
+        try {
+            const response = await API.callAPI('/admission/queues', 'GET');
+            const payload = response?.data || response || {};
+            const decisionApplications = [];
+            const queues = payload.queues || {};
+
+            if (Array.isArray(queues.decision_pending)) {
+                queues.decision_pending.forEach(app => {
+                    decisionApplications.push({
+                        ...app,
+                        queue_name: 'decision_pending',
+                        decision_status: 'pending'
+                    });
+                });
+            }
+
+            this.applications = decisionApplications;
+            this.applyFilters();
+            this.updateSummaryCards();
+        } catch (error) {
+            console.error('Failed to load applications:', error);
+            this.showError('Failed to load applications');
+        }
     },
     
     updateSummaryCards: function() {
@@ -62,9 +80,9 @@ const admissionDecisionsController = {
     },
     
     applyFilters: function() {
-        const decisionStatus = document.getElementById('filterDecisionStatus').value;
-        const classFilter = document.getElementById('filterClass').value;
-        const searchTerm = document.getElementById('searchApplications').value.toLowerCase();
+        const decisionStatus = document.getElementById('filterDecisionStatus')?.value || '';
+        const classFilter = document.getElementById('filterClass')?.value || '';
+        const searchTerm = (document.getElementById('searchApplications')?.value || '').toLowerCase();
         
         this.filteredApplications = this.applications.filter(app => {
             if (decisionStatus && app.decision_status !== decisionStatus) return false;
@@ -183,13 +201,14 @@ const admissionDecisionsController = {
     
     setupEventListeners: function() {
         // Filter changes
-        document.getElementById('filterDecisionStatus').addEventListener('change', () => this.applyFilters());
-        document.getElementById('filterClass').addEventListener('change', () => this.applyFilters());
-        document.getElementById('searchApplications').addEventListener('input', this.debounce(() => this.applyFilters(), 300));
-        
+        document.getElementById('filterDecisionStatus')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterClass')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('searchApplications')?.addEventListener('input', this.debounce(() => this.applyFilters(), 300));
+
         // Decision type change - show/hide conditions
-        document.getElementById('decision').addEventListener('change', function() {
+        document.getElementById('decision')?.addEventListener('change', function() {
             const conditionsGroup = document.getElementById('conditionsGroup');
+            if (!conditionsGroup) return;
             const decision = this.value;
             
             if (decision === 'approved' || decision === 'waitlisted' || decision === 'more_info_required') {
@@ -212,8 +231,9 @@ const admissionDecisionsController = {
     viewApplication: function(applicationId) {
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    this.renderApplicationDetails(response.data);
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    this.renderApplicationDetails(payload);
                     const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
@@ -333,9 +353,10 @@ const admissionDecisionsController = {
         // Load applicant details for the modal
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    const app = response.data.application;
-                    const workflowData = response.data.workflow_data || {};
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    const app = payload.application;
+                    const workflowData = payload.workflow_data || {};
                     
                     const summary = `
                         <strong>Applicant:</strong> ${app.applicant_name}<br>
@@ -459,3 +480,31 @@ const admissionDecisionsController = {
         };
     }
 };
+
+window.admissionDecisionsController = admissionDecisionsController;
+
+function initWhenAPIReady() {
+  const hasApi =
+    window.API &&
+    (typeof window.API.callAPI === "function" ||
+      typeof window.API.apiCall === "function");
+
+  if (hasApi) {
+    console.log("API is ready, initializing admission decisions controller");
+    window.admissionDecisionsController.init();
+    return;
+  }
+
+  console.log("API not ready yet, waiting...");
+  setTimeout(initWhenAPIReady, 100);
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", function () {
+    console.log("DOM loaded, waiting for API to be ready");
+    initWhenAPIReady();
+  });
+} else {
+  console.log("DOM already loaded, waiting for API to be ready");
+  initWhenAPIReady();
+}

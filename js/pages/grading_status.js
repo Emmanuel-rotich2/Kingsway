@@ -268,6 +268,80 @@ const GradingStatusController = (() => {
 
   // ---- Export ----
 
+  function printGrading() {
+    if (!state.gradingData.length) {
+      showError("No data to print");
+      return;
+    }
+
+    const term = document.getElementById("termFilter")?.options[document.getElementById("termFilter").selectedIndex]?.text || 'All';
+    const classFilter = document.getElementById("classFilter")?.options[document.getElementById("classFilter").selectedIndex]?.text || 'All';
+    const status = document.getElementById("statusFilter")?.options[document.getElementById("statusFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Term': term,
+      'Class': classFilter,
+      'Status': status
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const processedRows = state.gradingData.map(d => {
+      const totalStudents = d.total_students || 0;
+      const graded = d.graded_count || 0;
+      const pending = totalStudents - graded;
+      const percentage = totalStudents > 0 ? Math.round((graded / totalStudents) * 100) : 0;
+      const status = formatStatus(getGradingStatus(percentage));
+      const teacher = d.teacher_name || `${d.first_name || ""} ${d.last_name || ""}`.trim() || "";
+
+      return {
+        subject_name: d.subject_name || '',
+        teacher_name: teacher,
+        class_name: d.class_name || '',
+        total_students: totalStudents,
+        graded_count: graded,
+        pending_count: pending,
+        percentage: `${percentage}%`,
+        status: status
+      };
+    });
+
+    const columns = [
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'teacher_name', label: 'Teacher' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'total_students', label: 'Total Students' },
+      { key: 'graded_count', label: 'Graded' },
+      { key: 'pending_count', label: 'Pending' },
+      { key: 'percentage', label: 'Percentage' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Grading Status Report',
+      subtitle: 'Subject Grading Progress',
+      columns: columns,
+      rows: processedRows,
+      summary: {
+        'Total Subjects': processedRows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'GRD-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function exportGrading() {
     if (!state.gradingData.length) {
       showError("No data to export");
@@ -312,7 +386,7 @@ const GradingStatusController = (() => {
 
     document
       .getElementById("printGradingBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printGrading());
 
     // Filters
     document

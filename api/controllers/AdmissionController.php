@@ -795,6 +795,26 @@ class AdmissionController extends BaseController
 
             $db = $this->db;
             $scopeFilter = $this->buildScopeFilter('aa', 'wi');
+            $stageMatrix = $this->getStageAuthorization()->getStageMatrix(
+                $this->getCurrentUserRoleIds(),
+                $this->getCurrentUserPermissionCodes()
+            );
+            $hasAdmissionOversight = $this->hasAdmissionRouteAccess()
+                && $this->userHasAny([], [3, 5, 6], ['Director', 'Headteacher', 'Deputy Head - Academic']);
+            $canViewStage = static fn (array $stages): bool => array_reduce(
+                $stages,
+                static fn (bool $carry, string $stage): bool => $carry || !empty($stageMatrix[$stage]['can_view']) || $hasAdmissionOversight,
+                false
+            );
+            $canViewReview = $canViewStage(['application_received', 'application_review']);
+            $canViewDocuments = $canViewStage(['documents_upload', 'documents_verification']);
+            $canViewSpace = $canViewStage(['class_space_check']);
+            $canViewInterview = $canViewStage(['interview_scheduling', 'interview_results']);
+            $canViewDecision = $canViewStage(['admission_decision', 'provisional_student_creation']);
+            $canViewPayment = $canViewStage(['fees_payment']);
+            $canViewId = $canViewStage(['student_id_generation']);
+            $canViewFinalApproval = $canViewStage(['final_approval']);
+            $canViewEnrollment = $canViewStage(['enrollment']);
             $canReview = $this->canProcessAdmissionActionForStage('review_application', 'application_review')
                 || $this->canProcessAdmissionActionForStage('review_application', 'application_received');
             $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application_review')
@@ -846,7 +866,7 @@ class AdmissionController extends BaseController
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
 
             // Review pending (application_received / application_review)
-            if ($canReview) {
+            if ($canViewReview || $canReview) {
                 $sql = "$baseSelect
                     WHERE wi.current_stage IN ('application_received', 'application_review')
                       AND aa.status NOT IN ('cancelled', 'enrolled')
@@ -857,7 +877,7 @@ class AdmissionController extends BaseController
             }
 
             // Documents Pending (documents_upload / documents_verification)
-            if ($canUploadDocuments || $canVerifyDocuments) {
+            if ($canViewDocuments || $canUploadDocuments || $canVerifyDocuments) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -878,7 +898,7 @@ class AdmissionController extends BaseController
             }
 
             // Class space check pending (class_space_check)
-            if ($canCheckSpace) {
+            if ($canViewSpace || $canCheckSpace) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -899,13 +919,17 @@ class AdmissionController extends BaseController
             }
 
             // Interview Pending (interview_scheduling / interview_results)
-            if ($canScheduleInterview || $canRecordInterview) {
+            if ($canViewInterview || $canScheduleInterview || $canRecordInterview) {
                 $interviewStageFilters = [];
-                if ($canScheduleInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
-                }
-                if ($canRecordInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
+                if ($canViewInterview) {
+                    $interviewStageFilters[] = "wi.current_stage IN ('interview_scheduling', 'interview_results')";
+                } else {
+                    if ($canScheduleInterview) {
+                        $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
+                    }
+                    if ($canRecordInterview) {
+                        $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
+                    }
                 }
 
                 $interviewStageSql = empty($interviewStageFilters)
@@ -928,7 +952,7 @@ class AdmissionController extends BaseController
             }
 
             // Admission decision pending (admission_decision / provisional_student_creation)
-            if ($canAdmit || $canCreateProvisional) {
+            if ($canViewDecision || $canAdmit || $canCreateProvisional) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -944,8 +968,7 @@ class AdmissionController extends BaseController
                 $queues['decision_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Payment Pending (fees_payment)
-            if ($canRecordPayment) {
+            if ($canViewPayment || $canRecordPayment) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -964,7 +987,7 @@ class AdmissionController extends BaseController
             }
 
             // Student ID generation pending (student_id_generation)
-            if ($canGenerateId) {
+            if ($canViewId || $canGenerateId) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -981,7 +1004,7 @@ class AdmissionController extends BaseController
             }
 
             // Final approval pending (final_approval)
-            if ($canFinalApproval) {
+            if ($canViewFinalApproval || $canFinalApproval) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -998,7 +1021,7 @@ class AdmissionController extends BaseController
             }
 
             // Enrollment Pending (enrollment)
-            if ($canCompleteEnrollment) {
+            if ($canViewEnrollment || $canCompleteEnrollment) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,

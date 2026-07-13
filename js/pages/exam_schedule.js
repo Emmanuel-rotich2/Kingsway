@@ -401,6 +401,63 @@ const ExamScheduleController = (() => {
     }
   }
 
+  function printSchedule() {
+    if (!state.exams.length) {
+      showError("No data to print");
+      return;
+    }
+
+    const term = document.getElementById("termFilter")?.options[document.getElementById("termFilter").selectedIndex]?.text || 'All';
+    const classFilter = document.getElementById("classFilter")?.options[document.getElementById("classFilter").selectedIndex]?.text || 'All';
+    const subject = document.getElementById("subjectFilter")?.options[document.getElementById("subjectFilter").selectedIndex]?.text || 'All';
+    const status = document.getElementById("statusFilter")?.options[document.getElementById("statusFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Term': term,
+      'Class': classFilter,
+      'Subject': subject,
+      'Status': status
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'exam_name', label: 'Exam Name' },
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'exam_date', label: 'Date' },
+      { key: 'start_time', label: 'Time' },
+      { key: 'duration', label: 'Duration' },
+      { key: 'venue', label: 'Venue' },
+      { key: 'supervisor_name', label: 'Supervisor' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Examination Schedule',
+      subtitle: 'School Exam Timetable',
+      columns: columns,
+      rows: state.exams,
+      summary: {
+        'Total Exams': state.exams.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'EXS-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function exportSchedule() {
     if (!state.exams.length) {
       showError("No data to export");
@@ -446,7 +503,7 @@ const ExamScheduleController = (() => {
 
     document
       .getElementById("printScheduleBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printSchedule());
 
     // Filters
     document.getElementById("termFilter")?.addEventListener("change", (e) => {

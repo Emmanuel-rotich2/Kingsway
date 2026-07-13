@@ -481,6 +481,22 @@ abstract class BaseController
     }
 
     /**
+     * Check if the current user has at least one of the given roles.
+     * Case-insensitive (normalizes both sides to lowercase).
+     * @param array $roleNames List of role names (strings)
+     * @return bool
+     */
+    protected function userHasAnyRole(array $roleNames)
+    {
+        foreach ($roleNames as $roleName) {
+            if ($this->userHasRole($roleName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Check if user has a specific permission
      * @param string $permission Permission name
      * @return bool

@@ -213,7 +213,7 @@ const StaffController = (() => {
       .map((s, i) => {
         const name =
           s.name || `${s.first_name || ""} ${s.last_name || ""}`.trim();
-        const photo = s.photo || "/images/default-avatar.png";
+        const photo = s.photo || (s.profile_pic_url || "/uploads/staff/profile_pictures/staff_avatar.jpeg");
         const statusBadge =
           (s.status || "").toLowerCase() === "active"
             ? '<span class="badge bg-success">Active</span>'
@@ -394,7 +394,7 @@ const StaffController = (() => {
         modalBody.innerHTML = `
           <div class="row">
             <div class="col-md-4 text-center mb-3">
-              <img src="${esc(s.photo || "/images/default-avatar.png")}" class="rounded-circle" style="width:120px;height:120px;object-fit:cover;">
+              <img src="${esc(s.photo || "/uploads/staff/profile_pictures/staff_avatar.jpeg")}" class="rounded-circle" style="width:120px;height:120px;object-fit:cover;">
               <h5 class="mt-2">${esc(name)}</h5>
               <span class="badge ${(s.status || "").toLowerCase() === "active" ? "bg-success" : "bg-secondary"}">${esc(s.status || "N/A")}</span>
             </div>

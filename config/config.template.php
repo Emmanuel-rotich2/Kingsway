@@ -16,6 +16,9 @@ define('BASE_URL', $baseUrl);
 // File upload paths
 define('UPLOAD_PATH', __DIR__ . '/../uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
+// Canonical default avatar used when a student has no uploaded photo.
+// Path is relative to the app root and resolved for the browser via the APP_BASE prefix.
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
 define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
@@ -37,7 +40,8 @@ define('CURRENT_TERM', ceil(date('n') / 3));
 // School Contact Details
 define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
 define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingsway.ac.ke');
+define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
+define('SCHOOL_WEBSITE', 'www.kingswaypreparatoryschool.sc.ke');
 define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');

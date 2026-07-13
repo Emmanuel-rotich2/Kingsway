@@ -5174,7 +5174,9 @@ class StudentsAPI extends BaseAPI
             ];
 
             if (empty($payload['photo_url'])) {
-                $payload['photo_url'] = '/Kingsway/images/logo.jpg';
+                $payload['photo_url'] = $this->normalizePublicAssetPath(
+                    defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg'
+                );
             }
 
             return $this->response([
@@ -5255,8 +5257,10 @@ class StudentsAPI extends BaseAPI
     private function normalizePublicAssetPath($path)
     {
         $value = trim((string) $path);
-        if ($value === '') {
-            return '';
+        if ($value === '' || $value === 'NULL') {
+            // No photo on record: fall back to the canonical default avatar so the
+            // frontend never references a missing path.
+            $value = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
         }
 
         if (preg_match('/^(https?:)?\\/\\//i', $value) || str_starts_with($value, 'data:')) {

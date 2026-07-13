@@ -6,6 +6,11 @@
  * or have been scheduled. Shows applications where HT needs to conduct
  * interviews or make admission decisions.
  */
+
+$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($appBase === '.')
+    $appBase = '';
+
 ?>
 <style>
     .ht-applications-page {
@@ -142,12 +147,18 @@
         <!-- Filters -->
         <div class="row g-3 mb-4">
             <div class="col-md-4">
-                <label class="form-label small fw-semibold">Interview Status</label>
+                <label class="form-label small fw-semibold">Workflow Stage</label>
                 <select id="filterInterviewStatus" class="form-select">
-                    <option value="">All Statuses</option>
-                    <option value="scheduled">Scheduled</option>
+                    <option value="">All Stages</option>
+                    <option value="review_pending">Review Pending</option>
+                    <option value="documents_pending">Documents Pending</option>
+                    <option value="space_check_pending">Space Check Pending</option>
+                    <option value="interview_scheduling">Interview Scheduling</option>
+                    <option value="interview_results">Interview Assessment</option>
+                    <option value="decision_pending">Decision Pending</option>
+                    <option value="final_approval_pending">Final Approval Pending</option>
+                    <option value="enrollment_pending">Enrollment Pending</option>
                     <option value="completed">Completed</option>
-                    <option value="pending">Pending Scheduling</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -206,12 +217,12 @@
     </div>
 </div>
 
-<!-- Conduct Interview Modal -->
+<!-- Application Review Modal -->
 <div class="modal fade" id="conductInterviewModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
-                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Conduct Interview</h5>
+                <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Application Review</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <form id="conductInterviewForm">
@@ -298,23 +309,15 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-success" id="conductInterviewBtn">
-                    <i class="bi bi-clipboard-check me-1"></i>Conduct Interview
+                    <i class="bi bi-clipboard-check me-1"></i>Open Interview Queue
                 </button>
             </div>
         </div>
     </div>
 </div>
 
-<script src="js/pages/admissions_headteacher_applications.js"></script>
-<script>
-function initWhenAPIReady() {
-    if (typeof API !== 'undefined' && API.callAPI) {
-        if (typeof headteacherApplicationsController !== 'undefined' && headteacherApplicationsController.init) {
-            headteacherApplicationsController.init();
-        }
-    } else {
-        setTimeout(initWhenAPIReady, 100);
-    }
-}
-document.addEventListener('DOMContentLoaded', initWhenAPIReady);
+<script
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_headteacher_applications.js?v=<?= time() ?>"
+    onload="console.log('admissions_headteacher_applications.js script tag loaded successfully')"
+    onerror="console.error('FAILED to load admissions_headteacher_applications.js. Check path:', this.src)">
 </script>

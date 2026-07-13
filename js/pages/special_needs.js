@@ -30,7 +30,6 @@ const SpecialNeedsController = {
 
     this.cacheDom();
     this.attachEvents();
-    this.setPrintDate();
 
     // Update UI for boarding role
     if (this.state.isBoardingRole) {
@@ -130,7 +129,7 @@ const SpecialNeedsController = {
   attachEvents() {
     this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadIEPs());
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
-    this.ui.printRecordsBtn?.addEventListener("click", () => this.prepareAndPrint('overview'));
+    this.ui.printRecordsBtn?.addEventListener("click", () => this.printOverviewReport());
     this.ui.exportRecordsBtn?.addEventListener("click", () => this.exportRecords());
 
     this.ui.searchBox?.addEventListener(
@@ -148,7 +147,7 @@ const SpecialNeedsController = {
     this.ui.statusFilter?.addEventListener("change", () => this.loadIEPs());
     this.ui.dormitoryFilter?.addEventListener("change", () => this.loadIEPs());
 
-    this.ui.printIepBtn?.addEventListener("click", () => this.prepareAndPrint('modal'));
+    this.ui.printIepBtn?.addEventListener("click", () => this.printIepReport());
   },
 
   async loadMeta() {
@@ -335,7 +334,7 @@ const SpecialNeedsController = {
     const student = data.student || {};
     const iep = data.iep || {};
 
-    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/images/default-avatar.png`;
+    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
     this.ui.studentName.textContent = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "-";
 
     this.ui.admNo.textContent = student.admission_no || "-";
@@ -391,30 +390,24 @@ const SpecialNeedsController = {
       return;
     }
 
-    const headers = ["IEP ID", "Student", "Admission No", "Class", "Stream", "IEP Type", "Category", "Status", "Academic Year", "Created Date"];
-    const rows = this.state.ieps.map(i => [
-      i.id || "",
-      i.full_name || i.student_name || "",
-      i.admission_no || "",
-      i.class_name || "",
-      i.stream_name || "",
-      i.iep_type || "",
-      i.special_needs_category || "",
-      i.status || "",
-      i.academic_year || "",
-      i.created_at || "",
-    ]);
+    const columns = [
+      { key: 'id', label: 'IEP ID' },
+      { key: 'full_name', label: 'Student' },
+      { key: 'admission_no', label: 'Admission No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'iep_type', label: 'IEP Type' },
+      { key: 'special_needs_category', label: 'Category' },
+      { key: 'status', label: 'Status' },
+      { key: 'academic_year', label: 'Academic Year' },
+      { key: 'created_at', label: 'Created Date' }
+    ];
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `special_needs_ieps_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: this.state.ieps,
+      filename: 'special_needs_ieps'
+    });
   },
 
   setIepsLoading(loading) {
@@ -451,39 +444,138 @@ const SpecialNeedsController = {
     });
   },
 
-  setPrintDate() {
-    const printDateEl = document.getElementById("printDate");
-    if (printDateEl) {
-      const now = new Date();
-      printDateEl.textContent = now.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      });
+  printOverviewReport() {
+    if (!this.state.ieps.length) {
+      this.notify("No data to print", "warning");
+      return;
     }
+
+    const summary = this.calculateSummary(this.state.ieps);
+    const filters = {
+      'Academic Year': this.ui.academicYearFilter?.options[this.ui.academicYearFilter.selectedIndex]?.text || 'All',
+      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
+      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All',
+      'Status': this.ui.statusFilter?.options[this.ui.statusFilter.selectedIndex]?.text || 'All'
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'id', label: 'IEP ID' },
+      { key: 'student_name', label: 'Student' },
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'iep_type', label: 'IEP Type' },
+      { key: 'category', label: 'Category' },
+      { key: 'status', label: 'Status' },
+      { key: 'created_date', label: 'Created Date' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Special Education Records',
+      subtitle: 'Individualized Education Programs',
+      columns: columns,
+      rows: this.state.ieps,
+      summary: {
+        'Total IEPs': summary.total,
+        'Active IEPs': summary.active,
+        'Draft IEPs': summary.draft,
+        'Completed IEPs': summary.completed,
+        'Health Records': summary.health
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'SPE-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Special Needs Coordinator' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
-  prepareAndPrint(printType) {
-    this.setPrintDate();
-    document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-
-    if (printType === 'modal') {
-      document.body.classList.add('printing-modal');
-      if (this.ui.modal) {
-        this.ui.modal.classList.add('print-mode');
-      }
-    } else {
-      document.body.classList.add('printing-overview');
+  printIepReport() {
+    if (!this.state.selectedIepId) {
+      this.notify("No IEP selected", "warning");
+      return;
     }
 
-    window.print();
+    // Extract IEP data from modal
+    const iepData = {
+      studentName: this.ui.studentName?.textContent || '-',
+      admissionNo: this.ui.admNo?.textContent || '-',
+      studentClass: this.ui.studentClass?.textContent || '-',
+      stream: this.ui.stream?.textContent || '-',
+      iepType: this.ui.iepType?.textContent || '-',
+      iepCategory: this.ui.iepCategory?.textContent || '-',
+      academicYear: this.ui.academicYear?.textContent || '-',
+      status: this.ui.statusBadge?.textContent || '-',
+      createdDate: this.ui.createdDate?.textContent || '-',
+      approvedDate: this.ui.approvedDate?.textContent || '-',
+      goalsSummary: this.ui.goalsSummary?.textContent || '-',
+      strategies: this.ui.strategies?.textContent || '-',
+      accommodations: this.ui.accommodations?.textContent || '-',
+      progressMonitoring: this.ui.progressMonitoring?.textContent || '-'
+    };
 
-    setTimeout(() => {
-      document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-      if (printType === 'modal' && this.ui.modal) {
-        this.ui.modal.classList.remove('print-mode');
+    const sections = [
+      {
+        title: 'Student Information',
+        fields: [
+          { label: 'Student Name', value: iepData.studentName },
+          { label: 'Admission No', value: iepData.admissionNo },
+          { label: 'Class', value: iepData.studentClass },
+          { label: 'Stream', value: iepData.stream }
+        ]
+      },
+      {
+        title: 'IEP Details',
+        fields: [
+          { label: 'IEP Type', value: iepData.iepType },
+          { label: 'Category', value: iepData.iepCategory },
+          { label: 'Academic Year', value: iepData.academicYear },
+          { label: 'Status', value: iepData.status },
+          { label: 'Created Date', value: iepData.createdDate },
+          { label: 'Approved Date', value: iepData.approvedDate }
+        ]
+      },
+      {
+        title: 'Goals Summary',
+        content: iepData.goalsSummary
+      },
+      {
+        title: 'Strategies',
+        content: iepData.strategies
+      },
+      {
+        title: 'Accommodations',
+        content: iepData.accommodations
+      },
+      {
+        title: 'Progress Monitoring',
+        content: iepData.progressMonitoring
       }
-    }, 1000);
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Individualized Education Program',
+      subtitle: 'IEP #' + this.state.selectedIepId,
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'IEP-' + this.state.selectedIepId,
+      signatureSection: [
+        { label: 'Special Needs Coordinator' },
+        { label: 'Principal' },
+        { label: 'Parent/Guardian' }
+      ]
+    });
   },
 
   api: async function (endpoint, method = "GET", data = null) {

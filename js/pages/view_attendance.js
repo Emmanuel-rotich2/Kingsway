@@ -123,12 +123,12 @@ const viewAttendanceController = {
 
     const printBtn = document.getElementById("printBtn");
     if (printBtn) {
-      printBtn.addEventListener("click", () => window.print());
+      printBtn.addEventListener("click", () => this.printCurrentView());
     }
 
     const printStudentBtn = document.getElementById("printStudentBtn");
     if (printStudentBtn) {
-      printStudentBtn.addEventListener("click", () => window.print());
+      printStudentBtn.addEventListener("click", () => this.printStudentView());
     }
 
     const dateInputs = ["dateFrom", "dateTo", "dailyDate"];
@@ -1020,16 +1020,202 @@ const viewAttendanceController = {
       return;
     }
 
-    const csv = this.toCsv(rows);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const columns = Object.keys(rows[0] || {}).map(key => ({
+      key: key,
+      label: key.replace(/_/g, ' ').toUpperCase()
+    }));
+
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: rows,
+      filename: filename.replace('.csv', '')
+    });
+  },
+
+  printCurrentView: function () {
+    const activePane =
+      document.querySelector(".tab-pane.active.show") ||
+      document.querySelector(".tab-pane.active");
+    const activeId = activePane?.id || "summary";
+    let title = "Attendance Report";
+    let subtitle = "";
+    let rows = [];
+    let columns = [];
+    let summary = {};
+
+    if (activeId === "daily") {
+      title = "Daily Attendance Register";
+      subtitle = document.getElementById("dailyDate")?.value || new Date().toISOString().slice(0, 10);
+      rows = this.dailyData.map((row) => ({
+        admission_no: row.admission_no,
+        student_name: `${row.first_name || ""} ${row.last_name || ""}`.trim(),
+        student_type: row.student_type || row.student_type_code,
+        session: row.session_name,
+        status: row.status,
+        marked_at: row.marked_at,
+        notes: row.notes,
+      }));
+      columns = [
+        { key: 'admission_no', label: 'Adm No' },
+        { key: 'student_name', label: 'Student Name' },
+        { key: 'student_type', label: 'Student Type' },
+        { key: 'session', label: 'Session' },
+        { key: 'status', label: 'Status' },
+        { key: 'marked_at', label: 'Marked At' },
+        { key: 'notes', label: 'Notes' }
+      ];
+      summary = {
+        'Date': subtitle,
+        'Total Students': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      };
+    } else if (activeId === "boarding") {
+      title = "Boarding Attendance Summary";
+      rows = this.boardingData.map((row) => ({
+        dormitory: row.dormitory_name,
+        session: row.session_name,
+        total_students: row.total_students,
+        present: row.present,
+        absent: row.absent,
+        on_permission: row.on_permission,
+        sick_bay: row.sick_bay,
+      }));
+      columns = [
+        { key: 'dormitory', label: 'Dormitory' },
+        { key: 'session', label: 'Session' },
+        { key: 'total_students', label: 'Total Students' },
+        { key: 'present', label: 'Present' },
+        { key: 'absent', label: 'Absent' },
+        { key: 'on_permission', label: 'On Permission' },
+        { key: 'sick_bay', label: 'Sick Bay' }
+      ];
+      summary = {
+        'Total Dormitories': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      };
+    } else if (activeId === "permissions") {
+      title = "Active Student Permissions";
+      rows = this.permissionsData.map((row) => ({
+        student_name: row.student_name,
+        admission_no: row.admission_no,
+        class_name: [row.class_name, row.stream_name].filter(Boolean).join(" - "),
+        permission_type: row.permission_type_name || row.permission_type_code,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        reason: row.reason,
+        approved_by: row.approved_by_name,
+        status: row.status,
+      }));
+      columns = [
+        { key: 'student_name', label: 'Student Name' },
+        { key: 'admission_no', label: 'Adm No' },
+        { key: 'class_name', label: 'Class' },
+        { key: 'permission_type', label: 'Permission Type' },
+        { key: 'start_date', label: 'Start Date' },
+        { key: 'end_date', label: 'End Date' },
+        { key: 'reason', label: 'Reason' },
+        { key: 'approved_by', label: 'Approved By' },
+        { key: 'status', label: 'Status' }
+      ];
+      summary = {
+        'Total Permissions': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      };
+    } else {
+      title = "Attendance Summary";
+      rows = (this.academicData?.students || []).map((row) => ({
+        admission_no: row.admission_no,
+        student_name: row.student_name,
+        student_type: row.student_type || row.student_type_code,
+        total_days: row.total_days,
+        present: row.present,
+        absent: row.absent,
+        late: row.late,
+        permission: row.permission,
+        attendance_percentage: row.attendance_percentage,
+      }));
+      columns = [
+        { key: 'admission_no', label: 'Adm No' },
+        { key: 'student_name', label: 'Student Name' },
+        { key: 'student_type', label: 'Student Type' },
+        { key: 'total_days', label: 'Total Days' },
+        { key: 'present', label: 'Present' },
+        { key: 'absent', label: 'Absent' },
+        { key: 'late', label: 'Late' },
+        { key: 'permission', label: 'Permission' },
+        { key: 'attendance_percentage', label: 'Attendance %' }
+      ];
+      summary = {
+        'Total Students': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      };
+    }
+
+    if (!rows.length) {
+      this.notify("There is no data to print for the current tab.", "warning");
+      return;
+    }
+
+    window.PrintManager.printTable({
+      title: title,
+      subtitle: subtitle,
+      columns: columns,
+      rows: rows,
+      summary: summary,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'ATT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Class Teacher' },
+        { label: 'Principal' }
+      ]
+    });
+  },
+
+  printStudentView: function () {
+    if (!this.studentData || Object.keys(this.studentData).length === 0) {
+      this.notify("No student data to print", "warning");
+      return;
+    }
+
+    const studentName = this.studentData.student_name || 'Student';
+    const admissionNo = this.studentData.admission_no || '—';
+
+    const sections = [
+      {
+        title: 'Student Information',
+        fields: [
+          { label: 'Student Name', value: studentName },
+          { label: 'Admission No', value: admissionNo },
+          { label: 'Class', value: this.studentData.class_name || '—' },
+          { label: 'Stream', value: this.studentData.stream_name || '—' }
+        ]
+      },
+      {
+        title: 'Attendance Summary',
+        fields: [
+          { label: 'Total Days', value: this.studentData.total_days || '—' },
+          { label: 'Present', value: this.studentData.present || '—' },
+          { label: 'Absent', value: this.studentData.absent || '—' },
+          { label: 'Late', value: this.studentData.late || '—' },
+          { label: 'Permission', value: this.studentData.permission || '—' },
+          { label: 'Attendance %', value: this.studentData.attendance_percentage || '—' }
+        ]
+      }
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Student Attendance Report',
+      subtitle: studentName,
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'STA-' + (this.studentData.student_id || '0'),
+      signatureSection: [
+        { label: 'Class Teacher' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   showTab: function (tabId) {

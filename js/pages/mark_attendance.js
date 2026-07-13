@@ -92,7 +92,7 @@ const MarkAttendanceController = {
     this.ui.loadPassengersBtn?.addEventListener("click", () => this.loadPassengers());
     this.ui.refreshBtn?.addEventListener("click", () => this.loadPassengers());
     this.ui.saveAttendanceBtn?.addEventListener("click", () => this.showSaveConfirmation());
-    this.ui.printSheetBtn?.addEventListener("click", () => window.print());
+    this.ui.printSheetBtn?.addEventListener("click", () => this.printAttendanceSheet());
 
     this.ui.markSelectedPickedUp?.addEventListener("click", () => this.markSelected("picked_up"));
     this.ui.markSelectedDroppedOff?.addEventListener("click", () => this.markSelected("dropped_off"));
@@ -445,6 +445,88 @@ const MarkAttendanceController = {
           "'": "&#039;",
         })[char]
     );
+  },
+
+  printAttendanceSheet() {
+    if (!this.state.passengers.length) {
+      this.notify("No attendance data to print", "warning");
+      return;
+    }
+
+    const summary = this.calculateAttendanceSummary();
+    const filters = {
+      'Date': this.ui.attendanceDate?.value || '-',
+      'Route': this.ui.routeSelect?.options[this.ui.routeSelect.selectedIndex]?.text || '-',
+      'Vehicle': this.ui.vehicleSelect?.options[this.ui.vehicleSelect.selectedIndex]?.text || '-',
+      'Trip Session': this.ui.tripSession?.options[this.ui.tripSession.selectedIndex]?.text || '-',
+      'Driver': this.ui.driverName?.value || '-'
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === '-' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'full_name', label: 'Student Name' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'pickup_point', label: 'Pickup Point' },
+      { key: 'dropoff_point', label: 'Dropoff Point' },
+      { key: 'status', label: 'Attendance Status' },
+      { key: 'time', label: 'Time' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Transport Attendance Sheet',
+      subtitle: 'Daily Passenger Attendance Register',
+      columns: columns,
+      rows: this.state.passengers.map(p => ({
+        ...p,
+        status: (this.state.attendance[p.student_id] || {}).status || 'pending',
+        time: (this.state.attendance[p.student_id] || {}).time || '-'
+      })),
+      summary: {
+        'Total Expected': summary.totalExpected,
+        'Picked Up': summary.pickedUp,
+        'Dropped Off': summary.droppedOff,
+        'Absent': summary.absent,
+        'Not Riding': summary.notRiding,
+        'Pending': summary.pending
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'ATT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Driver' },
+        { label: 'Transport Manager' }
+      ]
+    });
+  },
+
+  calculateAttendanceSummary() {
+    const counts = {
+      totalExpected: this.state.passengers.length,
+      pickedUp: 0,
+      droppedOff: 0,
+      absent: 0,
+      notRiding: 0,
+      pending: 0
+    };
+
+    Object.values(this.state.attendance).forEach(att => {
+      if (att.status === 'picked_up') counts.pickedUp++;
+      else if (att.status === 'dropped_off') counts.droppedOff++;
+      else if (att.status === 'absent') counts.absent++;
+      else if (att.status === 'not_riding') counts.notRiding++;
+      else if (att.status === 'pending') counts.pending++;
+    });
+
+    return counts;
   },
 
   notify(message, type = "info") {

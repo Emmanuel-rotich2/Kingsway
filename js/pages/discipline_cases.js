@@ -25,7 +25,6 @@ const DisciplineCasesController = {
 
     this.cacheDom();
     this.attachEvents();
-    this.setPrintDate();
 
     console.log("DisciplineCasesController: Loading metadata...");
     await this.loadMeta();
@@ -314,7 +313,7 @@ const DisciplineCasesController = {
     const student = data.student || {};
     const caseData = data.case || {};
 
-    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/images/default-avatar.png`;
+    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
     this.ui.studentName.textContent = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "-";
     this.ui.admNo.textContent = student.admission_no || "-";
     this.ui.studentClass.textContent = data.class_name || "-";
@@ -393,30 +392,24 @@ const DisciplineCasesController = {
       return;
     }
 
-    const headers = ["Case ID", "Student", "Admission No", "Class", "Stream", "Incident", "Severity", "Status", "Incident Date", "Action Taken"];
-    const rows = this.state.cases.map(c => [
-      c.id || "",
-      c.full_name || c.student_name || "",
-      c.admission_no || "",
-      c.class_name || "",
-      c.stream_name || "",
-      c.description || "",
-      c.severity || "",
-      c.status || "",
-      c.incident_date || "",
-      c.action_taken || "",
-    ]);
+    const columns = [
+      { key: 'id', label: 'Case ID' },
+      { key: 'full_name', label: 'Student' },
+      { key: 'admission_no', label: 'Admission No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'description', label: 'Incident' },
+      { key: 'severity', label: 'Severity' },
+      { key: 'status', label: 'Status' },
+      { key: 'incident_date', label: 'Incident Date' },
+      { key: 'action_taken', label: 'Action Taken' }
+    ];
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `discipline_cases_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: this.state.cases,
+      filename: 'discipline_cases'
+    });
   },
 
   setCasesLoading(loading) {
@@ -453,39 +446,139 @@ const DisciplineCasesController = {
     });
   },
 
-  setPrintDate() {
-    const printDateEl = document.getElementById("printDate");
-    if (printDateEl) {
-      const now = new Date();
-      printDateEl.textContent = now.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      });
+  prepareAndPrint(printType) {
+    if (printType === 'modal') {
+      this.printModalCase();
+    } else {
+      this.printOverviewReport();
     }
   },
 
-  prepareAndPrint(printType) {
-    this.setPrintDate();
-    document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-
-    if (printType === 'modal') {
-      document.body.classList.add('printing-modal');
-      if (this.ui.modal) {
-        this.ui.modal.classList.add('print-mode');
-      }
-    } else {
-      document.body.classList.add('printing-overview');
+  printOverviewReport() {
+    if (!this.state.cases.length) {
+      this.notify("No data to print", "warning");
+      return;
     }
 
-    window.print();
+    const summary = this.calculateSummary(this.state.cases);
+    const filters = {
+      'Academic Year': this.ui.academicYearFilter?.options[this.ui.academicYearFilter.selectedIndex]?.text || 'All',
+      'Term': this.ui.termFilter?.options[this.ui.termFilter.selectedIndex]?.text || 'All',
+      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
+      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All',
+      'Status': this.ui.statusFilter?.options[this.ui.statusFilter.selectedIndex]?.text || 'All',
+      'Severity': this.ui.severityFilter?.options[this.ui.severityFilter.selectedIndex]?.text || 'All',
+    };
 
-    setTimeout(() => {
-      document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-      if (printType === 'modal' && this.ui.modal) {
-        this.ui.modal.classList.remove('print-mode');
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
       }
-    }, 1000);
+    });
+
+    const columns = [
+      { key: 'id', label: 'Case ID' },
+      { key: 'full_name', label: 'Student' },
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'description', label: 'Incident' },
+      { key: 'severity', label: 'Severity' },
+      { key: 'status', label: 'Status' },
+      { key: 'incident_date', label: 'Incident Date' },
+      { key: 'action_taken', label: 'Action Taken' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Discipline Cases Report',
+      subtitle: 'Student Discipline Management',
+      columns: columns,
+      rows: this.state.cases,
+      summary: {
+        'Total Cases': summary.total,
+        'Open/Pending': summary.open,
+        'Resolved': summary.resolved,
+        'High Severity': summary.serious,
+        'Repeat Offenders': summary.repeat,
+        'This Term': summary.thisTerm
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'DISC-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Discipline Officer' },
+        { label: 'Headteacher' }
+      ]
+    });
+  },
+
+  printModalCase() {
+    if (!this.state.selectedCaseId) {
+      this.notify("No case selected", "warning");
+      return;
+    }
+
+    // Get current case data from modal
+    const caseData = {
+      studentName: this.ui.studentName?.textContent || '-',
+      admissionNo: this.ui.admNo?.textContent || '-',
+      studentClass: this.ui.studentClass?.textContent || '-',
+      stream: this.ui.stream?.textContent || '-',
+      incidentDate: this.ui.incidentDate?.textContent || '-',
+      severity: this.ui.severityBadge?.textContent || '-',
+      status: this.ui.statusBadge?.textContent || '-',
+      reportedBy: this.ui.reportedBy?.textContent || '-',
+      resolvedBy: this.ui.resolvedBy?.textContent || '-',
+      resolutionDate: this.ui.resolutionDate?.textContent || '-',
+      description: this.ui.caseDescription?.textContent || '-',
+      actionTaken: this.ui.actionTaken?.textContent || '-'
+    };
+
+    const sections = [
+      {
+        title: 'Student Information',
+        fields: [
+          { label: 'Student Name', value: caseData.studentName },
+          { label: 'Admission No', value: caseData.admissionNo },
+          { label: 'Class', value: caseData.studentClass },
+          { label: 'Stream', value: caseData.stream }
+        ]
+      },
+      {
+        title: 'Incident Details',
+        fields: [
+          { label: 'Incident Date', value: caseData.incidentDate },
+          { label: 'Severity', value: caseData.severity },
+          { label: 'Status', value: caseData.status },
+          { label: 'Reported By', value: caseData.reportedBy },
+          { label: 'Resolved By', value: caseData.resolvedBy },
+          { label: 'Resolution Date', value: caseData.resolutionDate }
+        ]
+      },
+      {
+        title: 'Description',
+        content: caseData.description
+      },
+      {
+        title: 'Action Taken',
+        content: caseData.actionTaken
+      }
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Discipline Case Detail',
+      subtitle: 'Case #' + this.state.selectedCaseId,
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'DISC-DET-' + this.state.selectedCaseId,
+      signatureSection: [
+        { label: 'Discipline Officer' },
+        { label: 'Headteacher' }
+      ]
+    });
   },
 
   api: async function (endpoint, method = "GET", data = null) {

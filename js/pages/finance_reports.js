@@ -469,7 +469,56 @@ const financeReportsController = (() => {
   }
 
   function printReport() {
-    window.print();
+    if (!state.rows || state.rows.length === 0) {
+      alert("No data to print");
+      return;
+    }
+
+    const reportType = getEl("reportType")?.value || "income_statement";
+    const startDate = getEl("startDate")?.value || "";
+    const endDate = getEl("endDate")?.value || "";
+
+    const filters = {
+      'Report Type': reportType.replace(/_/g, ' ').toUpperCase(),
+      'Date Range': `${startDate} to ${endDate}`
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (!filters[key] || filters[key] === ' to ') {
+        delete filters[key];
+      }
+    });
+
+    // Calculate summary from footer
+    const summary = {};
+    state.footer.forEach(row => {
+      if (row.label) {
+        summary[row.label] = row.value || row.amount || '';
+      }
+    });
+
+    // Get columns from first row
+    const columns = Object.keys(state.rows[0] || {}).map(key => ({
+      key: key,
+      label: key.replace(/_/g, ' ').toUpperCase()
+    }));
+
+    window.PrintManager.printTable({
+      title: 'Financial Report',
+      subtitle: filters['Report Type'] || 'Income Statement',
+      columns: columns,
+      rows: state.rows,
+      summary: summary,
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'FIN-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Accountant' },
+        { label: 'Principal' }
+      ]
+    });
   }
 
   function bindEvents() {

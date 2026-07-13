@@ -21,7 +21,9 @@ function generateStudentDetailsHTML(student) {
     return `
         <div class="row">
             <div class="col-md-4 text-center">
-                <img src="../images/students/${student.photo}" class="img-fluid rounded mb-3" style="max-width: 200px;">
+                <img src="${(student.photo_url || (window.APP_BASE || '') + '/uploads/students/' + (student.photo || 'avatar.jpg'))}"
+                     onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'"
+                     class="img-fluid rounded mb-3" style="max-width: 200px;">
                 <h5>${student.name}</h5>
                 <p>Admission No: ${student.admission_no}</p>
             </div>

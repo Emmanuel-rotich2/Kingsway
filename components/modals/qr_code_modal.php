@@ -31,6 +31,10 @@ function printQRCode() {
     const studentName = document.getElementById('studentName').textContent;
     const admNo = document.getElementById('studentAdmNo').textContent;
     
+    // Use school config if available
+    const schoolName = window.SCHOOL_CONFIG?.name || 'Kingsway Preparatory School';
+    const schoolMotto = window.SCHOOL_CONFIG?.motto || 'In God We Soar';
+    
     printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -43,13 +47,34 @@ function printQRCode() {
                     justify-content: center; 
                     align-items: center; 
                     height: 100vh; 
-                    margin: 0; 
+                    margin: 0;
+                    font-family: Arial, sans-serif;
+                }
+                .header {
+                    text-align: center;
+                    margin-bottom: 20px;
+                }
+                .header h2 {
+                    margin: 0;
+                    font-size: 18px;
+                }
+                .header p {
+                    margin: 5px 0 0 0;
+                    font-size: 12px;
+                    font-style: italic;
+                    color: #666;
                 }
                 img { max-width: 300px; }
                 .details { text-align: center; margin-top: 20px; }
+                .details h3 { margin: 0 0 5px 0; font-size: 16px; }
+                .details p { margin: 0; font-size: 14px; }
             </style>
         </head>
         <body>
+            <div class="header">
+                <h2>${schoolName}</h2>
+                <p>${schoolMotto}</p>
+            </div>
             <img src="${qrCode}" onload="window.print(); window.close();">
             <div class="details">
                 <h3>${studentName}</h3>

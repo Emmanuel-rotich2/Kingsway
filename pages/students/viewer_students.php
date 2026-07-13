@@ -85,7 +85,7 @@
             effectiveStudentType.includes('board') ? 'Boarder' :
             effectiveStudentType.includes('weekly') ? 'Weekly Boarder' :
             'Day Scholar';
-        const photo = student.photo_url || student.photo || (window.APP_BASE || '') + '/images/default-avatar.png';
+        const photo = student.photo_url || student.photo || (window.APP_BASE || '') + '/uploads/students/avatar.jpg';
 
         return `
         <div class="viewer-profile-card">

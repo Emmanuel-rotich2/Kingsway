@@ -124,7 +124,15 @@ const accountantControlsDashboardController = Object.assign(
       var printBtn = document.getElementById("printDashboard");
       if (printBtn) {
         printBtn.addEventListener("click", function () {
-          window.print();
+          if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
+            window.PrintManager.printElement({
+              elementId: 'dashboardContent',
+              title: 'Financial Controls Dashboard',
+              subtitle: 'Audit & Compliance Overview'
+            });
+          } else {
+            window.print();
+          }
         });
       }
 

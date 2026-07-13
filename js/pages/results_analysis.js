@@ -298,6 +298,76 @@ const ResultsAnalysisController = (() => {
     else alert((type === "error" ? "Error: " : "") + message);
   }
 
+  function printResults() {
+    const table = document.getElementById("resultsTableBody");
+    if (!table || table.rows.length === 0) {
+      showNotification("No results to print", "warning");
+      return;
+    }
+
+    const term = document.getElementById("termFilterResults")?.options[document.getElementById("termFilterResults").selectedIndex]?.text || 'All';
+    const classFilter = document.getElementById("classFilterResults")?.options[document.getElementById("classFilterResults").selectedIndex]?.text || 'All';
+    const subject = document.getElementById("subjectFilterResults")?.options[document.getElementById("subjectFilterResults").selectedIndex]?.text || 'All';
+    const year = document.getElementById("yearFilterResults")?.options[document.getElementById("yearFilterResults").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Term': term,
+      'Class': classFilter,
+      'Subject': subject,
+      'Academic Year': year
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    // Extract data from table
+    const rows = Array.from(table.rows).map(row => {
+      const cells = row.cells;
+      return {
+        admission_no: cells[0]?.textContent || '',
+        student_name: cells[1]?.textContent || '',
+        class_name: cells[2]?.textContent || '',
+        subject_name: cells[3]?.textContent || '',
+        score: cells[4]?.textContent || '',
+        grade: cells[5]?.textContent || '',
+        remarks: cells[6]?.textContent || ''
+      };
+    });
+
+    const columns = [
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'student_name', label: 'Student Name' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'score', label: 'Score' },
+      { key: 'grade', label: 'Grade' },
+      { key: 'remarks', label: 'Remarks' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Results Analysis Report',
+      subtitle: 'Academic Performance Analysis',
+      columns: columns,
+      rows: rows,
+      summary: {
+        'Total Students': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'RES-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function attachListeners() {
     document
       .getElementById("termFilterResults")
@@ -321,7 +391,7 @@ const ResultsAnalysisController = (() => {
       });
     document
       .getElementById("printResultsBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printResults());
   }
 
   async function init() {

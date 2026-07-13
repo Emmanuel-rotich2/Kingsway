@@ -5,14 +5,36 @@
 const headteacherApplicationsController = {
     applications: [],
     filteredApplications: [],
-    
-    init: function() {
-        console.log('Initializing Headteacher Applications Controller');
-        this.loadApplications();
-        this.setupEventListeners();
+    initialized: false,
+
+    init: async function() {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        console.log("headteacherApplicationsController: Initializing...");
+
+        try {
+            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                if (!window.AuthContext.isAuthenticated()) {
+                    console.warn("headteacherApplicationsController: Not authenticated, redirecting to login");
+                    window.location.href = `${window.APP_BASE || ""}/index.php`;
+                    return;
+                }
+            } else {
+                console.warn("headteacherApplicationsController: AuthContext not available");
+            }
+
+            this.setupEventListeners();
+            await this.loadApplications();
+
+            console.log("headteacherApplicationsController: Initialization complete");
+        } catch (error) {
+            console.error("Failed to initialize Headteacher Applications Controller:", error);
+            this.showError(error.message || "Failed to initialize headteacher applications page.");
+        }
     },
-    
-    loadApplications: function() {
+
+    loadApplications: async function() {
         document.getElementById('applicationsTableBody').innerHTML = `
             <tr>
                 <td colspan="8" class="text-center py-4">
@@ -22,47 +44,58 @@ const headteacherApplicationsController = {
             </tr>
         `;
         
-        API.callAPI('/admission/queues', 'GET')
-            .then(response => {
-                if (response.success && response.data) {
-                    // Focus on interview-related queues
-                    const interviewApplications = [];
-                    const queues = response.data.queues || {};
-                    
-                    // Add applications from interview queues
-                    if (queues.interview_pending && Array.isArray(queues.interview_pending)) {
-                        queues.interview_pending.forEach(app => {
-                            interviewApplications.push({
-                                ...app,
-                                queue_name: 'interview_pending'
-                            });
+        try {
+            const response = await API.callAPI('/admission/queues', 'GET');
+            const payload = response?.data || response || {};
+            const reviewApplications = [];
+            const queues = payload.queues || {};
+            const queueOrder = [
+                'review_pending',
+                'documents_pending',
+                'space_check_pending',
+                'interview_pending',
+                'decision_pending',
+                'final_approval_pending',
+                'payment_pending',
+                'enrollment_pending',
+                'id_generation_pending',
+                'completed'
+            ];
+
+            queueOrder.forEach(queueName => {
+                if (Array.isArray(queues[queueName])) {
+                    queues[queueName].forEach(app => {
+                        reviewApplications.push({
+                            ...app,
+                            queue_name: queueName
                         });
-                    }
-                    
-                    this.applications = interviewApplications;
-                    this.applyFilters();
-                    this.updateSummaryCards(response.data.summary || {});
+                    });
                 }
-            })
-            .catch(error => {
-                console.error('Failed to load applications:', error);
-                this.showError('Failed to load applications');
             });
+
+            this.applications = reviewApplications;
+            this.applyFilters();
+            this.updateSummaryCards(payload.summary || {});
+        } catch (error) {
+            console.error('Failed to load applications:', error);
+            this.showError('Failed to load applications');
+        }
     },
     
     updateSummaryCards: function(summary) {
-        document.getElementById('statScheduledToday').textContent = summary.interview_pending || 0;
+        document.getElementById('statScheduledToday').textContent = summary.total_pending || 0;
         document.getElementById('statPendingInterview').textContent = summary.interview_pending || 0;
-        document.getElementById('statCompletedThisWeek').textContent = '0'; // Would need date filtering
-        document.getElementById('statAwaitingDecision').textContent = summary.placement_pending || 0;
+        document.getElementById('statCompletedThisWeek').textContent = summary.completed || 0;
+        document.getElementById('statAwaitingDecision').textContent = summary.decision_pending || 0;
     },
     
     applyFilters: function() {
-        const interviewStatus = document.getElementById('filterInterviewStatus').value;
-        const classFilter = document.getElementById('filterClass').value;
-        const searchTerm = document.getElementById('searchApplications').value.toLowerCase();
+        const interviewStatus = document.getElementById('filterInterviewStatus')?.value || '';
+        const classFilter = document.getElementById('filterClass')?.value || '';
+        const searchTerm = (document.getElementById('searchApplications')?.value || '').toLowerCase();
         
         this.filteredApplications = this.applications.filter(app => {
+            if (interviewStatus && app.current_stage !== interviewStatus && app.queue_name !== interviewStatus) return false;
             if (classFilter && app.grade_applying_for !== classFilter) return false;
             if (searchTerm) {
                 const searchFields = [
@@ -100,6 +133,12 @@ const headteacherApplicationsController = {
             const interviewTime = this.extractInterviewTime(app);
             const docStatus = this.getDocumentStatus(app);
             
+            const actionButton = ['interview_scheduling', 'interview_results'].includes(app.current_stage)
+                ? `<button class="btn btn-outline-success" onclick="headteacherApplicationsController.conductInterview(${app.id})" title="Open Interview">
+                                <i class="bi bi-clipboard-check"></i>
+                            </button>`
+                : '';
+
             return `
                 <tr>
                     <td><strong>${app.application_no || '—'}</strong></td>
@@ -114,9 +153,7 @@ const headteacherApplicationsController = {
                             <button class="btn btn-outline-primary" onclick="headteacherApplicationsController.viewApplication(${app.id})" title="View">
                                 <i class="bi bi-eye"></i>
                             </button>
-                            <button class="btn btn-outline-success" onclick="headteacherApplicationsController.conductInterview(${app.id})" title="Conduct Interview">
-                                <i class="bi bi-clipboard-check"></i>
-                            </button>
+                            ${actionButton}
                         </div>
                     </td>
                 </tr>
@@ -126,9 +163,17 @@ const headteacherApplicationsController = {
     
     getInterviewStatusBadge: function(stage) {
         const badges = {
-            'interview_scheduling': '<span class="badge bg-warning">Pending Scheduling</span>',
-            'interview_assessment': '<span class="badge bg-info">Ready for Interview</span>',
-            'placement_offer': '<span class="badge bg-success">Interview Completed</span>'
+            'review_pending': '<span class="badge bg-primary">Review Pending</span>',
+            'documents_pending': '<span class="badge bg-warning text-dark">Documents Pending</span>',
+            'space_check_pending': '<span class="badge bg-info text-dark">Space Check Pending</span>',
+            'interview_scheduling': '<span class="badge bg-warning text-dark">Interview Scheduling</span>',
+            'interview_results': '<span class="badge bg-info">Interview Assessment</span>',
+            'decision_pending': '<span class="badge bg-success">Decision Pending</span>',
+            'final_approval_pending': '<span class="badge bg-danger">Final Approval Pending</span>',
+            'payment_pending': '<span class="badge bg-secondary">Payment Follow-up</span>',
+            'enrollment_pending': '<span class="badge bg-dark">Enrollment Pending</span>',
+            'id_generation_pending': '<span class="badge bg-secondary">ID Pending</span>',
+            'completed': '<span class="badge bg-success">Completed</span>'
         };
         return badges[stage] || '<span class="badge bg-secondary">' + stage + '</span>';
     },
@@ -176,9 +221,9 @@ const headteacherApplicationsController = {
     
     setupEventListeners: function() {
         // Filter changes
-        document.getElementById('filterInterviewStatus').addEventListener('change', () => this.applyFilters());
-        document.getElementById('filterClass').addEventListener('change', () => this.applyFilters());
-        document.getElementById('searchApplications').addEventListener('input', this.debounce(() => this.applyFilters(), 300));
+        document.getElementById('filterInterviewStatus')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterClass')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('searchApplications')?.addEventListener('input', this.debounce(() => this.applyFilters(), 300));
         
         // Conduct interview form submission
         const interviewForm = document.getElementById('conductInterviewForm');
@@ -193,8 +238,9 @@ const headteacherApplicationsController = {
     viewApplication: function(applicationId) {
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    this.renderApplicationDetails(response.data);
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    this.renderApplicationDetails(payload);
                     const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
@@ -270,8 +316,9 @@ const headteacherApplicationsController = {
         // Load applicant details for the modal
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    const app = response.data.application;
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    const app = payload.application;
                     const summary = `
                         <strong>Applicant:</strong> ${app.applicant_name}<br>
                         <strong>Grade:</strong> ${app.grade_applying_for}<br>
@@ -357,3 +404,23 @@ const headteacherApplicationsController = {
         };
     }
 };
+
+window.headteacherApplicationsController = headteacherApplicationsController;
+
+function initHeadteacherApplicationsWhenAPIReady() {
+    const hasApi = window.API && typeof window.API.callAPI === "function";
+
+    if (hasApi) {
+        console.log("API is ready, initializing headteacher applications controller");
+        window.headteacherApplicationsController.init();
+        return;
+    }
+
+    setTimeout(initHeadteacherApplicationsWhenAPIReady, 100);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initHeadteacherApplicationsWhenAPIReady);
+} else {
+    initHeadteacherApplicationsWhenAPIReady();
+}

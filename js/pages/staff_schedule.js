@@ -227,6 +227,51 @@ const staffScheduleController = {
     return `${h12}:${String(m).padStart(2,'0')}${ampm}`;
   },
 
+  printSchedule: function () {
+    if (!this._schedule || this._schedule.length === 0) {
+      alert('No schedule data to print');
+      return;
+    }
+
+    const term = document.getElementById('ssTermFilter')?.options[document.getElementById('ssTermFilter').selectedIndex]?.text || 'Current Term';
+
+    // Convert schedule to printable format
+    const scheduleRows = this._schedule.map(item => ({
+      day: item.day || '—',
+      time: `${this._formatTime(item.start_time)} - ${this._formatTime(item.end_time)}`,
+      subject: item.subject_name || item.subject || '—',
+      class: item.class_name || '—',
+      room: item.room || item.classroom || '—'
+    }));
+
+    const columns = [
+      { key: 'day', label: 'Day' },
+      { key: 'time', label: 'Time' },
+      { key: 'subject', label: 'Subject' },
+      { key: 'class', label: 'Class' },
+      { key: 'room', label: 'Room' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Staff Schedule',
+      subtitle: 'Weekly Teaching Timetable',
+      columns: columns,
+      rows: scheduleRows,
+      summary: {
+        'Term': term,
+        'Total Periods': this._schedule.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'SS-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Head Teacher' },
+        { label: 'Principal' }
+      ]
+    });
+  },
+
   _set: (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; },
   _esc: s => { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; },
 };

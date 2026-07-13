@@ -3693,9 +3693,15 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+        $hasAccess = false;
+        foreach ($allowedRoles as $role) {
+            if ($this->userHasRole($role)) {
+                $hasAccess = true;
+                break;
+            }
+        }
+        if (!$hasAccess) {
             return $this->forbidden('You do not have permission to access counseling data');
         }
 
@@ -3752,9 +3758,15 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+        $hasAccess = false;
+        foreach ($allowedRoles as $role) {
+            if ($this->userHasRole($role)) {
+                $hasAccess = true;
+                break;
+            }
+        }
+        if (!$hasAccess) {
             return $this->forbidden('You do not have permission to access counseling data');
         }
 
@@ -4199,10 +4211,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin', 'headteacher', 'director', 'boarding_master', 'boarding_matron'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access catering data');
+
         }
 
         try {
@@ -4243,10 +4257,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin', 'headteacher', 'director', 'boarding_master', 'boarding_matron'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access catering data');
+
         }
 
         try {
@@ -4388,10 +4404,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin', 'headteacher', 'director', 'boarding_master', 'boarding_matron'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access catering data');
+
         }
 
         try {
@@ -4493,10 +4511,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin', 'headteacher', 'director', 'boarding_master', 'boarding_matron'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access catering data');
+
         }
 
         $studentId = $id !== null ? (int)$id : null;
@@ -4595,10 +4615,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to plan meals');
+
         }
 
         try {
@@ -4655,10 +4677,12 @@ class StudentsController extends BaseController
         }
 
         // Check catering permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['cateress', 'catering_manager', 'admin'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access food requisition');
+
         }
 
         try {
@@ -4698,10 +4722,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'housemother', 'admin', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access boarding data');
+
         }
 
         try {
@@ -4747,10 +4773,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'housemother', 'admin', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access boarding data');
+
         }
 
         try {
@@ -4897,10 +4925,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'housemother', 'admin', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access boarding data');
+
         }
 
         try {
@@ -4988,10 +5018,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'housemother', 'admin', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access boarding data');
+
         }
 
         $studentId = $id !== null ? (int)$id : null;
@@ -5095,10 +5127,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'housemother', 'admin'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to assign dormitories');
+
         }
 
         try {
@@ -5150,10 +5184,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access transport data');
+
         }
 
         try {
@@ -5199,10 +5235,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access transport data');
+
         }
 
         try {
@@ -5346,10 +5384,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access transport data');
+
         }
 
         try {
@@ -5473,10 +5513,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access transport data');
+
         }
 
         $studentId = $id !== null ? (int)$id : null;
@@ -5584,10 +5626,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to mark transport attendance');
+
         }
 
         try {
@@ -5654,10 +5698,12 @@ class StudentsController extends BaseController
         }
 
         // Check driver permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['driver', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to report incidents');
+
         }
 
         try {
@@ -5704,10 +5750,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access welfare data');
+
         }
 
         try {
@@ -5764,10 +5812,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access welfare data');
+
         }
 
         try {
@@ -5890,10 +5940,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to access welfare data');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -5973,10 +6025,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to create welfare cases');
+
         }
 
         try {
@@ -6021,10 +6075,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to add welfare notes');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6074,10 +6130,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to update follow-up');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6126,10 +6184,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to resolve cases');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6175,10 +6235,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to escalate cases');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6225,10 +6287,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to add session notes');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6280,10 +6344,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to update follow-up');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6332,10 +6398,12 @@ class StudentsController extends BaseController
         }
 
         // Check chaplain/counselor permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['chaplain', 'admin', 'school_administrator'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to close cases');
+
         }
 
         $caseId = $id !== null ? (int)$id : null;
@@ -6381,10 +6449,12 @@ class StudentsController extends BaseController
         }
 
         // Check boarding permissions
-        $userRole = $this->user['role'] ?? '';
         $allowedRoles = ['boarding_master', 'boarding_matron', 'admin', 'school_administrator', 'headteacher', 'director'];
-        if (!in_array($userRole, $allowedRoles)) {
+
+        if (!$this->userHasAnyRole($allowedRoles)) {
+
             return $this->forbidden('You do not have permission to add boarding notes');
+
         }
 
         try {

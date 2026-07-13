@@ -1016,7 +1016,7 @@
                             <div class="row g-3">
                                 <div class="col-12 text-center mb-3">
                                     <div class="position-relative d-inline-block">
-                                        <img src="<?= $appBase ?>/images/avatar-placeholder.png" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
+                                        <img src="<?= $appBase ?>/uploads/staff/profile_pictures/staff_avatar.jpeg" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
                                         <label for="staffAvatar" class="btn btn-primary btn-sm position-absolute" style="bottom: 0; right: 0; border-radius: 50%; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;">
                                             <i class="material-icons" style="font-size: 20px;">camera_alt</i>
                                         </label>

@@ -32,3 +32,13 @@
 ## Security & Configuration Tips
 - Do not commit secrets; use `config/config.template.php` as a starting point for `config/config.php`.
 - Report vulnerabilities privately per `SECURITY.md` (do not open public issues).
+
+## Printing & Reporting System
+- **IMPORTANT:** Always use `window.PrintManager` for all print/export functionality - never call `window.print()` directly.
+- The printing system is content-aware and generates clean reports without including application shell elements.
+- Shared print manager: `js/utils/print_manager.js` - provides `printTable()`, `printRecord()`, `printModal()`, `printElement()`, `printIdCard()`, `printReceipt()`, and `exportToCSV()` methods.
+- Shared print CSS: `assets/css/print.css` - professional print styles with portrait/landscape support.
+- Print templates: `templates/print/` - reusable header/footer templates for server-side printing.
+- Reference implementation: `js/pages/discipline_cases.js` - migrated to use PrintManager as the canonical example.
+- Documentation: See `docs/PRINTING_SYSTEM_GUIDE.md` for developer instructions and `docs/PRINTING_SYSTEM_AUDIT.md` for the complete audit findings.
+- When migrating pages to use PrintManager, remove all `@media print` CSS and `window.print()` calls from the old implementation.

@@ -1,0 +1,781 @@
+/**
+ * Professional Print Stylesheet for Kingsway Academy
+ * 
+ * This stylesheet provides print-specific styling for direct page printing
+ * (legacy support). For new implementations, use PrintManager.js which generates
+ * its own optimized print CSS.
+ * 
+ * @author Kingsway Academy IT Team
+ * @version 1.0.0
+ */
+
+/* ============================================
+   GLOBAL PRINT SETTINGS
+   ============================================ */
+
+@media print {
+    /* Force background graphics printing */
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+    
+    /* Reset body for printing */
+    html,
+    body {
+        background: #fff !important;
+        color: #000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-family: 'Times New Roman', Times, serif !important;
+        font-size: 12pt !important;
+        line-height: 1.4 !important;
+    }
+    
+    /* Hide application shell elements */
+    .app-sidebar,
+    .sidebar,
+    .sidebar-wrapper,
+    .topbar,
+    .navbar,
+    .main-header,
+    .app-header,
+    .header,
+    .breadcrumb,
+    .page-actions,
+    .no-print,
+    .btn,
+    .btn-group,
+    .button-group,
+    .card-header .btn,
+    .modal-footer,
+    .modal-backdrop,
+    .close,
+    .btn-close,
+    .form-select,
+    .form-control,
+    .input-group,
+    .pagination,
+    .nav-tabs,
+    .nav-pills,
+    .dropdown-menu,
+    .alert-dismissible .btn-close,
+    #sidebar-overlay,
+    .sidebar-toggle,
+    .action-buttons,
+    .filter-section,
+    .search-section,
+    .export-buttons,
+    .print-buttons {
+        display: none !important;
+    }
+    
+    /* Hide specific common elements */
+    [data-print-hidden="true"],
+    .print-hidden,
+    .screen-only {
+        display: none !important;
+    }
+    
+    /* Show print-only elements */
+    .print-only,
+    [data-print-only="true"] {
+        display: block !important;
+    }
+    
+    /* Remove margins and padding from main content */
+    #main-content-area,
+    #main-content-segment,
+    .container-fluid,
+    .container {
+        max-width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }
+    
+    /* Card styling for print */
+    .card {
+        border: 1px solid #000 !important;
+        box-shadow: none !important;
+        margin-bottom: 15px !important;
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    
+    .card-header {
+        background: #f8f9fa !important;
+        border-bottom: 2px solid #000 !important;
+        color: #000 !important;
+        padding: 8px 12px !important;
+    }
+    
+    .card-body {
+        padding: 12px !important;
+    }
+    
+    .card-footer {
+        border-top: 1px solid #000 !important;
+        padding: 8px 12px !important;
+    }
+    
+    /* Table styling for print */
+    .table,
+    table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        font-size: 10pt !important;
+    }
+    
+    .table thead,
+    table thead {
+        display: table-header-group;
+    }
+    
+    .table tfoot,
+    table tfoot {
+        display: table-footer-group;
+    }
+    
+    .table th,
+    .table td,
+    table th,
+    table td {
+        border: 1px solid #000 !important;
+        padding: 6px 8px !important;
+        text-align: left !important;
+        vertical-align: top !important;
+    }
+    
+    .table thead th,
+    table thead th {
+        background: #f0f0f0 !important;
+        color: #000 !important;
+        font-weight: bold !important;
+        font-size: 10pt !important;
+    }
+    
+    .table tbody tr,
+    table tbody tr {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    
+    .table tbody tr:nth-child(even),
+    table tbody tr:nth-child(even) {
+        background: #f9f9f9 !important;
+    }
+    
+    /* Badge styling for print */
+    .badge {
+        border: 1px solid #000 !important;
+        color: #000 !important;
+        background: #fff !important;
+        padding: 2px 6px !important;
+        font-size: 9pt !important;
+    }
+    
+    /* Reset text colors */
+    .text-primary,
+    .text-secondary,
+    .text-success,
+    .text-danger,
+    .text-warning,
+    .text-info,
+    .text-light,
+    .text-dark {
+        color: #000 !important;
+    }
+    
+    /* Reset background colors */
+    .bg-primary,
+    .bg-secondary,
+    .bg-success,
+    .bg-danger,
+    .bg-warning,
+    .bg-info,
+    .bg-light,
+    .bg-dark {
+        background: #fff !important;
+        color: #000 !important;
+    }
+    
+    /* Alert styling for print */
+    .alert {
+        border: 1px solid #000 !important;
+        padding: 10px !important;
+        margin-bottom: 10px !important;
+    }
+    
+    .alert-info,
+    .alert-success,
+    .alert-warning,
+    .alert-danger {
+        background: #fff !important;
+        color: #000 !important;
+        border-color: #000 !important;
+    }
+    
+    /* Modal styling for print */
+    .modal {
+        position: static !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        display: block !important;
+    }
+    
+    .modal-dialog {
+        max-width: 100% !important;
+        margin: 0 !important;
+    }
+    
+    .modal-content {
+        border: none !important;
+        box-shadow: none !important;
+    }
+    
+    .modal-header {
+        background: #f8f9fa !important;
+        border-bottom: 2px solid #000 !important;
+        color: #000 !important;
+        padding: 8px 12px !important;
+    }
+    
+    .modal-body {
+        padding: 12px !important;
+    }
+    
+    /* Form styling for print */
+    .form-control,
+    .form-select {
+        border: 1px solid #000 !important;
+        background: #fff !important;
+        color: #000 !important;
+    }
+    
+    /* Link styling for print */
+    a {
+        color: #000 !important;
+        text-decoration: none !important;
+    }
+    
+    a[href]:after {
+        content: " (" attr(href) ")" !important;
+        font-size: 9pt !important;
+    }
+    
+    /* Image styling for print */
+    img {
+        max-width: 100% !important;
+        height: auto !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    
+    /* Code styling for print */
+    code,
+    pre {
+        border: 1px solid #000 !important;
+        background: #f8f9fa !important;
+        padding: 5px !important;
+        font-size: 9pt !important;
+    }
+    
+    /* Blockquote styling for print */
+    blockquote {
+        border-left: 3px solid #000 !important;
+        padding-left: 10px !important;
+        margin: 10px 0 !important;
+        color: #000 !important;
+    }
+    
+    /* HR styling for print */
+    hr {
+        border: none !important;
+        border-top: 1px solid #000 !important;
+        margin: 15px 0 !important;
+    }
+    
+    /* Utility classes for print */
+    .print-page-break-before {
+        page-break-before: always;
+        break-before: page;
+    }
+    
+    .print-page-break-after {
+        page-break-after: always;
+        break-after: page;
+    }
+    
+    .print-page-break-inside-avoid {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    
+    .print-new-page {
+        page-break-before: always;
+        break-before: page;
+    }
+    
+    /* Hide empty elements */
+    :empty {
+        display: none !important;
+    }
+}
+
+/* ============================================
+   PAGE SIZE ORIENTATION
+   ============================================ */
+
+/* Portrait A4 (default) */
+@media print and (orientation: portrait) {
+    @page {
+        size: A4 portrait;
+        margin: 12mm;
+    }
+}
+
+/* Landscape A4 */
+@media print and (orientation: landscape) {
+    @page {
+        size: A4 landscape;
+        margin: 10mm;
+    }
+}
+
+/* Force portrait */
+.print-portrait {
+    @page {
+        size: A4 portrait;
+        margin: 12mm;
+    }
+}
+
+/* Force landscape */
+.print-landscape {
+    @page {
+        size: A4 landscape;
+        margin: 10mm;
+    }
+}
+
+/* ============================================
+   REPORT-SPECIFIC STYLES
+   ============================================ */
+
+/* Report header */
+.print-report-header {
+    text-align: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #000;
+}
+
+.print-school-name {
+    font-size: 18pt;
+    font-weight: bold;
+    margin: 0 0 5px 0;
+    text-transform: uppercase;
+}
+
+.print-school-details {
+    font-size: 10pt;
+    margin: 5px 0;
+}
+
+.print-school-details p {
+    margin: 2px 0;
+}
+
+.print-report-title h2 {
+    font-size: 14pt;
+    font-weight: bold;
+    margin: 15px 0 5px 0;
+}
+
+.print-report-title h3 {
+    font-size: 12pt;
+    font-weight: normal;
+    margin: 5px 0;
+}
+
+/* Report meta information */
+.print-report-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+    font-size: 10pt;
+}
+
+.print-report-filters,
+.print-report-dates {
+    text-align: left;
+}
+
+.print-report-filters p,
+.print-report-dates p {
+    margin: 2px 0;
+}
+
+/* Report summary section */
+.print-report-summary {
+    background: #f5f5f5;
+    border: 1px solid #000;
+    padding: 10px;
+    margin: 15px 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.print-report-summary h4 {
+    font-size: 11pt;
+    margin: 0 0 10px 0;
+}
+
+.print-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+.print-summary-item {
+    padding: 5px;
+    background: #fff;
+    border: 1px solid #ccc;
+}
+
+.print-summary-label {
+    font-size: 9pt;
+    color: #666;
+}
+
+.print-summary-value {
+    font-size: 11pt;
+    font-weight: bold;
+}
+
+/* Record/Detail section */
+.print-record-section {
+    margin: 15px 0;
+    padding: 10px;
+    border: 1px solid #000;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+.print-record-section h4 {
+    font-size: 11pt;
+    margin: 0 0 10px 0;
+    border-bottom: 1px solid #000;
+    padding-bottom: 5px;
+}
+
+.print-record-row {
+    display: flex;
+    margin: 5px 0;
+}
+
+.print-record-label {
+    font-weight: bold;
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.print-record-value {
+    flex-grow: 1;
+}
+
+/* Report footer */
+.print-report-footer {
+    margin-top: 30px;
+    padding-top: 15px;
+    border-top: 1px solid #000;
+}
+
+.print-footer-divider {
+    border-bottom: 1px solid #000;
+    margin-bottom: 10px;
+}
+
+.print-footer-content {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9pt;
+}
+
+.print-footer-note {
+    font-style: italic;
+    margin-top: 5px;
+}
+
+/* Signature blocks */
+.print-signatures {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 30px;
+}
+
+.print-signature-block {
+    text-align: center;
+    width: 200px;
+}
+
+.signature-line {
+    border-bottom: 1px solid #000;
+    height: 40px;
+    margin-bottom: 5px;
+}
+
+/* ============================================
+   RECEIPT-SPECIFIC STYLES
+   ============================================ */
+
+.print-receipt {
+    max-width: 80mm;
+    margin: 0 auto;
+    font-family: 'Courier New', monospace;
+    font-size: 10pt;
+}
+
+.print-receipt-header {
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.print-receipt-header h1 {
+    font-size: 12pt;
+    margin: 0;
+}
+
+.print-receipt-divider {
+    border-bottom: 1px dashed #000;
+    margin: 10px 0;
+}
+
+.print-receipt-item {
+    display: flex;
+    justify-content: space-between;
+    margin: 5px 0;
+}
+
+.print-receipt-total {
+    font-size: 12pt;
+    font-weight: bold;
+    text-align: right;
+    margin-top: 10px;
+}
+
+/* ============================================
+   ID CARD-SPECIFIC STYLES
+   ============================================ */
+
+.print-id-card {
+    width: 3.375in;
+    height: 2.125in;
+    border: 1px solid #000;
+    page-break-after: always;
+    break-after: page;
+    overflow: hidden;
+}
+
+.print-id-card-front,
+.print-id-card-back {
+    width: 100%;
+    height: 100%;
+}
+
+/* ============================================
+   CERTIFICATE-SPECIFIC STYLES
+   ============================================ */
+
+.print-certificate {
+    width: 100%;
+    height: 100%;
+    border: 5px solid #000;
+    padding: 20mm;
+    text-align: center;
+    page-break-after: always;
+    break-after: page;
+}
+
+.print-certificate-header {
+    font-size: 24pt;
+    font-weight: bold;
+    margin-bottom: 20mm;
+}
+
+.print-certificate-title {
+    font-size: 18pt;
+    margin-bottom: 15mm;
+}
+
+.print-certificate-body {
+    font-size: 14pt;
+    margin-bottom: 20mm;
+}
+
+.print-certificate-recipient {
+    font-size: 16pt;
+    font-weight: bold;
+    margin: 10mm 0;
+}
+
+.print-certificate-footer {
+    margin-top: 20mm;
+}
+
+/* ============================================
+   TIMETABLE-SPECIFIC STYLES
+   ============================================ */
+
+.print-timetable {
+    width: 100%;
+    font-size: 9pt;
+}
+
+.print-timetable th {
+    background: #f0f0f0;
+    border: 1px solid #000;
+    padding: 4px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.print-timetable td {
+    border: 1px solid #000;
+    padding: 4px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.print-timetable .time-column {
+    background: #f8f9fa;
+    font-weight: bold;
+}
+
+/* ============================================
+   ATTENDANCE REGISTER-SPECIFIC STYLES
+   ============================================ */
+
+.print-attendance-register {
+    width: 100%;
+    font-size: 9pt;
+}
+
+.print-attendance-register th {
+    background: #f0f0f0;
+    border: 1px solid #000;
+    padding: 4px;
+    text-align: center;
+    font-weight: bold;
+}
+
+.print-attendance-register td {
+    border: 1px solid #000;
+    padding: 4px;
+    text-align: center;
+}
+
+.print-attendance-register .student-name {
+    text-align: left;
+    font-weight: bold;
+}
+
+.print-attendance-totals {
+    margin-top: 10px;
+    font-weight: bold;
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+
+/* Hide on screen, show on print */
+@media screen {
+    .print-only {
+        display: none !important;
+    }
+}
+
+/* Show on screen, hide on print */
+@media print {
+    .screen-only {
+        display: none !important;
+    }
+}
+
+/* Small font for print */
+.print-small {
+    font-size: 9pt !important;
+}
+
+/* Medium font for print */
+.print-medium {
+    font-size: 10pt !important;
+}
+
+/* Large font for print */
+.print-large {
+    font-size: 12pt !important;
+}
+
+/* Bold text for print */
+.print-bold {
+    font-weight: bold !important;
+}
+
+/* Centered text for print */
+.print-center {
+    text-align: center !important;
+}
+
+/* Right-aligned text for print */
+.print-right {
+    text-align: right !important;
+}
+
+/* Left-aligned text for print */
+.print-left {
+    text-align: left !important;
+}
+
+/* Uppercase text for print */
+.print-uppercase {
+    text-transform: uppercase !important;
+}
+
+/* No spacing */
+.print-no-margin {
+    margin: 0 !important;
+}
+
+.print-no-padding {
+    padding: 0 !important;
+}
+
+/* Full width */
+.print-full-width {
+    width: 100% !important;
+}
+
+/* ============================================
+   BROWSER-SPECIFIC FIXES
+   ============================================ */
+
+/* Chrome/Edge */
+@media print and (-webkit-min-device-pixel-ratio: 0) {
+    /* Chrome-specific fixes if needed */
+}
+
+/* Firefox */
+@-moz-document url-prefix() {
+    @media print {
+        /* Firefox-specific fixes if needed */
+    }
+}
+
+/* Safari */
+@media print and (-webkit-min-device-pixel-ratio: 2) {
+    /* Safari-specific fixes if needed */
+}

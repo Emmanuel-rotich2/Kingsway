@@ -376,13 +376,13 @@ return [
     5 => [
         ['label' => 'Dashboard', 'url' => 'headteacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // ADMISSIONS — HT conducts interview, makes admission decision
+        // ADMISSIONS — HT review, interview, decision, oversight
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'All Applications',        'url' => 'admissions_headteacher_applications'],
-            ['label' => 'Conduct Interview',       'url' => 'admission_interviews'],       // HT leads interview
-            ['label' => 'Admission Decisions',     'url' => 'admissions_admission_decisions'], // HT recommends/approves
-            ['label' => 'Pending Approvals',       'url' => 'admissions_pending_admission_approvals'],
-            ['label' => 'Enrollment Reports',      'url' => 'enrollment_reports'],
+            ['label' => 'Applications Review',    'url' => 'admissions_headteacher_applications'],
+            ['label' => 'Interview Queue',        'url' => 'admission_interviews'],
+            ['label' => 'Admission Decisions',    'url' => 'admissions_admission_decisions'],
+            ['label' => 'Approval Follow-up',     'url' => 'admissions_pending_admission_approvals'],
+            ['label' => 'Enrollment Reports',     'url' => 'enrollment_reports'],
         ]],
 
         // ACADEMIC — HT approves timetable + lesson plans (key workflow authority)

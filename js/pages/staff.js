@@ -436,12 +436,12 @@ const staffManagementController = {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
       const photo =
-        staff.profile_pic_url || (window.APP_BASE || "") + "/images/default-avatar.png";
+        staff.profile_pic_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
 
       const html = `
                 <div class="row">
                     <div class="col-md-4 text-center">
-                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
+                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=(window.APP_BASE || '') + '/uploads/staff/profile_pictures/staff_avatar.jpeg'">
                         <h5>${staff.first_name || ""} ${staff.last_name || ""}</h5>
                         <p class="text-muted">${staff.staff_no || ""}</p>
                     </div>
@@ -1414,7 +1414,48 @@ const staffManagementController = {
   },
 
   printSchedule: function () {
-    window.print();
+    if (!this.state.schedule || this.state.schedule.length === 0) {
+      showNotification("No schedule data to print", "warning");
+      return;
+    }
+
+    const staffName = this.state.selectedStaffName || 'Staff Member';
+    const staffNo = this.state.selectedStaffNo || '—';
+
+    // Convert schedule to printable format
+    const scheduleRows = this.state.schedule.map(item => ({
+      day: item.day || '—',
+      time: item.time || '—',
+      subject: item.subject || item.class_name || '—',
+      room: item.room || item.classroom || '—'
+    }));
+
+    const columns = [
+      { key: 'day', label: 'Day' },
+      { key: 'time', label: 'Time' },
+      { key: 'subject', label: 'Subject/Class' },
+      { key: 'room', label: 'Room' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Staff Schedule',
+      subtitle: `${staffName} (${staffNo})`,
+      columns: columns,
+      rows: scheduleRows,
+      summary: {
+        'Staff Name': staffName,
+        'Staff No': staffNo,
+        'Total Periods': scheduleRows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'SCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Head Teacher' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   exportSchedule: function () {
@@ -1430,7 +1471,7 @@ const staffManagementController = {
     try {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
-      const photo = staff.profile_pic_url || (window.APP_BASE || "") + "/images/default-avatar.png";
+      const photo = staff.profile_pic_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
 
       // Load additional data in parallel
       let assignments = [];
@@ -1452,7 +1493,7 @@ const staffManagementController = {
       const html = `
         <div class="row">
           <div class="col-md-3 text-center border-end">
-            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
+            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=(window.APP_BASE || '') + '/uploads/staff/profile_pictures/staff_avatar.jpeg'">
             <h5 class="mb-0">${staff.first_name || ""} ${staff.middle_name || ""} ${staff.last_name || ""}</h5>
             <p class="text-muted mb-1">${staff.staff_no || ""}</p>
             ${this.getStatusBadge(staff.status)}

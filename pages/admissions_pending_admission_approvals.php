@@ -108,7 +108,7 @@
                     </div>
                     <div>
                         <div class="fs-4 fw-bold" id="statPendingApproval">—</div>
-                        <div class="text-muted small">Pending Approval</div>
+                        <div class="text-muted small">Final Approval</div>
                     </div>
                 </div>
             </div>
@@ -121,7 +121,7 @@
                     </div>
                     <div>
                         <div class="fs-4 fw-bold" id="statApprovedToday">—</div>
-                        <div class="text-muted small">Approved Today</div>
+                        <div class="text-muted small">Enrollment Follow-up</div>
                     </div>
                 </div>
             </div>
@@ -134,7 +134,7 @@
                     </div>
                     <div>
                         <div class="fs-4 fw-bold" id="statAvgProcessingTime">—</div>
-                        <div class="text-muted small">Avg Processing</div>
+                        <div class="text-muted small">Payment Follow-up</div>
                     </div>
                 </div>
             </div>
@@ -147,7 +147,7 @@
                     </div>
                     <div>
                         <div class="fs-4 fw-bold" id="statApprovalRate">—</div>
-                        <div class="text-muted small">Approval Rate</div>
+                        <div class="text-muted small">ID Follow-up</div>
                     </div>
                 </div>
             </div>
@@ -161,11 +161,11 @@
             <div class="col-md-4">
                 <label class="form-label small fw-semibold">Approval Status</label>
                 <select id="filterApprovalStatus" class="form-select">
-                    <option value="">All Statuses</option>
-                    <option value="ready">Ready for Approval</option>
-                    <option value="under_review">Under Review</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
+                    <option value="">All Follow-up Queues</option>
+                    <option value="final_approval">Final Approval Pending</option>
+                    <option value="payment_follow_up">Payment Follow-up</option>
+                    <option value="enrollment_follow_up">Enrollment Follow-up</option>
+                    <option value="id_follow_up">ID Generation Follow-up</option>
                 </select>
             </div>
             <div class="col-md-4">
@@ -296,7 +296,11 @@
     </div>
 </div>
 
-<script src="js/pages/admissions_pending_admission_approvals.js"></script>
+<script
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_pending_admission_approvals.js?v=<?= time() ?>"
+    onload="console.log('admissions_pending_admission_approvals.js script tag loaded successfully')"
+    onerror="console.error('FAILED to load admissions_pending_admission_approvals.js. Check path:', this.src)">
+</script>
 <script>
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {

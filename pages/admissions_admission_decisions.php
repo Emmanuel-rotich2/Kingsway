@@ -5,6 +5,10 @@
  * Headteacher decision-making interface for admission applications.
  * Shows applications that have completed interviews and await final admission decisions.
  */
+
+$appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+if ($appBase === '.')
+    $appBase = '';
 ?>
 <style>
     .admission-decisions-page {
@@ -313,16 +317,13 @@
     </div>
 </div>
 
-<script src="js/pages/admissions_admission_decisions.js"></script>
 <script>
-function initWhenAPIReady() {
-    if (typeof API !== 'undefined' && API.callAPI) {
-        if (typeof admissionDecisionsController !== 'undefined' && admissionDecisionsController.init) {
-            admissionDecisionsController.init();
-        }
-    } else {
-        setTimeout(initWhenAPIReady, 100);
-    }
-}
-document.addEventListener('DOMContentLoaded', initWhenAPIReady);
+    window.APP_BASE = window.APP_BASE || <?= json_encode($appBase) ?>;
 </script>
+
+<script
+    src="<?= htmlspecialchars($appBase, ENT_QUOTES, 'UTF-8') ?>/js/pages/admissions_admission_decisions.js?v=<?= time() ?>"
+    onload="console.log('admissions_admission_decisions.js script tag loaded successfully')"
+    onerror="console.error('FAILED to load admissions_admission_decisions.js. Check path:', this.src)">
+</script>
+

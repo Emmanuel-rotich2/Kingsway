@@ -113,7 +113,15 @@ const accountantAccountsCashDashboardController = Object.assign(
       var printBtn = document.getElementById("printDashboard");
       if (printBtn) {
         printBtn.addEventListener("click", function () {
-          window.print();
+          if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
+            window.PrintManager.printElement({
+              elementId: 'dashboardContent',
+              title: 'Accounts & Cash Dashboard',
+              subtitle: 'Cash Flow Overview'
+            });
+          } else {
+            window.print();
+          }
         });
       }
 

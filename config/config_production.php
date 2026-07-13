@@ -16,6 +16,7 @@ define('BASE_URL', $_ENV['BASE_URL'] ?? 'https://kingswaypreparatoryschool.sc.ke
 // File upload paths - Production absolute paths
 define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? '/home/kingswa4/uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
 define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
@@ -37,7 +38,7 @@ define('CURRENT_TERM', ceil(date('n') / 3));
 // School Contact Details
 define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
 define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingsway.ac.ke');
+define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
 define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');

@@ -54,7 +54,7 @@ const StaffAttendanceController = {
 
     bind("generateBtn", "click", () => this.generateReport());
     bind("exportBtn", "click", () => this.exportData());
-    bind("printBtn", "click", () => window.print());
+    bind("printBtn", "click", () => this.printReport());
     bind("loadStaffForMarkingBtn", "click", () => this.loadStaffForMarking());
     bind("markAllPresentBtn", "click", () => this.markAllStaff("present"));
     bind("markAllAbsentBtn", "click", () => this.markAllStaff("absent"));
@@ -814,50 +814,107 @@ const StaffAttendanceController = {
       return;
     }
 
-    const header = [
-      "Staff Name",
-      "Staff No",
-      "Department",
-      "Duty Type",
-      "Present",
-      "Absent",
-      "Late",
-      "On Leave",
-      "Off Days",
-      "Attendance Rate",
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'department_name', label: 'Department' },
+      { key: 'duty_type', label: 'Duty Type' },
+      { key: 'present', label: 'Present' },
+      { key: 'absent', label: 'Absent' },
+      { key: 'late', label: 'Late' },
+      { key: 'on_leave', label: 'On Leave' },
+      { key: 'off_days', label: 'Off Days' },
+      { key: 'attendance_rate', label: 'Attendance Rate' }
     ];
 
-    const csvRows = [header.join(",")];
-    rows.forEach((staff) => {
+    const processedRows = rows.map(staff => {
       const workDays = Number(staff.present || 0) + Number(staff.absent || 0) + Number(staff.late || 0);
       const attendanceRate = workDays > 0
         ? (((Number(staff.present || 0) + Number(staff.late || 0)) / workDays) * 100).toFixed(1)
         : "0.0";
-      const values = [
-        `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
-        staff.staff_no || "",
-        staff.department_name || "",
-        staff.duty_type || "",
-        staff.present || 0,
-        staff.absent || 0,
-        staff.late || 0,
-        staff.on_leave || 0,
-        staff.off_days || 0,
-        `${attendanceRate}%`,
-      ].map((value) => `"${String(value).replace(/"/g, '""')}"`);
-
-      csvRows.push(values.join(","));
+      return {
+        ...staff,
+        staff_name: `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
+        attendance_rate: `${attendanceRate}%`
+      };
     });
 
-    const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `staff_attendance_report_${this.toDateInputValue(new Date())}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: processedRows,
+      filename: 'staff_attendance_report'
+    });
+  },
+
+  printReport: function () {
+    const rows = this.reportData?.staff || [];
+    if (!rows.length) {
+      this.notify("There is no report data to print.", "warning");
+      return;
+    }
+
+    const department = document.getElementById("department")?.options[document.getElementById("department").selectedIndex]?.text || 'All';
+    const dutyType = document.getElementById("dutyType")?.options[document.getElementById("dutyType").selectedIndex]?.text || 'All';
+    const startDate = document.getElementById("startDate")?.value || '';
+    const endDate = document.getElementById("endDate")?.value || '';
+
+    const filters = {
+      'Department': department,
+      'Duty Type': dutyType,
+      'Date Range': `${startDate} to ${endDate}`
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key] || filters[key] === ' to ') {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'department_name', label: 'Department' },
+      { key: 'duty_type', label: 'Duty Type' },
+      { key: 'present', label: 'Present' },
+      { key: 'absent', label: 'Absent' },
+      { key: 'late', label: 'Late' },
+      { key: 'on_leave', label: 'On Leave' },
+      { key: 'off_days', label: 'Off Days' },
+      { key: 'attendance_rate', label: 'Attendance Rate' }
+    ];
+
+    const processedRows = rows.map(staff => {
+      const workDays = Number(staff.present || 0) + Number(staff.absent || 0) + Number(staff.late || 0);
+      const attendanceRate = workDays > 0
+        ? (((Number(staff.present || 0) + Number(staff.late || 0)) / workDays) * 100).toFixed(1)
+        : "0.0";
+      return {
+        ...staff,
+        staff_name: `${staff.first_name || ""} ${staff.last_name || ""}`.trim(),
+        attendance_rate: `${attendanceRate}%`
+      };
+    });
+
+    window.PrintManager.printTable({
+      title: 'Staff Attendance Report',
+      subtitle: 'Attendance Summary',
+      columns: columns,
+      rows: processedRows,
+      summary: {
+        'Total Staff': rows.length,
+        'Report Period': `${startDate} to ${endDate}`,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'STA-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'HR Manager' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   renderStatusBadge: function (status) {

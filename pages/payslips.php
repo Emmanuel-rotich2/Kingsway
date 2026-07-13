@@ -81,7 +81,7 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-          <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print</button>
+          <button class="btn btn-primary" onclick="payslipsController.printCurrentSlip()"><i class="bi bi-printer me-1"></i>Print</button>
         </div>
       </div>
     </div>

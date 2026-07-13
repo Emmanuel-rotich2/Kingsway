@@ -1404,6 +1404,8 @@ function createFormData(data, files = {}) {
 //attach API to window for global access
 window.API = {
   apiCall,
+  // Alias so controllers using API.callAPI() instead of API.apiCall() work
+  callAPI: apiCall,
   showNotification,
   applyPermissionContract,
   state: APIState,
@@ -3448,6 +3450,22 @@ window.API = {
       apiCall("/staff/contracts-create", "POST", data),
     updateContract: async (id, data) =>
       apiCall(`/staff/contracts-update/${id}`, "PUT", data),
+
+    // Media (photos & documents) — routes to POST /staff/upload/{id}
+    uploadPhoto: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "photo", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-photo/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
+    uploadDocument: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "document", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-document/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
   },
 
   // Transport endpoints
@@ -4799,3 +4817,4 @@ window.API = {
 
 // Expose apiCall globally as callAPI — many page controllers use this name
 window.callAPI = apiCall;
+

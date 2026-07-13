@@ -27,7 +27,7 @@ if (!function_exists('renderStudentsTable')) {
                         const tr = document.createElement('tr');
                         tr.innerHTML = `
                             <td>${student.admission_no}</td>
-                            <td><img src='images/students/${student.photo}' class='rounded-circle' width='40' alt='Student Photo'></td>
+                            <td><img src='${(student.photo_url || (window.APP_BASE || '') + '/uploads/students/' + (student.photo || 'avatar.jpg'))}' class='rounded-circle' width='40' alt='Student Photo' onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'"></td>
                             <td>${student.name}</td>
                             <td>${student.class}</td>
                             <td>${student.parent_contact}</td>

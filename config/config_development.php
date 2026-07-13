@@ -16,6 +16,7 @@ define('BASE_URL', $_ENV['BASE_URL'] ?? 'http://localhost/Kingsway');
 // File upload paths - Development (relative to project root)
 define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? __DIR__ . '/../uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
 define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
 define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');

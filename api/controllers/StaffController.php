@@ -158,6 +158,80 @@ class StaffController extends BaseController
     }
 
     /**
+     * POST /api/staff/upload-photo/{id}
+     * Uploads a staff profile photo.
+     * Expects multipart/form-data with a "file" field.
+     * Stored under uploads/staff/profile_pictures/{staff_no}/ and the
+     * resulting URL is written to staff.profile_pic_url.
+     *
+     * POST /api/staff/upload-document/{id}
+     * Uploads a staff document (CV, certificate, etc.).
+     * Stored under uploads/staff/documents/{staff_no}/
+     */
+    public function postUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'photo');
+    }
+
+    public function postUploadDocument($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'document');
+    }
+
+    private function handleStaffUpload($id = null, $data = [], $segments = [], $forcedType = 'document')
+    {
+        $staffId = (int) ($id ?: ($data['staff_id'] ?? 0));
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required for upload');
+        }
+        if (empty($_FILES['file'])) {
+            return $this->badRequest('No file provided (expected field "file")');
+        }
+
+        // RBAC: require an authenticated user with a staff-management role.
+        if (empty($this->user)) {
+            return $this->unauthorized('Authentication required to upload staff files');
+        }
+        $allowedRoles = ['admin', 'school_admin', 'headteacher', 'director', 'human_resources'];
+        if (!$this->userHasAny([], [], $allowedRoles)) {
+            return $this->forbidden('Insufficient permission to upload staff files');
+        }
+
+        $type = $forcedType;
+        $description = $data['description'] ?? ($_POST['description'] ?? '');
+        $tags = $data['tags'] ?? ($_POST['tags'] ?? '');
+        $uploaderId = $this->user['id'] ?? null;
+
+        try {
+            $mediaId = $this->api->uploadStaffMedia($staffId, $_FILES['file'], $type, $uploaderId, $description, $tags);
+        } catch (\Exception $e) {
+            return $this->serverError('Upload failed: ' . $e->getMessage());
+        }
+
+        if (!$mediaId) {
+            return $this->serverError('Upload failed: media service returned no identifier');
+        }
+
+        // Reflect the new photo URL on the staff record when uploading a photo.
+        if ($type === 'photo') {
+            try {
+                $url = $this->api->getMediaFileUrl($mediaId);
+                if ($url) {
+                    $this->api->setProfilePicUrl($staffId, $url);
+                }
+            } catch (\Exception $e) {
+                // Non-fatal: photo uploaded but record update failed; client can re-fetch.
+            }
+        }
+
+        return $this->json([
+            'success' => true,
+            'media_id' => $mediaId,
+            'type' => $type
+        ]);
+    }
+
+    /**
      * PUT /api/staff/{id} - Update staff member
      */
     public function put($id = null, $data = [], $segments = [])
