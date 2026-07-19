@@ -25,6 +25,16 @@
             "App\\API\\Controllers\\": "api/controllers/",
             "App\\API\\Router\\": "api/router/"
 }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0"
+    },
+    "scripts": {
+        "test": "phpunit"
     }
-
 }
