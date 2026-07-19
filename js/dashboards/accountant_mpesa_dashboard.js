@@ -164,7 +164,15 @@ const accountantMpesaDashboardController = Object.assign(
       var printBtn = document.getElementById("printDashboard");
       if (printBtn) {
         printBtn.addEventListener("click", function () {
-          window.print();
+          if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
+            window.PrintManager.printElement({
+              elementId: 'dashboardContent',
+              title: 'M-Pesa & Mobile Money Dashboard',
+              subtitle: 'Mobile Payment Transactions'
+            });
+          } else {
+            window.print();
+          }
         });
       }
 

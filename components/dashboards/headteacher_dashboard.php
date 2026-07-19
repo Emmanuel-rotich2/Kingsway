@@ -176,7 +176,7 @@
                 <div class="card-body">
                     <div class="row g-2">
                         <div class="col-md-6">
-                            <a href="home.php?route=all_students" class="dash-quick-link">
+                            <a href="home.php?route=students_overview" class="dash-quick-link">
                                 <i class="bi bi-people ql-icon bg-primary text-white"></i>
                                 <span>All Students</span><i class="bi bi-chevron-right ql-arrow"></i>
                             </a>

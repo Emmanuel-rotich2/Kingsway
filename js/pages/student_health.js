@@ -1,249 +1,489 @@
 /**
- * Student Health Records Controller
- * Health profiles, vaccinations.
- * API base: /api/health/*
+ * Student Health Controller
+ * Manages health records, clinic visits, medication, allergies, and emergency information
  */
+const StudentHealthController = {
+  state: {
+    records: [],
+    academicYears: [],
+    classes: [],
+    streams: [],
+    selectedRecordId: null,
+  },
 
-const healthController = {
+  ui: {},
 
-  _students: [],
+  async init() {
+    console.log("StudentHealthController: Initializing...");
 
-  init: async function () {
-    if (!AuthContext.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || '') + '/index.php';
+    if (!window.AuthContext?.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
-    await this._loadStudentDropdowns();
-    this.loadStats();
-    this.loadRecords();
-    this._bindTabs();
-    // default today on vax date
-    const dg = document.getElementById('vaxDateGiven');
-    if (dg) dg.value = new Date().toISOString().split('T')[0];
+
+    this.cacheDom();
+    this.attachEvents();
+
+    console.log("StudentHealthController: Loading metadata...");
+    await this.loadMeta();
+    console.log("StudentHealthController: Loading records...");
+    await this.loadRecords();
+    console.log("StudentHealthController: Initialization complete");
   },
 
-  _bindTabs: function () {
-    document.querySelectorAll('#healthTabs button[data-bs-toggle="tab"]').forEach(btn => {
-      btn.addEventListener('shown.bs.tab', e => {
-        const target = e.target.getAttribute('data-bs-target');
-        if (target === '#hTabVax') this.loadVaccinations();
-      });
+  cacheDom() {
+    const $ = (id) => document.getElementById(id);
+
+    this.ui = {
+      academicYearFilter: $("academicYearFilter"),
+      classFilter: $("classFilter"),
+      streamFilter: $("streamFilter"),
+      healthCategoryFilter: $("healthCategoryFilter"),
+      alertStatusFilter: $("alertStatusFilter"),
+      severityFilter: $("severityFilter"),
+      searchBox: $("searchBox"),
+      applyFiltersBtn: $("applyFiltersBtn"),
+      resetFiltersBtn: $("resetFiltersBtn"),
+      refreshBtn: $("refreshBtn"),
+      exportBtn: $("exportBtn"),
+      addRecordBtn: $("addRecordBtn"),
+
+      totalRecords: $("totalRecords"),
+      activeAlerts: $("activeAlerts"),
+      clinicVisits: $("clinicVisits"),
+      allergiesCount: $("allergiesCount"),
+      medicationCount: $("medicationCount"),
+      emergencyCount: $("emergencyCount"),
+
+      recordsLoading: $("recordsLoading"),
+      recordsError: $("recordsError"),
+      recordsEmpty: $("recordsEmpty"),
+      recordsTableBody: $("recordsTableBody"),
+
+      modal: $("recordModal"),
+      modalLoading: $("modalLoading"),
+      modalError: $("modalError"),
+      modalRecordContent: $("modalRecordContent"),
+      modalRecordId: $("modalRecordId"),
+      addClinicVisitBtn: $("addClinicVisitBtn"),
+      addMedicationBtn: $("addMedicationBtn"),
+      markReviewedBtn: $("markReviewedBtn"),
+    };
+  },
+
+  attachEvents() {
+    this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadRecords());
+    this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
+    this.ui.refreshBtn?.addEventListener("click", () => this.loadRecords());
+    this.ui.exportBtn?.addEventListener("click", () => this.exportData());
+
+    this.ui.searchBox?.addEventListener(
+      "input",
+      this.debounce(() => this.loadRecords(), 400)
+    );
+
+    this.ui.classFilter?.addEventListener("change", () => {
+      this.updateStreamsFilter();
+      this.loadRecords();
     });
+
+    this.ui.streamFilter?.addEventListener("change", () => this.loadRecords());
+    this.ui.academicYearFilter?.addEventListener("change", () => this.loadRecords());
+    this.ui.healthCategoryFilter?.addEventListener("change", () => this.loadRecords());
+    this.ui.alertStatusFilter?.addEventListener("change", () => this.loadRecords());
+    this.ui.severityFilter?.addEventListener("change", () => this.loadRecords());
   },
 
-  // ── STATS ──────────────────────────────────────────────────────────
-
-  loadStats: async function () {
+  async loadMeta() {
     try {
-      const r = await callAPI('/health/summary', 'GET');
-      const d = r?.data ?? r ?? {};
-      this._set('hStatActiveSickBay', d.active_sick_bay_visits    ?? '—');
-      this._set('hStatToday',         d.visits_today              ?? '—');
-      this._set('hStatRecords',       d.students_with_records     ?? '—');
-      this._set('hStatVaxDue',        d.vaccinations_due_30days   ?? '—');
-    } catch (e) { console.warn('Health stats failed:', e); }
+      const response = await this.api("/students/health-meta", "GET");
+      const data = this.unwrap(response);
+
+      this.state.academicYears = data.academic_years || [];
+      this.state.classes = data.classes || [];
+      this.state.streams = data.streams || [];
+
+      this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
+      this.fillSelect(this.ui.classFilter, this.state.classes, "All Classes");
+      this.updateStreamsFilter();
+    } catch (error) {
+      console.error("Failed to load metadata:", error);
+    }
   },
 
-  // ── HEALTH RECORDS ─────────────────────────────────────────────────
+  updateStreamsFilter() {
+    const classId = this.ui.classFilter?.value || "";
+    const filtered = classId
+      ? this.state.streams.filter((s) => String(s.class_id) === String(classId))
+      : this.state.streams;
+    this.fillSelect(this.ui.streamFilter, filtered, "All Streams");
+  },
 
-  loadRecords: async function () {
-    const container = document.getElementById('healthRecordsContainer');
-    if (!container) return;
-    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
+  async loadRecords() {
+    this.setLoading(true);
+
     try {
-      const s = document.getElementById('hSearch')?.value || '';
-      const r = await callAPI('/health/records' + (s ? '?search=' + encodeURIComponent(s) : ''), 'GET');
-      const recs = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      if (!recs.length) {
-        container.innerHTML = '<div class="alert alert-info text-center">No health profiles found. Start adding student records.</div>';
-        return;
-      }
-      const rows = recs.map(rec => `
+      const params = this.getParams();
+      const response = await this.api(`/students/health-records?${params.toString()}`, "GET");
+      const records = this.unwrap(response) || [];
+
+      this.state.records = records;
+      this.renderRecords();
+    } catch (error) {
+      console.error("Failed to load records:", error);
+      this.showError(error.message || "Failed to load health records");
+    } finally {
+      this.setLoading(false);
+    }
+  },
+
+  getParams() {
+    const params = new URLSearchParams();
+    const filters = {
+      academic_year: this.ui.academicYearFilter?.value || "",
+      class_id: this.ui.classFilter?.value || "",
+      stream_id: this.ui.streamFilter?.value || "",
+      health_category: this.ui.healthCategoryFilter?.value || "",
+      alert_status: this.ui.alertStatusFilter?.value || "",
+      severity: this.ui.severityFilter?.value || "",
+      search: this.ui.searchBox?.value.trim() || "",
+    };
+
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== "") params.set(key, val);
+    });
+
+    return params;
+  },
+
+  renderRecords() {
+    const summary = this.calculateSummary(this.state.records);
+    this.renderSummary(summary);
+    this.renderTable();
+
+    this.ui.recordsEmpty.classList.toggle("d-none", this.state.records.length > 0);
+  },
+
+  calculateSummary(records) {
+    return {
+      total: records.length,
+      activeAlerts: records.filter(r => r.status === 'active' && r.severity !== 'low').length,
+      clinicVisits: records.reduce((sum, r) => sum + (r.clinic_visits_count || 0), 0),
+      allergies: records.filter(r => r.health_category === 'allergy' && r.status === 'active').length,
+      medication: records.filter(r => r.health_category === 'medication' && r.status === 'active').length,
+      emergency: records.filter(r => r.emergency_flag === 1).length,
+    };
+  },
+
+  renderSummary(summary) {
+    this.ui.totalRecords.textContent = summary.total ?? 0;
+    this.ui.activeAlerts.textContent = summary.activeAlerts ?? 0;
+    this.ui.clinicVisits.textContent = summary.clinicVisits ?? 0;
+    this.ui.allergiesCount.textContent = summary.allergies ?? 0;
+    this.ui.medicationCount.textContent = summary.medication ?? 0;
+    this.ui.emergencyCount.textContent = summary.emergency ?? 0;
+  },
+
+  renderTable() {
+    if (!this.state.records.length) {
+      this.ui.recordsTableBody.innerHTML = `
         <tr>
-          <td class="fw-semibold">${this._esc(rec.first_name + ' ' + rec.last_name)}</td>
-          <td>${this._esc(rec.admission_no || '—')}</td>
-          <td>${this._esc(rec.class_name || '—')}</td>
-          <td><span class="badge bg-danger bg-opacity-75 text-white">${this._esc(rec.blood_group || '?')}</span></td>
-          <td>${this._esc(rec.allergies || '—')}</td>
-          <td>${this._esc(rec.chronic_conditions || '—')}</td>
-          <td>${this._esc(rec.emergency_contact_name || '—')}</td>
-          <td>${this._esc(rec.emergency_contact_phone || '—')}</td>
-          <td>
-            <button class="btn btn-sm btn-outline-primary" onclick="healthController.editRecord(${rec.student_id})">
-              <i class="bi bi-pencil"></i>
-            </button>
+          <td colspan="12" class="text-center text-muted py-4">
+            No health records found.
           </td>
-        </tr>
-      `).join('');
-      container.innerHTML = `<div class="table-responsive">
-        <table class="table table-sm table-hover align-middle">
-          <thead class="table-light"><tr>
-            <th>Student</th><th>Adm No</th><th>Class</th><th>Blood</th>
-            <th>Allergies</th><th>Conditions</th><th>Emergency Contact</th><th>Phone</th><th></th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table></div>`;
-    } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed to load records: ${this._esc(e.message)}</div>`;
-    }
-  },
-
-  showRecordModal: function () {
-    ['hrStudentId','hrBloodGroup','hrMedAidProvider','hrMedAidNo','hrAllergies','hrChronic',
-     'hrDiet','hrDisability','hrDoctorName','hrDoctorPhone','hrEcName','hrEcPhone','hrNotes']
-      .forEach(id => { const el = document.getElementById(id); if (el) el.value = el.tagName === 'SELECT' ? (id === 'hrBloodGroup' ? 'Unknown' : '') : ''; });
-    document.getElementById('hrError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('healthRecordModal')).show();
-  },
-
-  editRecord: async function (studentId) {
-    try {
-      const r = await callAPI('/health/records/' + studentId, 'GET');
-      const rec = r?.data ?? r;
-      if (!rec) { this.showRecordModal(); document.getElementById('hrStudentId').value = studentId; return; }
-      document.getElementById('hrStudentId').value        = rec.student_id   || studentId;
-      document.getElementById('hrBloodGroup').value       = rec.blood_group  || 'Unknown';
-      document.getElementById('hrMedAidProvider').value   = rec.medical_aid_provider  || '';
-      document.getElementById('hrMedAidNo').value         = rec.medical_aid_number    || '';
-      document.getElementById('hrAllergies').value        = rec.allergies             || '';
-      document.getElementById('hrChronic').value          = rec.chronic_conditions    || '';
-      document.getElementById('hrDiet').value             = rec.special_diet          || '';
-      document.getElementById('hrDisability').value       = rec.disability_notes      || '';
-      document.getElementById('hrDoctorName').value       = rec.doctor_name           || '';
-      document.getElementById('hrDoctorPhone').value      = rec.doctor_phone          || '';
-      document.getElementById('hrEcName').value           = rec.emergency_contact_name  || '';
-      document.getElementById('hrEcPhone').value          = rec.emergency_contact_phone || '';
-      document.getElementById('hrNotes').value            = rec.notes                 || '';
-      document.getElementById('hrError').classList.add('d-none');
-      new bootstrap.Modal(document.getElementById('healthRecordModal')).show();
-    } catch (e) { showNotification('Failed to load record', 'danger'); }
-  },
-
-  saveRecord: async function () {
-    const errEl = document.getElementById('hrError');
-    errEl.classList.add('d-none');
-    const studentId = document.getElementById('hrStudentId').value;
-    if (!studentId) { errEl.textContent = 'Please select a student'; errEl.classList.remove('d-none'); return; }
-    const payload = {
-      student_id:             parseInt(studentId),
-      blood_group:            document.getElementById('hrBloodGroup').value,
-      allergies:              document.getElementById('hrAllergies').value.trim(),
-      chronic_conditions:     document.getElementById('hrChronic').value.trim(),
-      disability_notes:       document.getElementById('hrDisability').value.trim(),
-      special_diet:           document.getElementById('hrDiet').value.trim(),
-      emergency_contact_name: document.getElementById('hrEcName').value.trim(),
-      emergency_contact_phone:document.getElementById('hrEcPhone').value.trim(),
-      medical_aid_provider:   document.getElementById('hrMedAidProvider').value.trim(),
-      medical_aid_number:     document.getElementById('hrMedAidNo').value.trim(),
-      doctor_name:            document.getElementById('hrDoctorName').value.trim(),
-      doctor_phone:           document.getElementById('hrDoctorPhone').value.trim(),
-      notes:                  document.getElementById('hrNotes').value.trim(),
-    };
-    try {
-      await callAPI('/health/records', 'POST', payload);
-      bootstrap.Modal.getInstance(document.getElementById('healthRecordModal')).hide();
-      showNotification('Health profile saved', 'success');
-      this.loadStats(); this.loadRecords();
-    } catch (e) { errEl.textContent = e.message || 'Save failed'; errEl.classList.remove('d-none'); }
-  },
-
-  // ── VACCINATIONS ───────────────────────────────────────────────────
-
-  loadVaccinations: async function () {
-    const container = document.getElementById('vaccinationsContainer');
-    if (!container) return;
-    container.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>';
-    const dueOnly = document.getElementById('vaxDueOnly')?.checked ? '?due_only=1' : '';
-    try {
-      const r    = await callAPI('/health/vaccinations' + dueOnly, 'GET');
-      const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      if (!list.length) {
-        container.innerHTML = '<div class="alert alert-info text-center">No vaccination records found.</div>'; return;
-      }
-      const rows = list.map(v => {
-        const due = v.next_due_date ? new Date(v.next_due_date) : null;
-        const overdue = due && due < new Date();
-        return `<tr class="${overdue ? 'table-warning' : ''}">
-          <td class="fw-semibold">${this._esc(v.first_name + ' ' + v.last_name)}</td>
-          <td>${this._esc(v.admission_no || '—')}</td>
-          <td>${this._esc(v.class_name  || '—')}</td>
-          <td>${this._esc(v.vaccine_name)}</td>
-          <td>${v.dose_number}</td>
-          <td>${this._esc(v.date_given || '—')}</td>
-          <td>${v.next_due_date ? `<span class="badge bg-${overdue ? 'danger' : 'info'}">${v.next_due_date}</span>` : '—'}</td>
-          <td>${this._esc(v.given_by || '—')}</td>
         </tr>`;
-      }).join('');
-      container.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover align-middle">
-        <thead class="table-light"><tr>
-          <th>Student</th><th>Adm No</th><th>Class</th>
-          <th>Vaccine</th><th>Dose</th><th>Given</th><th>Next Due</th><th>Given By</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table></div>`;
-    } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger">Failed: ${this._esc(e.message)}</div>`;
+      return;
     }
+
+    this.ui.recordsTableBody.innerHTML = this.state.records
+      .map((r) => {
+        const severityColors = {
+          low: "secondary",
+          medium: "info",
+          high: "warning",
+          critical: "danger",
+        };
+
+        const statusColors = {
+          active: "primary",
+          inactive: "secondary",
+          resolved: "success",
+          monitoring: "warning",
+        };
+
+        return `
+          <tr>
+            <td><small>${this.escape(r.record_code || r.id || "-")}</small></td>
+            <td><strong>${this.escape(r.student_name || "-")}</strong></td>
+            <td>${this.escape(r.admission_no || "-")}</td>
+            <td>${this.escape(r.class_name || "-")}</td>
+            <td>${this.escape(r.stream_name || "-")}</td>
+            <td>${this.escape(r.health_category || "-")}</td>
+            <td>${this.escape(r.alert_type || r.condition_name || r.allergy_name || r.medication_name || "-")}</td>
+            <td><span class="badge bg-${severityColors[r.severity] || "secondary"}">${this.escape(r.severity || "-")}</span></td>
+            <td><span class="badge bg-${statusColors[r.status] || "secondary"}">${this.escape(r.status || "-")}</span></td>
+            <td>${this.escape(r.last_visit || "-")}</td>
+            <td>${this.escape(r.next_review_date || "-")}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-danger" onclick="StudentHealthController.viewRecord(${r.id})">
+                <i class="bi bi-eye"></i> View
+              </button>
+            </td>
+          </tr>`;
+      })
+      .join("");
   },
 
-  showVaxModal: function () {
-    ['vaxStudentId','vaxName','vaxGivenBy','vaxBatch','vaxNotes','vaxNextDue'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = '';
+  resetFilters() {
+    [
+      this.ui.academicYearFilter,
+      this.ui.classFilter,
+      this.ui.streamFilter,
+      this.ui.healthCategoryFilter,
+      this.ui.alertStatusFilter,
+      this.ui.severityFilter,
+      this.ui.searchBox,
+    ].forEach((el) => {
+      if (el) el.value = "";
     });
-    document.getElementById('vaxDose').value = '1';
-    document.getElementById('vaxDateGiven').value = new Date().toISOString().split('T')[0];
-    document.getElementById('vaxError').classList.add('d-none');
-    new bootstrap.Modal(document.getElementById('vaxModal')).show();
+
+    this.updateStreamsFilter();
+    this.loadRecords();
   },
 
-  saveVax: async function () {
-    const errEl = document.getElementById('vaxError');
-    errEl.classList.add('d-none');
-    const payload = {
-      student_id:    document.getElementById('vaxStudentId').value,
-      vaccine_name:  document.getElementById('vaxName').value.trim(),
-      dose_number:   document.getElementById('vaxDose').value,
-      date_given:    document.getElementById('vaxDateGiven').value,
-      next_due_date: document.getElementById('vaxNextDue').value || null,
-      given_by:      document.getElementById('vaxGivenBy').value.trim(),
-      batch_number:  document.getElementById('vaxBatch').value.trim(),
-      notes:         document.getElementById('vaxNotes').value.trim(),
-    };
-    if (!payload.student_id || !payload.vaccine_name) {
-      errEl.textContent = 'Student and vaccine name are required'; errEl.classList.remove('d-none'); return;
+  async viewRecord(recordId) {
+    this.state.selectedRecordId = recordId;
+
+    if (typeof bootstrap !== "undefined" && this.ui.modal) {
+      const modalInstance = new bootstrap.Modal(this.ui.modal);
+      modalInstance.show();
     }
-    try {
-      await callAPI('/health/vaccinations', 'POST', payload);
-      bootstrap.Modal.getInstance(document.getElementById('vaxModal')).hide();
-      showNotification('Vaccination recorded', 'success');
-      this.loadStats(); this.loadVaccinations();
-    } catch (e) { errEl.textContent = e.message || 'Save failed'; errEl.classList.remove('d-none'); }
+
+    await this.loadRecordDetails(recordId);
   },
 
-  // ── STUDENT DROPDOWN ───────────────────────────────────────────────
+  async loadRecordDetails(recordId) {
+    this.setModalLoading(true);
 
-  _loadStudentDropdowns: async function () {
     try {
-      const r = await callAPI('/students/list', 'GET').catch(() => callAPI('/students', 'GET'));
-      this._students = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-      ['hrStudentId','vaxStudentId'].forEach(id => {
-        const sel = document.getElementById(id);
-        if (!sel) return;
-        sel.innerHTML = '<option value="">— Select student —</option>';
-        this._students.forEach(s => {
-          const o = document.createElement('option');
-          o.value = s.id;
-          o.textContent = `${s.first_name} ${s.last_name} (${s.admission_no || s.id})`;
-          sel.appendChild(o);
-        });
-      });
-    } catch (e) { console.warn('Could not load students:', e); }
+      const response = await this.api(`/students/health-record/${recordId}`, "GET");
+      const data = this.unwrap(response);
+
+      this.ui.modalRecordId.textContent = data.record_code || recordId;
+      this.renderRecordDetails(data);
+    } catch (error) {
+      console.error("Failed to load record details:", error);
+      this.showModalError(error.message || "Failed to load record details");
+    } finally {
+      this.setModalLoading(false);
+    }
   },
 
-  // ── UTILS ──────────────────────────────────────────────────────────
+  renderRecordDetails(data) {
+    const visits = data.visits || [];
+    const student = data.student || {};
 
-  _set: function (id, val) { const el = document.getElementById(id); if (el) el.textContent = val; },
-  _esc: function (s) {
-    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    this.ui.modalRecordContent.innerHTML = `
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Student Profile</h5>
+          <p><strong>Name:</strong> ${this.escape(student.first_name || "")} ${this.escape(student.last_name || "")}</p>
+          <p><strong>Admission No:</strong> ${this.escape(student.admission_no || "-")}</p>
+          <p><strong>Class:</strong> ${this.escape(data.class_name || "-")}</p>
+          <p><strong>Stream:</strong> ${this.escape(data.stream_name || "-")}</p>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Health Details</h5>
+          <p><strong>Category:</strong> ${this.escape(data.health_category || "-")}</p>
+          <p><strong>Alert Type:</strong> ${this.escape(data.alert_type || "-")}</p>
+          <p><strong>Condition:</strong> ${this.escape(data.condition_name || "-")}</p>
+          <p><strong>Allergy:</strong> ${this.escape(data.allergy_name || "-")}</p>
+          <p><strong>Medication:</strong> ${this.escape(data.medication_name || "-")}</p>
+          <p><strong>Severity:</strong> ${this.escape(data.severity || "-")}</p>
+          <p><strong>Status:</strong> ${this.escape(data.status || "-")}</p>
+          <p><strong>Emergency Flag:</strong> ${data.emergency_flag ? 'Yes' : 'No'}</p>
+          <p><strong>Description:</strong> ${this.escape(data.description || "-")}</p>
+          <p><strong>Action Instructions:</strong> ${this.escape(data.action_instructions || "-")}</p>
+          <p><strong>Next Review Date:</strong> ${this.escape(data.next_review_date || "-")}</p>
+        </div>
+      </div>
+      <div class="card mb-3">
+        <div class="card-body">
+          <h5 class="card-title">Emergency Contact</h5>
+          <p><strong>Contact Name:</strong> ${this.escape(data.emergency_contact_name || "-")}</p>
+          <p><strong>Contact Phone:</strong> ${this.escape(data.emergency_contact_phone || "-")}</p>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <h5 class="card-title">Clinic Visit History (${visits.length})</h5>
+          ${visits.length === 0 ? '<p class="text-muted">No clinic visits recorded.</p>' : ''}
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Complaint</th>
+                <th>Observation</th>
+                <th>Action Taken</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${visits.map(v => `
+                <tr>
+                  <td>${this.escape(v.visit_date || "-")}</td>
+                  <td>${this.escape(v.complaint || "-")}</td>
+                  <td>${this.escape(v.observation || "-")}</td>
+                  <td>${this.escape(v.action_taken || "-")}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  },
+
+  exportData() {
+    if (!this.state.records.length) {
+      this.notify("No data to export", "warning");
+      return;
+    }
+
+    const headers = ["Record ID", "Student", "Adm No", "Class", "Stream", "Category", "Alert Type", "Severity", "Status", "Last Visit", "Next Review"];
+    const rows = this.state.records.map(r => [
+      r.record_code || r.id || "",
+      r.student_name || "",
+      r.admission_no || "",
+      r.class_name || "",
+      r.stream_name || "",
+      r.health_category || "",
+      r.alert_type || r.condition_name || r.allergy_name || r.medication_name || "",
+      r.severity || "",
+      r.status || "",
+      r.last_visit || "",
+      r.next_review_date || "",
+    ]);
+
+    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `health_records_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  },
+
+  setLoading(loading) {
+    this.ui.recordsLoading?.classList.toggle("d-none", !loading);
+    this.ui.recordsError?.classList.add("d-none");
+  },
+
+  showError(message) {
+    if (!this.ui.recordsError) return;
+    this.ui.recordsError.textContent = message;
+    this.ui.recordsError.classList.remove("d-none");
+  },
+
+  setModalLoading(loading) {
+    this.ui.modalLoading?.classList.toggle("d-none", !loading);
+    this.ui.modalError?.classList.add("d-none");
+    this.ui.modalRecordContent?.classList.toggle("opacity-50", loading);
+  },
+
+  showModalError(message) {
+    if (!this.ui.modalError) return;
+    this.ui.modalError.textContent = message;
+    this.ui.modalError.classList.remove("d-none");
+  },
+
+  fillSelect(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    (items || []).forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
+      option.textContent = item.name || item.class_name || item.stream_name || item.year_name || item.year_code || item.label || option.value;
+      select.appendChild(option);
+    });
+  },
+
+  api: async function (endpoint, method = "GET", data = null) {
+    if (window.API && typeof window.API.apiCall === "function") {
+      return window.API.apiCall(endpoint, method, data);
+    }
+
+    const base = window.APP_BASE || "";
+    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+    const options = { method, headers: {} };
+
+    if (data) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, options);
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok || json.success === false) {
+      throw new Error(json.message || json.error || "Request failed.");
+    }
+
+    return json;
+  },
+
+  unwrap(response) {
+    if (!response) return {};
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
+    if (response.data !== undefined) return response.data;
+    return response;
+  },
+
+  escape(value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[char]
+    );
+  },
+
+  debounce(fn, delay) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+  },
+
+  notify(message, type = "info") {
+    if (typeof showNotification === "function") {
+      showNotification(message, type);
+      return;
+    }
+
+    if (window.API && typeof window.API.showNotification === "function") {
+      window.API.showNotification(message, type);
+      return;
+    }
+
+    alert(message);
   },
 };
+
+document.addEventListener("DOMContentLoaded", () =>
+  StudentHealthController.init(),
+);
+
+window.StudentHealthController = StudentHealthController;

@@ -10,6 +10,11 @@ use function App\API\Includes\formatResponse;
 /**
  * Document Generator for Student Transfers
  * 
+ * DEPRECATED: This class is maintained for backward compatibility.
+ * For new certificate/document generation, use PrintService instead:
+ * - API\Api\Services\PrintService for professional PDF generation
+ * - See docs/PRINTING_SYSTEM_NORMALIZATION_PLAN.md for migration guide
+ * 
  * Generates:
  * - Leaving Certificates
  * - Clearance Forms
@@ -232,7 +237,7 @@ class DocumentGenerator extends BaseAPI
 <head>
     <meta charset='UTF-8'>
     <title>{$title}</title>
-    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+    <link href='https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css' rel='stylesheet'>
     <style>
         @media print {
             .no-print { display: none; }
@@ -268,11 +273,12 @@ class DocumentGenerator extends BaseAPI
      */
     private function getDocumentHeader($schoolConfig, $subtitle = null)
     {
-        $name = htmlspecialchars($schoolConfig['name'] ?? 'Kingsway Academy');
-        $motto = htmlspecialchars($schoolConfig['motto'] ?? 'Excellence in Education');
-        $address = htmlspecialchars($schoolConfig['address'] ?? '');
-        $phone = htmlspecialchars($schoolConfig['phone'] ?? '');
-        $email = htmlspecialchars($schoolConfig['email'] ?? '');
+        $name = htmlspecialchars($schoolConfig['name'] ?? 'Kingsway Preparatory School');
+        $motto = htmlspecialchars($schoolConfig['motto'] ?? 'In God We Soar');
+        $address = htmlspecialchars($schoolConfig['address'] ?? 'P.O Box 203-20203, Londiani, Kenya');
+        $phone = htmlspecialchars($schoolConfig['phone'] ?? '+254-720-113030 / +254-720-113031');
+        $email = htmlspecialchars($schoolConfig['email'] ?? 'info@kingswaypreparatoryschool.sc.ke');
+        $website = htmlspecialchars($schoolConfig['website'] ?? 'www.kingswaypreparatoryschool.sc.ke');
 
         $subtitleHtml = $subtitle ? "<div style='font-size: 14px; margin-top: 10px;'>{$subtitle}</div>" : '';
 
@@ -281,7 +287,7 @@ class DocumentGenerator extends BaseAPI
             <div style='font-size: 28px; font-weight: bold; color: #1a1a1a; margin-bottom: 5px;'>{$name}</div>
             <div style='font-size: 14px; font-style: italic; color: #555; margin-bottom: 10px;'>{$motto}</div>
             <div style='font-size: 12px; color: #666;'>{$address}</div>
-            <div style='font-size: 12px; color: #666;'>Tel: {$phone} | Email: {$email}</div>
+            <div style='font-size: 12px; color: #666;'>Tel: {$phone} | Email: {$email} | Website: {$website}</div>
             {$subtitleHtml}
         </div>";
     }
@@ -466,25 +472,49 @@ class DocumentGenerator extends BaseAPI
 
     private function getSchoolConfig()
     {
-        // Get from school_configuration table or use defaults
+        // DEPRECATED: Use config.php constants for school configuration
+        // This method is kept for backward compatibility
+        // For new certificate generation, use PrintService instead
+        
+        // Use config.php constants if available
+        if (defined('SCHOOL_NAME')) {
+            return [
+                'name' => SCHOOL_NAME,
+                'motto' => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'In God We Soar',
+                'address' => defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : 'P.O Box 203-20203, Londiani, Kenya',
+                'phone' => defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '+254-720-113030 / +254-720-113031',
+                'email' => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingswaypreparatoryschool.sc.ke',
+                'website' => defined('SCHOOL_WEBSITE') ? SCHOOL_WEBSITE : 'www.kingswaypreparatoryschool.sc.ke',
+                'principal' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr Bett Junior',
+                'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher'
+            ];
+        }
+        
+        // Fallback to database (legacy)
         try {
             $stmt = $this->db->query("SELECT config_key, config_value FROM school_configuration");
             $configs = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
             return [
-                'name' => $configs['school_name'] ?? 'Kingsway Academy',
-                'motto' => $configs['school_motto'] ?? 'Excellence in Education',
-                'address' => $configs['school_address'] ?? '',
-                'phone' => $configs['school_phone'] ?? '',
-                'email' => $configs['school_email'] ?? ''
+                'name' => $configs['school_name'] ?? 'Kingsway Preparatory School',
+                'motto' => $configs['school_motto'] ?? 'In God We Soar',
+                'address' => $configs['school_address'] ?? 'P.O Box 203-20203, Londiani, Kenya',
+                'phone' => $configs['school_phone'] ?? '+254-720-113030 / +254-720-113031',
+                'email' => $configs['school_email'] ?? 'info@kingswaypreparatoryschool.sc.ke',
+                'website' => $configs['school_website'] ?? 'www.kingswaypreparatoryschool.sc.ke',
+                'principal' => $configs['principal_name'] ?? 'Mr Bett Junior',
+                'principal_title' => $configs['principal_title'] ?? 'Headteacher'
             ];
         } catch (Exception $e) {
             return [
-                'name' => 'Kingsway Academy',
-                'motto' => 'Excellence in Education',
-                'address' => '',
-                'phone' => '',
-                'email' => ''
+                'name' => 'Kingsway Preparatory School',
+                'motto' => 'In God We Soar',
+                'address' => 'P.O Box 203-20203, Londiani, Kenya',
+                'phone' => '+254-720-113030 / +254-720-113031',
+                'email' => 'info@kingswaypreparatoryschool.sc.ke',
+                'website' => 'www.kingswaypreparatoryschool.sc.ke',
+                'principal' => 'Mr Bett Junior',
+                'principal_title' => 'Headteacher'
             ];
         }
     }

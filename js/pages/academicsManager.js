@@ -1908,9 +1908,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        const token = localStorage.getItem('token');
+        const token = AuthContext.getToken();
         if (!token) {
-            console.error('No token found in localStorage');
+            console.error('No token found in auth storage');
             return;
         }
         

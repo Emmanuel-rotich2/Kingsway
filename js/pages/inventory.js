@@ -160,14 +160,40 @@ const inventoryController = {
 
   exportCSV: function () {
     if (!this._filtered.length) { showNotification('No data.','warning'); return; }
-    const h=['Code','Name','Category','Location','Quantity','Unit','Unit Price','Status'];
-    const rows=[h.join(','),...this._filtered.map(i=>{
-      const qty=Number(i.quantity||0),rl=Number(i.reorder_level||10);
-      const st=qty===0?'Out of Stock':qty<=rl?'Low Stock':'In Stock';
-      return [`"${i.item_code||''}"`,`"${i.item_name||i.name||''}"`,`"${i.category||''}"`,`"${i.location||''}"`,qty,`"${i.unit||''}"`,i.unit_price||0,`"${st}"`].join(',');
-    })];
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='inventory.csv'; el.click();
+    if (!window.PrintManager) { showNotification('PrintManager not available for export','danger'); return; }
+
+    const columns = [
+      { key: 'item_code', label: 'Code' },
+      { key: 'item_name', label: 'Name' },
+      { key: 'category', label: 'Category' },
+      { key: 'location', label: 'Location' },
+      { key: 'quantity', label: 'Quantity' },
+      { key: 'unit', label: 'Unit' },
+      { key: 'unit_price', label: 'Unit Price' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    const rows = this._filtered.map(i => {
+      const qty = Number(i.quantity || 0);
+      const rl = Number(i.reorder_level || 10);
+      const st = qty === 0 ? 'Out of Stock' : qty <= rl ? 'Low Stock' : 'In Stock';
+      return {
+        item_code: i.item_code || '',
+        item_name: i.item_name || i.name || '',
+        category: i.category || '',
+        location: i.location || '',
+        quantity: qty,
+        unit: i.unit || '',
+        unit_price: i.unit_price || 0,
+        status: st
+      };
+    });
+
+    window.PrintManager.exportToCSV({
+      filename: `inventory_${new Date().toISOString().slice(0,10)}.csv`,
+      columns: columns,
+      rows: rows
+    });
   },
 
   _set: (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; },

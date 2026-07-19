@@ -2,6 +2,23 @@ const ManageTermsController = (() => {
     let allData = [];
     async function init() {
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
+        
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+            // Subscribe to context changes
+            window.AcademicContext.subscribe((context, event, data) => {
+                console.log('AcademicContext changed in manage_terms:', event, data);
+                if (event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                    loadData();
+                }
+            });
+            
+            // Ensure context is loaded
+            if (!window.AcademicContext.isLoaded()) {
+                await window.AcademicContext.init();
+            }
+        }
+        
         await loadData(); setupEventListeners();
     }
     function setupEventListeners() {
@@ -167,7 +184,14 @@ const ManageTermsController = (() => {
         try {
             await window.API.apiCall(id ? '/academic/terms/' + id : '/academic/terms', id ? 'PUT' : 'POST', data);
             showNotification("Term saved successfully", "success");
-            bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide(); await loadData();
+            bootstrap.Modal.getInstance(document.getElementById('formModal'))?.hide();
+            
+            // If this is being set as current, refresh AcademicContext
+            if (data.status === 'active' && window.AcademicContext) {
+                await window.AcademicContext.refresh();
+            }
+            
+            await loadData();
         } catch (e) { showNotification(e.message || 'Failed to save', 'danger'); }
     }
     async function deleteRecord(id) {

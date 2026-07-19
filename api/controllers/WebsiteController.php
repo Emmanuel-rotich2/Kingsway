@@ -34,10 +34,20 @@ class WebsiteController extends BaseController
     // PERMISSION HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
-    private function canManage(): bool {
+    /**
+     * Effective permissions are resolved at request time by RBACMiddleware
+     * (sp_user_get_effective_permissions) and stored on
+     * $_SERVER['auth_user']['effective_permissions']. Read from there — NOT
+     * from a JWT 'permissions' key, which is not populated for this deployment.
+     */
+    private function getEffectivePerms(): array {
         $user = $this->user;
-        if (!$user) return false;
-        $perms = (array)($user['permissions'] ?? []);
+        if (!$user) return [];
+        return (array)($user['effective_permissions'] ?? []);
+    }
+
+    private function canManage(): bool {
+        $perms = $this->getEffectivePerms();
         foreach (['website_news_manage','website_events_manage','website_gallery_manage',
                   'website_downloads_manage','website_jobs_manage','website_settings_manage',
                   'website_content_manage'] as $p) {
@@ -46,10 +56,24 @@ class WebsiteController extends BaseController
         return false;
     }
 
+    /**
+     * True for safe read methods (GET). Used to let anonymous visitors read
+     * the public content showcase (news, events, leadership, programs, …) that
+     * the SSR site already displays unauthenticated. Write ops are never read.
+     */
+    private function isReadRequest(): bool {
+        return ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET';
+    }
+
     private function hasPerm(string $perm): bool {
-        $user = $this->user;
-        if (!$user) return false;
-        $perms = (array)($user['permissions'] ?? []);
+        // Public showcase content is readable by anonymous visitors (the same
+        // data the static site renders unauthenticated). Only OPEN 'website_view'
+        // on read requests; every write/manage perm still requires a real user.
+        if ($perm === 'website_view' && !$this->user && $this->isReadRequest()) {
+            return true;
+        }
+        if (!$this->user) return false;
+        $perms = $this->getEffectivePerms();
         return in_array($perm, $perms) || in_array(str_replace('_', '.', $perm), $perms);
     }
 
@@ -60,9 +84,9 @@ class WebsiteController extends BaseController
         return null;
     }
 
-    private function forbidden(string $msg): string {
+    protected function forbidden($message = 'Access forbidden') {
         http_response_code(403);
-        return json_encode(['status'=>'error','message'=>$msg,'data'=>null,'code'=>403]);
+        return json_encode(['status'=>'error','message'=>$message,'data'=>null,'code'=>403]);
     }
 
     private function slugify(string $text): string {
@@ -106,7 +130,7 @@ class WebsiteController extends BaseController
                 return $row ? $this->success($row) : $this->notFound('Article not found');
             }
             $cat    = $data['category'] ?? '';
-            $status = $data['status']   ?? '';
+            $status = $data['status']   ?? 'published';   // default to published (mirrors kw_latest_news)
             $search = $data['search']   ?? '';
             $limit  = min((int)($data['limit'] ?? 50), 200);
             $offset = (int)($data['offset'] ?? 0);
@@ -186,8 +210,10 @@ class WebsiteController extends BaseController
                 $row = $db->query("SELECT * FROM school_events WHERE id=?", [$id])->fetch();
                 return $row ? $this->success($row) : $this->notFound('Event not found');
             }
-            $upcoming = ($data['upcoming'] ?? '') === '1';
-            $where = $upcoming ? 'WHERE event_date >= CURDATE() AND status != "cancelled"' : '';
+            // Default to upcoming events (mirrors kw_upcoming_events). Pass
+            // upcoming=0 explicitly to fetch all (e.g. admin archive view).
+            $showAll = ($data['upcoming'] ?? '1') === '0';
+            $where = $showAll ? '' : 'WHERE event_date >= CURDATE() AND status != "cancelled"';
             $rows = $db->query("SELECT * FROM school_events $where ORDER BY event_date DESC LIMIT 100")->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
         } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
@@ -240,7 +266,13 @@ class WebsiteController extends BaseController
     public function getGallery($id = null, $data = [], $segments = []) {
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
         try {
-            $rows = $this->db->query("SELECT * FROM gallery_items ORDER BY display_order ASC, created_at DESC LIMIT 100")->fetchAll();
+            // Default to active gallery items only (mirrors kw_gallery). Pass
+            // active=0 to include inactive (admin view).
+            $activeOnly = ($data['active'] ?? '1') !== '0';
+            $sql = $activeOnly
+                ? "SELECT * FROM gallery_items WHERE is_active=1 ORDER BY display_order ASC, created_at DESC LIMIT 100"
+                : "SELECT * FROM gallery_items ORDER BY display_order ASC, created_at DESC LIMIT 100";
+            $rows = $this->db->query($sql)->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
         } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
     }
@@ -292,20 +324,61 @@ class WebsiteController extends BaseController
     public function getDownloads($id = null, $data = [], $segments = []) {
         if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
         try {
-            $rows = $this->db->query("SELECT * FROM page_downloads ORDER BY category, display_order ASC LIMIT 200")->fetchAll();
+            // Default to active downloads only (mirrors kw_downloads). Pass
+            // active=0 to include inactive (admin view).
+            $activeOnly = ($data['active'] ?? '1') !== '0';
+            $sql = $activeOnly
+                ? "SELECT * FROM page_downloads WHERE is_active=1 ORDER BY category, display_order ASC LIMIT 200"
+                : "SELECT * FROM page_downloads ORDER BY category, display_order ASC LIMIT 200";
+            $rows = $this->db->query($sql)->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
         } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    /**
+     * Save an uploaded document into uploads/school_assets/documents and return
+     * the env-agnostic web URL (relative to BASE_URL). Falls back to the
+     * manually-supplied file_url when no file was uploaded.
+     */
+    private function saveUploadedDocument(?array $file, string $existingUrl = ''): ?string {
+        if (empty($file) || ($file['error'] ?? 1) !== UPLOAD_ERR_OK || empty($file['tmp_name'])) {
+            return $existingUrl ?: null;
+        }
+        $destDir = defined('SCHOOL_ASSETS_DOCUMENTS') ? SCHOOL_ASSETS_DOCUMENTS : (__DIR__.'/../../uploads/school_assets/documents');
+        if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
+        $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($file['name']));
+        // Avoid collisions.
+        if (file_exists($destDir.'/'.$safeName)) {
+            $safeName = time().'_'.$safeName;
+        }
+        if (!@move_uploaded_file($file['tmp_name'], $destDir.'/'.$safeName)) {
+            return $existingUrl ?: null;
+        }
+        // Build an env-agnostic web URL. UPLOAD_PATH is rooted at the project
+        // root (dev: .../Kingsway/uploads, prod: /home/kingswa4/uploads = deploy
+        // root). Strip that root off the real destination dir to get the path
+        // relative to the site base, then prefix the env-aware BASE_URL (which is
+        // http://localhost/Kingsway locally and the production domain in prod).
+        // This mirrors PrintController::getWebUrl and works for both subdir and
+        // root installs without hardcoding /Kingsway.
+        $root = rtrim(realpath(dirname(UPLOAD_PATH) ?: __DIR__.'/..'), '/\\');
+        $rel  = trim(str_replace('\\','/', str_replace($root, '', realpath($destDir))), '/\\');
+        $rel  = $rel === '' ? 'uploads/school_assets/documents' : $rel;
+        $base = rtrim(defined('BASE_URL') ? BASE_URL : (rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '/api/index.php')),'/')), '/');
+        return $base . '/' . $rel . '/' . $safeName;
     }
 
     public function postDownloads($id = null, $data = [], $segments = []) {
         $guard = $this->requirePerm('website_downloads_manage');
         if ($guard) return $guard;
-        if (empty($data['title']) || empty($data['file_url'])) return $this->badRequest('Title and file URL are required.');
+        if (empty($data['title'])) return $this->badRequest('Title is required.');
         try {
+            $fileUrl = $this->saveUploadedDocument($_FILES['file'] ?? null, $data['file_url'] ?? '');
+            if (empty($fileUrl)) return $this->badRequest('Provide a file to upload or a valid file URL.');
             $max = (int)$this->db->query("SELECT COALESCE(MAX(display_order),0) FROM page_downloads WHERE category=?", [$data['category']??'General'])->fetchColumn();
             $this->db->query(
                 "INSERT INTO page_downloads (title,description,file_url,file_type,file_size,category,icon,color,display_order) VALUES (?,?,?,?,?,?,?,?,?)",
-                [$data['title'], $data['description']??'', $data['file_url'], $data['file_type']??'PDF',
+                [$data['title'], $data['description']??'', $fileUrl, $data['file_type']??'PDF',
                  $data['file_size']??'', $data['category']??'General',
                  $data['icon']??'bi-file-earmark-pdf-fill', $data['color']??'#198754', $max+10]
             );
@@ -319,8 +392,16 @@ class WebsiteController extends BaseController
         if (!$id) return $this->badRequest('Download ID required.');
         try {
             $fields = []; $params = [];
-            foreach (['title','description','file_url','file_type','file_size','category','icon','color','is_active'] as $f) {
+            foreach (['title','description','file_type','file_size','category','icon','color','is_active'] as $f) {
                 if (isset($data[$f])) { $fields[] = "$f=?"; $params[] = $data[$f]; }
+            }
+            // Real file upload wins over a manually-typed URL.
+            $existing = $this->db->query("SELECT file_url FROM page_downloads WHERE id=?", [$id])->fetchColumn();
+            $uploadedUrl = $this->saveUploadedDocument($_FILES['file'] ?? null, $existing ?: '');
+            if ($uploadedUrl && $uploadedUrl !== $existing) {
+                $fields[] = "file_url=?"; $params[] = $uploadedUrl;
+            } elseif (isset($data['file_url']) && $data['file_url'] !== $existing) {
+                $fields[] = "file_url=?"; $params[] = $data['file_url'];
             }
             if (empty($fields)) return $this->badRequest('No fields to update.');
             $params[] = $id;
@@ -351,7 +432,13 @@ class WebsiteController extends BaseController
                 $row = $db->query("SELECT * FROM job_vacancies WHERE id=?", [$id])->fetch();
                 return $row ? $this->success($row) : $this->notFound('Job not found');
             }
-            $rows = $db->query("SELECT * FROM job_vacancies ORDER BY created_at DESC LIMIT 100")->fetchAll();
+            // Default to open vacancies only (mirrors kw_open_jobs). Pass
+            // status=all to include closed (admin/archive use).
+            $status = $data['status'] ?? 'open';
+            $sql = $status === 'all'
+                ? "SELECT * FROM job_vacancies ORDER BY created_at DESC LIMIT 100"
+                : "SELECT * FROM job_vacancies WHERE status = 'open' ORDER BY created_at DESC LIMIT 100";
+            $rows = $db->query($sql)->fetchAll();
             return $this->success(['items'=>$rows,'total'=>count($rows)]);
         } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
     }
@@ -472,15 +559,15 @@ class WebsiteController extends BaseController
     // ─────────────────────────────────────────────────────────────────────────
 
     private $allowedTables = [
-        'leadership'  => ['leadership_team',     ['name','title','bio','avatar_url','avatar_color','email','display_order','is_active']],
-        'programs'    => ['school_programs',     ['name','level_range','icon','color','description','anchor','display_order','is_active']],
-        'facilities'  => ['school_facilities',   ['icon','name','description','display_order','is_active']],
-        'history'     => ['school_history',      ['year','event_title','description','display_order']],
-        'values'      => ['school_values',       ['name','description','icon','color','display_order','is_active']],
-        'departments' => ['department_contacts', ['icon','color','name','description','email','phone','display_order','is_active']],
-        'categories'  => ['news_categories',     ['name','slug','color','display_order','is_active']],
+        'leadership'  => ['leadership_team',       ['name','title','bio','avatar_url','avatar_color','email','display_order','is_active']],
+        'programs'    => ['school_programs',       ['name','level_range','icon','color','description','anchor','display_order','is_active']],
+        'facilities'  => ['school_facilities',     ['icon','name','description','display_order','is_active']],
+        'history'     => ['school_history',        ['year','event_title','description','display_order']],
+        'values'      => ['school_values',         ['name','description','icon','color','display_order','is_active']],
+        'departments' => ['department_contacts',   ['icon','color','name','description','email','phone','display_order','is_active']],
+        'categories'  => ['news_categories',       ['name','slug','color','display_order','is_active']],
         'steps'       => ['admission_process_steps',['step_number','icon','color','title','description','display_order','is_active']],
-        'benefits'    => ['careers_benefits',    ['icon','title','description','display_order','is_active']],
+        'benefits'    => ['careers_benefits',      ['icon','title','description','display_order','is_active']],
     ];
 
     public function get($id = null, $data = [], $segments = []) {
@@ -585,5 +672,151 @@ class WebsiteController extends BaseController
             $this->db->query("UPDATE news_categories SET is_active=0 WHERE id=?", [$id]);
             return $this->success(null, 'Category deactivated');
         } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // GENERIC TABLE CRUD  /api/website/{leadership|programs|facilities|history|values|departments|steps|benefits}
+    // Each static table exposes full POST / PUT / DELETE via a single engine.
+    // $allowedTables maps the URL resource → [db_table, writable_columns].
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private function tableInfo(string $resource): ?array {
+        return $this->allowedTables[$resource] ?? null;
+    }
+
+    public function getLeadership($id = null, $data = [], $segments = []) { return $this->genericList('leadership', $id); }
+    public function getPrograms($id = null, $data = [], $segments = [])   { return $this->genericList('programs', $id); }
+    public function getFacilities($id = null, $data = [], $segments = []){ return $this->genericList('facilities', $id); }
+    public function getHistory($id = null, $data = [], $segments = [])    { return $this->genericList('history', $id); }
+    public function getValues($id = null, $data = [], $segments = [])     { return $this->genericList('values', $id); }
+    public function getDepartments($id = null, $data = [], $segments = []){ return $this->genericList('departments', $id); }
+    public function getSteps($id = null, $data = [], $segments = [])      { return $this->genericList('steps', $id); }
+    public function getBenefits($id = null, $data = [], $segments = [])   { return $this->genericList('benefits', $id); }
+
+    public function postLeadership($id = null, $data = [], $segments = []) { return $this->genericCreate('leadership', $data); }
+    public function postPrograms($id = null, $data = [], $segments = [])   { return $this->genericCreate('programs', $data); }
+    public function postFacilities($id = null, $data = [], $segments = []){ return $this->genericCreate('facilities', $data); }
+    public function postHistory($id = null, $data = [], $segments = [])    { return $this->genericCreate('history', $data); }
+    public function postValues($id = null, $data = [], $segments = [])     { return $this->genericCreate('values', $data); }
+    public function postDepartments($id = null, $data = [], $segments = []){ return $this->genericCreate('departments', $data); }
+    public function postSteps($id = null, $data = [], $segments = [])      { return $this->genericCreate('steps', $data); }
+    public function postBenefits($id = null, $data = [], $segments = [])   { return $this->genericCreate('benefits', $data); }
+
+    public function putLeadership($id = null, $data = [], $segments = []) { return $this->genericUpdate('leadership', $data, $id); }
+    public function putPrograms($id = null, $data = [], $segments = [])   { return $this->genericUpdate('programs', $data, $id); }
+    public function putFacilities($id = null, $data = [], $segments = []){ return $this->genericUpdate('facilities', $data, $id); }
+    public function putHistory($id = null, $data = [], $segments = [])    { return $this->genericUpdate('history', $data, $id); }
+    public function putValues($id = null, $data = [], $segments = [])     { return $this->genericUpdate('values', $data, $id); }
+    public function putDepartments($id = null, $data = [], $segments = []){ return $this->genericUpdate('departments', $data, $id); }
+    public function putSteps($id = null, $data = [], $segments = [])      { return $this->genericUpdate('steps', $data, $id); }
+    public function putBenefits($id = null, $data = [], $segments = [])   { return $this->genericUpdate('benefits', $data, $id); }
+
+    public function deleteLeadership($id = null, $data = [], $segments = []) { return $this->genericDelete('leadership', $id); }
+    public function deletePrograms($id = null, $data = [], $segments = [])   { return $this->genericDelete('programs', $id); }
+    public function deleteFacilities($id = null, $data = [], $segments = []){ return $this->genericDelete('facilities', $id); }
+    public function deleteHistory($id = null, $data = [], $segments = [])    { return $this->genericDelete('history', $id); }
+    public function deleteValues($id = null, $data = [], $segments = [])     { return $this->genericDelete('values', $id); }
+    public function deleteDepartments($id = null, $data = [], $segments = []){ return $this->genericDelete('departments', $id); }
+    public function deleteSteps($id = null, $data = [], $segments = [])      { return $this->genericDelete('steps', $id); }
+    public function deleteBenefits($id = null, $data = [], $segments = [])   { return $this->genericDelete('benefits', $id); }
+
+    private function genericList(string $resource, $id = null, $segments = []) {
+        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+        $info = $this->tableInfo($resource);
+        if (!$info) return $this->notFound('Unknown resource.');
+        [$table] = $info;
+        try {
+            if ($id) {
+                $row = $this->db->query("SELECT * FROM $table WHERE id=?", [$id])->fetch();
+                return $row ? $this->success($row) : $this->notFound('Record not found.');
+            }
+            $rows = $this->db->query("SELECT * FROM $table ORDER BY display_order ASC, id ASC LIMIT 200")->fetchAll();
+            return $this->success(['items'=>$rows, 'total'=>count($rows)]);
+        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    private function genericCreate(string $resource, array $data) {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        $info = $this->tableInfo($resource);
+        if (!$info) return $this->notFound('Unknown resource.');
+        [$table, $cols] = $info;
+        // Auto-assign display_order if the column is writable and absent.
+        if (in_array('display_order', $cols, true) && !isset($data['display_order'])) {
+            $max = (int)$this->db->query("SELECT COALESCE(MAX(display_order),0) FROM $table")->fetchColumn();
+            $data['display_order'] = $max + 10;
+        }
+        $writeCols = $cols;
+        $fields = []; $placeholders = []; $params = [];
+        foreach ($writeCols as $c) {
+            if (!array_key_exists($c, $data)) continue;
+            $fields[] = $c; $placeholders[] = '?'; $params[] = $data[$c];
+        }
+        if (empty($fields)) return $this->badRequest('No writable fields provided.');
+        try {
+            $this->db->query(
+                "INSERT INTO $table (".implode(',', $fields).") VALUES (".implode(',', $placeholders).")",
+                $params
+            );
+            $newId = $this->db->lastInsertId();
+            return $this->created(['id'=>$newId], ucfirst($resource).' record created.');
+        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    private function genericUpdate(string $resource, array $data, $id = null) {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        if (!$id) return $this->badRequest('Record ID required.');
+        $info = $this->tableInfo($resource);
+        if (!$info) return $this->notFound('Unknown resource.');
+        [$table, $cols] = $info;
+        $fields = []; $params = [];
+        foreach ($cols as $c) {
+            if (!array_key_exists($c, $data)) continue;
+            $fields[] = "$c=?"; $params[] = $data[$c];
+        }
+        if (empty($fields)) return $this->badRequest('No fields to update.');
+        // Auto-touch updated_at where present.
+        $allCols = $this->tableColumns($table);
+        if (in_array('updated_at', $allCols, true) && !in_array('updated_at', $cols, true)) {
+            $fields[] = "updated_at=NOW()";
+        }
+        $params[] = $id;
+        try {
+            $this->db->query("UPDATE $table SET ".implode(',', $fields)." WHERE id=?", $params);
+            return $this->success(['id'=>(int)$id], ucfirst($resource).' record updated.');
+        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    private function genericDelete(string $resource, $id = null) {
+        $guard = $this->requirePerm('website_content_manage');
+        if ($guard) return $guard;
+        if (!$id) return $this->badRequest('Record ID required.');
+        $info = $this->tableInfo($resource);
+        if (!$info) return $this->notFound('Unknown resource.');
+        [$table, $cols] = $info;
+        try {
+            if (in_array('is_active', $cols, true)) {
+                // Soft-delete where supported.
+                $this->db->query("UPDATE $table SET is_active=0 WHERE id=?", [$id]);
+                return $this->success(null, ucfirst($resource).' record deactivated.');
+            }
+            $this->db->query("DELETE FROM $table WHERE id=?", [$id]);
+            return $this->success(null, ucfirst($resource).' record deleted.');
+        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+    }
+
+    /** Cache column list for a table (used for created_at/updated_at detection). */
+    private function tableColumns(string $table): array {
+        static $cache = [];
+        if (!isset($cache[$table])) {
+            try {
+                $cache[$table] = array_map(
+                    fn($r) => $r['Field'] ?? $r['field'] ?? '',
+                    $this->db->query("SHOW COLUMNS FROM $table")->fetchAll()
+                );
+            } catch (\Throwable $e) { $cache[$table] = []; }
+        }
+        return $cache[$table];
     }
 }

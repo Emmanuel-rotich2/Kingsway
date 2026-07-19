@@ -1,10 +1,32 @@
 /**
  * CBC Curriculum Page Controller
  * Manages Competency-Based Curriculum data and display
+ * Integrates with AcademicContext for academic year awareness
  */
 const CurriculumCBCController = (() => {
     let curriculumData = [];
     let pagination = { page: 1, limit: 15, total: 0 };
+
+    async function init() {
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+            // Subscribe to context changes
+            window.AcademicContext.subscribe((context, event, data) => {
+                console.log('AcademicContext changed in curriculum_cbc:', event, data);
+                if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+                    loadData(1);
+                }
+            });
+            
+            // Ensure context is loaded
+            if (!window.AcademicContext.isLoaded()) {
+                await window.AcademicContext.init();
+            }
+        }
+        
+        attachListeners();
+        await loadData();
+    }
 
     async function loadData(page = 1) {
         try {
@@ -177,16 +199,16 @@ const CurriculumCBCController = (() => {
             window._currSearchTimeout = setTimeout(() => loadData(1), 300);
         });
         document.getElementById('exportCurriculumBtn')?.addEventListener('click', () => {
-            window.open((window.APP_BASE || '') + '/api/?route=academic/curriculum/export&format=csv', '_blank');
+            if (window.PrintManager) {
+                window.PrintManager.exportToCSV(curriculumData, 'cbc_curriculum');
+            } else {
+                // Fallback if PrintManager not available
+                window.open((window.APP_BASE || '') + '/api/?route=academic/curriculum/export&format=csv', '_blank');
+            }
         });
-    }
-
-    async function init() {
-        attachListeners();
-        await loadData();
     }
 
     return { init, refresh: loadData, loadPage: loadData, edit, view, remove };
 })();
 
-document.addEventListener('DOMContentLoaded', () => CurriculumCBCController.init());
+document.addEventListener('DOMContentLoaded', async () => await CurriculumCBCController.init());

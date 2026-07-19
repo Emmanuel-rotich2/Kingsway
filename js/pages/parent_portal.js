@@ -252,7 +252,7 @@
   }
 
   function summCard(label, value, color, icon) {
-    return '<div class="col-md-4 mb-2"><div class="card border-0 shadow-sm rounded-4 bg-' + color + ' bg-opacity-10">' +
+    return '<div class="col-md-4 mb-2"><div class="card border-0 shadow-sm rounded-4 kw-balance-card bg-' + color + ' bg-opacity-10">' +
       '<div class="card-body p-3 d-flex align-items-center">' +
       '<div class="me-3 fs-3 text-' + color + '"><i class="' + icon + '"></i></div>' +
       '<div><div class="text-muted small">' + label + '</div><div class="fw-bold fs-6">' + value + '</div></div>' +
@@ -377,7 +377,7 @@
     }).join('');
 
     return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Fee Statement</title>' +
-      '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">' +
+      '<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">' +
       '</head><body class="p-4">' +
       '<h3 class="text-center">Kingsway Preparatory School</h3>' +
       '<h5 class="text-center text-muted">Fee Statement</h5><hr>' +

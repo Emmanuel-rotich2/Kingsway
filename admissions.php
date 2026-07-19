@@ -12,9 +12,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $parentName = trim($_POST['parent_name'] ?? '');
     $phone      = trim($_POST['parent_phone'] ?? '');
     $grade      = trim($_POST['grade_applying'] ?? '');
+    $startTerm  = trim($_POST['preferred_start'] ?? '');
 
     if (!$childName || !$parentName || !$phone || !$grade) {
         echo json_encode(['success'=>false,'message'=>'Please fill in all required fields.']); exit;
+    }
+
+    // Reject applications for terms that do not exist in the system. The form
+    // only offers current/upcoming terms; anything else is tampering or stale.
+    if ($startTerm !== '') {
+        $validTokens = array_map(
+            fn($t) => $t['name'] . ' ' . $t['year'],
+            kw_academic_terms()
+        );
+        if (!in_array($startTerm, $validTokens, true)) {
+            echo json_encode(['success'=>false,'message'=>'Selected start term is not open for applications.']); exit;
+        }
+    }
+
+    // Reject grades that are not a valid, mappable intake grade. This mirrors
+    // the gradeMapping enforced by kw_save_admission_application so an unmapped
+    // grade (e.g. a DB class with no enum equivalent) is rejected, not silently
+    // coerced to Grade1.
+    $validGrades = ['PP1','PP2','Playgroup','Grade 1','Grade 2','Grade 3','Grade 4',
+                    'Grade 5','Grade 6','Grade 7','Grade 8','Grade 9'];
+    if (!in_array($grade, $validGrades, true)) {
+        echo json_encode(['success'=>false,'message'=>'Selected grade is not open for applications.']); exit;
     }
 
     $ref = kw_save_admission_application([
@@ -33,7 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'parent_address'   => trim($_POST['parent_address'] ?? ''),
         'grade'            => $grade,
         'boarding'         => trim($_POST['boarding_preference'] ?? 'day'),
-        'start_term'       => trim($_POST['preferred_start'] ?? ''),
+        'start_term'       => $startTerm,
         'referral'         => trim($_POST['referral_source'] ?? ''),
         'special_needs'    => trim($_POST['special_needs'] ?? ''),
         'ip'               => $_SERVER['REMOTE_ADDR'] ?? null,
@@ -49,9 +72,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
-$terms        = kw_academic_terms();
+$terms        = kw_academic_terms();              // current + upcoming only, upcoming-first
 $nextYear     = (int)date('Y') + 1;
 $gradeSpaces  = kw_grade_spaces();
+
+// Grades that actually exist in the system (active classes). These drive the
+// "Grade Applying For" dropdown so applicants can only pick real intake grades.
+$gradeOptions = kw_active_grades();
+
+// The set of term tokens the form may accept. Any POSTed preferred_start that
+// is not in this list is rejected — applications can only target existing terms.
+$validTermTokens = [];
+foreach ($terms as $t) {
+    $validTermTokens[] = $t['name'] . ' ' . $t['year'];
+}
+
 $schoolPhone  = kw_school_stat('school_phone_main', kw_school_stat('school_phone', '0720 113 030'));
 $adSteps      = kw_admission_steps();
 ?>
@@ -72,8 +107,17 @@ $adSteps      = kw_admission_steps();
 <div class="py-4" style="background:var(--gold)">
   <div class="container">
     <div class="row g-3 text-center">
+      <?php
+      // Lead with the first upcoming term (the default intake), falling back to
+      // the current term, then to the next calendar year so the banner is never
+      // misleading about which intake is open.
+      $leadTerm = $terms[0] ?? null;
+      $intakeMsg = $leadTerm
+          ? htmlspecialchars($leadTerm['name'] . ' ' . $leadTerm['year'] . ' intake now open')
+          : 'Term 1 ' . $nextYear . ' intake opening soon';
+      ?>
       <?php foreach ([
-        ['bi-calendar-check','Applications Open','Term 1 '.$nextYear.' intake now open'],
+        ['bi-calendar-check','Applications Open',$intakeMsg],
         ['bi-clock','Response Time',kw_school_stat('admissions_response','Within 24 working hours')],
         ['bi-person-plus','Age Range',kw_school_stat('admissions_age_range','4 – 15 years (PP1 – Grade 9)')],
         ['bi-telephone','Enquiries',$schoolPhone],
@@ -277,8 +321,8 @@ $adSteps      = kw_admission_steps();
               <label class="form-label small fw-semibold">Grade Applying For <span class="text-danger">*</span></label>
               <select name="grade_applying" class="form-control-kw" required>
                 <option value="">Select grade</option>
-                <?php foreach (['PP1','PP2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5','Grade 6','Grade 7','Grade 8','Grade 9'] as $g): ?>
-                <option value="<?= $g ?>"><?= $g ?></option>
+                <?php foreach ($gradeOptions as $g): ?>
+                <option value="<?= htmlspecialchars($g) ?>"><?= htmlspecialchars($g) ?></option>
                 <?php endforeach; ?>
               </select>
             </div>
@@ -370,10 +414,13 @@ $adSteps      = kw_admission_steps();
               <label class="form-label small fw-semibold">Preferred Start Term</label>
               <select name="preferred_start" class="form-control-kw">
                 <option value="">Select term</option>
-                <option value="Term 1 <?= $nextYear ?>">Term 1 <?= $nextYear ?></option>
-                <option value="Term 2 <?= $nextYear ?>">Term 2 <?= $nextYear ?></option>
-                <option value="Term 3 <?= $nextYear ?>">Term 3 <?= $nextYear ?></option>
-                <option value="Term 1 <?= $nextYear+1 ?>">Term 1 <?= $nextYear+1 ?></option>
+                <?php foreach ($terms as $t): ?>
+                <?php $token = $t['name'] . ' ' . $t['year']; ?>
+                <option value="<?= htmlspecialchars($token) ?>"><?= htmlspecialchars($token) ?> (<?= htmlspecialchars(ucfirst($t['status'])) ?>)</option>
+                <?php endforeach; ?>
+                <?php if (empty($terms)): ?>
+                <option value="" disabled>No intake terms open right now</option>
+                <?php endif; ?>
               </select>
             </div>
             <div class="col-12">

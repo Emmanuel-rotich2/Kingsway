@@ -25,7 +25,7 @@ function kw_db(): ?PDO {
 
 function kw_latest_news(int $limit = 6, int $page = 1, string $category = ''): array {
     $db = kw_db();
-    if (!$db) return kw_demo_news($limit);
+    if (!$db) return [];
     try {
         $offset = ($page - 1) * $limit;
         $catSql = $category ? " AND category = ?" : "";
@@ -37,14 +37,13 @@ function kw_latest_news(int $limit = 6, int $page = 1, string $category = ''): a
              ORDER BY created_at DESC LIMIT ? OFFSET ?"
         );
         $st->execute($params);
-        $rows = $st->fetchAll();
-        return $rows ?: kw_demo_news($limit);
-    } catch (\Throwable $e) { return kw_demo_news($limit); }
+        return $st->fetchAll();
+    } catch (\Throwable $e) { return []; }
 }
 
 function kw_news_count(string $category = ''): int {
     $db = kw_db();
-    if (!$db) return count(kw_demo_news(100));
+    if (!$db) return 0;
     try {
         $catSql = $category ? " AND category = ?" : "";
         $params = $category ? [$category] : [];
@@ -58,10 +57,7 @@ function kw_news_count(string $category = ''): int {
 
 function kw_news_by_id(int $id): ?array {
     $db = kw_db();
-    if (!$db) {
-        foreach (kw_demo_news(100) as $n) { if ($n['id'] == $id) return $n; }
-        return null;
-    }
+    if (!$db) return null;
     try {
         $st = $db->prepare(
             "SELECT id, title, slug, excerpt, content, category, image_url, author, views, created_at
@@ -83,7 +79,7 @@ function kw_increment_news_views(int $id): void {
 
 function kw_upcoming_events(int $limit = 5): array {
     $db = kw_db();
-    if (!$db) return kw_demo_events($limit);
+    if (!$db) return [];
     try {
         $st = $db->prepare(
             "SELECT id, title, description, event_date, event_time, location, category
@@ -92,17 +88,13 @@ function kw_upcoming_events(int $limit = 5): array {
              ORDER BY event_date ASC LIMIT ?"
         );
         $st->execute([$limit]);
-        $rows = $st->fetchAll();
-        return $rows ?: kw_demo_events($limit);
-    } catch (\Throwable $e) { return kw_demo_events($limit); }
+        return $st->fetchAll();
+    } catch (\Throwable $e) { return []; }
 }
 
 function kw_event_by_id(int $id): ?array {
     $db = kw_db();
-    if (!$db) {
-        foreach (kw_demo_events(100) as $e) { if ($e['id'] == $id) return $e; }
-        return null;
-    }
+    if (!$db) return null;
     try {
         $st = $db->prepare(
             "SELECT id, title, description, event_date, event_time, end_date, location, category, status
@@ -119,11 +111,14 @@ function kw_academic_terms(): array {
     $db = kw_db();
     if (!$db) return [];
     try {
+        // Only terms a parent may actually apply for: current or upcoming.
+        // Completed terms are excluded. Upcoming terms get priority (listed first)
+        // so the next intake is the default choice on the admissions form.
         $st = $db->query(
-            "SELECT name, start_date, end_date, term_number
+            "SELECT id, name, year, start_date, end_date, term_number, status
              FROM academic_terms
-             WHERE YEAR(start_date) >= YEAR(CURDATE())
-             ORDER BY start_date ASC LIMIT 6"
+             WHERE status IN ('current','upcoming')
+             ORDER BY FIELD(status,'upcoming','current'), start_date ASC"
         );
         return $st->fetchAll();
     } catch (\Throwable $e) { return []; }
@@ -133,7 +128,7 @@ function kw_academic_terms(): array {
 
 function kw_open_jobs(): array {
     $db = kw_db();
-    if (!$db) return kw_demo_jobs();
+    if (!$db) return [];
     try {
         $st = $db->query(
             "SELECT id, title, department, job_type, location, description, requirements,
@@ -142,16 +137,13 @@ function kw_open_jobs(): array {
              ORDER BY deadline ASC"
         );
         $rows = $st->fetchAll();
-        return $rows ?: kw_demo_jobs();
-    } catch (\Throwable $e) { return kw_demo_jobs(); }
+        return $rows;
+    } catch (\Throwable $e) { return []; }
 }
 
 function kw_job_by_id(int $id): ?array {
     $db = kw_db();
-    if (!$db) {
-        foreach (kw_demo_jobs() as $j) { if ($j['id'] == $id) return $j; }
-        return null;
-    }
+    if (!$db) return null;
     try {
         $st = $db->prepare(
             "SELECT id, title, department, job_type, location, description,
@@ -220,48 +212,104 @@ function kw_school_stat(string $key, string $default = ''): string {
     } catch (\Throwable $e) { return $cache[$key] = $default; }
 }
 
-function kw_grade_spaces(): array {
+/* ── Live enrolment / staff counts (computed, not hand-entered) ───────────── */
+
+/** Currently enrolled students = active rows in the students table. */
+function kw_student_count(): int {
+    static $cache = null;
+    if ($cache !== null) return $cache;
     $db = kw_db();
+    if (!$db) return $cache = 0;
+    try {
+        return $cache = (int)$db->query(
+            "SELECT COUNT(*) FROM students WHERE status = 'active'"
+        )->fetchColumn();
+    } catch (\Throwable $e) { return $cache = 0; }
+}
+
+/** Currently employed staff = active rows in the staff table. */
+function kw_staff_count(): int {
+    static $cache = null;
+    if ($cache !== null) return $cache;
+    $db = kw_db();
+    if (!$db) return $cache = 0;
+    try {
+        return $cache = (int)$db->query(
+            "SELECT COUNT(*) FROM staff WHERE status = 'active'"
+        )->fetchColumn();
+    } catch (\Throwable $e) { return $cache = 0; }
+}
+
+function kw_grade_spaces(): array {
+    // Spaces are intentionally "Available" for marketing: the school has not
+    // declared per-grade capacity, so every grade shows as open. (Previously
+    // this read spaces_* rows from school_settings, but those values were never
+    // declared/kept current, so they've been dropped in favour of a uniform
+    // "Available" state. Revisit if real capacity tracking is introduced.)
     $defaults = [
-        'PP1 (Pre-Primary 1)' => ['4 – 5 years', 'Limited'],
+        'PP1 (Pre-Primary 1)' => ['4 – 5 years', 'Available'],
         'PP2 (Pre-Primary 2)' => ['5 – 6 years', 'Available'],
         'Grade 1'             => ['6 – 7 years', 'Available'],
         'Grade 2 – 3'         => ['7 – 9 years', 'Available'],
-        'Grade 4 – 6'         => ['10 – 12 years', 'Limited'],
-        'Grade 7 – 9 (JSS)'   => ['12 – 15 years', 'Limited'],
+        'Grade 4 – 6'         => ['10 – 12 years', 'Available'],
+        'Grade 7 – 9 (JSS)'   => ['12 – 15 years', 'Available'],
     ];
-    if (!$db) return $defaults;
-    try {
-        $st = $db->query("SELECT setting_key, setting_value FROM school_settings WHERE setting_key LIKE 'spaces_%'");
-        $rows = $st->fetchAll();
-        $map = [];
-        foreach ($rows as $r) { $map[$r['setting_key']] = $r['setting_value']; }
-        if (!empty($map)) {
-            $defaults['PP1 (Pre-Primary 1)'][1]  = $map['spaces_PP1']      ?? 'Limited';
-            $defaults['PP2 (Pre-Primary 2)'][1]  = $map['spaces_PP2']      ?? 'Available';
-            $defaults['Grade 1'][1]              = $map['spaces_Grade1']   ?? 'Available';
-            $defaults['Grade 2 – 3'][1]          = $map['spaces_Grade2_3'] ?? 'Available';
-            $defaults['Grade 4 – 6'][1]          = $map['spaces_Grade4_6'] ?? 'Limited';
-            $defaults['Grade 7 – 9 (JSS)'][1]   = $map['spaces_Grade7_9'] ?? 'Limited';
+    return $defaults;
+}
+
+/* ── Active grades (intake grades pulled from real classes) ──────────────── */
+
+function kw_active_grades(): array {
+    $db = kw_db();
+    // Canonical display order: pre-primary first, then grades low → high.
+    $order = ['PP1','PP2','Grade 1','Grade 2','Grade 3','Grade 4','Grade 5',
+              'Grade 6','Grade 7','Grade 8','Grade 9'];
+    $found = [];
+    if ($db) {
+        try {
+            $st = $db->query(
+                "SELECT DISTINCT name FROM classes
+                 WHERE status = 'active' AND name IS NOT NULL AND name <> ''
+                 ORDER BY FIELD(name," . implode(',', array_map(fn($g) => $db->quote($g), $order)) . ")"
+            );
+            foreach ($st->fetchAll() as $r) {
+                $found[] = $r['name'];
+            }
+        } catch (\Throwable $e) {
+            // fall through to defaults below
         }
-        return $defaults;
-    } catch (\Throwable $e) { return $defaults; }
+    }
+    // Normalise names so they match the gradeMapping keys the application uses
+    // (e.g. "Playgroup" → keep as-is; "Grade 6" already canonical).
+    $normalised = [];
+    foreach ($found as $name) {
+        $normalised[] = in_array($name, $order, true) ? $name : $name;
+    }
+    // If the DB has nothing, fall back to the standard structure so the form
+    // still renders (better a soft default than an empty dropdown).
+    return $normalised !== [] ? $normalised : $order;
 }
 
 /* ── Full Admission Application ──────────────────────────────────────────── */
 
 function kw_save_admission_application(array $d): string|false {
     $db = kw_db();
-    $ref = 'KWA-' . strtoupper(substr(md5(uniqid()), 0, 6));
-    if (!$db) return $ref;
+    $webRef = 'WEB-' . strtoupper(substr(md5(uniqid()), 0, 6));
+    $appRef = 'KWA-' . strtoupper(substr(md5(uniqid()), 0, 6));
+    if (!$db) return $webRef;
+    
     try {
-        $db->prepare(
-            "INSERT INTO admission_applications
+        $db->beginTransaction();
+        
+        // 1. Insert raw data into web_admission_applications (audit copy)
+        $stmt = $db->prepare(
+            "INSERT INTO web_admission_applications
              (child_full_name,child_dob,child_gender,child_nationality,child_prev_school,child_prev_grade,
               parent_name,parent_relationship,parent_id_number,parent_phone,parent_alt_phone,parent_email,parent_address,
               grade_applying,boarding_preference,preferred_start,referral_source,special_needs,application_ref,ip_address)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-        )->execute([
+        );
+        $stmt->execute([
             $d['child_name'], $d['child_dob'] ?: null, $d['child_gender'] ?: null,
             $d['child_nationality'] ?: 'Kenyan', $d['child_prev_school'] ?: null, $d['child_prev_grade'] ?: null,
             $d['parent_name'], $d['parent_relationship'] ?: null, $d['parent_id'] ?: null,
@@ -269,10 +317,95 @@ function kw_save_admission_application(array $d): string|false {
             $d['parent_address'] ?: null,
             $d['grade'], $d['boarding'] ?: 'day', $d['start_term'] ?: null,
             $d['referral'] ?: null, $d['special_needs'] ?: null,
-            $ref, $d['ip'] ?? null
+            $webRef, $d['ip'] ?? null
         ]);
-        return $ref;
-    } catch (\Throwable $e) { return false; }
+        $webAppId = $db->lastInsertId();
+        
+        // 2. Create or find parent record in parents table
+        $parentId = null;
+        
+        // Try to find existing parent by phone or ID number
+        $parentStmt = $db->prepare(
+            "SELECT id FROM parents WHERE phone_1 = ? OR id_number = ? LIMIT 1"
+        );
+        $parentStmt->execute([$d['parent_phone'], $d['parent_id'] ?: '']);
+        $existingParent = $parentStmt->fetchColumn();
+        
+        if ($existingParent) {
+            $parentId = $existingParent;
+        } else {
+            // Parse parent name into first/last
+            $parentNameParts = explode(' ', trim($d['parent_name']), 2);
+            $parentFirstName = $parentNameParts[0] ?? '';
+            $parentLastName = $parentNameParts[1] ?? $parentNameParts[0] ?? '';
+            
+            // Create new parent record
+            $parentInsert = $db->prepare(
+                "INSERT INTO parents (first_name, last_name, id_number, phone_1, phone_2, email, address, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active')"
+            );
+            $parentInsert->execute([
+                $parentFirstName,
+                $parentLastName,
+                $d['parent_id'] ?: null,
+                $d['parent_phone'],
+                $d['parent_alt_phone'] ?: null,
+                $d['parent_email'] ?: null,
+                $d['parent_address'] ?: null
+            ]);
+            $parentId = $db->lastInsertId();
+        }
+        
+        // 3. Map grade from web form to admission_applications enum
+        $gradeMapping = [
+            'PP1' => 'PP1',
+            'PP2' => 'PP2',
+            'Playgroup' => 'Playground',
+            'Grade 1' => 'Grade1',
+            'Grade 2' => 'Grade2',
+            'Grade 3' => 'Grade3',
+            'Grade 4' => 'Grade4',
+            'Grade 5' => 'Grade5',
+            'Grade 6' => 'Grade6',
+            'Grade 7' => 'Grade7',
+            'Grade 8' => 'Grade8',
+            'Grade 9' => 'Grade9',
+        ];
+        if (!isset($gradeMapping[$d['grade']])) {
+            throw new \InvalidArgumentException('Invalid grade: ' . $d['grade']);
+        }
+        $mappedGrade = $gradeMapping[$d['grade']];
+        
+        // 4. Insert into admission_applications (canonical workflow record)
+        $admissionStmt = $db->prepare(
+            "INSERT INTO admission_applications
+             (application_no, applicant_name, date_of_birth, gender, grade_applying_for, academic_year,
+              previous_school, parent_id, application_source, web_application_id, has_special_needs, special_needs_details, status)
+             VALUES (?, ?, ?, ?, ?, YEAR(CURDATE() + INTERVAL 6 MONTH), ?, ?, 'online', ?, ?, ?, 'submitted')"
+        );
+        $admissionStmt->execute([
+            $appRef,
+            $d['child_name'],
+            $d['child_dob'] ?: null,
+            $d['child_gender'] ?: 'other',
+            $mappedGrade,
+            $d['child_prev_school'] ?: null,
+            $parentId,
+            $webAppId,
+            !empty($d['special_needs']) ? 1 : 0,
+            $d['special_needs'] ?: null
+        ]);
+        
+        $db->commit();
+        return $appRef;
+        
+    } catch (\Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log('Admission submission error: ' . $e->getMessage());
+        return false;
+    }
 }
 
 /* ── Content / Rich Text ─────────────────────────────────────────────────── */
@@ -502,36 +635,3 @@ function kw_category_image(string $category, int $w = 800): string {
     return "https://images.unsplash.com/{$id}?w={$w}&q=80";
 }
 
-function kw_demo_news(int $limit): array {
-    $items = [
-        ['id'=>1,'title'=>'Term 2 Sports Day — A Day of Champions','slug'=>'term-2-sports-day-a-day-of-champions','excerpt'=>'Over 400 students competed in track & field, football, and netball. Our Grade 6 relay team broke a school record.','content'=>'<p>Kingsway Preparatory School hosted its much-anticipated Term 2 Sports Day. Over 400 students competed in events ranging from sprints to football and netball tournaments. The Grade 6 relay team broke the school record.</p>','created_at'=>date('Y-m-d',strtotime('-3 days')),'category'=>'Sports','image_url'=>kw_category_image('Sports'),'author'=>'Sports Department','views'=>247],
-        ['id'=>2,'title'=>'Grade 9 KJSEA Intensive Revision Workshop','slug'=>'grade-9-kjsea-intensive-revision-workshop','excerpt'=>'Our teaching staff hosted a full-day intensive revision workshop for all 87 Grade 9 students preparing for KJSEA.','content'=>'<p>The academic team organised an intensive one-day revision workshop for all Grade 9 students. Students rotated through focused sessions in Mathematics, English, Kiswahili, Integrated Science, and Social Studies.</p>','created_at'=>date('Y-m-d',strtotime('-7 days')),'category'=>'Academic','image_url'=>kw_category_image('Academic'),'author'=>'Academic Office','views'=>183],
-        ['id'=>3,'title'=>'New ICT Computer Lab Officially Commissioned','slug'=>'new-ict-computer-lab-officially-commissioned','excerpt'=>'The school proudly unveils its brand-new 40-station computer lab equipped for CBC-aligned digital learning.','content'=>'<p>Kingsway Preparatory School officially commissioned its new 40-station ICT Computer Laboratory. The lab features modern workstations, high-speed internet, and CBC-aligned educational software.</p>','created_at'=>date('Y-m-d',strtotime('-10 days')),'category'=>'Infrastructure','image_url'=>kw_category_image('Infrastructure'),'author'=>'Administration','views'=>312],
-        ['id'=>4,'title'=>'Term 2 Parent-Teacher Feedback Day — You Are Invited','slug'=>'term-2-parent-teacher-feedback-day-invitation','excerpt'=>'Parents and guardians are warmly invited. Report books will be handed directly to parents on the day.','content'=>'<p>Kingsway Prep will host its Term 2 Parent-Teacher Feedback Day. Class teachers will be available from 8:00 AM to 2:00 PM. Report books will be handed directly to parents.</p>','created_at'=>date('Y-m-d',strtotime('-14 days')),'category'=>'Announcement','image_url'=>kw_category_image('Announcement'),'author'=>'Administration','views'=>95],
-        ['id'=>5,'title'=>'Music & Drama Club Wins Gold at Sub-County Festival','slug'=>'music-drama-club-wins-gold-sub-county-festival','excerpt'=>'Our Music and Drama Club brought home two gold trophies from the Sub-County Festival.','content'=>'<p>Kingsway Preparatory School\'s Music and Drama Club competed across four categories and came home with two gold trophies and one silver at the Sub-County Music and Cultural Festival.</p>','created_at'=>date('Y-m-d',strtotime('-18 days')),'category'=>'Arts','image_url'=>kw_category_image('Arts'),'author'=>'Arts Department','views'=>156],
-        ['id'=>6,'title'=>'Library Expansion: 2,000 New Books Added','slug'=>'library-expansion-2000-new-books-added','excerpt'=>'Our library now holds over 12,000 volumes after the largest single-term acquisition in the library\'s history.','content'=>'<p>Kingsway\'s library has undergone a major expansion with 2,047 new books added, bringing the total collection to over 12,000 volumes — one of the largest primary school libraries in Kericho County.</p>','created_at'=>date('Y-m-d',strtotime('-22 days')),'category'=>'Announcement','image_url'=>'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=800&q=80','author'=>'Library Department','views'=>88],
-        ['id'=>7,'title'=>'Grade 8 Science Fair: Innovation at Its Best','slug'=>'grade-8-science-fair-innovation-at-its-best','excerpt'=>'Grade 8 students showcased remarkable projects from solar-powered water purifiers to biodegradable plastics.','content'=>'<p>The annual Grade 8 Science Fair showcased 24 projects covering renewable energy, public health, and food technology. First place went to a solar-powered water purifier built from locally sourced materials.</p>','created_at'=>date('Y-m-d',strtotime('-28 days')),'category'=>'Academic','image_url'=>'https://images.unsplash.com/photo-1532094349884-543559fee3af?w=800&q=80','author'=>'Academic Office','views'=>134],
-        ['id'=>8,'title'=>'Football Team Crowned Sub-County Champions','slug'=>'football-team-crowned-sub-county-champions','excerpt'=>'Our Grade 7-9 football team goes through the season unbeaten — 10 wins, 2 draws, 38 goals scored.','content'=>'<p>Kingsway Preparatory School\'s junior football team has been crowned champions of the Kericho Sub-County Inter-Schools Football League, going through the entire season unbeaten.</p>','created_at'=>date('Y-m-d',strtotime('-35 days')),'category'=>'Sports','image_url'=>'https://images.unsplash.com/photo-1560272564-c83b66b1ad12?w=800&q=80','author'=>'Sports Department','views'=>201],
-    ];
-    return array_slice($items, 0, $limit);
-}
-
-function kw_demo_events(int $limit): array {
-    $year = date('Y');
-    $items = [
-        ['id'=>1,'title'=>'End of Term 2 Examinations Begin','description'=>'All classes sit their end-of-term written examinations.','event_date'=>"$year-08-10",'event_time'=>'07:30:00','location'=>'All Classrooms','category'=>'Academic'],
-        ['id'=>2,'title'=>'Term 2 Parent-Teacher Feedback Day','description'=>'Parents meet class teachers to review Term 2 results. Report books handed directly to parents.','event_date'=>"$year-08-17",'event_time'=>'08:00:00','location'=>'All Classrooms & School Hall','category'=>'Meeting'],
-        ['id'=>3,'title'=>'Annual Prize-Giving & Awards Ceremony','description'=>'Celebrating excellence in academics, sports, arts, and character development.','event_date'=>"$year-08-24",'event_time'=>'10:00:00','location'=>'School Assembly Ground','category'=>'Ceremony'],
-        ['id'=>4,'title'=>'Term 2 Closing Day','description'=>'Last day of Term 2. Boarding students collected by 4:00 PM.','event_date'=>"$year-08-31",'event_time'=>'12:00:00','location'=>'School Campus','category'=>'Academic'],
-        ['id'=>5,'title'=>'Term 3 Opening Day','description'=>'Students report back for Term 3. Day scholars by 7:30 AM.','event_date'=>"$year-09-15",'event_time'=>'07:30:00','location'=>'School Gates','category'=>'Academic'],
-    ];
-    return array_slice($items, 0, $limit);
-}
-
-function kw_demo_jobs(): array {
-    return [
-        ['id'=>1,'title'=>'Class Teacher — Grade 4','department'=>'Teaching','job_type'=>'Full-Time','location'=>'Londiani Campus','description'=>'We are looking for a dedicated Grade 4 class teacher with strong CBC implementation skills.','requirements'=>'["P1 or B.Ed (Primary Education)","TSC Registration (mandatory)","Minimum 2 years teaching experience"]','responsibilities'=>'["Deliver CBC-aligned lessons across all learning areas","Maintain class registers and portfolios","Communicate regularly with parents"]','deadline'=>date('Y-m-d',strtotime('+30 days')),'color'=>'#198754'],
-        ['id'=>2,'title'=>'Mathematics & Science Teacher (Grade 7–9)','department'=>'Teaching','job_type'=>'Full-Time','location'=>'Londiani Campus','description'=>'Seeking an experienced JSS Mathematics and Integrated Science teacher to prepare Grade 9 students for KJSEA.','requirements'=>'["B.Ed (Science/Mathematics)","TSC Registration","3 years JSS experience"]','responsibilities'=>'["Teach Mathematics and Integrated Science to Grade 7–9","Administer SBA assessments","Provide KJSEA revision"]','deadline'=>date('Y-m-d',strtotime('+25 days')),'color'=>'#1976d2'],
-        ['id'=>3,'title'=>'School Nurse (Residential)','department'=>'Health & Welfare','job_type'=>'Full-Time','location'=>'Londiani Campus','description'=>'Qualified nurse to manage the school sick bay and student health records. Residential position.','requirements'=>'["Diploma or Degree in Nursing","KNC registration","First Aid certification"]','responsibilities'=>'["Manage sick bay and health records","Administer first aid","Coordinate hospital referrals"]','deadline'=>date('Y-m-d',strtotime('+20 days')),'color'=>'#e91e63'],
-    ];
-}

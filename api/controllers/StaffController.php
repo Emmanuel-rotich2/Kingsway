@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\staff\StaffAPI;
 use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Modules\staff\StaffIDCardGenerator;
 use RuntimeException;
 use Exception;
 
@@ -17,12 +18,14 @@ class StaffController extends BaseController
 {
     private $api;
     private $payroll;
+    private $idCardGenerator;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new StaffAPI();
         $this->payroll = new StaffPayrollManager();
+        $this->idCardGenerator = new StaffIDCardGenerator();
     }
 
     public function index()
@@ -155,6 +158,80 @@ class StaffController extends BaseController
     public function postStaff($id = null, $data = [], $segments = [])
     {
         return $this->post($id, $data, $segments);
+    }
+
+    /**
+     * POST /api/staff/upload-photo/{id}
+     * Uploads a staff profile photo.
+     * Expects multipart/form-data with a "file" field.
+     * Stored under uploads/staff/profile_pictures/{staff_no}/ and the
+     * resulting URL is written to staff.profile_pic_url.
+     *
+     * POST /api/staff/upload-document/{id}
+     * Uploads a staff document (CV, certificate, etc.).
+     * Stored under uploads/staff/documents/{staff_no}/
+     */
+    public function postUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'photo');
+    }
+
+    public function postUploadDocument($id = null, $data = [], $segments = [])
+    {
+        return $this->handleStaffUpload($id, $data, $segments, 'document');
+    }
+
+    private function handleStaffUpload($id = null, $data = [], $segments = [], $forcedType = 'document')
+    {
+        $staffId = (int) ($id ?: ($data['staff_id'] ?? 0));
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required for upload');
+        }
+        if (empty($_FILES['file'])) {
+            return $this->badRequest('No file provided (expected field "file")');
+        }
+
+        // RBAC: require an authenticated user with a staff-management role.
+        if (empty($this->user)) {
+            return $this->unauthorized('Authentication required to upload staff files');
+        }
+        $allowedRoles = ['admin', 'school_admin', 'headteacher', 'director', 'human_resources'];
+        if (!$this->userHasAny([], [], $allowedRoles)) {
+            return $this->forbidden('Insufficient permission to upload staff files');
+        }
+
+        $type = $forcedType;
+        $description = $data['description'] ?? ($_POST['description'] ?? '');
+        $tags = $data['tags'] ?? ($_POST['tags'] ?? '');
+        $uploaderId = $this->user['id'] ?? null;
+
+        try {
+            $mediaId = $this->api->uploadStaffMedia($staffId, $_FILES['file'], $type, $uploaderId, $description, $tags);
+        } catch (\Exception $e) {
+            return $this->serverError('Upload failed: ' . $e->getMessage());
+        }
+
+        if (!$mediaId) {
+            return $this->serverError('Upload failed: media service returned no identifier');
+        }
+
+        // Reflect the new photo URL on the staff record when uploading a photo.
+        if ($type === 'photo') {
+            try {
+                $url = $this->api->getMediaFileUrl($mediaId);
+                if ($url) {
+                    $this->api->setProfilePicUrl($staffId, $url);
+                }
+            } catch (\Exception $e) {
+                // Non-fatal: photo uploaded but record update failed; client can re-fetch.
+            }
+        }
+
+        return $this->json([
+            'success' => true,
+            'media_id' => $mediaId,
+            'type' => $type
+        ]);
     }
 
     /**
@@ -1589,5 +1666,99 @@ class StaffController extends BaseController
             "UPDATE staff_onboarding SET progress_percent = ? WHERE id = ?",
             [$pct, $onboardingId]
         );
+    }
+
+    // ========================================================================
+    // STAFF ID CARD ENDPOINTS
+    // ========================================================================
+
+    /**
+     * POST /api/staff/id-card/generate
+     * Generate staff ID card
+     */
+    public function postIdCardGenerate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $format = $data['format'] ?? 'html';
+        $side = $data['side'] ?? 'both';
+
+        $result = $this->idCardGenerator->generateIDCard((int) $staffId, $format, $side);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/generate-bulk-pdf
+     * Generate bulk PDF for selected staff with A4 layout
+     */
+    public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffIds = $data['staff_ids'] ?? [];
+        if (empty($staffIds) || !is_array($staffIds)) {
+            return $this->badRequest('Staff IDs array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $includeFront = $data['include_front'] ?? true;
+        $includeBack = $data['include_back'] ?? true;
+
+        $result = $this->idCardGenerator->generateBulkIDCardsPDF($staffIds, $printMode, $includeFront, $includeBack);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/print-single
+     * Generate print-ready single card HTML for browser/system printing.
+     */
+    public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? ($segments[0] ?? null);
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
+        $result = $this->idCardGenerator->generatePrintableSingle((int) $staffId, $side, $printMode);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/upload-photo
+     * Upload staff photo for ID card
+     */
+    public function postIdCardUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        if (!isset($_FILES['photo'])) {
+            return $this->badRequest('Photo file is required');
+        }
+
+        $result = $this->idCardGenerator->uploadStaffPhoto((int) $staffId, $_FILES['photo']);
+        return $this->handleResponse($result);
     }
 }

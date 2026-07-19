@@ -37,7 +37,7 @@ const MenuPlanningController = {
       ?.addEventListener("click", () => this.openMenuModal());
     document
       .getElementById("printMenuBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => this.printMenu());
 
     document
       .getElementById("weekSelect")
@@ -220,6 +220,57 @@ const MenuPlanningController = {
           this.loadData();
         });
     }, 300);
+  },
+
+  printMenu() {
+    if (!this.state.menuItems || this.state.menuItems.length === 0) {
+      this.showNotification("No menu data to print", "warning");
+      return;
+    }
+
+    const week = document.getElementById("weekSelect")?.options[document.getElementById("weekSelect").selectedIndex]?.text || 'All';
+    const term = document.getElementById("termSelect")?.options[document.getElementById("termSelect").selectedIndex]?.text || 'All';
+    const mealType = document.getElementById("mealTypeFilter")?.options[document.getElementById("mealTypeFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Week': week,
+      'Term': term,
+      'Meal Type': mealType
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'day', label: 'Day' },
+      { key: 'meal_type', label: 'Meal Type' },
+      { key: 'meal_name', label: 'Meal' },
+      { key: 'description', label: 'Description' },
+      { key: 'cost', label: 'Cost' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Menu Planning',
+      subtitle: 'School Meal Schedule',
+      columns: columns,
+      rows: this.state.menuItems,
+      summary: {
+        'Total Meals': this.state.menuItems.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'MNU-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Catering Manager' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   esc(str) {

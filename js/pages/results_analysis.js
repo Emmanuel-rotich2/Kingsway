@@ -1,11 +1,14 @@
 /**
  * Results Analysis Page Controller
  * Manages exam results analysis, subject means, and chart rendering
+ * Integrates with AcademicContext for academic year awareness
  */
 const ResultsAnalysisController = (() => {
   let resultsData = [];
   let pagination = { page: 1, limit: 20, total: 0 };
   let chartInstances = {};
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   async function loadData(page = 1) {
     try {
@@ -44,10 +47,21 @@ const ResultsAnalysisController = (() => {
 
   async function loadReferenceData() {
     try {
+      // Reference data is read-mostly: cache it client-side (24h TTL,
+      // stale-while-revalidate) to avoid re-querying the DB on every page load.
       const [classResp, subjectResp, yearResp] = await Promise.all([
-        window.API.apiCall("/academic/classes", "GET").catch(() => []),
-        window.API.apiCall("/academic/subjects", "GET").catch(() => []),
-        window.API.apiCall("/academic/years", "GET").catch(() => []),
+        DataStore.fetchPage('classes', {
+          endpoint: '/academic/classes', storeName: 'reference_classes',
+          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
+        DataStore.fetchPage('subjects', {
+          endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
+        DataStore.fetchPage('academic_years', {
+          endpoint: '/academic/years', storeName: 'reference_academic_years',
+          ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
       ]);
 
       const classes = Array.isArray(classResp?.data || classResp)
@@ -298,6 +312,76 @@ const ResultsAnalysisController = (() => {
     else alert((type === "error" ? "Error: " : "") + message);
   }
 
+  function printResults() {
+    const table = document.getElementById("resultsTableBody");
+    if (!table || table.rows.length === 0) {
+      showNotification("No results to print", "warning");
+      return;
+    }
+
+    const term = document.getElementById("termFilterResults")?.options[document.getElementById("termFilterResults").selectedIndex]?.text || 'All';
+    const classFilter = document.getElementById("classFilterResults")?.options[document.getElementById("classFilterResults").selectedIndex]?.text || 'All';
+    const subject = document.getElementById("subjectFilterResults")?.options[document.getElementById("subjectFilterResults").selectedIndex]?.text || 'All';
+    const year = document.getElementById("yearFilterResults")?.options[document.getElementById("yearFilterResults").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Term': term,
+      'Class': classFilter,
+      'Subject': subject,
+      'Academic Year': year
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    // Extract data from table
+    const rows = Array.from(table.rows).map(row => {
+      const cells = row.cells;
+      return {
+        admission_no: cells[0]?.textContent || '',
+        student_name: cells[1]?.textContent || '',
+        class_name: cells[2]?.textContent || '',
+        subject_name: cells[3]?.textContent || '',
+        score: cells[4]?.textContent || '',
+        grade: cells[5]?.textContent || '',
+        remarks: cells[6]?.textContent || ''
+      };
+    });
+
+    const columns = [
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'student_name', label: 'Student Name' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'score', label: 'Score' },
+      { key: 'grade', label: 'Grade' },
+      { key: 'remarks', label: 'Remarks' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Results Analysis Report',
+      subtitle: 'Academic Performance Analysis',
+      columns: columns,
+      rows: rows,
+      summary: {
+        'Total Students': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'RES-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function attachListeners() {
     document
       .getElementById("termFilterResults")
@@ -321,10 +405,37 @@ const ResultsAnalysisController = (() => {
       });
     document
       .getElementById("printResultsBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printResults());
   }
 
   async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in results_analysis:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload results when academic year or term changes
+          loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (currentTerm) {
+        const termFilter = document.getElementById('termFilterResults');
+        if (termFilter) termFilter.value = currentTerm;
+      }
+    }
+    
     attachListeners();
     await loadReferenceData();
     await loadData();

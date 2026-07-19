@@ -23,8 +23,8 @@
 <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
 <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
 <link href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet">
-<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-rc.0/css/select2.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/select2-bootstrap-5-theme/1.3.0/select2-bootstrap-5-theme.min.css" rel="stylesheet">
 
 <style>
     /* Production-Level Custom Styles */
@@ -1016,7 +1016,7 @@
                             <div class="row g-3">
                                 <div class="col-12 text-center mb-3">
                                     <div class="position-relative d-inline-block">
-                                        <img src="<?= $appBase ?>/images/avatar-placeholder.png" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
+                                        <img src="<?= $appBase ?>/uploads/staff/profile_pictures/staff_avatar.jpeg" class="rounded-circle" style="width: 120px; height: 120px; object-fit: cover; border: 4px solid #E0E0E0;" id="staffAvatarPreview">
                                         <label for="staffAvatar" class="btn btn-primary btn-sm position-absolute" style="bottom: 0; right: 0; border-radius: 50%; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;">
                                             <i class="material-icons" style="font-size: 20px;">camera_alt</i>
                                         </label>
@@ -1348,8 +1348,8 @@
 <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.print.min.js"></script>
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.1.0-rc.0/js/select2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 
 <!-- staff.js and staff_production_ui.js are loaded by manage_staff.php to avoid duplicates -->
 

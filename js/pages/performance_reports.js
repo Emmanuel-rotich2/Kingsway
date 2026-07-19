@@ -340,7 +340,56 @@ const performanceReportsCtrl = (() => {
     }
 
     function printReport() {
-        window.print();
+        if (!reportData || reportData.length === 0) {
+            toast("No data to print", "warning");
+            return;
+        }
+
+        const term = document.getElementById("termFilter")?.options[document.getElementById("termFilter").selectedIndex]?.text || 'All';
+        const classFilter = document.getElementById("classFilter")?.options[document.getElementById("classFilter").selectedIndex]?.text || 'All';
+        const subject = document.getElementById("subjectFilter")?.options[document.getElementById("subjectFilter").selectedIndex]?.text || 'All';
+
+        const filters = {
+            'Term': term,
+            'Class': classFilter,
+            'Subject': subject
+        };
+
+        // Remove empty filters
+        Object.keys(filters).forEach(key => {
+            if (filters[key] === 'All' || !filters[key]) {
+                delete filters[key];
+            }
+        });
+
+        const columns = [
+            { key: 'admission_no', label: 'Adm No' },
+            { key: 'student_name', label: 'Student Name' },
+            { key: 'class_name', label: 'Class' },
+            { key: 'subject_name', label: 'Subject' },
+            { key: 'score', label: 'Score' },
+            { key: 'grade', label: 'Grade' },
+            { key: 'remarks', label: 'Remarks' }
+        ];
+
+        window.PrintManager.printTable({
+            title: 'Performance Report',
+            subtitle: 'Student Academic Performance',
+            columns: columns,
+            rows: reportData,
+            summary: {
+                'Total Students': reportData.length,
+                'Generated Date': new Date().toLocaleDateString()
+            },
+            filters: filters,
+            orientation: 'landscape',
+            paperSize: 'A4',
+            reportCode: 'PER-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+            signatureSection: [
+                { label: 'Class Teacher' },
+                { label: 'Principal' }
+            ]
+        });
     }
 
     async function init() {

@@ -2,12 +2,15 @@
  * Competency Checklist Controller
  * Teaching competency self-assessment; intern rates, mentor validates.
  * API: GET /staff/competency-checklist, PUT /staff/competency-checklist/{id}
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const competencyChecklistController = (() => {
   const DOMAINS = ['Planning', 'Delivery', 'Assessment', 'Classroom Management', 'Professional Conduct'];
   const RATING_LABELS = { 1: 'Beginner', 2: 'Developing', 3: 'Proficient', 4: 'Expert' };
   let items = [];
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
   function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
@@ -137,7 +140,27 @@ const competencyChecklistController = (() => {
     showNotification(`${saved} rating(s) saved.`, 'success');
   }
 
-  function init() {
+  async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in competency_checklist:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          load();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+    }
+    
     const saveAllBtn = document.getElementById('ccSaveAllBtn');
     if (saveAllBtn) saveAllBtn.addEventListener('click', saveAll);
     load();

@@ -68,7 +68,7 @@
     <input type="date" class="form-input" id="dateToFilter" placeholder="To">
     <button class="btn btn-outline-sm" onclick="clearFilters()">Clear</button>
     <button class="btn btn-outline" onclick="exportTransactions()">📥 Export</button>
-    <button class="btn btn-primary" onclick="showAddTransactionModal()">➕ Add Transaction</button>
+    <button class="btn btn-primary" data-hide-for-director="true" onclick="showAddTransactionModal()">➕ Add Transaction</button>
 </div>
 
 <!-- Data Table - Limited columns -->

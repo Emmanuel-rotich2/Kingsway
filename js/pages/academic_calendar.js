@@ -42,7 +42,7 @@ const AcademicCalendarController = {
 
     const printBtn = document.getElementById("printCalendar");
     if (printBtn) {
-      printBtn.addEventListener("click", () => window.print());
+      printBtn.addEventListener("click", () => this.printCalendar());
     }
   },
 
@@ -434,6 +434,56 @@ const AcademicCalendarController = {
     modal.querySelector(".modal-title").textContent = title;
     modal.querySelector(".modal-body").innerHTML = bodyHtml;
     new bootstrap.Modal(modal).show();
+  },
+
+  printCalendar: function () {
+    if (!this.state.events || this.state.events.length === 0) {
+      this.notify("No calendar events to print", "warning");
+      return;
+    }
+
+    const year = document.getElementById("academicYearFilter")?.options[document.getElementById("academicYearFilter").selectedIndex]?.text || 'All';
+    const eventType = document.getElementById("eventTypeFilter")?.options[document.getElementById("eventTypeFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Academic Year': year,
+      'Event Type': eventType
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'event_name', label: 'Event Name' },
+      { key: 'event_type', label: 'Event Type' },
+      { key: 'start_date', label: 'Start Date' },
+      { key: 'end_date', label: 'End Date' },
+      { key: 'description', label: 'Description' },
+      { key: 'location', label: 'Location' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Academic Calendar',
+      subtitle: 'School Events Schedule',
+      columns: columns,
+      rows: this.state.events,
+      summary: {
+        'Total Events': this.state.events.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'CAL-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Academic Dean' },
+        { label: 'Principal' }
+      ]
+    });
   },
 };
 

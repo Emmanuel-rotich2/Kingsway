@@ -203,7 +203,7 @@
         <div class="text-center py-4"><div class="spinner-border text-primary"></div></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" onclick="window.print()"><i class="fas fa-print me-1"></i>Print Statement</button>
+        <button type="button" class="btn btn-outline-secondary" onclick="BalancesByClassController.printBillingStatement()"><i class="fas fa-print me-1"></i>Print Statement</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
       </div>
     </div>

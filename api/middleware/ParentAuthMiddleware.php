@@ -32,14 +32,13 @@ class ParentAuthMiddleware
         }
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
+            $db      = Database::getInstance();
+            $session = $db->query(
                 "SELECT id, parent_id, expires_at FROM parent_portal_sessions
                  WHERE session_token = :token AND status = 'active' AND expires_at > NOW()
-                 LIMIT 1"
-            );
-            $stmt->execute([':token' => $token]);
-            $session = $stmt->fetch(\PDO::FETCH_ASSOC);
+                 LIMIT 1",
+                [':token' => $token]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             if (!$session) {
                 self::unauthorized('Invalid or expired session token');
@@ -47,8 +46,10 @@ class ParentAuthMiddleware
             }
 
             // Update last_login on parents table
-            $db->prepare("UPDATE parents SET portal_last_login = NOW() WHERE id = :id")
-               ->execute([':id' => $session['parent_id']]);
+            $db->query(
+                "UPDATE parents SET portal_last_login = NOW() WHERE id = :id",
+                [':id' => $session['parent_id']]
+            );
 
             $_SERVER['parent_auth'] = [
                 'parent_id'     => (int)$session['parent_id'],

@@ -7,19 +7,12 @@ use Firebase\JWT\Key;
 
 class AuthMiddleware
 {
-    // Static test token for local/dev testing (header: X-Test-Token)
-    const TEST_USER = [
-        'user_id' => 2,
-        'username' => 'accountant',
-        'email' => 'accountant@school.com',
-        'role_ids' => [10],
-        'roles' => [['id' => 10, 'name' => 'School Accountant']],
-        'display_name' => 'Test Accountant',
-        'permissions' => ['*'],
-        'effective_permissions' => ['*', 'finance.view', 'finance.manage', 'finance.reconcile', 'payments.view', 'payments.reconcile']
-    ];
     /**
      * Handle JWT validation and attach user info to $_SERVER['auth_user']
+     *
+     * FIX: Removed hardcoded test credentials. Test credentials must be managed
+     * through separate test/staging environment with dedicated credentials.
+     * Production code must never contain plaintext test credentials.
      */
     public static function handle()
     {
@@ -33,6 +26,15 @@ class AuthMiddleware
             'auth/reset-password',
             'auth/complete-reset',
             'auth/verify-reset-token',
+            'auth/refresh-token',
+            'auth/logout-refresh',
+            'auth/session',
+            'auth/refresh-session',
+            'auth/validate-token',
+            // SessionController (no AuthController exists; routes resolve to /api/session/*)
+            'session',
+            'session/refresh',
+            'session/validate-token',
             'users/login',
             'users/register',
             // Payment webhook endpoints (should be public for bank/M-Pesa callbacks)
@@ -48,6 +50,41 @@ class AuthMiddleware
             'parent-portal/login',
             'parent-portal/login-otp-request',
             'parent-portal/login-otp-verify',
+            // Public careers intake for candidates who passed recruitment screening
+            'staff-appointments/careers-candidate',
+            // Client telemetry/error ingestion (reporter sends a periodic fire-and-forget
+            // batch that may fire while the access token is mid-refresh; keep it public
+            // so it never gets stuck in a 401/retry loop).
+            'telemetry',
+            // Resource file downloads (teaching materials / past papers). The list
+            // (GET /api/academic/resources) and upload (POST) stay authenticated; only
+            // the file-serving GET is public because the frontend opens it via
+            // window.location.href (a top-level navigation carries no Authorization
+            // header). Materials are a shared, non-sensitive library.
+            'academic/resources/download',
+            // Public website content showcase (read-only). These resources are
+            // rendered unauthenticated on the static public site via kw_*()
+            // helpers, so anonymous JS cache hydration (PublicCache) must fetch
+            // them too. Only GET is allowed through the JWT gate — every write
+            // (POST/PUT/DELETE) still hits website_*_manage in WebsiteController,
+            // which rejects a null user with 403. Order matters: more specific
+            // slugs are listed so this block never opens staff-only routes.
+            'website/news',
+            'website/events',
+            'website/gallery',
+            'website/downloads',
+            'website/jobs',
+            'website/settings',
+            'website/content',
+            'website/categories',
+            'website/leadership',
+            'website/programs',
+            'website/facilities',
+            'website/history',
+            'website/values',
+            'website/departments',
+            'website/steps',
+            'website/benefits',
         ];
 
         // Check if current request is to a public endpoint
@@ -58,23 +95,25 @@ class AuthMiddleware
         }
 
         // Parent portal routes bypass staff JWT auth entirely.
-        // Authenticated parent-portal endpoints enforce auth via $this->parentId checks
-        // in ParentPortalController.
+        // Login/OTP endpoints are public; every other parent-portal endpoint enforces
+        // auth via ParentAuthMiddleware, which sets $_SERVER['parent_auth'] for the
+        // controller (ParentPortalController reads $this->parentId from it).
+        // NOTE: ParentAuthMiddleware::handle() must be invoked here — the router
+        // pipeline does not call it, so without this line every authed portal
+        // endpoint returns 401 (parentId is never populated).
         if (strpos($path, 'parent-portal/') !== false) {
-            return;
-        }
-
-        // TEST MODE: Accept X-Test-Token header only in explicit debug mode from a loopback client.
-        $host = $_SERVER['HTTP_HOST'] ?? '';
-        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? '';
-        $hostName = strtolower(parse_url('http://' . $host, PHP_URL_HOST) ?: '');
-        $isDebugMode = defined('DEBUG') && DEBUG === true;
-        $isLoopbackHost = in_array($hostName, ['localhost', '127.0.0.1', '::1'], true);
-        $isLoopbackClient = in_array($remoteAddr, ['127.0.0.1', '::1'], true);
-        $headers = function_exists('getallheaders') ? getallheaders() : [];
-        if ($isDebugMode && $isLoopbackHost && $isLoopbackClient && isset($headers['X-Test-Token']) && $headers['X-Test-Token'] === 'devtest') {
-            error_log('AuthMiddleware: DEV test token used from ' . $remoteAddr);
-            $_SERVER['auth_user'] = self::TEST_USER;
+            $publicPortal = [
+                'parent-portal/login',
+                'parent-portal/login-otp-request',
+                'parent-portal/login-otp-verify',
+            ];
+            $isPublic = false;
+            foreach ($publicPortal as $ep) {
+                if (strpos($path, $ep) !== false) { $isPublic = true; break; }
+            }
+            if (!$isPublic) {
+                \App\API\Middleware\ParentAuthMiddleware::handle();
+            }
             return;
         }
 
@@ -87,50 +126,45 @@ class AuthMiddleware
      */
     private static function validateJWT()
     {
-        // Try multiple methods to get the Authorization header
-        // Apache/Nginx may strip it, so we need to check multiple sources
+        // Resolve the Authorization header across all the places PHP may expose it.
+        // Header-key casing in getallheaders()/$_SERVER varies by SAPI: Apache upper-cases the
+        // key, but a front-end proxy (nginx -> Apache) often delivers it lower-case ("authorization").
+        // If we match an exact literal we break in one of those environments, so we search
+        // case-insensitively across every source.
         $authHeader = null;
 
-        // Method 1: getallheaders()
+        // Method 1: getallheaders() (most reliable behind a proxy; case-insensitive lookup)
         if (function_exists('getallheaders')) {
-            $headers = getallheaders();
-            if (isset($headers['Authorization'])) {
-                $authHeader = $headers['Authorization'];
-            }
-        }
-
-        // Method 2: $_SERVER['HTTP_AUTHORIZATION']
-        if (!$authHeader && isset($_SERVER['HTTP_AUTHORIZATION'])) {
-            $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
-        }
-
-        // Method 3: Apache-specific header
-        if (!$authHeader && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
-            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
-        }
-
-        // Method 4: Check PHP input headers directly
-        if (!$authHeader) {
-            foreach ($_SERVER as $key => $value) {
-                if (strtolower($key) === 'http_authorization') {
+            foreach (getallheaders() as $name => $value) {
+                if (strcasecmp($name, 'Authorization') === 0) {
                     $authHeader = $value;
                     break;
                 }
             }
         }
 
+        // Method 2: $_SERVER['HTTP_AUTHORIZATION'] (may be null behind a proxy)
+        if (!$authHeader) {
+            $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? null;
+        }
+
+        // Method 3: Apache-specific redirect-injected header
+        if (!$authHeader) {
+            $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null;
+        }
+
+        // Method 4: Direct case-insensitive sweep of $_SERVER for a HTTP_AUTHORIZATION var
+        if (!$authHeader) {
+            foreach ($_SERVER as $key => $value) {
+                if (strcasecmp($key, 'HTTP_AUTHORIZATION') === 0) {
+                    $authHeader = $value;
+                    break;
+                }
+            }
+        }
 
         if (!$authHeader) {
-            // Debug: Log what headers we actually received
-            $receivedHeaders = function_exists('getallheaders') ? array_keys(getallheaders()) : [];
-            $serverKeys = array_filter(array_keys($_SERVER), function ($key) {
-                return strpos($key, 'HTTP_') === 0 || strpos($key, 'REDIRECT_') === 0;
-            });
-
             error_log('AuthMiddleware: No Authorization header found');
-            error_log('Received HTTP headers: ' . json_encode($receivedHeaders));
-            error_log('SERVER keys: ' . json_encode(array_values($serverKeys)));
-
             self::deny(401, 'Missing Authorization header. Please ensure you are logged in and the token is being sent.');
         }
 
@@ -203,8 +237,11 @@ class AuthMiddleware
             header('Content-Type: application/json; charset=utf-8');
         }
         $payload = json_encode([
+            'success' => false,
             'status'  => 'error',
+            'data' => null,
             'message' => $message,
+            'errors' => [],
             'code'    => $code,
         ]);
         echo $payload !== false

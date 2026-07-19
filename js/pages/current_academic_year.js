@@ -11,7 +11,12 @@ const CurrentAcademicYearController = (() => {
     }
     async function loadData() {
         try {
-            const r = await window.API.apiCall('/academic/current-year', 'GET').catch(() => null)
+            // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+            // Keep the secondary fallback if the cache/network both fail.
+            const r = await DataStore.fetchPage('current-year', {
+              endpoint: '/academic/current-year', storeName: 'reference_academic_years',
+              ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+            }).catch(() => null)
                 || await window.API.academic?.getCurrentAcademicYear?.().catch(() => null);
             const raw = r?.data || r || {};
             yearInfo = Array.isArray(raw) ? {} : raw;
@@ -80,16 +85,39 @@ const CurrentAcademicYearController = (() => {
     }
     function exportCSV() {
         if (!allData.length) return;
-        const headers = ['#', 'Term Name', 'Start Date', 'End Date', 'Weeks', 'Status'];
+        if (!window.PrintManager) {
+            showNotification('PrintManager not available for export', 'error');
+            return;
+        }
+
+        const columns = [
+            { key: 'index', label: '#' },
+            { key: 'term_name', label: 'Term Name' },
+            { key: 'start_date', label: 'Start Date' },
+            { key: 'end_date', label: 'End Date' },
+            { key: 'weeks', label: 'Weeks' },
+            { key: 'status', label: 'Status' }
+        ];
+
         const now = new Date();
         const rows = allData.map((d, i) => {
-            const start = new Date(d.start_date); const end = new Date(d.end_date);
-            return [i + 1, d.name || d.term_name, d.start_date, d.end_date,
-                Math.ceil((end - start) / (7 * 24 * 60 * 60 * 1000)),
-                now >= start && now <= end ? 'Current' : now > end ? 'Completed' : 'Upcoming'];
+            const start = new Date(d.start_date);
+            const end = new Date(d.end_date);
+            return {
+                index: i + 1,
+                term_name: d.name || d.term_name,
+                start_date: d.start_date,
+                end_date: d.end_date,
+                weeks: Math.ceil((end - start) / (7 * 24 * 60 * 60 * 1000)),
+                status: now >= start && now <= end ? 'Current' : now > end ? 'Completed' : 'Upcoming'
+            };
         });
-        let csv = headers.join(',') + '\n' + rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'current_academic_year.csv'; a.click();
+
+        window.PrintManager.exportToCSV({
+            filename: `current_academic_year_${new Date().toISOString().slice(0, 10)}.csv`,
+            columns: columns,
+            rows: rows
+        });
     }
     function escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
     function showNotification(msg, type) { const modal = document.getElementById('notificationModal'); if (modal) { const m = modal.querySelector('.notification-message'), c = modal.querySelector('.modal-content'); if (m) m.textContent = msg; if (c) c.className = 'modal-content notification-' + (type || 'info'); const b = bootstrap.Modal.getOrCreateInstance(modal); b.show(); setTimeout(() => b.hide(), 3000); } }

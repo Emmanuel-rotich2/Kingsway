@@ -29,7 +29,7 @@
         return;
     }
 
-    const token = localStorage.getItem('token');
+    const token = AuthContext.getToken();
     if (!token) {
         return;
     }
@@ -147,11 +147,8 @@
 
         // Handle fix button
         document.getElementById('jwt-fix-btn').addEventListener('click', function() {
-            if (confirm('This will log you out and redirect to the login page. You can log back in immediately with the same credentials. Continue?')) {
-                // Clear localStorage and redirect
-                localStorage.clear();
-                window.location.href = '/Kingsway/index.php';
-            }
+            AuthContext.clearUser();
+            window.location.href = '/Kingsway/index.php';
         });
 
         // Handle dismiss button

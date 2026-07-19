@@ -2033,13 +2033,13 @@ schoolAccountantDashboardController.renderStudentProfile = function (response) {
     return;
   }
 
-  const photoUrl = student.photo_url || (window.APP_BASE || '') + '/images/default-avatar.png';
+  const photoUrl = student.photo_url || (window.APP_BASE || '') + '/uploads/students/avatar.jpg';
 
   let html = `
     <div class="row">
       <div class="col-md-4 text-center">
         <img src="${photoUrl}" class="img-thumbnail mb-2" style="max-width: 150px;" 
-             alt="Student Photo" onerror="this.src=(window.APP_BASE || '') + '/images/default-avatar.png'">
+             alt="Student Photo" onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'">
         <h5 class="mb-1">${student.first_name || ""} ${student.last_name || ""}</h5>
         <p class="text-muted">${student.admission_no || "--"}</p>
       </div>
@@ -3161,7 +3161,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
     const url = `${window.APP_BASE || ''}/api/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`;
     const res = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${localStorage.getItem("jwt_token") || ""}`,
+        Authorization: `Bearer ${AuthContext.getToken() || ""}`,
       },
     });
 
@@ -3252,7 +3252,7 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${localStorage.getItem("jwt_token") || ""}`,
+              Authorization: `Bearer ${AuthContext.getToken() || ""}`,
             },
             body: JSON.stringify({
               mpesa_id: mpesaId,

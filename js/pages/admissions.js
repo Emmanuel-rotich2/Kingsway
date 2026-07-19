@@ -28,6 +28,7 @@ const AdmissionsController = {
     policy: null,
     selectedApplication: null,
     userRole: null,
+    pageMode: "workflow",
     isLoading: false,
     isInitializing: false,
     isInitialized: false,
@@ -171,7 +172,17 @@ const AdmissionsController = {
    * Initialize the controller
    */
   async init() {
-    if (this.state.isInitialized || this.state.isInitializing) {
+    if (this.state.isInitializing) {
+      return;
+    }
+
+    if (this.state.isInitialized) {
+      this.state.pageMode = this.resolvePageMode();
+      this.state.requestedTab = this.resolveRequestedTab();
+      this.renderTabs();
+      this.updateTabBadges();
+      this.updateStatsRow();
+      this.switchTab(this.getDefaultTab());
       return;
     }
 
@@ -181,6 +192,7 @@ const AdmissionsController = {
     try {
       // Get user role from session
       this.state.userRole = this.resolveUserRole();
+      this.state.pageMode = this.resolvePageMode();
       this.state.requestedTab = this.resolveRequestedTab();
 
       // Setup event listeners
@@ -234,6 +246,42 @@ const AdmissionsController = {
       .replace(/[\s/]+/g, "_");
   },
 
+  resolvePageMode() {
+    const page = document.querySelector('[data-page="admissions"]');
+    return page?.dataset.admissionsMode || "workflow";
+  },
+
+  isDirectorOversightMode() {
+    return this.state.pageMode === "director_oversight";
+  },
+
+  isEnrollmentConfirmationsMode() {
+    return this.state.pageMode === "enrollment_confirmations";
+  },
+
+  getModeTabs() {
+    if (this.isEnrollmentConfirmationsMode()) {
+      return ["director_confirmation_pending"];
+    }
+
+    if (this.isDirectorOversightMode()) {
+      return [
+        "documents_pending",
+        "interview_pending",
+        "placement_pending",
+        "payment_pending",
+        "enrollment_pending",
+        "director_confirmation_pending",
+      ];
+    }
+
+    return Object.keys(this.stages);
+  },
+
+  isStageVisibleInMode(tabKey) {
+    return this.getModeTabs().includes(tabKey);
+  },
+
   resolveRequestedTab() {
     try {
       const params = new URLSearchParams(window.location.search || "");
@@ -255,6 +303,14 @@ const AdmissionsController = {
   },
 
   canAccessStage(tabKey) {
+    if (!this.isStageVisibleInMode(tabKey)) {
+      return false;
+    }
+
+    if (this.isDirectorOversightMode() && this.hasAdmissionsViewAccess()) {
+      return true;
+    }
+
     if (this.state.stageMatrix?.allowed_tabs) {
       return Boolean(this.state.stageMatrix.allowed_tabs[tabKey]);
     }
@@ -270,6 +326,8 @@ const AdmissionsController = {
     if (
       this.hasAnyPermission([
         "admission_view",
+        "admission_director_view",
+        "admission_reports_view",
         "admission_applications_view_all",
         "admission_applications_view_own",
         "admission_applications_view",
@@ -328,18 +386,17 @@ const AdmissionsController = {
    * Get the default tab based on user role
    */
   getDefaultTab() {
+    if (this.isEnrollmentConfirmationsMode()) {
+      return this.canAccessStage("director_confirmation_pending")
+        ? "director_confirmation_pending"
+        : "documents_pending";
+    }
+
     if (this.state.requestedTab && this.canAccessStage(this.state.requestedTab)) {
       return this.state.requestedTab;
     }
 
-    const priority = [
-      "documents_pending",
-      "interview_pending",
-      "placement_pending",
-      "payment_pending",
-      "enrollment_pending",
-      "director_confirmation_pending",
-    ];
+    const priority = this.getModeTabs();
 
     for (const tabKey of priority) {
       if (this.canAccessStage(tabKey)) {
@@ -643,6 +700,19 @@ const AdmissionsController = {
     const tabsContainer = document.getElementById("admissionTabs");
     if (!tabsContainer) return;
 
+    if (this.isDirectorOversightMode()) {
+      const item = document.createElement("li");
+      item.className = "nav-item";
+      const label = document.createElement("span");
+      label.className = "nav-link active";
+      const icon = document.createElement("i");
+      icon.className = "bi bi-bar-chart-line me-1";
+      label.append(icon, document.createTextNode("Pipeline Oversight"));
+      item.append(label);
+      tabsContainer.replaceChildren(item);
+      return;
+    }
+
     let tabsHtml = "";
 
     for (const [key, config] of Object.entries(this.stages)) {
@@ -730,12 +800,89 @@ const AdmissionsController = {
     }
   },
 
+  createStatsCard({ value, label, icon, color }) {
+    const column = document.createElement("div");
+    column.className = "col-6 col-md-3";
+
+    const card = document.createElement("div");
+    card.className = "card border-0 shadow-sm h-100";
+
+    const body = document.createElement("div");
+    body.className = "card-body py-3";
+
+    const row = document.createElement("div");
+    row.className = "d-flex align-items-center gap-3";
+
+    const iconWrap = document.createElement("div");
+    iconWrap.className = `rounded-circle bg-${color} bg-opacity-15 p-2`;
+
+    const iconEl = document.createElement("i");
+    iconEl.className = `bi ${icon} text-${color} fs-5`;
+    iconWrap.append(iconEl);
+
+    const textWrap = document.createElement("div");
+    const valueEl = document.createElement("div");
+    valueEl.className = "fs-4 fw-bold lh-1";
+    valueEl.textContent = String(value ?? "0");
+    const labelEl = document.createElement("small");
+    labelEl.className = "text-muted";
+    labelEl.textContent = label;
+    textWrap.append(valueEl, labelEl);
+
+    row.append(iconWrap, textWrap);
+    body.append(row);
+    card.append(body);
+    column.append(card);
+    return column;
+  },
+
+  renderEnrollmentConfirmationStats() {
+    const row = document.getElementById("admissionStatsRow");
+    if (!row) return;
+
+    const pending = this.state.summary.director_confirmation_pending || 0;
+    const confirmationQueue = this.state.queues.director_confirmation_pending || [];
+
+    row.replaceChildren(
+      this.createStatsCard({
+        value: pending,
+        label: "Awaiting Director Confirmation",
+        icon: "bi-shield-check",
+        color: "success",
+      }),
+      this.createStatsCard({
+        value: confirmationQueue.length,
+        label: "Ready for Final Review",
+        icon: "bi-person-check",
+        color: "primary",
+      }),
+      this.createStatsCard({
+        value: pending === 0 ? "Clear" : "Action",
+        label: "Confirmation Status",
+        icon: pending === 0 ? "bi-check-circle" : "bi-exclamation-circle",
+        color: pending === 0 ? "success" : "warning",
+      }),
+      this.createStatsCard({
+        value: "Final",
+        label: "Director Stage Only",
+        icon: "bi-lock",
+        color: "secondary",
+      }),
+    );
+    row.style.display = "";
+  },
+
   /**
    * Populate stats row cards from summary data
    */
   updateStatsRow() {
     const row = document.getElementById("admissionStatsRow");
     if (!row) return;
+
+    if (this.isEnrollmentConfirmationsMode()) {
+      this.renderEnrollmentConfirmationStats();
+      return;
+    }
 
     const s = this.state.summary;
     const set = (id, val) => {
@@ -745,10 +892,95 @@ const AdmissionsController = {
     set("stat-documents-pending", s.documents_pending);
     set("stat-interview-pending", s.interview_pending);
     set("stat-placement-pending", s.placement_pending);
-    // 'enrolled' comes from stats endpoint; keep graceful fallback.
-    set("stat-enrolled", s.enrolled ?? "–");
+    set("stat-director-confirmation", s.director_confirmation_pending ?? s.enrolled ?? "–");
 
     row.style.display = "";
+  },
+
+  renderDirectorOversight() {
+    const container = document.getElementById("admissionQueueContent");
+    if (!container) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "director-admissions-oversight";
+
+    const header = document.createElement("div");
+    header.className = "d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4";
+
+    const titleBlock = document.createElement("div");
+    const title = document.createElement("h4");
+    title.className = "mb-1";
+    title.textContent = "Admissions Pipeline Oversight";
+    const subtitle = document.createElement("p");
+    subtitle.className = "text-muted mb-0";
+    subtitle.textContent = "A Director-level view of admissions workload, stage movement, and final confirmation readiness.";
+    titleBlock.append(title, subtitle);
+
+    const totalApplications = this.getModeTabs().reduce(
+      (total, tabKey) => total + (this.state.queues[tabKey]?.length || 0),
+      0,
+    );
+    const totalBadge = document.createElement("span");
+    totalBadge.className = "badge bg-success-subtle text-success border border-success-subtle fs-6 px-3 py-2";
+    totalBadge.textContent = `${totalApplications} active workflow items`;
+    header.append(titleBlock, totalBadge);
+    wrapper.append(header);
+
+    const grid = document.createElement("div");
+    grid.className = "row g-3 mb-4";
+
+    this.getModeTabs().forEach((tabKey) => {
+      const config = this.stages[tabKey];
+      if (!config) return;
+
+      const count = this.state.queues[tabKey]?.length || 0;
+      const column = document.createElement("div");
+      column.className = "col-12 col-md-6 col-xl-4";
+
+      const card = document.createElement("div");
+      card.className = "card h-100 border-0 shadow-sm";
+
+      const body = document.createElement("div");
+      body.className = "card-body";
+
+      const iconRow = document.createElement("div");
+      iconRow.className = "d-flex justify-content-between align-items-start mb-3";
+
+      const iconWrap = document.createElement("div");
+      iconWrap.className = `rounded-circle bg-${config.color}-subtle text-${config.color} d-inline-flex align-items-center justify-content-center`;
+      iconWrap.style.width = "44px";
+      iconWrap.style.height = "44px";
+      const icon = document.createElement("i");
+      icon.className = `bi ${config.icon}`;
+      iconWrap.append(icon);
+
+      const countBadge = document.createElement("span");
+      countBadge.className = `badge bg-${config.color}`;
+      countBadge.textContent = String(count);
+      iconRow.append(iconWrap, countBadge);
+
+      const cardTitle = document.createElement("h6");
+      cardTitle.className = "text-uppercase text-muted small mb-1";
+      cardTitle.textContent = config.label;
+
+      const cardText = document.createElement("p");
+      cardText.className = "mb-0 fw-semibold";
+      cardText.textContent = count === 1 ? "1 application needs attention" : `${count} applications need attention`;
+
+      body.append(iconRow, cardTitle, cardText);
+      card.append(body);
+      column.append(card);
+      grid.append(column);
+    });
+
+    const note = document.createElement("div");
+    note.className = "alert alert-success mb-0";
+    const noteIcon = document.createElement("i");
+    noteIcon.className = "bi bi-info-circle me-2";
+    note.append(noteIcon, document.createTextNode("This oversight page is read-only. Use Enrollment Confirmations for final Director confirmation actions."));
+
+    wrapper.append(grid, note);
+    container.replaceChildren(wrapper);
   },
 
   /**
@@ -757,6 +989,11 @@ const AdmissionsController = {
   renderCurrentQueue() {
     const container = document.getElementById("admissionQueueContent");
     if (!container) return;
+
+    if (this.isDirectorOversightMode()) {
+      this.renderDirectorOversight();
+      return;
+    }
 
     const tabKey = this.state.currentTab;
     const queue = this.state.queues[tabKey] || [];
@@ -2497,6 +2734,9 @@ const AdmissionsController = {
   },
 };
 
+// Export for external use before bootstrap so dynamically injected page loaders can find it.
+window.AdmissionsController = AdmissionsController;
+
 // Initialize controller (supports both static and dynamically injected script load)
 const bootstrapAdmissionsController = () => {
   // Only initialize on admissions page
@@ -2513,6 +2753,3 @@ if (document.readyState === "loading") {
 } else {
   bootstrapAdmissionsController();
 }
-
-// Export for external use
-window.AdmissionsController = AdmissionsController;

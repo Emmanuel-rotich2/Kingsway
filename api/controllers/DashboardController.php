@@ -14,6 +14,7 @@ use App\API\Services\ClassTeacherAnalyticsService;
 use App\API\Services\InternTeacherAnalyticsService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\SchoolAdminAnalyticsService;
+use App\Config\DashboardRouter;
 
 /**
  * DashboardController - Role-specific dashboard endpoints
@@ -166,50 +167,6 @@ class DashboardController extends BaseController
 
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch revenue sources: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * GET /api/academics/kpis
-     * CEO-only: Academic performance KPIs
-     */
-    public function getAcademicsKpis($id = null, $data = [], $segments = [])
-    {
-        if (!$this->hasRoleId(3)) {
-            return $this->forbidden('Director access only');
-        }
-        try {
-            $analytics = new DirectorAnalyticsService();
-            $kpis = $analytics->getAcademicKPIs();
-
-            return $this->success([
-                'kpis' => $kpis
-            ], 'Academic KPIs retrieved');
-
-        } catch (Exception $e) {
-            return $this->serverError('Failed to fetch academic KPIs: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * GET /api/academics/performance-matrix
-     * CEO-only: Performance heatmap data
-     */
-    public function getAcademicsPerformanceMatrix($id = null, $data = [], $segments = [])
-    {
-        if (!$this->hasRoleId(3)) {
-            return $this->forbidden('Director access only');
-        }
-        try {
-            $analytics = new DirectorAnalyticsService();
-            $matrix = $analytics->getPerformanceMatrix();
-
-            return $this->success([
-                'data' => $matrix
-            ], 'Performance matrix retrieved');
-
-        } catch (Exception $e) {
-            return $this->serverError('Failed to fetch performance matrix: ' . $e->getMessage());
         }
     }
 
@@ -1511,6 +1468,64 @@ class DashboardController extends BaseController
     }
 
     // ============= HELPER METHODS =============
+
+    /**
+     * GET /api/dashboard/config
+     * Returns PHP DashboardRouter config (role-dashboard mappings, role names, default)
+     * Used by JS router to get canonical dashboard routing from PHP
+     */
+    public function getConfig($id = null, $data = [], $segments = [])
+    {
+        // Get role dashboard mappings
+        $roleDashboards = DashboardRouter::getRoleDashboards();
+
+        // Get role name map
+        $roleNameMap = DashboardRouter::getRoleNameMap();
+
+        // Get default dashboard
+        $defaultDashboard = DashboardRouter::getDefaultDashboard();
+
+        return $this->success([
+            'role_dashboards' => $roleDashboards,
+            'role_name_map' => $roleNameMap,
+            'default_dashboard' => $defaultDashboard,
+            'dashboard_registry' => DashboardRouter::getDashboardRegistry(),
+        ], 'Dashboard config retrieved');
+    }
+
+    /**
+     * GET /api/dashboard/route?role_id=X
+     * Returns dashboard key for a specific role ID
+     */
+    public function getRoute($id = null, $data = [], $segments = [])
+    {
+        $roleId = isset($_GET['role_id']) ? (int)$_GET['role_id'] : null;
+
+        if (!$roleId) {
+            return $this->badRequest('role_id required');
+        }
+
+        $dashboardKey = DashboardRouter::getDashboardForRole($roleId);
+
+        return $this->success([
+            'role_id' => $roleId,
+            'dashboard_key' => $dashboardKey,
+            'dashboard_file' => $dashboardKey . '.php',
+            'dashboard_exists' => DashboardRouter::dashboardExists($dashboardKey),
+            'controller_exists' => DashboardRouter::getDashboardJsPath($dashboardKey) !== null,
+        ], 'Dashboard route retrieved');
+    }
+
+    /**
+     * GET /api/dashboard/sidebars
+     * Returns sidebar config from role_sidebars.php
+     */
+    public function getSidebars($id = null, $data = [], $segments = [])
+    {
+        global $role_sidebars;
+
+        return $this->success($role_sidebars, 'Sidebar config retrieved');
+    }
 
     /**
      * Get current authenticated user's role

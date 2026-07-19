@@ -407,7 +407,8 @@ class AuthAPI extends BaseAPI
                     $primaryRole,
                     $primaryRoleId,
                     $roleIds,
-                    $token
+                    $token,
+                    filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN)
                 );
             }
 
@@ -597,14 +598,28 @@ class AuthAPI extends BaseAPI
             $userData = $this->normalizeUserPermissions($userData);
             $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
 
-            // Generate refresh token and set it as HttpOnly secure cookie (do not return in body)
-            $refreshToken = $this->generateRefreshToken($userId);
+            // Generate refresh token and set it as HttpOnly cookie.
+            // Remember me extends browser persistence; normal login is session-cookie scoped.
+            $rememberMe = filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+            $refreshToken = $this->generateRefreshToken($userId, $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
             if ($refreshToken) {
-                // Set cookie for secure contexts; SameSite=Lax for compatibility
                 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-                setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
-                // Also set SameSite attribute if PHP < 7.3 doesn't support options array
-                header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+                $expires = $rememberMe ? (time() + $maxAge) : 0;
+                setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
+                $cookieParts = [
+                    "refresh_token=$refreshToken",
+                    'Path=/',
+                    'HttpOnly',
+                    'SameSite=Lax'
+                ];
+                if ($maxAge > 0) {
+                    $cookieParts[] = "Max-Age=$maxAge";
+                }
+                if ($secure) {
+                    $cookieParts[] = 'Secure';
+                }
+                header('Set-Cookie: ' . implode('; ', $cookieParts));
             }
 
             // Determine the role to resolve dashboard for (prefer primary role id)
@@ -684,7 +699,9 @@ class AuthAPI extends BaseAPI
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
+                    'refresh_token' => $refreshToken,
                     'token_expires_in' => JWT_EXPIRY,
+                    'remember_me' => $rememberMe,
                     'user' => $userData,
                     'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                     'dashboard' => [
@@ -781,7 +798,8 @@ class AuthAPI extends BaseAPI
         ?string $primaryRole,
         ?int $primaryRoleId,
         array $roleIds,
-        string $token
+        string $token,
+        bool $rememberMe = false
     ): array {
         // Generate sidebar menu items based on user's roles and permissions
         $dashboardManager = new \DashboardManager();
@@ -866,12 +884,27 @@ class AuthAPI extends BaseAPI
         // Normalize user permissions (effective permissions come from DB / stored procedure only)
         $userData = $this->normalizeUserPermissions($userData);
 
-        // Generate refresh token and set as HttpOnly cookie (do not return in body)
-        $refreshToken = $this->generateRefreshToken($userData['id']);
+        // Generate refresh token and set it as HttpOnly cookie.
+        // Remember me extends browser persistence; normal login is session-cookie scoped.
+        $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
+        $refreshToken = $this->generateRefreshToken($userData['id'], $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
         if ($refreshToken) {
             $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-            setcookie('refresh_token', $refreshToken, time() + (7 * 24 * 60 * 60), '/', '', $secure, true);
-            header("Set-Cookie: refresh_token=$refreshToken; Path=/; Max-Age=" . (7 * 24 * 60 * 60) . "; HttpOnly; " . ($secure ? 'Secure; ' : '') . "SameSite=Lax");
+            $expires = $rememberMe ? (time() + $maxAge) : 0;
+            setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
+            $cookieParts = [
+                "refresh_token=$refreshToken",
+                'Path=/',
+                'HttpOnly',
+                'SameSite=Lax'
+            ];
+            if ($maxAge > 0) {
+                $cookieParts[] = "Max-Age=$maxAge";
+            }
+            if ($secure) {
+                $cookieParts[] = 'Secure';
+            }
+            header('Set-Cookie: ' . implode('; ', $cookieParts));
         }
 
         // Determine dashboard details
@@ -922,7 +955,9 @@ class AuthAPI extends BaseAPI
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
+                'refresh_token' => $refreshToken,
                 'token_expires_in' => JWT_EXPIRY,
+                'remember_me' => $rememberMe,
                 'user' => $userData,
                 'sidebar_items' => $this->normalizeSidebarItems($sidebarItems),
                 'dashboard' => [
@@ -955,10 +990,10 @@ class AuthAPI extends BaseAPI
     }
 
     // Generate refresh token (stored in DB, expires in 7 days)
-    private function generateRefreshToken($userId)
+    private function generateRefreshToken($userId, int $ttlSeconds = 604800)
     {
         $token = bin2hex(random_bytes(32)); // 64-char hex token
-        $expiresAt = date('Y-m-d H:i:s', time() + (7 * 24 * 60 * 60)); // 7 days
+        $expiresAt = date('Y-m-d H:i:s', time() + $ttlSeconds);
 
         try {
             $stmt = $this->db->prepare('
@@ -1006,9 +1041,11 @@ class AuthAPI extends BaseAPI
 
             // Get user and generate new access token
             $userId = $result['user_id'];
-            $userData = $this->usersApi->get($userId);
+            $userLookup = $this->usersApi->get($userId);
+            // UsersAPI::get() returns a {success, data} envelope; unwrap it.
+            $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
 
-            if (!$userData) {
+            if (!$userData || empty($userData['id'])) {
                 return [
                     'success' => false,
                     'message' => 'User not found'
@@ -1036,15 +1073,20 @@ class AuthAPI extends BaseAPI
                 'permissions' => $permissionCodes
             ]);
 
-            return [
-                'success' => true,
-                'message' => 'Token refreshed successfully',
-                'data' => [
-                    'token' => $newToken,
-                    'refresh_token' => $refreshToken,
-                    'token_expires_in' => JWT_EXPIRY
-                ]
-            ];
+            // Reuse the same proven envelope builder as login so the SPA can
+            // rehydrate a full session (user_data / permissions / roles /
+            // sidebar / dashboard) from the refresh cookie alone. This is what
+            // lets a fresh window / incognito / cleared-cache survive without
+            // an immediate logout — web-storage is empty, but the refresh
+            // cookie is still valid, so one refresh restores everything.
+            $roleIds = [];
+            foreach ($userData['roles'] ?? [] as $r) {
+                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
+            }
+            $roleIds = array_values(array_filter(array_unique($roleIds)));
+            $primaryRoleId = $roleIds[0] ?? null;
+
+            return $this->buildLoginResponseFromDatabase($userData, $primaryRoleId, $roleIds, $newToken);
         } catch (\Exception $e) {
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [

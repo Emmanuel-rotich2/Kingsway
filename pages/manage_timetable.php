@@ -104,17 +104,17 @@
     </div>
     <div class="btn-group flex-wrap">
         <button class="btn btn-light btn-sm" data-bs-toggle="modal" data-bs-target="#generateTimetableModal"
-                data-permission="timetable_generate"
+                data-permission="schedules_create"
                 data-role="deputy_head_academic,headteacher,admin">
             <i class="bi bi-gear me-1"></i>Generate
         </button>
         <button class="btn btn-light btn-sm" onclick="timetableController.enterEditMode()"
-                data-permission="timetable_edit"
+                data-permission="schedules_create"
                 data-role="deputy_head_academic,admin">
             <i class="bi bi-pencil me-1"></i>Edit
         </button>
         <button class="btn btn-light btn-sm" onclick="timetableController.exportTimetable()"
-                data-permission="timetable_export"
+                data-permission="schedules_view"
                 data-role="deputy_head_academic,headteacher,class_teacher,admin">
             <i class="bi bi-download me-1"></i>Export
         </button>
@@ -315,4 +315,4 @@
 <!-- =======================================================
  SCRIPTS
 ======================================================= -->
-<script src="<?= $appBase ?>/js/pages/manage_timetable.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_timetable.js?v=<?= time() ?>"></script>

@@ -16,14 +16,48 @@ define('BASE_URL', $_ENV['BASE_URL'] ?? 'https://kingswaypreparatoryschool.sc.ke
 // File upload paths - Production absolute paths
 define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? '/home/kingswa4/uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
-define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
+define('STUDENT_IMAGES', STUDENT_PHOTOS . '/images');
+define('STUDENT_QR_CODES', STUDENT_IMAGES . '/qr_codes');
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
+define('STAFF_PHOTOS', UPLOAD_PATH . '/staff/profile_pictures'); // Note: actual structure is staff/profile_pictures
+define('STAFF_IMAGES', UPLOAD_PATH . '/staff/images'); // Will be created for ID cards
+define('STAFF_QR_CODES', STAFF_IMAGES . '/qr_codes');
+define('STAFF_DOCUMENTS', UPLOAD_PATH . '/staff/documents');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
+define('ACADEMIC_ASSESSMENTS', UPLOAD_PATH . '/academic/assessments');
+define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
+define('SCHOOL_ASSETS', UPLOAD_PATH . '/school_assets');
+define('SCHOOL_ASSETS_DOCUMENTS', SCHOOL_ASSETS . '/documents');
+define('SCHOOL_ASSETS_GALLERY', SCHOOL_ASSETS . '/gallery');
+define('SCHOOL_ASSETS_QR_CODES', SCHOOL_ASSETS . '/qr_codes');
+define('TEMPLATES_PATH', UPLOAD_PATH . '/../templates');
+define('ID_CARD_TEMPLATES', TEMPLATES_PATH . '/id_cards');
+define('PRINT_OUTPUT_PATH', UPLOAD_PATH . '/../temp/print');
 
 // Create upload directories if they don't exist
-$directories = [UPLOAD_PATH, STUDENT_PHOTOS, STAFF_PHOTOS, DOCUMENTS];
+$directories = [
+    UPLOAD_PATH, 
+    STUDENT_PHOTOS, 
+    STUDENT_IMAGES, 
+    STUDENT_QR_CODES, 
+    STAFF_PHOTOS, 
+    STAFF_IMAGES, 
+    STAFF_QR_CODES,
+    STAFF_DOCUMENTS,
+    DOCUMENTS, 
+    ACADEMIC_ASSESSMENTS,
+    ADMISSION_DOCUMENTS, 
+    SCHOOL_ASSETS,
+    SCHOOL_ASSETS_DOCUMENTS,
+    SCHOOL_ASSETS_GALLERY,
+    SCHOOL_ASSETS_QR_CODES,
+    TEMPLATES_PATH, 
+    ID_CARD_TEMPLATES, 
+    PRINT_OUTPUT_PATH
+];
 foreach ($directories as $dir) {
     if (!file_exists($dir)) {
-        mkdir($dir, 0755, true);
+        mkdir($dir, 0775, true);
     }
 }
 
@@ -36,11 +70,11 @@ define('CURRENT_TERM', ceil(date('n') / 3));
 // School Contact Details
 define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
 define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
-define('SCHOOL_EMAIL', 'info@kingsway.ac.ke');
+define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
 define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
-define('SCHOOL_LOGO_URL', BASE_URL . '/images/logo.jpg'); // School logo image URL
+define('SCHOOL_LOGO_URL', BASE_URL . '/uploads/school_assets/official_school_logo.png'); // Canonical logo (alt: /images/official_school_logo.png)
 
 // Pagination defaults
 define('DEFAULT_PAGE_SIZE', 10);

@@ -1,1038 +1,1392 @@
 /**
  * Student ID Cards Controller
- * Page: pages/student_id_cards.php
- *
- * Wires ID card management to real Students API endpoints:
- * - /students/student
- * - /students/photo-upload
- * - /students/qr-code-generate[-enhanced]
- * - /students/id-card-generate
- * - /students/id-card-generate-class
- * - /students/id-card-get/{id}
- * - /students/id-card-statistics-get
+ * Complete ID card management system
  */
 
+console.log("student_id_cards.js loaded successfully");
+
 const StudentIdCardsController = {
-  state: {
     students: [],
-    classes: [],
-    streams: [],
     selectedStudents: new Set(),
-    currentCard: null,
-    permissions: {
-      canView: false,
-      canUploadPhoto: false,
-      canGenerateQr: false,
-      canGenerateCard: false,
-      canExport: false,
+    currentPreviewStudentId: null,
+    metadata: {
+        academicYears: [],
+        classes: [],
+        streams: [],
+        schoolProfile: {},
+        permissions: {}
     },
-  },
-  ui: {},
-  modals: {
-    upload: null,
-    idCard: null,
-    bulkActions: null,
-  },
+    initialized: false,
+    dom: {},
 
-  init: async function () {
-    if (!window.AuthContext?.isAuthenticated?.()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
-    }
+    init: async function() {
+        if (this.initialized) return;
+        this.initialized = true;
 
-    this.cacheDom();
-    this.resolvePermissions();
-    this.initModals();
-    this.bindEvents();
-    this.applyPermissionState();
+        console.log("StudentIdCardsController: Initializing...");
 
-    await this.loadClasses();
-    await this.loadStudents();
-    await this.loadStatistics();
-  },
-
-  cacheDom: function () {
-    this.ui = {
-      classFilter: document.getElementById("classFilter"),
-      streamFilter: document.getElementById("streamFilter"),
-      searchInput: document.getElementById("searchInput"),
-      studentsList: document.getElementById("studentsList"),
-      totalStudents: document.getElementById("totalStudents"),
-      studentsWithPhotos: document.getElementById("studentsWithPhotos"),
-      studentsWithQRCodes: document.getElementById("studentsWithQRCodes"),
-      idCardsGenerated: document.getElementById("idCardsGenerated"),
-      photoInput: document.getElementById("photoInput"),
-      photoPreview: document.getElementById("photoPreview"),
-      previewImage: document.getElementById("previewImage"),
-      uploadStudentId: document.getElementById("uploadStudentId"),
-      studentNameLabel: document.getElementById("studentNameLabel"),
-      idCardPreview: document.getElementById("idCardPreview"),
-      bulkActionType: document.getElementById("bulkActionType"),
-      selectedStudentsRadio: document.getElementById("selectedStudents"),
-      allStudentsRadio: document.getElementById("allStudents"),
-      selectedStudentsList: document.getElementById("selectedStudentsList"),
-      bulkStudentCheckboxes: document.getElementById("bulkStudentCheckboxes"),
-    };
-  },
-
-  resolvePermissions: function () {
-    const hasAny = (codes) => {
-      if (!window.AuthContext?.hasAnyPermission) return false;
-      return window.AuthContext.hasAnyPermission(codes);
-    };
-
-    const canView = hasAny([
-      "students_qr_view",
-      "students_qr_view_all",
-      "students_qr_view_own",
-      "students_view",
-      "students_view_all",
-      "students_view_own",
-    ]);
-
-    this.state.permissions = {
-      canView,
-      canUploadPhoto: hasAny([
-        "students_qr_upload",
-        "students_upload",
-        "students_edit",
-        "students_update",
-        "students_create",
-      ]),
-      canGenerateQr: hasAny([
-        "students_qr_generate",
-        "students_qr_create",
-        "students_generate",
-        "students_edit",
-      ]),
-      canGenerateCard: hasAny([
-        "students_qr_generate",
-        "students_generate",
-        "students_print",
-        "students_edit",
-      ]),
-      canExport: hasAny([
-        "students_qr_download",
-        "students_qr_export",
-        "students_export",
-        "students_print",
-      ]),
-    };
-  },
-
-  initModals: function () {
-    if (window.bootstrap?.Modal) {
-      const uploadEl = document.getElementById("uploadPhotoModal");
-      const idCardEl = document.getElementById("idCardModal");
-      const bulkEl = document.getElementById("bulkActionsModal");
-
-      if (uploadEl) this.modals.upload = new bootstrap.Modal(uploadEl);
-      if (idCardEl) this.modals.idCard = new bootstrap.Modal(idCardEl);
-      if (bulkEl) this.modals.bulkActions = new bootstrap.Modal(bulkEl);
-    }
-  },
-
-  bindEvents: function () {
-    const debounce = (fn, wait = 300) => {
-      let timer = null;
-      return (...args) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn.apply(this, args), wait);
-      };
-    };
-
-    this.ui.classFilter?.addEventListener("change", async () => {
-      await this.loadStreams();
-      await this.loadStudents();
-      await this.loadStatistics();
-    });
-
-    this.ui.streamFilter?.addEventListener("change", async () => {
-      await this.loadStudents();
-      await this.loadStatistics();
-    });
-
-    this.ui.searchInput?.addEventListener(
-      "keyup",
-      debounce(async () => {
-        await this.loadStudents();
-        await this.loadStatistics();
-      }, 250),
-    );
-
-    this.ui.photoInput?.addEventListener("change", () => this.previewPhoto(this.ui.photoInput));
-
-    this.ui.selectedStudentsRadio?.addEventListener("change", () => this.toggleBulkStudentSelection());
-    this.ui.allStudentsRadio?.addEventListener("change", () => this.toggleBulkStudentSelection());
-  },
-
-  applyPermissionState: function () {
-    if (this.state.permissions.canView) {
-      return;
-    }
-
-    if (this.ui.studentsList) {
-      this.ui.studentsList.innerHTML = `
-        <div class="col-12">
-          <div class="alert alert-warning mb-0">
-            <i class="bi bi-shield-lock me-2"></i>
-            You do not have permission to access Student ID Card management.
-          </div>
-        </div>
-      `;
-    }
-  },
-
-  loadClasses: async function () {
-    if (!this.state.permissions.canView) return;
-
-    try {
-      const response = await window.API.academic.listClasses();
-      const classes = this.unwrapList(response);
-      this.state.classes = classes;
-
-      if (!this.ui.classFilter) return;
-      this.ui.classFilter.innerHTML = '<option value="">All Classes</option>';
-
-      classes.forEach((cls) => {
-        const option = document.createElement("option");
-        option.value = cls.id;
-        option.textContent = cls.name || cls.class_name || `Class ${cls.id}`;
-        this.ui.classFilter.appendChild(option);
-      });
-    } catch (error) {
-      console.error("Failed to load classes:", error);
-      this.notify("Failed to load classes", "error");
-    }
-  },
-
-  loadStreams: async function () {
-    if (!this.ui.streamFilter) return;
-    const classId = this.ui.classFilter?.value;
-
-    this.ui.streamFilter.innerHTML = '<option value="">All Streams</option>';
-    this.state.streams = [];
-
-    if (!classId) return;
-
-    try {
-      const response = await window.API.academic.listStreams({
-        class_id: classId,
-      });
-      const streams = this.unwrapList(response);
-      this.state.streams = streams;
-
-      streams.forEach((stream) => {
-        const option = document.createElement("option");
-        option.value = stream.id;
-        option.textContent = stream.stream_name || stream.name || `Stream ${stream.id}`;
-        this.ui.streamFilter.appendChild(option);
-      });
-    } catch (error) {
-      console.error("Failed to load streams:", error);
-      this.notify("Failed to load streams", "warning");
-    }
-  },
-
-  loadStudents: async function () {
-    if (!this.state.permissions.canView) return;
-
-    if (this.ui.studentsList) {
-      this.ui.studentsList.innerHTML = `
-        <div class="col-12 text-center py-5">
-          <div class="spinner-border text-primary" role="status"></div>
-          <p class="text-muted mt-2 mb-0">Loading students...</p>
-        </div>
-      `;
-    }
-
-    try {
-      const params = {
-        page: 1,
-        limit: 500,
-        status: "active",
-      };
-      const search = this.ui.searchInput?.value?.trim();
-      const classId = this.ui.classFilter?.value;
-      const streamId = this.ui.streamFilter?.value;
-
-      if (search) params.search = search;
-      if (classId) params.class_id = classId;
-      if (streamId) params.stream_id = streamId;
-
-      const response = await window.API.students.getAll(params);
-      this.state.students = Array.isArray(response?.data) ? response.data : [];
-
-      this.reconcileSelections();
-      this.renderStudents();
-      this.renderBulkStudentList();
-      this.attachSelectionListeners();
-    } catch (error) {
-      console.error("Failed to load students:", error);
-      if (this.ui.studentsList) {
-        this.ui.studentsList.innerHTML = `
-          <div class="col-12">
-            <div class="alert alert-danger mb-0">
-              Failed to load students. Please try again.
-            </div>
-          </div>
-        `;
-      }
-    }
-  },
-
-  loadStatistics: async function () {
-    if (!this.state.permissions.canView) return;
-
-    const params = {};
-    const search = this.ui.searchInput?.value?.trim();
-    const classId = this.ui.classFilter?.value;
-    const streamId = this.ui.streamFilter?.value;
-
-    if (search) params.search = search;
-    if (classId) params.class_id = classId;
-    if (streamId) params.stream_id = streamId;
-
-    try {
-      const response = await window.API.students.getIdCardStatistics(params);
-      const payload = this.unwrapPayload(response);
-      const stats = payload?.data ?? payload ?? {};
-
-      this.setText(this.ui.totalStudents, stats.total ?? 0);
-      this.setText(this.ui.studentsWithPhotos, stats.with_photos ?? 0);
-      this.setText(this.ui.studentsWithQRCodes, stats.with_qr_codes ?? 0);
-      this.setText(this.ui.idCardsGenerated, stats.id_cards_generated ?? 0);
-    } catch (error) {
-      // Fallback to local aggregate from loaded list
-      const total = this.state.students.length;
-      const withPhotos = this.state.students.filter((s) => this.hasValue(s.photo_url)).length;
-      const withQr = this.state.students.filter((s) => this.hasValue(s.qr_code_path)).length;
-      const ready = this.state.students.filter((s) => this.hasValue(s.photo_url) && this.hasValue(s.qr_code_path)).length;
-      this.setText(this.ui.totalStudents, total);
-      this.setText(this.ui.studentsWithPhotos, withPhotos);
-      this.setText(this.ui.studentsWithQRCodes, withQr);
-      this.setText(this.ui.idCardsGenerated, ready);
-    }
-  },
-
-  renderStudents: function () {
-    if (!this.ui.studentsList) return;
-
-    if (!this.state.students.length) {
-      this.ui.studentsList.innerHTML = `
-        <div class="col-12">
-          <div class="alert alert-info mb-0">
-            No students found for the selected filters.
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    this.ui.studentsList.innerHTML = this.state.students
-      .map((student) => this.renderStudentCard(student))
-      .join("");
-  },
-
-  renderStudentCard: function (student) {
-    const id = Number(student.id || 0);
-    const name = this.escapeHtml(this.getStudentName(student));
-    const admission = this.escapeHtml(student.admission_no || "-");
-    const classInfo = this.escapeHtml(
-      `${student.class_name || "N/A"} - ${student.stream_name || "N/A"}`,
-    );
-    const photoUrl = this.getAvatarUrl(student);
-    const hasPhoto = this.hasValue(student.photo_url);
-    const hasQr = this.hasValue(student.qr_code_path);
-    const canUpload = this.state.permissions.canUploadPhoto;
-    const canGenerateQr = this.state.permissions.canGenerateQr;
-    const canGenerateCard = this.state.permissions.canGenerateCard;
-    const selected = this.state.selectedStudents.has(id) ? "checked" : "";
-
-    return `
-      <div class="col-md-6 col-lg-4 mb-4">
-        <div class="student-card h-100">
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <div class="form-check m-0">
-              <input
-                class="form-check-input student-select-checkbox"
-                type="checkbox"
-                id="selectStudent${id}"
-                data-student-id="${id}"
-                ${selected}
-              >
-            </div>
-            <small class="text-muted">${admission}</small>
-          </div>
-
-          <div class="d-flex gap-3">
-            <img
-              src="${photoUrl}"
-              class="student-photo"
-              alt="${name}"
-              loading="lazy"
-            >
-            <div class="flex-grow-1">
-              <h6 class="mb-1">${name}</h6>
-              <small class="text-muted d-block">${classInfo}</small>
-
-              <div class="mt-2 mb-3">
-                ${
-                  hasPhoto
-                    ? `<span class="badge bg-success"><i class="bi bi-check-circle"></i> Photo</span>`
-                    : `<span class="badge bg-warning text-dark"><i class="bi bi-exclamation-circle"></i> No Photo</span>`
+        try {
+            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                if (!window.AuthContext.isAuthenticated()) {
+                    console.warn("StudentIdCardsController: Not authenticated, redirecting to login");
+                    window.location.href = `${window.APP_BASE || ""}/index.php`;
+                    return;
                 }
-                ${
-                  hasQr
-                    ? `<span class="badge bg-success ms-1"><i class="bi bi-qr-code"></i> QR</span>`
-                    : `<span class="badge bg-warning text-dark ms-1"><i class="bi bi-exclamation-circle"></i> No QR</span>`
-                }
-                ${
-                  hasPhoto && hasQr
-                    ? `<span class="badge bg-info ms-1"><i class="bi bi-credit-card"></i> Ready</span>`
-                    : `<span class="badge bg-secondary ms-1"><i class="bi bi-credit-card"></i> Pending</span>`
-                }
-              </div>
-
-              <div class="btn-group btn-group-sm flex-wrap" role="group">
-                <button
-                  class="btn btn-outline-primary"
-                  onclick="openUploadModal(${id}, ${JSON.stringify(this.getStudentName(student))})"
-                  title="Upload Photo"
-                  ${canUpload ? "" : "disabled"}
-                >
-                  <i class="bi bi-camera"></i>
-                </button>
-                <button
-                  class="btn btn-outline-info"
-                  onclick="generateQRCode(${id})"
-                  title="Generate QR Code"
-                  ${canGenerateQr ? "" : "disabled"}
-                >
-                  <i class="bi bi-qr-code"></i>
-                </button>
-                <button
-                  class="btn btn-outline-success"
-                  onclick="generateIDCard(${id})"
-                  title="Generate ID Card"
-                  ${canGenerateCard ? "" : "disabled"}
-                >
-                  <i class="bi bi-credit-card"></i>
-                </button>
-                <button
-                  class="btn btn-outline-secondary"
-                  onclick="viewIDCard(${id})"
-                  title="View ID Card"
-                >
-                  <i class="bi bi-eye"></i>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  },
-
-  reconcileSelections: function () {
-    const validIds = new Set(this.state.students.map((s) => Number(s.id)));
-    for (const id of this.state.selectedStudents) {
-      if (!validIds.has(id)) {
-        this.state.selectedStudents.delete(id);
-      }
-    }
-  },
-
-  renderBulkStudentList: function () {
-    if (!this.ui.bulkStudentCheckboxes) return;
-    this.ui.bulkStudentCheckboxes.innerHTML = this.state.students
-      .map((student) => {
-        const id = Number(student.id);
-        const checked = this.state.selectedStudents.has(id) ? "checked" : "";
-        return `
-          <div class="form-check">
-            <input class="form-check-input bulk-student-checkbox" type="checkbox" value="${id}" id="bulkStudent${id}" ${checked}>
-            <label class="form-check-label" for="bulkStudent${id}">
-              ${this.escapeHtml(this.getStudentName(student))} (${this.escapeHtml(student.admission_no || "-")})
-            </label>
-          </div>
-        `;
-      })
-      .join("");
-  },
-
-  toggleBulkStudentSelection: function () {
-    const showSelected = this.ui.selectedStudentsRadio?.checked;
-    if (this.ui.selectedStudentsList) {
-      this.ui.selectedStudentsList.classList.toggle("d-none", !showSelected);
-    }
-  },
-
-  attachSelectionListeners: function () {
-    document.querySelectorAll(".student-select-checkbox").forEach((checkbox) => {
-      checkbox.addEventListener("change", (event) => {
-        const id = Number(event.target.getAttribute("data-student-id"));
-        if (!id) return;
-        if (event.target.checked) {
-          this.state.selectedStudents.add(id);
-        } else {
-          this.state.selectedStudents.delete(id);
-        }
-        this.renderBulkStudentList();
-      });
-    });
-
-    document.querySelectorAll(".bulk-student-checkbox").forEach((checkbox) => {
-      checkbox.addEventListener("change", (event) => {
-        const id = Number(event.target.value);
-        if (!id) return;
-        if (event.target.checked) {
-          this.state.selectedStudents.add(id);
-        } else {
-          this.state.selectedStudents.delete(id);
-        }
-        const cardCheckbox = document.getElementById(`selectStudent${id}`);
-        if (cardCheckbox) {
-          cardCheckbox.checked = event.target.checked;
-        }
-      });
-    });
-  },
-
-  openUploadModal: function (studentId, studentName) {
-    if (!this.state.permissions.canUploadPhoto) {
-      this.notify("You do not have permission to upload photos.", "warning");
-      return;
-    }
-
-    this.setValue(this.ui.uploadStudentId, studentId);
-    this.setText(this.ui.studentNameLabel, studentName || "Student");
-    this.ui.photoInput && (this.ui.photoInput.value = "");
-    this.ui.photoPreview?.classList.add("d-none");
-    this.modals.upload?.show();
-  },
-
-  previewPhoto: function (input) {
-    if (!input?.files?.length) return;
-
-    const file = input.files[0];
-    const maxBytes = 5 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      this.notify("File size must be less than 5MB.", "warning");
-      input.value = "";
-      this.ui.photoPreview?.classList.add("d-none");
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (this.ui.previewImage) {
-        this.ui.previewImage.src = event.target?.result || "";
-      }
-      this.ui.photoPreview?.classList.remove("d-none");
-    };
-    reader.readAsDataURL(file);
-  },
-
-  uploadPhoto: async function () {
-    if (!this.state.permissions.canUploadPhoto) {
-      this.notify("You do not have permission to upload photos.", "warning");
-      return;
-    }
-
-    const studentId = Number(this.ui.uploadStudentId?.value || 0);
-    const file = this.ui.photoInput?.files?.[0];
-
-    if (!studentId) {
-      this.notify("Invalid student selected for photo upload.", "error");
-      return;
-    }
-    if (!file) {
-      this.notify("Please choose a photo to upload.", "warning");
-      return;
-    }
-
-    const formData = new FormData();
-    formData.append("student_id", String(studentId));
-    formData.append("photo", file);
-
-    try {
-      const response = await window.API.students.uploadPhoto(formData);
-      const payload = this.unwrapPayload(response);
-      if (payload?.status === "error") {
-        throw new Error(payload.message || "Photo upload failed");
-      }
-
-      this.notify(payload?.message || "Photo uploaded successfully.", "success");
-      this.modals.upload?.hide();
-      await this.loadStudents();
-      await this.loadStatistics();
-      this.attachSelectionListeners();
-    } catch (error) {
-      console.error("Photo upload error:", error);
-      this.notify(error.message || "Failed to upload student photo.", "error");
-    }
-  },
-
-  generateQRCode: async function (studentId) {
-    if (!this.state.permissions.canGenerateQr) {
-      this.notify("You do not have permission to generate QR codes.", "warning");
-      return;
-    }
-
-    try {
-      let response;
-      try {
-        response = await window.API.students.generateEnhancedQrCode(studentId);
-      } catch (enhancedErr) {
-        response = await window.API.students.generateQrCode(studentId);
-      }
-
-      const payload = this.unwrapPayload(response);
-      if (payload?.status === "error") {
-        throw new Error(payload.message || "QR generation failed");
-      }
-
-      this.notify(payload?.message || "QR code generated successfully.", "success");
-      await this.loadStudents();
-      await this.loadStatistics();
-      this.attachSelectionListeners();
-    } catch (error) {
-      console.error("QR generation error:", error);
-      this.notify(error.message || "Failed to generate QR code.", "error");
-    }
-  },
-
-  generateIDCard: async function (studentId) {
-    if (!this.state.permissions.canGenerateCard) {
-      this.notify("You do not have permission to generate ID cards.", "warning");
-      return;
-    }
-
-    try {
-      const response = await window.API.students.generateIdCard(studentId);
-      const payload = this.unwrapPayload(response);
-      if (payload?.status === "error") {
-        throw new Error(payload.message || "ID card generation failed");
-      }
-
-      const resultData = payload?.data ?? payload;
-      if (resultData?.view_url) {
-        this.state.currentCard = {
-          ...(this.state.currentCard || {}),
-          student_id: studentId,
-          view_url: this.normalizeAssetPath(resultData.view_url),
-        };
-      }
-
-      this.notify(payload?.message || "ID card generated successfully.", "success");
-      await this.loadStudents();
-      await this.loadStatistics();
-      this.attachSelectionListeners();
-      await this.viewIDCard(studentId);
-    } catch (error) {
-      console.error("ID card generation error:", error);
-      this.notify(error.message || "Failed to generate ID card.", "error");
-    }
-  },
-
-  viewIDCard: async function (studentId) {
-    try {
-      const response = await window.API.students.getIdCard(studentId);
-      const payload = this.unwrapPayload(response);
-      const data = payload?.data ?? payload;
-
-      if (!data || !data.id) {
-        throw new Error(payload?.message || "Unable to load student ID card data.");
-      }
-
-      this.state.currentCard = {
-        student_id: data.id,
-        view_url: this.normalizeAssetPath(data.view_url || ""),
-      };
-
-      this.renderIDCardPreview(data);
-      this.modals.idCard?.show();
-    } catch (error) {
-      console.error("View ID card error:", error);
-      this.notify(error.message || "Failed to load ID card preview.", "error");
-    }
-  },
-
-  renderIDCardPreview: function (cardData) {
-    if (!this.ui.idCardPreview) return;
-
-    const name = this.escapeHtml(
-      cardData.full_name || `${cardData.first_name || ""} ${cardData.last_name || ""}`.trim(),
-    );
-    const admission = this.escapeHtml(cardData.admission_no || "-");
-    const className = this.escapeHtml(cardData.class_name || "N/A");
-    const streamName = this.escapeHtml(cardData.stream_name || "N/A");
-    const dob = this.escapeHtml(cardData.date_of_birth || "N/A");
-    const photo = this.normalizeAssetPath(cardData.photo_url) || this.makeAvatarDataUri(name);
-    const qr = this.normalizeAssetPath(cardData.qr_code_url || cardData.qr_code_path || "");
-
-    this.ui.idCardPreview.innerHTML = `
-      <div class="id-card">
-        <div class="id-card-header">KINGSWAY PREPARATORY SCHOOL</div>
-        <div class="id-card-body">
-          <img src="${photo}" class="id-card-photo" alt="${name}">
-          <div class="id-card-info">
-            <p><strong>${name || "Student"}</strong></p>
-            <p>Adm: ${admission}</p>
-            <p>Class: ${className}</p>
-            <p>Stream: ${streamName}</p>
-            <p>DOB: ${dob}</p>
-          </div>
-          <div class="id-card-qr">
-            ${
-              qr
-                ? `<img src="${qr}" alt="QR Code" style="width:100%;height:100%;object-fit:contain;">`
-                : "QR"
+            } else {
+                console.warn("StudentIdCardsController: AuthContext not available");
             }
-          </div>
-        </div>
-      </div>
-    `;
-  },
 
-  printIDCard: function () {
-    const content = this.ui.idCardPreview?.innerHTML?.trim();
-    if (!content) {
-      this.notify("No ID card is loaded for printing.", "warning");
-      return;
+            this.cacheDom();
+            this.setupEventListeners();
+            await this.loadMetadata();
+            await this.loadStudents();
+
+            console.log("StudentIdCardsController: Initialization complete");
+        } catch (error) {
+            console.error("Failed to initialize Student ID Cards Controller:", error);
+            this.showError(error.message || "Failed to initialize ID cards page.");
+        }
+    },
+
+    apiCall: function(endpoint, method = "GET", data = null) {
+        if (window.API && typeof window.API.callAPI === "function") {
+            return window.API.callAPI(endpoint, method, data);
+        }
+
+        if (window.API && typeof window.API.apiCall === "function") {
+            return window.API.apiCall(endpoint, method, data);
+        }
+
+        throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
+    },
+
+    isSuccessfulResponse: function(response) {
+        if (!response) return false;
+        if (response.success === false || response.status === false) return false;
+        if (response.success === true || response.status === true) return true;
+        return response.data !== undefined || response.queues !== undefined || Object.keys(response).length > 0;
+    },
+
+    unwrapPayload: function(response) {
+        if (response && response.data) {
+            return response.data;
+        }
+        if (response && response.queues) {
+            return response;
+        }
+        return response || {};
+    },
+
+    extractList: function(response) {
+        const payload = this.unwrapPayload(response);
+        if (Array.isArray(payload)) {
+            return payload;
+        }
+        if (payload.data && Array.isArray(payload.data)) {
+            return payload.data;
+        }
+        if (payload.items && Array.isArray(payload.items)) {
+            return payload.items;
+        }
+        if (payload.list && Array.isArray(payload.list)) {
+            return payload.list;
+        }
+        return [];
+    },
+
+    notify: function(type, message) {
+        if (typeof window.showNotification === "function") {
+            window.showNotification(type, message);
+            return;
+        }
+
+        if (window.API && typeof window.API.showNotification === "function") {
+            window.API.showNotification(message, type);
+            return;
+        }
+
+        console.log(`[${type.toUpperCase()}] ${message}`);
+    },
+
+    escapeHtml: function(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+    },
+
+    escapeAttr: function(text) {
+        return this.escapeHtml(text).replace(/`/g, "&#96;");
+    },
+
+    cacheDom: function() {
+        this.dom = {
+            refreshBtn: document.getElementById("refreshBtn"),
+            generateSelectedBtn: document.getElementById("generateSelectedBtn"),
+            printSelectedBtn: document.getElementById("printSelectedBtn"),
+            exportBtn: document.getElementById("exportBtn"),
+
+            filterAcademicYear: document.getElementById("filterAcademicYear"),
+            filterClass: document.getElementById("filterClass"),
+            filterStream: document.getElementById("filterStream"),
+            filterGender: document.getElementById("filterGender"),
+            filterStudentStatus: document.getElementById("filterStudentStatus"),
+            filterCardStatus: document.getElementById("filterCardStatus"),
+            searchStudents: document.getElementById("searchStudents"),
+            applyFiltersBtn: document.getElementById("applyFiltersBtn"),
+            resetFiltersBtn: document.getElementById("resetFiltersBtn"),
+
+            selectAll: document.getElementById("selectAll"),
+            headerCheckbox: document.getElementById("headerCheckbox"),
+            tableBody: document.getElementById("tableBody"),
+
+            loadingState: document.getElementById("loadingState"),
+            errorState: document.getElementById("errorState"),
+            forbiddenState: document.getElementById("forbiddenState"),
+
+            // Summary cards
+            statTotalStudents: document.getElementById("statTotalStudents"),
+            statWithIDs: document.getElementById("statWithIDs"),
+            statWithoutIDs: document.getElementById("statWithoutIDs"),
+            statPrinted: document.getElementById("statPrinted"),
+            statIssued: document.getElementById("statIssued"),
+            statLost: document.getElementById("statLost"),
+            statExpired: document.getElementById("statExpired"),
+            statReplaced: document.getElementById("statReplaced"),
+
+            // Modals
+            previewModal: document.getElementById("previewModal"),
+            generateModal: document.getElementById("generateModal"),
+            renewModal: document.getElementById("renewModal"),
+            replaceModal: document.getElementById("replaceModal"),
+            issueModal: document.getElementById("issueModal"),
+            historyModal: document.getElementById("historyModal"),
+
+            // Preview
+            cardFrontPreview: document.getElementById("cardFrontPreview"),
+            cardBackPreview: document.getElementById("cardBackPreview"),
+
+            // Forms
+            generateForm: document.getElementById("generateForm"),
+            renewForm: document.getElementById("renewForm"),
+            replaceForm: document.getElementById("replaceForm"),
+            issueForm: document.getElementById("issueForm"),
+
+            // History
+            historyContent: document.getElementById("historyContent"),
+        };
+    },
+
+    setupEventListeners: function() {
+        this.safeListen("refreshBtn", "click", () => this.loadStudents());
+        this.safeListen("generateSelectedBtn", "click", () => this.generateSelected());
+        this.safeListen("printSelectedBtn", "click", () => this.printSelected());
+        this.safeListen("exportBtn", "click", () => this.exportData());
+
+        this.safeListen("applyFiltersBtn", "click", () => this.loadStudents());
+        this.safeListen("resetFiltersBtn", "click", () => this.resetFilters());
+
+        this.safeListen("filterClass", "change", () => {
+            this.updateStreamsFilter();
+            this.loadStudents();
+        });
+
+        this.safeListen("filterAcademicYear", "change", () => this.loadStudents());
+        this.safeListen("filterStream", "change", () => this.loadStudents());
+        this.safeListen("filterGender", "change", () => this.loadStudents());
+        this.safeListen("filterStudentStatus", "change", () => this.loadStudents());
+        this.safeListen("filterCardStatus", "change", () => this.loadStudents());
+
+        this.safeListen("searchStudents", "input", this.debounce(() => this.loadStudents(), 400));
+
+        this.safeListen("selectAll", "change", (e) => this.toggleSelectAll(e.target.checked));
+        this.safeListen("headerCheckbox", "change", (e) => this.toggleSelectAll(e.target.checked));
+
+        // Form submissions
+        if (this.dom.generateForm) {
+            this.dom.generateForm.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this.generateCard(new FormData(this.dom.generateForm));
+            });
+        }
+
+        if (this.dom.renewForm) {
+            this.dom.renewForm.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this.renewCard(new FormData(this.dom.renewForm));
+            });
+        }
+
+        if (this.dom.replaceForm) {
+            this.dom.replaceForm.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this.replaceCard(new FormData(this.dom.replaceForm));
+            });
+        }
+
+        if (this.dom.issueForm) {
+            this.dom.issueForm.addEventListener("submit", (e) => {
+                e.preventDefault();
+                this.markIssued(new FormData(this.dom.issueForm));
+            });
+        }
+
+        // Preview modal buttons
+        this.safeListen("previewGenerateBtn", "click", () => this.showGenerateModal());
+        this.safeListen("previewGenerateQRBtn", "click", () => this.generateQRCode());
+        this.safeListen("previewPrintBtn", "click", () => this.printSingleCard());
+        this.safeListen("previewDownloadBtn", "click", () => this.downloadSingleCard());
+        this.safeListen("previewMarkPrintedBtn", "click", () => this.markPrinted());
+        this.safeListen("previewMarkIssuedBtn", "click", () => this.showIssueModal());
+        this.safeListen("previewRenewBtn", "click", () => this.showRenewModal());
+        this.safeListen("previewReplaceBtn", "click", () => this.showReplaceModal());
+    },
+
+    safeListen: function(id, event, handler) {
+        const element = document.getElementById(id);
+        if (!element) {
+            console.warn(`Missing element #${id}; listener skipped.`);
+            return;
+        }
+        element.addEventListener(event, handler);
+    },
+
+    loadMetadata: async function() {
+        try {
+            const response = await this.apiCall('/students/id-card-meta', 'GET');
+            console.log("ID card metadata response:", response);
+
+            if (!this.isSuccessfulResponse(response)) {
+                throw new Error(response?.message || "Failed to load metadata.");
+            }
+
+            const data = this.unwrapPayload(response);
+            this.metadata.academicYears = data.academic_years || [];
+            this.metadata.classes = data.classes || [];
+            this.metadata.streams = data.streams || [];
+            this.metadata.schoolProfile = data.school_profile || {};
+            this.metadata.permissions = data.permissions || {};
+
+            this.populateSelect(this.dom.filterAcademicYear, this.metadata.academicYears, "All Years");
+            this.populateSelect(this.dom.filterClass, this.metadata.classes, "All Classes");
+            this.updateStreamsFilter();
+        } catch (error) {
+            console.error('Failed to load metadata:', error);
+            this.notify("error", "Failed to load metadata");
+        }
+    },
+
+    loadStudents: async function() {
+        this.setLoading(true);
+        this.dom.errorState.classList.add("d-none");
+        this.dom.forbiddenState.classList.add("d-none");
+
+        try {
+            const params = this.getFilterParams();
+            const response = await this.apiCall(`/students/id-cards?${params.toString()}`, 'GET');
+            console.log("Students response:", response);
+
+            if (response.success === false) {
+                if (response.message && response.message.includes("permission")) {
+                    this.dom.forbiddenState.classList.remove("d-none");
+                    this.dom.tableBody.innerHTML = '';
+                    return;
+                }
+                throw new Error(response?.message || "Failed to load students");
+            }
+
+            if (!this.isSuccessfulResponse(response)) {
+                throw new Error(response?.message || "Failed to load students.");
+            }
+
+            const students = this.extractList(response);
+            this.students = students;
+            this.renderSummary();
+            this.renderTable();
+        } catch (error) {
+            console.error('Failed to load students:', error);
+            this.dom.errorState.textContent = error.message || "Failed to load students";
+            this.dom.errorState.classList.remove("d-none");
+            this.dom.tableBody.innerHTML = '';
+        } finally {
+            this.setLoading(false);
+        }
+    },
+
+    getFilterParams: function() {
+        const params = new URLSearchParams();
+
+        const filters = {
+            academic_year: this.dom.filterAcademicYear?.value || "",
+            class_id: this.dom.filterClass?.value || "",
+            stream_id: this.dom.filterStream?.value || "",
+            gender: this.dom.filterGender?.value || "",
+            student_status: this.dom.filterStudentStatus?.value || "",
+            card_status: this.dom.filterCardStatus?.value || "",
+            search: this.dom.searchStudents?.value.trim() || "",
+        };
+
+        Object.entries(filters).forEach(([key, val]) => {
+            if (val !== "") params.set(key, val);
+        });
+
+        return params;
+    },
+
+    updateStreamsFilter: function() {
+        const classId = this.dom.filterClass?.value || "";
+        const filtered = classId
+            ? this.metadata.streams.filter(s => String(s.class_id) === String(classId))
+            : this.metadata.streams;
+        this.populateSelect(this.dom.filterStream, filtered, "All Streams");
+    },
+
+    populateSelect: function(select, items, placeholder) {
+        if (!select) return;
+        select.innerHTML = `<option value="">${placeholder}</option>`;
+        (items || []).forEach(item => {
+            const option = document.createElement("option");
+            option.value = item.id ?? item.year ?? item.year_code ?? item.value ?? "";
+            option.textContent = item.name || item.class_name || item.stream_name || item.year_name || item.year_code || item.label || option.value;
+            select.appendChild(option);
+        });
+    },
+
+    renderSummary: function() {
+        const summary = this.calculateSummary();
+
+        if (this.dom.statTotalStudents) this.dom.statTotalStudents.textContent = summary.total;
+        if (this.dom.statWithIDs) this.dom.statWithIDs.textContent = summary.withIDs;
+        if (this.dom.statWithoutIDs) this.dom.statWithoutIDs.textContent = summary.withoutIDs;
+        if (this.dom.statPrinted) this.dom.statPrinted.textContent = summary.printed;
+        if (this.dom.statIssued) this.dom.statIssued.textContent = summary.issued;
+        if (this.dom.statLost) this.dom.statLost.textContent = summary.lost;
+        if (this.dom.statExpired) this.dom.statExpired.textContent = summary.expired;
+        if (this.dom.statReplaced) this.dom.statReplaced.textContent = summary.replaced;
+    },
+
+    calculateSummary: function() {
+        return {
+            total: this.students.length,
+            withIDs: this.students.filter(s => s.card_status && s.card_status !== 'not_generated').length,
+            withoutIDs: this.students.filter(s => !s.card_status || s.card_status === 'not_generated').length,
+            printed: this.students.filter(s => s.card_status === 'printed').length,
+            issued: this.students.filter(s => s.card_status === 'issued').length,
+            lost: this.students.filter(s => s.card_status === 'lost').length,
+            expired: this.students.filter(s => s.card_status === 'expired').length,
+            replaced: this.students.filter(s => s.card_status === 'replaced').length,
+        };
+    },
+
+    getFullName: function(student) {
+        const names = [student.first_name, student.middle_name, student.last_name].filter(n => n);
+        return names.join(' ') || 'Unknown';
+    },
+
+    renderTable: function() {
+        if (!this.students.length) {
+            this.dom.tableBody.innerHTML = `
+                <tr>
+                    <td colspan="15" class="text-center py-4">
+                        <div class="text-muted">
+                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                            No students found
+                        </div>
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        this.dom.tableBody.innerHTML = this.students.map(student => {
+            const studentId = student.id || student.student_id;
+            const fullName = this.getFullName(student);
+            const statusBadge = this.getStatusBadge(student.card_status);
+            const qrBadge = this.getQRBadge(student.qr_token);
+            const actions = this.getRowActions(student);
+
+            return `
+                <tr>
+                    <td><input type="checkbox" class="student-checkbox" data-id="${studentId}"></td>
+                    <td><img src="${student.photo_url || (window.APP_BASE + '/uploads/students/avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
+                    <td><strong>${this.escapeHtml(student.admission_no || '—')}</strong></td>
+                    <td>${this.escapeHtml(fullName)}</td>
+                    <td>${this.escapeHtml(student.class_name || '—')}</td>
+                    <td>${this.escapeHtml(student.stream_name || '—')}</td>
+                    <td>${this.escapeHtml(student.gender || '—')}</td>
+                    <td>${this.escapeHtml(student.card_number || '—')}</td>
+                    <td>${qrBadge}</td>
+                    <td>${statusBadge}</td>
+                    <td>${this.escapeHtml(student.issue_date || '—')}</td>
+                    <td>${this.escapeHtml(student.expiry_year || '—')}</td>
+                    <td>${this.escapeHtml(student.generated_at || '—')}</td>
+                    <td>${actions}</td>
+                </tr>
+            `;
+        }).join('');
+
+        // Add checkbox listeners
+        document.querySelectorAll('.student-checkbox').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = parseInt(e.target.dataset.id);
+                if (e.target.checked) {
+                    this.selectedStudents.add(id);
+                } else {
+                    this.selectedStudents.delete(id);
+                }
+            });
+        });
+    },
+
+    getStatusBadge: function(status) {
+        const badges = {
+            'not_generated': '<span class="badge bg-secondary">No ID</span>',
+            'generated': '<span class="badge bg-success">Generated</span>',
+            'printed': '<span class="badge bg-primary">Printed</span>',
+            'issued': '<span class="badge bg-info">Issued</span>',
+            'lost': '<span class="badge bg-danger">Lost</span>',
+            'damaged': '<span class="badge bg-warning">Damaged</span>',
+            'expired': '<span class="badge bg-dark">Expired</span>',
+            'replaced': '<span class="badge bg-secondary">Replaced</span>',
+            'revoked': '<span class="badge bg-dark">Revoked</span>',
+        };
+        return badges[status] || badges['not_generated'];
+    },
+
+    getQRBadge: function(qrToken) {
+        if (qrToken) {
+            return '<span class="badge bg-success">QR Generated</span>';
+        }
+        return '<span class="badge bg-secondary">QR Missing</span>';
+    },
+
+    getRowActions: function(student) {
+        const studentId = student.id || student.student_id;
+        const cardId = student.card_id;
+        const status = student.card_status || 'not_generated';
+
+        let actions = '';
+
+        if (status === 'not_generated') {
+            actions += `
+                <button class="btn btn-sm btn-outline-success" onclick="StudentIdCardsController.showGenerateModalForStudent(${studentId})">
+                    <i class="bi bi-plus-circle"></i> Generate
+                </button>
+            `;
+        } else {
+            actions += `
+                <button class="btn btn-sm btn-outline-primary" onclick="StudentIdCardsController.previewCard(${studentId})">
+                    <i class="bi bi-eye"></i> View
+                </button>
+            `;
+        }
+
+        if (status === 'generated') {
+            actions += `
+                <button class="btn btn-sm btn-outline-info" onclick="StudentIdCardsController.printCard(${studentId})">
+                    <i class="bi bi-printer"></i> Print
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="StudentIdCardsController.markPrintedForStudent(${studentId})">
+                    <i class="bi bi-check-circle"></i> Mark Printed
+                </button>
+            `;
+        }
+
+        if (status === 'printed') {
+            actions += `
+                <button class="btn btn-sm btn-outline-info" onclick="StudentIdCardsController.showIssueModalForStudent(${studentId})">
+                    <i class="bi bi-check-circle"></i> Mark Issued
+                </button>
+            `;
+        }
+
+        if (status === 'issued') {
+            actions += `
+                <button class="btn btn-sm btn-outline-warning" onclick="StudentIdCardsController.markLostForStudent(${studentId})">
+                    <i class="bi bi-exclamation-triangle"></i> Mark Lost
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="StudentIdCardsController.showRenewModalForStudent(${studentId})">
+                    <i class="bi bi-arrow-repeat"></i> Renew
+                </button>
+            `;
+        }
+
+        if (status === 'lost' || status === 'damaged' || status === 'expired') {
+            actions += `
+                <button class="btn btn-sm btn-outline-danger" onclick="StudentIdCardsController.showReplaceModalForStudent(${studentId})">
+                    <i class="bi bi-arrow-repeat"></i> Replace
+                </button>
+            `;
+        }
+
+        if (cardId && status !== 'not_generated') {
+            actions += `
+                <button class="btn btn-sm btn-outline-dark" onclick="StudentIdCardsController.viewHistory(${studentId})">
+                    <i class="bi bi-clock-history"></i> History
+                </button>
+            `;
+        }
+
+        return actions;
+    },
+
+    toggleSelectAll: function(checked) {
+        document.querySelectorAll('.student-checkbox').forEach(cb => {
+            cb.checked = checked;
+            const id = parseInt(cb.dataset.id);
+            if (checked) {
+                this.selectedStudents.add(id);
+            } else {
+                this.selectedStudents.delete(id);
+            }
+        });
+    },
+
+    resetFilters: function() {
+        this.dom.filterAcademicYear.value = "";
+        this.dom.filterClass.value = "";
+        this.dom.filterStream.value = "";
+        this.dom.filterGender.value = "";
+        this.dom.filterStudentStatus.value = "";
+        this.dom.filterCardStatus.value = "";
+        this.dom.searchStudents.value = "";
+        this.updateStreamsFilter();
+        this.loadStudents();
+    },
+
+    setLoading: function(loading) {
+        this.dom.loadingState.classList.toggle("d-none", !loading);
+    },
+
+    showError: function(message) {
+        this.dom.errorState.textContent = message;
+        this.dom.errorState.classList.remove("d-none");
+    },
+
+    generateCard: async function(formData) {
+        const studentId = document.getElementById('generateStudentId').value;
+        const data = {
+            student_id: studentId,
+            academic_year_id: document.getElementById('generateAcademicYear').value,
+            issue_date: document.getElementById('generateIssueDate').value,
+            expiry_year: document.getElementById('generateExpiryYear').value,
+            template_id: document.getElementById('generateTemplate').value,
+            generate_qr: document.getElementById('generateQR').checked,
+            notes: document.getElementById('generateNotes').value,
+        };
+
+        try {
+            const response = await this.apiCall('/students/id-card/generate', 'POST', data);
+            this.notify("success", "ID card generated successfully");
+
+            if (typeof bootstrap !== "undefined" && this.dom.generateModal) {
+                const modal = bootstrap.Modal.getInstance(this.dom.generateModal);
+                if (modal) modal.hide();
+            }
+
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to generate card:', error);
+            this.notify("error", error.message || "Failed to generate ID card");
+        }
+    },
+
+    showGenerateModalForStudent: function(studentId) {
+        document.getElementById('generateStudentId').value = studentId;
+        this.populateSelect(document.getElementById('generateAcademicYear'), this.metadata.academicYears, "Select Year");
+        document.getElementById('generateIssueDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('generateExpiryYear').value = new Date().getFullYear() + 2;
+
+        if (typeof bootstrap !== "undefined" && this.dom.generateModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.generateModal);
+            if (modal) modal.show();
+        }
+    },
+
+    markPrintedForStudent: async function(studentId) {
+        const student = this.students.find(s => (s.id || s.student_id) === studentId);
+        if (!student || !student.card_id) {
+            this.notify("error", "No active card found");
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/students/id-card-mark-printed/${student.card_id}`, 'POST', {});
+            this.notify("success", "Card marked as printed");
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to mark printed:', error);
+            this.notify("error", error.message || "Failed to mark card as printed");
+        }
+    },
+
+    showIssueModalForStudent: function(studentId) {
+        const student = this.students.find(s => (s.id || s.student_id) === studentId);
+        if (!student || !student.card_id) {
+            this.notify("error", "No active card found");
+            return;
+        }
+
+        document.getElementById('issueStudentId').value = studentId;
+        document.getElementById('issueCardId').value = student.card_id;
+        document.getElementById('issueCardNo').value = student.card_number || 'N/A';
+        document.getElementById('issueIssuedTo').value = this.getFullName(student);
+        document.getElementById('issueIssuedBy').value = 'Current User';
+        document.getElementById('issueDateTime').value = new Date().toLocaleString();
+        document.getElementById('issueConfirm').checked = false;
+
+        if (typeof bootstrap !== "undefined" && this.dom.issueModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.issueModal);
+            if (modal) modal.show();
+        }
+    },
+
+    markLostForStudent: async function(studentId) {
+        const student = this.students.find(s => (s.id || s.student_id) === studentId);
+        if (!student || !student.card_id) {
+            this.notify("error", "No active card found");
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/students/id-card-mark-lost/${student.card_id}`, 'POST', {});
+            this.notify("success", "Card marked as lost");
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to mark lost:', error);
+            this.notify("error", error.message || "Failed to mark card as lost");
+        }
+    },
+
+    showRenewModalForStudent: function(studentId) {
+        const student = this.students.find(s => (s.id || s.student_id) === studentId);
+        if (!student || !student.card_id) {
+            this.notify("error", "No active card found");
+            return;
+        }
+
+        document.getElementById('renewStudentId').value = studentId;
+        document.getElementById('renewCardId').value = student.card_id;
+        document.getElementById('renewOldCardNo').value = student.card_number || 'N/A';
+        document.getElementById('renewIssueDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('renewExpiryYear').value = new Date().getFullYear() + 2;
+
+        if (typeof bootstrap !== "undefined" && this.dom.renewModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.renewModal);
+            if (modal) modal.show();
+        }
+    },
+
+    showReplaceModalForStudent: function(studentId) {
+        const student = this.students.find(s => (s.id || s.student_id) === studentId);
+        if (!student || !student.card_id) {
+            this.notify("error", "No active card found");
+            return;
+        }
+
+        document.getElementById('replaceStudentId').value = studentId;
+        document.getElementById('replaceCardId').value = student.card_id;
+        document.getElementById('replaceOldCardNo').value = student.card_number || 'N/A';
+        document.getElementById('replaceIssueDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('replaceExpiryYear').value = new Date().getFullYear() + 2;
+
+        if (typeof bootstrap !== "undefined" && this.dom.replaceModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.replaceModal);
+            if (modal) modal.show();
+        }
+    },
+
+    viewHistory: async function(studentId) {
+        try {
+            const response = await this.apiCall(`/students/id-card-history/${studentId}`, 'GET');
+            const data = this.unwrapPayload(response);
+
+            // Render history in modal
+            this.dom.historyContent.innerHTML = this.renderHistory(data);
+
+            if (typeof bootstrap !== "undefined" && this.dom.historyModal) {
+                const modal = bootstrap.Modal.getInstance(this.dom.historyModal);
+                if (modal) modal.show();
+            }
+        } catch (error) {
+            console.error('Failed to load history:', error);
+            this.notify("error", "Failed to load card history");
+        }
+    },
+
+    renderHistory: function(history) {
+        if (!history || !history.length) {
+            return '<div class="text-center text-muted py-4">No history available</div>';
+        }
+
+        return `
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>From Status</th>
+                        <th>To Status</th>
+                        <th>Remarks</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${history.map(h => `
+                        <tr>
+                            <td>${this.escapeHtml(h.action)}</td>
+                            <td>${this.escapeHtml(h.from_status || '—')}</td>
+                            <td>${this.escapeHtml(h.to_status || '—')}</td>
+                            <td>${this.escapeHtml(h.remarks || '—')}</td>
+                            <td>${this.escapeHtml(h.performed_at)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    },
+
+    generateSelected: async function() {
+        if (this.selectedStudents.size === 0) {
+            this.notify("warning", "Please select students first");
+            return;
+        }
+
+        try {
+            // Show generation modal with options
+            this.showBulkGenerateModal();
+        } catch (error) {
+            console.error('Failed to show bulk generation modal:', error);
+            this.notify("error", error.message || "Failed to show bulk generation options");
+        }
+    },
+
+    showBulkGenerateModal: function() {
+        // Create or update bulk generation modal
+        let modal = document.getElementById('bulkGenerateModal');
+        if (!modal) {
+            const modalHTML = `
+                <div class="modal fade" id="bulkGenerateModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Generate Bulk ID Cards</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Number of selected students: <strong>${this.selectedStudents.size}</strong></label>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Card Sides</label>
+                                    <div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bulkIncludeFront" checked>
+                                            <label class="form-check-label" for="bulkIncludeFront">Front Side</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bulkIncludeBack" checked>
+                                            <label class="form-check-label" for="bulkIncludeBack">Back Side</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Print Layout</label>
+                                    <select class="form-select" id="bulkPrintMode">
+                                        <option value="a4_sheet">A4 Sheet (Front + Back per row)</option>
+                                        <option value="direct_card">Direct ID-Card Printer</option>
+                                    </select>
+                                </div>
+                                <div class="alert alert-info">
+                                    <small>
+                                        <strong>A4 Sheet:</strong> Generates one PDF with all students arranged in rows (front | back).<br>
+                                        <strong>Direct Card:</strong> Opens print dialog for direct card printer (requires browser print dialog).
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" onclick="StudentIdCardsController.generateBulkPDF()">Generate PDF</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            modal = document.getElementById('bulkGenerateModal');
+        }
+
+        if (typeof bootstrap !== "undefined") {
+            const bootstrapModal = new bootstrap.Modal(modal);
+            bootstrapModal.show();
+        }
+    },
+
+    generateBulkPDF: async function() {
+        try {
+            const includeFront = document.getElementById('bulkIncludeFront').checked;
+            const includeBack = document.getElementById('bulkIncludeBack').checked;
+            const printMode = document.getElementById('bulkPrintMode').value;
+
+            if (!includeFront && !includeBack) {
+                this.notify("warning", "Please select at least one card side");
+                return;
+            }
+
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: Array.from(this.selectedStudents),
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+
+            const data = this.unwrapPayload(response);
+            
+            if (data && data.pdf_url) {
+                this.notify("success", `Bulk PDF generated for ${data.student_count} students`);
+                
+                // Close modal
+                const modal = document.getElementById('bulkGenerateModal');
+                if (modal && typeof bootstrap !== "undefined") {
+                    const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                    if (bootstrapModal) bootstrapModal.hide();
+                }
+
+                // Open PDF in new tab
+                window.open(data.pdf_url, '_blank');
+                
+                // Reload students to update status
+                await this.loadStudents();
+            } else {
+                this.notify("error", response.message || "Failed to generate bulk PDF");
+            }
+        } catch (error) {
+            console.error('Failed to generate bulk PDF:', error);
+            this.notify("error", error.message || "Failed to generate bulk PDF");
+        }
+    },
+
+    previewCard: async function(studentId) {
+        try {
+            this.currentPreviewStudentId = studentId;
+            const response = await this.apiCall(`/students/id-card-details/${studentId}`, 'GET');
+            const data = this.unwrapPayload(response);
+
+            if (!data.student?.qr_code_path) {
+                try {
+                    const qrResult = await this.ensureStudentQrCode(studentId);
+                    if (qrResult) {
+                        data.student.qr_code_path = qrResult.qr_code_path || qrResult.qr_code_url || qrResult.qr_path || data.student.qr_code_path;
+                    }
+                } catch (qrError) {
+                    console.error('Failed to auto-generate QR code:', qrError);
+                    this.notify("warning", "Preview loaded, but QR code generation failed. Use Generate QR to retry.");
+                }
+            }
+
+            this.renderCardPreview(data);
+
+            // Show modal - create new instance if needed
+            if (typeof bootstrap !== "undefined" && this.dom.previewModal) {
+                let modal = bootstrap.Modal.getInstance(this.dom.previewModal);
+                if (!modal) {
+                    modal = new bootstrap.Modal(this.dom.previewModal);
+                }
+                modal.show();
+            } else {
+                console.error('Bootstrap or preview modal not available');
+                this.notify("error", "Modal component not available");
+            }
+        } catch (error) {
+            console.error('Failed to load card preview:', error);
+            this.notify("error", "Failed to load card preview");
+        }
+    },
+
+    printCard: async function(studentId) {
+        // Single-card print: fetch server-rendered HTML (CR80, QR as data URI,
+        // front|back side-by-side) and open the OS print dialog.
+        const modeSelect = document.getElementById('printModeDirect');
+        const printMode = modeSelect?.value || 'direct_card';
+        await this.openServerPrintHtml(
+            '/students/id-card/print-single',
+            { student_id: studentId, side: 'both', print_mode: printMode },
+            `ID Card - ${studentId}`
+        );
+    },
+
+    generatePrintCardHTML: function(data) {
+        const student = data.student || {};
+        const school = data.school_settings || data.school_profile || {};
+        const appBase = window.APP_BASE || "";
+        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
+        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
+        const fullName = this.getFullName(student);
+        const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
+        const cardNumber = student.card_number || "Not generated";
+        const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
+        const expiryYear = student.expiry_year || "—";
+        const schoolName = school.school_name || "Kingsway Preparatory Academy";
+        const schoolAddress = school.school_address || "Londiani, Kenya";
+        const schoolPhone = school.school_phone || "";
+        const schoolEmail = school.school_email || "";
+        const schoolMotto = school.school_motto || "Education for Excellence";
+
+        const frontHTML = `
+            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 0; overflow: hidden; position: relative; font-family: Arial, sans-serif;">
+                <div style="background: rgba(255,255,255,0.95); padding: 8px; text-align: center; border-bottom: 3px solid #667eea;">
+                    <img src="${logo}" style="width: 40px; height: 40px; border-radius: 50%; margin-bottom: 5px;" alt="Logo">
+                    <div style="font-size: 11px; font-weight: bold; color: #333; margin: 0;">${schoolName}</div>
+                    <div style="font-size: 7px; color: #666; font-style: italic; margin: 0;">${schoolMotto}</div>
+                </div>
+                <div style="display: flex; padding: 10px; background: white; height: calc(100% - 70px);">
+                    <div style="width: 35%; padding-right: 10px;">
+                        <img src="${photo}" style="width: 100%; height: 110px; object-fit: cover; border: 2px solid #667eea; border-radius: 8px;" alt="Student Photo">
+                    </div>
+                    <div style="width: 65%; padding-left: 10px;">
+                        <div style="font-size: 14px; font-weight: bold; color: #333; margin: 0 0 5px 0;">${fullName}</div>
+                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.admission_no || 'N/A'}</div>
+                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.class_name || 'N/A'} ${student.stream_name || ''}</div>
+                        <div style="font-size: 9px; color: #999; margin: 5px 0 0 0;">Card: ${cardNumber}</div>
+                        <div style="font-size: 9px; color: #999; margin: 2px 0;">Valid: ${issueDate} - ${expiryYear}</div>
+                    </div>
+                </div>
+                <div style="position: absolute; bottom: 8px; right: 8px;">
+                    <img src="${qrCodePath}" style="width: 40px; height: 40px;" alt="QR Code">
+                </div>
+            </div>
+        `;
+
+        const backHTML = `
+            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #764ba2 0%, #667eea 100%); border-radius: 15px; padding: 15px; overflow: hidden; font-family: Arial, sans-serif; color: white;">
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <div style="font-size: 12px; font-weight: bold; margin: 0 0 5px 0;">${schoolName}</div>
+                    <div style="font-size: 8px; opacity: 0.9; margin: 0;">${schoolAddress}</div>
+                </div>
+                <div style="font-size: 9px; line-height: 1.4;">
+                    <div style="margin-bottom: 8px;"><strong>Terms & Conditions:</strong></div>
+                    <div style="font-size: 8px;">This card is property of ${schoolName}. It must be carried at all times while on school premises.</div>
+                    <div style="margin-top: 15px; font-size: 8px; opacity: 0.8;">Lost cards should be reported immediately to the administration office.</div>
+                </div>
+                <div style="position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 8px; opacity: 0.7;">
+                    ${schoolPhone} | ${schoolEmail}
+                </div>
+            </div>
+        `;
+
+        return { front: frontHTML, back: backHTML };
+    },
+
+    renderCardPreview: function(data) {
+        const student = data.student || {};
+        const school = data.school_settings || data.school_profile || {};
+        const appBase = window.APP_BASE || "";
+        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
+        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
+        const fullName = this.getFullName(student);
+        const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
+        const cardNumber = student.card_number || "Not generated";
+        const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
+        const expiryYear = student.expiry_year || "—";
+        const schoolName = school.school_name || "Kingsway Preparatory Academy";
+        const schoolAddress = school.school_address || "Londiani, Kenya";
+        const schoolPhone = school.school_phone || "";
+        const schoolEmail = school.school_email || "";
+        const schoolMotto = school.school_motto || "Education for Excellence";
+        const headteacher = school.headteacher_name || "Headteacher";
+
+        this.dom.cardFrontPreview.innerHTML = `
+            <div class="id-card-preview-front">
+                <div class="id-card-header">
+                    <img src="${this.escapeAttr(logo)}" class="id-card-logo" alt="School Logo">
+                    <div>
+                        <div class="id-card-school-name">${this.escapeHtml(schoolName)}</div>
+                        <div class="id-card-school-meta">${this.escapeHtml(schoolAddress)}</div>
+                    </div>
+                </div>
+                <div class="id-card-title-strip">Student Identity Card</div>
+                <div class="id-card-front-body">
+                    <div class="id-card-photo-wrap">
+                        <img src="${this.escapeAttr(photo)}" class="id-card-photo" alt="Student Photo">
+                    </div>
+                    <div>
+                        <div class="id-card-name">${this.escapeHtml(fullName)}</div>
+                        <div class="id-card-detail-grid">
+                            <span class="id-card-detail-label">Adm No</span>
+                            <span class="id-card-detail-value">${this.escapeHtml(student.admission_no || "—")}</span>
+                            <span class="id-card-detail-label">Gender</span>
+                            <span class="id-card-detail-value">${this.escapeHtml(student.gender || "—")}</span>
+                            <span class="id-card-detail-label">Acad. Year</span>
+                            <span class="id-card-detail-value">${this.escapeHtml(student.academic_year || "—")}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="id-card-footer-strip">
+                    <span>${this.escapeHtml(schoolMotto)}</span>
+                    <span>${this.escapeHtml(schoolPhone || schoolEmail || "Official School ID")}</span>
+                </div>
+            </div>
+        `;
+
+        this.dom.cardBackPreview.innerHTML = `
+            <div class="id-card-preview-back">
+                <div class="id-card-back-qr-panel">
+                    ${qrCodePath ? `<img src="${this.escapeAttr(qrCodePath)}" class="id-card-qr" alt="QR Code">` : '<div class="id-card-qr-placeholder">Generate QR</div>'}
+                    <div class="text-center fw-bold text-success">Scan to verify</div>
+                </div>
+                <div>
+                    <div class="id-card-back-title">Card Details</div>
+                    <div class="id-card-back-detail"><span>Card No</span><span>${this.escapeHtml(cardNumber)}</span></div>
+                    <div class="id-card-back-detail"><span>Issued</span><span>${this.escapeHtml(issueDate)}</span></div>
+                    <div class="id-card-back-detail"><span>Expires</span><span>${this.escapeHtml(String(expiryYear))}</span></div>
+                    <div class="id-card-back-detail"><span>Phone</span><span>${this.escapeHtml(schoolPhone || "—")}</span></div>
+                    <div class="id-card-back-detail"><span>Email</span><span>${this.escapeHtml(schoolEmail || "—")}</span></div>
+                    <div class="id-card-back-detail"><span>Address</span><span>${this.escapeHtml(schoolAddress)}</span></div>
+                    <div class="id-card-footer">
+                        This card remains the property of ${this.escapeHtml(schoolName)}. If found, please return it to the school office.<br>
+                        Authorized by: ${this.escapeHtml(headteacher)}
+                    </div>
+                </div>
+            </div>
+        `;
+    },
+
+    resolveAssetUrl: function(path, fallback = "") {
+        if (!path) return fallback;
+
+        const value = String(path).trim();
+        if (/^data:image\//i.test(value)) return value;
+        if (/^https?:\/\//i.test(value) || value.startsWith("//")) return value;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return fallback;
+
+        const appBase = window.APP_BASE || "";
+        return `${appBase}/${value.replace(/^\/+/, "")}`;
+    },
+
+    formatDisplayDate: function(value) {
+        if (!value) return "—";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
+    },
+
+    printSingleCard: async function() {
+        // Print the currently displayed card by fetching server-rendered HTML.
+        if (!this.currentPreviewStudentId) {
+            this.notify("warning", "No card preview available");
+            return;
+        }
+
+        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
+        const side = document.getElementById('printSideSelect')?.value || 'both';
+        await this.openServerPrintHtml(
+            '/students/id-card/print-single',
+            {
+                student_id: this.currentPreviewStudentId,
+                side: side,
+                print_mode: printMode
+            },
+            `ID Card - ${this.currentPreviewStudentId}`
+        );
+    },
+
+    downloadSingleCard: async function() {
+        // Generate a single-card PDF via the bulk endpoint (single ID) and open it.
+        if (!this.currentPreviewStudentId) {
+            this.notify("warning", "No card preview available");
+            return;
+        }
+
+        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
+        const side = document.getElementById('printSideSelect')?.value || 'both';
+        const includeFront = side === 'both' || side === 'front';
+        const includeBack = side === 'both' || side === 'back';
+
+        try {
+            this.notify("info", "Generating single card PDF...");
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: [this.currentPreviewStudentId],
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+            const data = this.unwrapPayload(response);
+            if (data && data.pdf_url) {
+                window.open(data.pdf_url, '_blank');
+                this.notify("success", "Single card PDF ready");
+            } else {
+                this.notify("error", response.message || "Failed to generate PDF");
+            }
+        } catch (error) {
+            console.error('Failed to download single card:', error);
+            this.notify("error", error.message || "Failed to generate PDF");
+        }
+    },
+
+    printSelected: async function() {
+        // Collect selected students and produce ONE combined A4/PDF sheet via
+        // the server renderer (front | back per row, table layout, QR as data URI).
+        const selectedStudentIds = Array.from(this.selectedStudents);
+        if (selectedStudentIds.length === 0) {
+            this.notify("warning", "Please select students first");
+            return;
+        }
+
+        const includeFront = document.getElementById('bulkIncludeFront')?.checked ?? true;
+        const includeBack = document.getElementById('bulkIncludeBack')?.checked ?? true;
+        const printMode = document.getElementById('bulkPrintMode')?.value || 'a4_sheet';
+
+        if (!includeFront && !includeBack) {
+            this.notify("warning", "Please select at least one card side");
+            return;
+        }
+
+        try {
+            this.notify("info", `Generating print file for ${selectedStudentIds.length} student(s)...`);
+
+            // Direct-card mode: each card is a separate CR80 page. Fetch the
+            // server-rendered HTML once per student would be heavy; instead the
+            // bulk PDF endpoint already supports direct_card. Use it.
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: selectedStudentIds,
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+
+            const data = this.unwrapPayload(response);
+            if (data && data.pdf_url) {
+                window.open(data.pdf_url, '_blank');
+                this.notify("success", `Print file ready for ${data.student_count} student(s)`);
+            } else {
+                this.notify("error", response.message || "Failed to generate print file");
+            }
+        } catch (error) {
+            console.error('Failed to print selected:', error);
+            this.notify("error", error.message || "Failed to generate print file");
+        }
+    },
+
+    /**
+     * Open server-rendered print HTML in a dedicated print window and trigger
+     * the browser/system print dialog. The OS printer driver handles the job,
+     * including any installed ID-card printer selected by the user.
+     */
+    openServerPrintHtml: async function(endpoint, body, docTitle) {
+        try {
+            this.notify("info", "Preparing print-ready card...");
+            const response = await this.apiCall(endpoint, 'POST', body);
+            const data = this.unwrapPayload(response);
+
+            if (!data || !data.html) {
+                this.notify("error", response.message || "Failed to generate print card");
+                return;
+            }
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                this.notify("warning", "Please allow popups to print ID cards");
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(data.html);
+            printWindow.document.close();
+            printWindow.document.title = docTitle || 'ID Card';
+
+            printWindow.onload = function () {
+                setTimeout(() => printWindow.print(), 300);
+            };
+        } catch (error) {
+            console.error('Failed to open print HTML:', error);
+            this.notify("error", error.message || "Failed to open print view");
+        }
+    },
+
+    exportData: function() {
+        if (!this.students.length) {
+            this.notify("warning", "No data to export");
+            return;
+        }
+
+        const columns = [
+            { key: 'admission_no', label: 'Admission No' },
+            { key: 'full_name', label: 'Name' },
+            { key: 'class_name', label: 'Class' },
+            { key: 'stream_name', label: 'Stream' },
+            { key: 'gender', label: 'Gender' },
+            { key: 'card_number', label: 'Card Number' },
+            { key: 'card_status', label: 'Status' },
+            { key: 'issue_date', label: 'Issue Date' },
+            { key: 'expiry_year', label: 'Expiry Year' }
+        ];
+
+        window.PrintManager.exportToCSV({
+            columns: columns,
+            rows: this.students,
+            filename: 'student_id_cards'
+        });
+    },
+
+    showGenerateModal: function() {
+        // Populate academic years and show modal
+        this.populateSelect(document.getElementById('generateAcademicYear'), this.metadata.academicYears, "Select Year");
+        document.getElementById('generateIssueDate').value = new Date().toISOString().split('T')[0];
+        document.getElementById('generateExpiryYear').value = new Date().getFullYear() + 2;
+
+        if (typeof bootstrap !== "undefined" && this.dom.generateModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.generateModal);
+            if (modal) modal.show();
+        }
+    },
+
+    showRenewModal: function() {
+        if (typeof bootstrap !== "undefined" && this.dom.renewModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.renewModal);
+            if (modal) modal.show();
+        }
+    },
+
+    showReplaceModal: function() {
+        if (typeof bootstrap !== "undefined" && this.dom.replaceModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.replaceModal);
+            if (modal) modal.show();
+        }
+    },
+
+    showIssueModal: function() {
+        if (typeof bootstrap !== "undefined" && this.dom.issueModal) {
+            const modal = bootstrap.Modal.getInstance(this.dom.issueModal);
+            if (modal) modal.show();
+        }
+    },
+
+    ensureStudentQrCode: async function(studentId) {
+        if (!studentId) return null;
+
+        const response = await this.apiCall('/students/qr-code-generate-enhanced', 'POST', { student_id: studentId });
+        const payload = this.unwrapPayload(response);
+        return payload.data || payload;
+    },
+
+    generateQRCode: async function() {
+        if (!this.currentPreviewStudentId) {
+            this.notify("error", "Open a student ID preview before generating a QR code");
+            return;
+        }
+
+        try {
+            const qrResult = await this.ensureStudentQrCode(this.currentPreviewStudentId);
+            this.notify("success", "Student QR code generated successfully");
+            await this.previewCard(this.currentPreviewStudentId);
+        } catch (error) {
+            console.error('Failed to generate QR code:', error);
+            this.notify("error", error.message || "Failed to generate student QR code");
+        }
+    },
+
+    markPrinted: async function() {
+        this.notify("info", "Mark printed endpoint - to be implemented");
+    },
+
+    markIssued: async function(formData) {
+        const cardId = document.getElementById('issueCardId').value;
+        if (!cardId) {
+            this.notify("error", "No card ID found");
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/students/id-card-mark-issued/${cardId}`, 'POST', {});
+            this.notify("success", "Card marked as issued");
+
+            if (typeof bootstrap !== "undefined" && this.dom.issueModal) {
+                const modal = bootstrap.Modal.getInstance(this.dom.issueModal);
+                if (modal) modal.hide();
+            }
+
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to mark issued:', error);
+            this.notify("error", error.message || "Failed to mark card as issued");
+        }
+    },
+
+    renewCard: async function(formData) {
+        const cardId = document.getElementById('renewCardId').value;
+        if (!cardId) {
+            this.notify("error", "No card ID found");
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/students/id-card-renew/${cardId}`, 'POST', {});
+            this.notify("success", "Card renewed successfully");
+
+            if (typeof bootstrap !== "undefined" && this.dom.renewModal) {
+                const modal = bootstrap.Modal.getInstance(this.dom.renewModal);
+                if (modal) modal.hide();
+            }
+
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to renew card:', error);
+            this.notify("error", error.message || "Failed to renew card");
+        }
+    },
+
+    replaceCard: async function(formData) {
+        const cardId = document.getElementById('replaceCardId').value;
+        const reason = document.getElementById('replaceReason').value;
+        if (!cardId) {
+            this.notify("error", "No card ID found");
+            return;
+        }
+
+        try {
+            const response = await this.apiCall(`/students/id-card-replace/${cardId}`, 'POST', { reason });
+            this.notify("success", "Card replaced successfully");
+
+            if (typeof bootstrap !== "undefined" && this.dom.replaceModal) {
+                const modal = bootstrap.Modal.getInstance(this.dom.replaceModal);
+                if (modal) modal.hide();
+            }
+
+            await this.loadStudents();
+        } catch (error) {
+            console.error('Failed to replace card:', error);
+            this.notify("error", error.message || "Failed to replace card");
+        }
+    },
+
+    debounce: function(fn, delay) {
+        let timer;
+        return (...args) => {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
     }
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) {
-      this.notify("Please allow popups to print the ID card.", "warning");
-      return;
-    }
-
-    printWindow.document.write(`
-      <!doctype html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Student ID Card</title>
-        <style>
-          body { margin: 0; padding: 24px; font-family: Arial, sans-serif; }
-          .id-card { margin: 0 auto; width: 3.375in; height: 2.125in; border: 1px solid #000; }
-          .id-card-header { background: #1e3a8a; color: #fff; font-size: 12px; font-weight: 700; text-align: center; padding: 8px; }
-          .id-card-body { display: flex; gap: 10px; padding: 10px; position: relative; }
-          .id-card-photo { width: 80px; height: 100px; object-fit: cover; border: 1px solid #d1d5db; }
-          .id-card-info { font-size: 10px; line-height: 1.2; }
-          .id-card-info p { margin: 2px 0; }
-          .id-card-qr { position: absolute; width: 58px; height: 58px; right: 10px; bottom: 10px; display: flex; align-items: center; justify-content: center; border: 1px solid #d1d5db; font-size: 8px; color: #6b7280; }
-        </style>
-      </head>
-      <body>${content}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
-  },
-
-  downloadIDCard: function () {
-    const studentId = this.state.currentCard?.student_id;
-    if (!studentId) {
-      this.notify("Open a student ID card preview first.", "warning");
-      return;
-    }
-
-    // Open generated HTML card (server output) when available; otherwise open preview route.
-    const url =
-      this.state.currentCard?.view_url ||
-      (window.APP_BASE || "") + `/api/students/id-card-get/${encodeURIComponent(studentId)}`;
-    window.open(url, "_blank");
-  },
-
-  generateBulkIDCards: async function () {
-    if (!this.state.permissions.canGenerateCard) {
-      this.notify("You do not have permission to generate ID cards.", "warning");
-      return;
-    }
-
-    const classId = this.ui.classFilter?.value;
-    if (!classId) {
-      this.notify("Select a class first to run class bulk generation.", "warning");
-      return;
-    }
-
-    const confirmed = window.confirm("Generate ID cards for all active students in the selected class?");
-    if (!confirmed) return;
-
-    try {
-      const response = await window.API.students.generateClassIdCards(classId);
-      const payload = this.unwrapPayload(response);
-      const data = payload?.data ?? payload ?? {};
-
-      const total = data.successful ?? data.generated ?? data.total ?? 0;
-      this.notify(payload?.message || `Generated ${total} ID cards successfully.`, "success");
-      await this.loadStudents();
-      await this.loadStatistics();
-      this.attachSelectionListeners();
-    } catch (error) {
-      console.error("Bulk ID card generation failed:", error);
-      this.notify(error.message || "Bulk ID card generation failed.", "error");
-    }
-  },
-
-  executeBulkAction: async function () {
-    const action = this.ui.bulkActionType?.value || "generate_cards";
-    const selectedOnly = !!this.ui.selectedStudentsRadio?.checked;
-
-    if (!selectedOnly) {
-      if (action === "generate_qr") {
-        await this.generateQRCodesForStudents(this.state.students.map((s) => Number(s.id)));
-      } else if (action === "generate_cards") {
-        await this.generateBulkIDCards();
-      } else {
-        this.exportIDCards();
-      }
-      return;
-    }
-
-    const ids = Array.from(this.state.selectedStudents);
-    if (!ids.length) {
-      this.notify("No students selected.", "warning");
-      return;
-    }
-
-    if (action === "generate_qr") {
-      await this.generateQRCodesForStudents(ids);
-    } else if (action === "generate_cards") {
-      await this.generateCardsForStudents(ids);
-    } else {
-      this.exportIDCards(ids);
-    }
-  },
-
-  generateQRCodesForStudents: async function (studentIds) {
-    if (!this.state.permissions.canGenerateQr) {
-      this.notify("You do not have permission to generate QR codes.", "warning");
-      return;
-    }
-
-    let success = 0;
-    for (const studentId of studentIds) {
-      try {
-        await window.API.students.generateEnhancedQrCode(studentId);
-        success += 1;
-      } catch (error) {
-        console.warn("QR generation failed for student", studentId, error);
-      }
-    }
-
-    this.notify(`Generated QR codes for ${success} of ${studentIds.length} students.`, "info");
-    await this.loadStudents();
-    await this.loadStatistics();
-    this.attachSelectionListeners();
-  },
-
-  generateCardsForStudents: async function (studentIds) {
-    if (!this.state.permissions.canGenerateCard) {
-      this.notify("You do not have permission to generate ID cards.", "warning");
-      return;
-    }
-
-    let success = 0;
-    for (const studentId of studentIds) {
-      try {
-        await window.API.students.generateIdCard(studentId);
-        success += 1;
-      } catch (error) {
-        console.warn("ID card generation failed for student", studentId, error);
-      }
-    }
-
-    this.notify(`Generated ID cards for ${success} of ${studentIds.length} students.`, "info");
-    await this.loadStudents();
-    await this.loadStatistics();
-    this.attachSelectionListeners();
-  },
-
-  exportIDCards: function (limitIds = null) {
-    if (!this.state.permissions.canExport) {
-      this.notify("You do not have permission to export ID card data.", "warning");
-      return;
-    }
-
-    const whitelist = Array.isArray(limitIds) && limitIds.length ? new Set(limitIds.map(Number)) : null;
-    const rows = this.state.students
-      .filter((student) => (whitelist ? whitelist.has(Number(student.id)) : true))
-      .map((student) => ({
-        admission_no: student.admission_no || "",
-        first_name: student.first_name || "",
-        last_name: student.last_name || "",
-        class_name: student.class_name || "",
-        stream_name: student.stream_name || "",
-        has_photo: this.hasValue(student.photo_url) ? "Yes" : "No",
-        has_qr_code: this.hasValue(student.qr_code_path) ? "Yes" : "No",
-      }));
-
-    if (!rows.length) {
-      this.notify("No student rows available for export.", "warning");
-      return;
-    }
-
-    const headers = Object.keys(rows[0]);
-    const csvLines = [headers.join(",")];
-    rows.forEach((row) => {
-      csvLines.push(
-        headers
-          .map((header) => {
-            const value = String(row[header] ?? "");
-            return `"${value.replace(/"/g, '""')}"`;
-          })
-          .join(","),
-      );
-    });
-
-    const csv = csvLines.join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `student_id_cards_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  },
-
-  resetFilters: async function () {
-    this.setValue(this.ui.searchInput, "");
-    this.setValue(this.ui.classFilter, "");
-    if (this.ui.streamFilter) {
-      this.ui.streamFilter.innerHTML = '<option value="">All Streams</option>';
-    }
-
-    this.state.selectedStudents.clear();
-    await this.loadStudents();
-    await this.loadStatistics();
-    this.attachSelectionListeners();
-  },
-
-  getStudentName: function (student) {
-    return `${student.first_name || ""} ${student.last_name || ""}`.trim() || "Unnamed Student";
-  },
-
-  hasValue: function (value) {
-    return value !== null && value !== undefined && String(value).trim() !== "";
-  },
-
-  unwrapPayload: function (response) {
-    // Common response shapes in this codebase:
-    // 1) {status,data,...}
-    // 2) {data:{status,data,...}}
-    // 3) {success,data,...}
-    if (!response) return null;
-    if (response.data && typeof response.data === "object" && "status" in response.data) {
-      return response.data;
-    }
-    if (typeof response === "object" && ("status" in response || "success" in response)) {
-      return response;
-    }
-    if (response.data && typeof response.data === "object") {
-      return response.data;
-    }
-    return response;
-  },
-
-  unwrapList: function (response) {
-    const payload = this.unwrapPayload(response);
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.data)) return payload.data;
-    if (Array.isArray(payload?.students)) return payload.students;
-    if (Array.isArray(payload?.classes)) return payload.classes;
-    if (Array.isArray(payload?.streams)) return payload.streams;
-    if (Array.isArray(payload?.items)) return payload.items;
-    return [];
-  },
-
-  normalizeAssetPath: function (path) {
-    const value = String(path || "").trim();
-    if (!value) return "";
-    if (/^(https?:)?\/\//i.test(value) || value.startsWith("data:")) return value;
-    if (value.startsWith(window.APP_BASE + '/')) return value;
-    if (value.startsWith("/")) return `${window.APP_BASE || ''}${value}`;
-    return (window.APP_BASE || "") + `/${value.replace(/^\/+/, "")}`;
-  },
-
-  getAvatarUrl: function (student) {
-    const normalized = this.normalizeAssetPath(student.photo_url || "");
-    if (normalized) return normalized;
-    return this.makeAvatarDataUri(this.getStudentName(student));
-  },
-
-  makeAvatarDataUri: function (name) {
-    const initials = String(name || "?")
-      .split(" ")
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part.charAt(0).toUpperCase())
-      .join("");
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
-        <rect width="160" height="200" fill="#e2e8f0" />
-        <circle cx="80" cy="70" r="28" fill="#94a3b8" />
-        <rect x="40" y="115" width="80" height="52" rx="12" fill="#94a3b8" />
-        <text x="80" y="192" text-anchor="middle" font-family="Arial, sans-serif" font-size="20" fill="#334155">${initials || "ST"}</text>
-      </svg>
-    `;
-    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
-  },
-
-  escapeHtml: function (value) {
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
-  },
-
-  setText: function (element, value) {
-    if (element) {
-      element.textContent = String(value ?? "");
-    }
-  },
-
-  setValue: function (element, value) {
-    if (element) {
-      element.value = value ?? "";
-    }
-  },
-
-  notify: function (message, type = "info") {
-    if (typeof window.showNotification === "function") {
-      window.showNotification(message, type);
-      return;
-    }
-    // Fallback for pages where notification modal is not loaded
-    window.alert(`${String(type).toUpperCase()}: ${message}`);
-  },
 };
 
-// Global wrappers for inline HTML handlers in pages/student_id_cards.php
-window.loadStudents = () => StudentIdCardsController.loadStudents();
-window.loadStreams = () => StudentIdCardsController.loadStreams();
-window.resetFilters = () => StudentIdCardsController.resetFilters();
-window.openUploadModal = (id, name) => StudentIdCardsController.openUploadModal(id, name);
-window.previewPhoto = (input) => StudentIdCardsController.previewPhoto(input);
-window.uploadPhoto = () => StudentIdCardsController.uploadPhoto();
-window.generateQRCode = (studentId) => StudentIdCardsController.generateQRCode(studentId);
-window.generateIDCard = (studentId) => StudentIdCardsController.generateIDCard(studentId);
-window.viewIDCard = (studentId) => StudentIdCardsController.viewIDCard(studentId);
-window.printIDCard = () => StudentIdCardsController.printIDCard();
-window.downloadIDCard = () => StudentIdCardsController.downloadIDCard();
-window.generateBulkIDCards = () => StudentIdCardsController.generateBulkIDCards();
-window.exportIDCards = () => StudentIdCardsController.exportIDCards();
-window.executeBulkAction = () => StudentIdCardsController.executeBulkAction();
+window.StudentIdCardsController = StudentIdCardsController;
 
-document.addEventListener("DOMContentLoaded", async () => {
-  await StudentIdCardsController.init();
-  StudentIdCardsController.attachSelectionListeners();
+function initWhenAPIReady() {
+    const hasApi =
+        window.API &&
+        (
+            typeof window.API.callAPI === "function" ||
+            typeof window.API.apiCall === "function"
+        );
+
+    if (hasApi) {
+        console.log("API is ready, initializing student ID cards controller");
+        window.StudentIdCardsController.init();
+        return;
+    }
+
+    console.log("API not ready yet, waiting...");
+    setTimeout(initWhenAPIReady, 100);
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+    console.log("DOM loaded, waiting for API to be ready");
+    initWhenAPIReady();
 });

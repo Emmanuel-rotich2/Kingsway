@@ -1,517 +1,652 @@
 /**
  * Special Needs Page Controller
  * Manages special education records and IEP workflow using api.js
+ * Boarding role aware - shows boarding-relevant support needs for Boarding Master/Matron
  */
-
-const SpecialNeedsController = (() => {
-  // Private state
-  const state = {
-    records: [],
-    students: [],
+const SpecialNeedsController = {
+  state: {
+    ieps: [],
+    academicYears: [],
     classes: [],
-    pagination: { page: 1, limit: 10, total: 0 },
-    summary: { total: 0, with_iep: 0, under_review: 0, support_active: 0 },
-    currentViewId: null,
-  };
+    streams: [],
+    dormitories: [],
+    selectedIepId: null,
+    isBoardingRole: false,
+  },
 
-  const filters = {
-    class_id: "",
-    category: "",
-    status: "",
-    search: "",
-  };
+  ui: {},
 
-  let searchTimeout = null;
+  async init() {
+    console.log("SpecialNeedsController: Initializing...");
 
-  // ---- Helpers ----
-
-  function unwrapPayload(response) {
-    if (!response) return response;
-    if (response.status && response.data !== undefined) return response.data;
-    if (response.data && response.data.data !== undefined)
-      return response.data.data;
-    return response;
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  }
-
-  function showSuccess(message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "success");
-    } else {
-      alert(message);
-    }
-  }
-
-  function showError(message) {
-    if (window.API && window.API.showNotification) {
-      window.API.showNotification(message, "error");
-    } else {
-      alert("Error: " + message);
-    }
-  }
-
-  function statusBadge(status) {
-    const map = {
-      active: "success",
-      under_review: "warning",
-      pending: "info",
-      graduated: "secondary",
-    };
-    return map[status] || "secondary";
-  }
-
-  function formatStatus(status) {
-    const map = {
-      active: "Active IEP",
-      under_review: "Under Review",
-      pending: "Pending Assessment",
-      graduated: "Graduated/Exited",
-    };
-    return map[status] || status || "-";
-  }
-
-  function formatCategory(category) {
-    const map = {
-      learning_disability: "Learning Disability",
-      physical_disability: "Physical Disability",
-      visual_impairment: "Visual Impairment",
-      hearing_impairment: "Hearing Impairment",
-      speech_disorder: "Speech Disorder",
-      autism: "Autism Spectrum",
-      adhd: "ADHD",
-      emotional_behavioral: "Emotional/Behavioral",
-      gifted: "Gifted & Talented",
-      other: "Other",
-    };
-    return map[category] || category || "-";
-  }
-
-  // ---- Data Loading ----
-
-  async function loadReferenceData() {
-    try {
-      const classResp = await window.API.academic.listClasses();
-      const classPayload = unwrapPayload(classResp);
-      state.classes = Array.isArray(classPayload) ? classPayload : [];
-      populateClassFilter();
-    } catch (error) {
-      console.warn("Failed to load classes", error);
-    }
-
-    try {
-      const studentResp = await window.API.apiCall(
-        "/students?limit=500",
-        "GET",
-      );
-      const payload = unwrapPayload(studentResp);
-      const students = payload?.students || payload || [];
-      state.students = Array.isArray(students) ? students : [];
-      populateStudentDropdown();
-    } catch (error) {
-      console.warn("Failed to load students", error);
-    }
-  }
-
-  function populateClassFilter() {
-    const select = document.getElementById("classFilter");
-    if (!select) return;
-
-    state.classes.forEach((cls) => {
-      const opt = document.createElement("option");
-      opt.value = cls.id;
-      opt.textContent = cls.name || cls.class_name;
-      select.appendChild(opt);
-    });
-  }
-
-  function populateStudentDropdown() {
-    const select = document.getElementById("recordStudent");
-    if (!select) return;
-
-    state.students.forEach((student) => {
-      const opt = document.createElement("option");
-      opt.value = student.id;
-      opt.textContent =
-        `${student.admission_no || ""} - ${student.first_name || ""} ${student.last_name || ""}`.trim();
-      select.appendChild(opt);
-    });
-  }
-
-  async function loadData(page = 1) {
-    try {
-      state.pagination.page = page;
-
-      const params = new URLSearchParams({
-        page,
-        limit: state.pagination.limit,
-      });
-
-      if (filters.class_id) params.append("class_id", filters.class_id);
-      if (filters.category) params.append("category", filters.category);
-      if (filters.status) params.append("status", filters.status);
-      if (filters.search) params.append("search", filters.search);
-
-      const resp = await window.API.apiCall(
-        `/students/special-needs?${params.toString()}`,
-        "GET",
-      );
-
-      const payload = unwrapPayload(resp) || {};
-      state.records = payload.records || payload.data || [];
-      if (!Array.isArray(state.records)) state.records = [];
-
-      state.pagination = payload.pagination || state.pagination;
-      state.summary = payload.summary || computeSummary(state.records);
-
-      renderSummary();
-      renderTable();
-      renderPagination();
-    } catch (error) {
-      console.error("Error loading special needs records:", error);
-      showError("Failed to load special needs records");
-    }
-  }
-
-  function computeSummary(records) {
-    return {
-      total: records.length,
-      with_iep: records.filter((r) => r.iep_status === "active").length,
-      under_review: records.filter((r) => r.iep_status === "under_review")
-        .length,
-      support_active: records.filter(
-        (r) => r.iep_status === "active" || r.iep_status === "under_review",
-      ).length,
-    };
-  }
-
-  // ---- Rendering ----
-
-  function renderSummary() {
-    const el = (id, val) => {
-      const e = document.getElementById(id);
-      if (e) e.textContent = val;
-    };
-    el("totalSNStudents", state.summary.total || 0);
-    el("withIEP", state.summary.with_iep || 0);
-    el("underReview", state.summary.under_review || 0);
-    el("supportActive", state.summary.support_active || 0);
-  }
-
-  function renderTable() {
-    const tbody = document.querySelector("#specialNeedsTable tbody");
-    if (!tbody) return;
-
-    if (!state.records.length) {
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="7" class="text-center text-muted py-4">No special needs records found</td>
-        </tr>`;
-      return;
-    }
-
-    tbody.innerHTML = state.records
-      .map((r) => {
-        const studentName =
-          `${r.first_name || ""} ${r.last_name || ""}`.trim() ||
-          r.student_name ||
-          "-";
-        const className = r.class_name || "-";
-        const category = formatCategory(r.category);
-        const iepStatus = r.iep_status || "pending";
-        const supportPlan = r.support_plan || "-";
-        const lastReview = r.last_review_date || r.updated_at || "-";
-
-        return `
-          <tr>
-            <td>${escapeHtml(studentName)}</td>
-            <td>${escapeHtml(className)}</td>
-            <td>${escapeHtml(category)}</td>
-            <td><span class="badge bg-${statusBadge(iepStatus)}">${formatStatus(iepStatus)}</span></td>
-            <td>${escapeHtml(supportPlan.length > 60 ? supportPlan.substring(0, 60) + "..." : supportPlan)}</td>
-            <td>${escapeHtml(lastReview)}</td>
-            <td>
-              <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-info" onclick="SpecialNeedsController.viewRecord(${r.id})" title="View">
-                  <i class="bi bi-eye"></i>
-                </button>
-                <button class="btn btn-outline-primary" onclick="SpecialNeedsController.editRecord(${r.id})" title="Edit">
-                  <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-outline-danger" onclick="SpecialNeedsController.deleteRecord(${r.id})" title="Delete">
-                  <i class="bi bi-trash"></i>
-                </button>
-              </div>
-            </td>
-          </tr>`;
-      })
-      .join("");
-  }
-
-  function renderPagination() {
-    const container = document.getElementById("pagination");
-    if (!container) return;
-
-    const { page, total, limit } = state.pagination;
-    const totalPages = Math.ceil(total / limit) || 1;
-
-    let html = "";
-    for (let i = 1; i <= totalPages; i++) {
-      html += `
-        <li class="page-item ${i === page ? "active" : ""}">
-          <a class="page-link" href="#" onclick="SpecialNeedsController.loadPage(${i}); return false;">${i}</a>
-        </li>`;
-    }
-    container.innerHTML = html;
-  }
-
-  // ---- CRUD Actions ----
-
-  function openRecordModal(recordId = null) {
-    const modalEl = document.getElementById("snRecordModal");
-    const form = document.getElementById("snRecordForm");
-    if (!modalEl || !form) return;
-
-    form.reset();
-    document.getElementById("recordId").value = "";
-    document.getElementById("snRecordModalTitle").textContent =
-      "Add Special Needs Record";
-
-    if (recordId) {
-      const record = state.records.find((r) => r.id == recordId);
-      if (record) {
-        document.getElementById("recordId").value = record.id;
-        document.getElementById("snRecordModalTitle").textContent =
-          "Edit Special Needs Record";
-        document.getElementById("recordStudent").value =
-          record.student_id || "";
-        document.getElementById("recordCategory").value = record.category || "";
-        document.getElementById("recordDiagnosis").value =
-          record.diagnosis || "";
-        document.getElementById("recordIEPStatus").value =
-          record.iep_status || "pending";
-        document.getElementById("recordReviewDate").value =
-          record.next_review_date || "";
-        document.getElementById("recordSupportPlan").value =
-          record.support_plan || "";
-        document.getElementById("recordGoals").value = record.goals || "";
-        document.getElementById("recordParentNotes").value =
-          record.parent_notes || "";
-      }
-    }
-
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
-  }
-
-  async function saveRecord() {
-    const recordId = document.getElementById("recordId").value;
-
-    const payload = {
-      student_id: document.getElementById("recordStudent").value,
-      category: document.getElementById("recordCategory").value,
-      diagnosis: document.getElementById("recordDiagnosis").value,
-      iep_status: document.getElementById("recordIEPStatus").value,
-      next_review_date: document.getElementById("recordReviewDate").value,
-      support_plan: document.getElementById("recordSupportPlan").value,
-      goals: document.getElementById("recordGoals").value,
-      parent_notes: document.getElementById("recordParentNotes").value,
-    };
-
-    if (
-      !payload.student_id ||
-      !payload.category ||
-      !payload.diagnosis ||
-      !payload.support_plan
-    ) {
-      showError("Please fill in all required fields");
-      return;
-    }
-
-    try {
-      if (recordId) {
-        await window.API.apiCall(
-          `/students/special-needs/${recordId}`,
-          "PUT",
-          payload,
-        );
-        showSuccess("Record updated successfully");
-      } else {
-        await window.API.apiCall("/students/special-needs", "POST", payload);
-        showSuccess("Record created successfully");
-      }
-
-      bootstrap.Modal.getInstance(
-        document.getElementById("snRecordModal"),
-      ).hide();
-      await loadData(state.pagination.page);
-    } catch (error) {
-      console.error("Error saving record:", error);
-      showError(error.message || "Failed to save record");
-    }
-  }
-
-  function viewRecord(recordId) {
-    const record = state.records.find((r) => r.id == recordId);
-    if (!record) return;
-
-    state.currentViewId = recordId;
-
-    const el = (id, val) => {
-      const e = document.getElementById(id);
-      if (e) e.textContent = val;
-    };
-
-    const studentName =
-      `${record.first_name || ""} ${record.last_name || ""}`.trim() ||
-      record.student_name ||
-      "-";
-
-    el("viewSNStudent", studentName);
-    el("viewSNClass", record.class_name || "-");
-    el("viewSNCategory", formatCategory(record.category));
-
-    const iepStatusEl = document.getElementById("viewSNIEPStatus");
-    if (iepStatusEl) {
-      iepStatusEl.innerHTML = `<span class="badge bg-${statusBadge(record.iep_status)}">${formatStatus(record.iep_status)}</span>`;
-    }
-
-    el("viewSNLastReview", record.last_review_date || record.updated_at || "-");
-    el("viewSNNextReview", record.next_review_date || "-");
-    el("viewSNDiagnosis", record.diagnosis || "No diagnosis recorded");
-    el("viewSNSupportPlan", record.support_plan || "No support plan");
-    el("viewSNGoals", record.goals || "No goals set");
-
-    const modal = new bootstrap.Modal(
-      document.getElementById("viewRecordModal"),
-    );
-    modal.show();
-  }
-
-  async function deleteRecord(recordId) {
-    if (!confirm("Are you sure you want to delete this special needs record?"))
-      return;
-
-    try {
-      await window.API.apiCall(`/students/special-needs/${recordId}`, "DELETE");
-      showSuccess("Record deleted successfully");
-      await loadData(state.pagination.page);
-    } catch (error) {
-      showError(error.message || "Failed to delete record");
-    }
-  }
-
-  function exportRecords() {
-    if (!state.records.length) {
-      showError("No data to export");
-      return;
-    }
-
-    const rows = ["Student,Class,Category,IEP Status,Support Plan,Last Review"];
-    state.records.forEach((r) => {
-      const name =
-        `${r.first_name || ""} ${r.last_name || ""}`.trim() ||
-        r.student_name ||
-        "";
-      rows.push(
-        `"${name}","${r.class_name || ""}","${formatCategory(r.category)}","${formatStatus(r.iep_status)}","${(r.support_plan || "").replace(/"/g, '""')}","${r.last_review_date || r.updated_at || ""}"`,
-      );
-    });
-
-    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "special_needs_records.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
-  // ---- Event Listeners ----
-
-  function attachEventListeners() {
-    document
-      .getElementById("addRecordBtn")
-      ?.addEventListener("click", () => openRecordModal());
-
-    document
-      .getElementById("saveRecordBtn")
-      ?.addEventListener("click", () => saveRecord());
-
-    document
-      .getElementById("exportRecordsBtn")
-      ?.addEventListener("click", () => exportRecords());
-
-    document
-      .getElementById("editFromViewBtn")
-      ?.addEventListener("click", () => {
-        bootstrap.Modal.getInstance(
-          document.getElementById("viewRecordModal"),
-        ).hide();
-        if (state.currentViewId) openRecordModal(state.currentViewId);
-      });
-
-    document
-      .getElementById("printRecordBtn")
-      ?.addEventListener("click", () => window.print());
-
-    // Filters
-    document.getElementById("classFilter")?.addEventListener("change", (e) => {
-      filters.class_id = e.target.value;
-      loadData(1);
-    });
-
-    document
-      .getElementById("categoryFilter")
-      ?.addEventListener("change", (e) => {
-        filters.category = e.target.value;
-        loadData(1);
-      });
-
-    document.getElementById("statusFilter")?.addEventListener("change", (e) => {
-      filters.status = e.target.value;
-      loadData(1);
-    });
-
-    document.getElementById("searchBox")?.addEventListener("keyup", (e) => {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => {
-        filters.search = e.target.value.trim();
-        loadData(1);
-      }, 300);
-    });
-  }
-
-  // ---- Initialization ----
-
-  async function init() {
-    if (!AuthContext.isAuthenticated()) {
+    if (!window.AuthContext?.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
 
-    attachEventListeners();
-    await loadReferenceData();
-    await loadData();
-  }
+    // Check if user is boarding role
+    const user = window.AuthContext?.getUser() || {};
+    this.state.isBoardingRole = ['boarding_master', 'boarding_matron', 'housemother'].includes(user.role);
 
-  // ---- Public API ----
-  return {
-    init,
-    refresh: loadData,
-    loadPage: loadData,
-    viewRecord,
-    editRecord: openRecordModal,
-    deleteRecord,
-  };
-})();
+    this.cacheDom();
+    this.attachEvents();
+
+    // Update UI for boarding role
+    if (this.state.isBoardingRole) {
+      this.updateForBoardingRole();
+    }
+
+    console.log("SpecialNeedsController: Loading metadata...");
+    await this.loadMeta();
+    console.log("SpecialNeedsController: Loading IEPs...");
+    await this.loadIEPs();
+    console.log("SpecialNeedsController: Initialization complete");
+  },
+
+  cacheDom() {
+    const $ = (id) => document.getElementById(id);
+
+    this.ui = {
+      academicYearFilter: $("academicYearFilter"),
+      classFilter: $("classFilter"),
+      streamFilter: $("streamFilter"),
+      dormitoryFilter: $("dormitoryFilter"),
+      statusFilter: $("statusFilter"),
+      searchBox: $("searchBox"),
+      applyFiltersBtn: $("applyFiltersBtn"),
+      resetFiltersBtn: $("resetFiltersBtn"),
+      exportRecordsBtn: $("exportRecordsBtn"),
+      printRecordsBtn: $("printRecordsBtn"),
+      addRecordBtn: $("addRecordBtn"),
+
+      totalIEPs: $("totalIEPs"),
+      activeIEPs: $("activeIEPs"),
+      draftIEPs: $("draftIEPs"),
+      completedIEPs: $("completedIEPs"),
+      healthRecords: $("healthRecords"),
+      archivedIEPs: $("archivedIEPs"),
+
+      iepsLoading: $("iepsLoading"),
+      iepsError: $("iepsError"),
+      iepsEmpty: $("iepsEmpty"),
+      iepsForbidden: $("iepsForbidden"),
+      iepsTableBody: $("iepsTableBody"),
+
+      modal: $("iepModal"),
+      modalIepSubtitle: $("modalIepSubtitle"),
+      modalIepId: $("modalIepId"),
+      modalLoading: $("modalLoading"),
+      modalError: $("modalError"),
+      modalIepContent: $("modalIepContent"),
+
+      studentPhoto: $("studentPhoto"),
+      studentName: $("studentName"),
+      admNo: $("admNo"),
+      studentClass: $("studentClass"),
+      stream: $("stream"),
+      iepType: $("iepType"),
+      iepCategory: $("iepCategory"),
+      academicYear: $("academicYear"),
+      statusBadge: $("statusBadge"),
+      createdDate: $("createdDate"),
+      approvedDate: $("approvedDate"),
+      goalsSummary: $("goalsSummary"),
+      strategies: $("strategies"),
+      accommodations: $("accommodations"),
+      progressMonitoring: $("progressMonitoring"),
+      printIepBtn: $("printIepBtn"),
+    };
+  },
+
+  updateForBoardingRole() {
+    // Update header for boarding role
+    const scopeSubtitle = document.getElementById('scopeSubtitle');
+    if (scopeSubtitle) {
+      scopeSubtitle.textContent = 'Boarding-relevant support needs and care instructions';
+    }
+
+    // Add dormitory filter
+    const filterRow = document.querySelector('.row.g-3.mb-4');
+    if (filterRow && !this.ui.dormitoryFilter) {
+      const dormitoryCol = document.createElement('div');
+      dormitoryCol.className = 'col-xl-3 col-md-6';
+      dormitoryCol.innerHTML = `
+        <label class="form-label fw-semibold">Dormitory</label>
+        <select class="form-select" id="dormitoryFilter">
+          <option value="">All Dormitories</option>
+        </select>
+      `;
+      filterRow.appendChild(dormitoryCol);
+      this.ui.dormitoryFilter = document.getElementById('dormitoryFilter');
+    }
+
+    // Hide add record button for boarding role
+    if (this.ui.addRecordBtn) {
+      this.ui.addRecordBtn.style.display = 'none';
+    }
+  },
+
+  attachEvents() {
+    this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadIEPs());
+    this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
+    this.ui.printRecordsBtn?.addEventListener("click", () => this.printOverviewReport());
+    this.ui.exportRecordsBtn?.addEventListener("click", () => this.exportRecords());
+
+    this.ui.searchBox?.addEventListener(
+      "input",
+      this.debounce(() => this.loadIEPs(), 400)
+    );
+
+    this.ui.classFilter?.addEventListener("change", () => {
+      this.updateStreamsFilter();
+      this.loadIEPs();
+    });
+
+    this.ui.streamFilter?.addEventListener("change", () => this.loadIEPs());
+    this.ui.academicYearFilter?.addEventListener("change", () => this.loadIEPs());
+    this.ui.statusFilter?.addEventListener("change", () => this.loadIEPs());
+    this.ui.dormitoryFilter?.addEventListener("change", () => this.loadIEPs());
+
+    this.ui.printIepBtn?.addEventListener("click", () => this.printIepReport());
+  },
+
+  async loadMeta() {
+    try {
+      console.log("SpecialNeedsController: Fetching special needs metadata...");
+      const response = await this.api("/students/special-needs-meta", "GET");
+      console.log("SpecialNeedsController: Metadata response:", response);
+      const data = this.unwrap(response);
+      console.log("SpecialNeedsController: Unwrapped metadata:", data);
+
+      this.state.classes = data.classes || [];
+      this.state.streams = data.streams || [];
+      this.state.academicYears = data.academic_years || [];
+      this.state.dormitories = data.dormitories || [];
+
+      console.log("SpecialNeedsController: Loaded classes:", this.state.classes.length);
+      console.log("SpecialNeedsController: Loaded streams:", this.state.streams.length);
+      console.log("SpecialNeedsController: Loaded academic years:", this.state.academicYears.length);
+      console.log("SpecialNeedsController: Loaded dormitories:", this.state.dormitories.length);
+
+      this.fillSelect(this.ui.academicYearFilter, this.state.academicYears, "All Years");
+      this.fillSelect(this.ui.classFilter, this.state.classes, "All Classes");
+      this.fillSelect(this.ui.dormitoryFilter, this.state.dormitories, "All Dormitories");
+
+      this.updateStreamsFilter();
+    } catch (error) {
+      console.error("SpecialNeedsController: Failed to load metadata:", error);
+      console.warn("SpecialNeedsController: Continuing with empty filter data");
+      this.state.classes = [];
+      this.state.streams = [];
+      this.state.academicYears = [];
+      this.state.dormitories = [];
+    }
+  },
+
+  updateStreamsFilter() {
+    const classId = this.ui.classFilter?.value || "";
+    const filtered = classId
+      ? this.state.streams.filter((s) => String(s.class_id) === String(classId))
+      : this.state.streams;
+    this.fillSelect(this.ui.streamFilter, filtered, "All Streams");
+  },
+
+  async loadIEPs() {
+    this.setIepsLoading(true);
+
+    try {
+      const params = this.getIepParams();
+      console.log("SpecialNeedsController: Loading IEPs with params:", params.toString());
+      const response = await this.api(`/students/special-needs-ieps?${params.toString()}`, "GET");
+      console.log("SpecialNeedsController: IEPs response:", response);
+      const ieps = this.unwrap(response) || [];
+      console.log("SpecialNeedsController: Unwrapped IEPs:", ieps.length);
+
+      this.state.ieps = ieps;
+      this.renderIEPs();
+    } catch (error) {
+      console.error("SpecialNeedsController: Failed to load IEPs:", error);
+      this.showIepsError(error.message || "Failed to load special needs records.");
+    } finally {
+      this.setIepsLoading(false);
+    }
+  },
+
+  getIepParams() {
+    const params = new URLSearchParams();
+    const filters = {
+      academic_year: this.ui.academicYearFilter?.value || "",
+      class_id: this.ui.classFilter?.value || "",
+      stream_id: this.ui.streamFilter?.value || "",
+      dormitory_id: this.ui.dormitoryFilter?.value || "",
+      status: this.ui.statusFilter?.value || "",
+      search: this.ui.searchBox?.value.trim() || "",
+    };
+
+    Object.entries(filters).forEach(([key, val]) => {
+      if (val !== "") params.set(key, val);
+    });
+
+    return params;
+  },
+
+  renderIEPs() {
+    const summary = this.calculateSummary(this.state.ieps);
+    this.renderSummary(summary);
+    this.renderTable();
+
+    this.ui.iepsEmpty.classList.toggle("d-none", this.state.ieps.length > 0);
+  },
+
+  calculateSummary(ieps) {
+    return {
+      total: ieps.length,
+      active: ieps.filter(i => i.status === 'active').length,
+      draft: ieps.filter(i => i.status === 'draft').length,
+      completed: ieps.filter(i => i.status === 'completed').length,
+      archived: ieps.filter(i => i.status === 'archived').length,
+      health: 0, // Placeholder - would need separate query to student_health_records
+    };
+  },
+
+  renderSummary(summary) {
+    this.ui.totalIEPs.textContent = summary.total ?? 0;
+    this.ui.activeIEPs.textContent = summary.active ?? 0;
+    this.ui.draftIEPs.textContent = summary.draft ?? 0;
+    this.ui.completedIEPs.textContent = summary.completed ?? 0;
+    this.ui.healthRecords.textContent = summary.health ?? 0;
+    this.ui.archivedIEPs.textContent = summary.archived ?? 0;
+  },
+
+  renderTable() {
+    if (!this.state.ieps.length) {
+      this.ui.iepsTableBody.innerHTML = `
+        <tr>
+          <td colspan="${this.state.isBoardingRole ? 12 : 11}" class="text-center text-muted py-4">
+            No IEP records found.
+          </td>
+        </tr>`;
+      return;
+    }
+
+    this.ui.iepsTableBody.innerHTML = this.state.ieps
+      .map((i) => {
+        const statusColors = {
+          draft: "warning",
+          active: "success",
+          completed: "primary",
+          archived: "secondary",
+        };
+
+        return `
+          <tr>
+            <td>${i.id || "-"}</td>
+            <td><strong>${this.escape(i.full_name || i.student_name || "-")}</strong></td>
+            <td>${this.escape(i.admission_no || "-")}</td>
+            <td>${this.escape(i.class_name || "-")}</td>
+            <td>${this.escape(i.stream_name || "-")}</td>
+            ${this.state.isBoardingRole ? `<td>${this.escape(i.dormitory_name || "-")}</td>` : ''}
+            <td>${this.escape(i.iep_type || "-")}</td>
+            <td>${this.escape(i.special_needs_category || "-")}</td>
+            <td><span class="badge bg-${statusColors[i.status] || "secondary"}">${this.escape(i.status || "-")}</span></td>
+            <td>${this.escape(i.academic_year || "-")}</td>
+            <td>${this.escape(i.created_at || "-")}</td>
+            <td>
+              <button class="btn btn-sm btn-outline-info" onclick="SpecialNeedsController.viewIep(${i.id})">
+                <i class="bi bi-eye me-1"></i> View
+              </button>
+            </td>
+          </tr>`;
+      })
+      .join("");
+  },
+
+  async viewIep(iepId) {
+    if (!iepId) return;
+
+    this.state.selectedIepId = iepId;
+
+    if (typeof bootstrap !== "undefined" && this.ui.modal) {
+      const modalInstance = new bootstrap.Modal(this.ui.modal);
+      modalInstance.show();
+    }
+
+    await this.loadIepDetails(iepId);
+  },
+
+  async loadIepDetails(iepId) {
+    this.setModalLoading(true);
+
+    try {
+      const response = await this.api(`/students/special-needs-ieps/${iepId}`, "GET");
+      const data = this.unwrap(response);
+
+      this.renderIepDetails(data);
+    } catch (error) {
+      console.error("SpecialNeedsController: Failed to load IEP details:", error);
+      this.showModalError(error.message || "Failed to load IEP details.");
+    } finally {
+      this.setModalLoading(false);
+    }
+  },
+
+  renderIepDetails(data) {
+    const student = data.student || {};
+    const iep = data.iep || {};
+
+    this.ui.studentPhoto.src = student.photo_url || student.photo || `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
+    this.ui.studentName.textContent = `${student.first_name || ""} ${student.last_name || ""}`.trim() || "-";
+
+    this.ui.admNo.textContent = student.admission_no || "-";
+    this.ui.studentClass.textContent = data.class_name || "-";
+    this.ui.stream.textContent = data.stream_name || "-";
+
+    // For boarding role, add dormitory information to the student info section
+    if (this.state.isBoardingRole && data.dormitory_name) {
+      const studentInfoRow = this.ui.studentClass.parentElement.parentElement;
+      if (studentInfoRow) {
+        // Add dormitory as an additional field
+        const dormDiv = document.createElement('div');
+        dormDiv.className = 'col-md-4';
+        dormDiv.innerHTML = `<strong>Dormitory:</strong> <span>${this.escape(data.dormitory_name || "-")}</span>`;
+        studentInfoRow.appendChild(dormDiv);
+      }
+    }
+
+    this.ui.modalIepId.textContent = iep.id || "-";
+    this.ui.iepType.textContent = iep.iep_type || "-";
+    this.ui.iepCategory.textContent = iep.special_needs_category || "-";
+    this.ui.academicYear.textContent = iep.academic_year || "-";
+
+    const statusColors = { draft: "warning", active: "success", completed: "primary", archived: "secondary" };
+    this.ui.statusBadge.innerHTML = `<span class="badge bg-${statusColors[iep.status] || "secondary"}">${this.escape(iep.status || "-")}</span>`;
+
+    this.ui.createdDate.textContent = iep.created_at || "-";
+    this.ui.approvedDate.textContent = iep.approved_date || "-";
+    this.ui.goalsSummary.textContent = iep.goals_summary || "-";
+    this.ui.strategies.textContent = iep.strategies || "-";
+    this.ui.accommodations.textContent = iep.accommodations || "-";
+    this.ui.progressMonitoring.textContent = iep.progress_monitoring_plan || "-";
+  },
+
+  resetFilters() {
+    [
+      this.ui.academicYearFilter,
+      this.ui.classFilter,
+      this.ui.streamFilter,
+      this.ui.statusFilter,
+      this.ui.searchBox,
+    ].forEach((el) => {
+      if (el) el.value = "";
+    });
+
+    this.updateStreamsFilter();
+    this.loadIEPs();
+  },
+
+  exportRecords() {
+    if (!this.state.ieps.length) {
+      this.notify("No data to export", "warning");
+      return;
+    }
+
+    const columns = [
+      { key: 'id', label: 'IEP ID' },
+      { key: 'full_name', label: 'Student' },
+      { key: 'admission_no', label: 'Admission No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'iep_type', label: 'IEP Type' },
+      { key: 'special_needs_category', label: 'Category' },
+      { key: 'status', label: 'Status' },
+      { key: 'academic_year', label: 'Academic Year' },
+      { key: 'created_at', label: 'Created Date' }
+    ];
+
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: this.state.ieps,
+      filename: 'special_needs_ieps'
+    });
+  },
+
+  setIepsLoading(loading) {
+    this.ui.iepsLoading?.classList.toggle("d-none", !loading);
+    this.ui.iepsError?.classList.add("d-none");
+  },
+
+  setModalLoading(loading) {
+    this.ui.modalLoading?.classList.toggle("d-none", !loading);
+    this.ui.modalError?.classList.add("d-none");
+    this.ui.modalIepContent?.classList.toggle("opacity-50", loading);
+  },
+
+  showIepsError(message) {
+    if (!this.ui.iepsError) return;
+    this.ui.iepsError.textContent = message;
+    this.ui.iepsError.classList.remove("d-none");
+  },
+
+  showModalError(message) {
+    if (!this.ui.modalError) return;
+    this.ui.modalError.textContent = message;
+    this.ui.modalError.classList.remove("d-none");
+  },
+
+  fillSelect(select, items, placeholder) {
+    if (!select) return;
+    select.innerHTML = `<option value="">${placeholder}</option>`;
+    (items || []).forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.id ?? item.year ?? item.academic_year ?? item.value ?? "";
+      option.textContent = item.name || item.class_name || item.stream_name || item.year_name || item.year_code || item.label || option.value;
+      select.appendChild(option);
+    });
+  },
+
+  printOverviewReport() {
+    if (!this.state.ieps.length) {
+      this.notify("No data to print", "warning");
+      return;
+    }
+
+    const summary = this.calculateSummary(this.state.ieps);
+    const filters = {
+      'Academic Year': this.ui.academicYearFilter?.options[this.ui.academicYearFilter.selectedIndex]?.text || 'All',
+      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
+      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All',
+      'Status': this.ui.statusFilter?.options[this.ui.statusFilter.selectedIndex]?.text || 'All'
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'id', label: 'IEP ID' },
+      { key: 'student_name', label: 'Student' },
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'iep_type', label: 'IEP Type' },
+      { key: 'category', label: 'Category' },
+      { key: 'status', label: 'Status' },
+      { key: 'created_date', label: 'Created Date' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Special Education Records',
+      subtitle: 'Individualized Education Programs',
+      columns: columns,
+      rows: this.state.ieps,
+      summary: {
+        'Total IEPs': summary.total,
+        'Active IEPs': summary.active,
+        'Draft IEPs': summary.draft,
+        'Completed IEPs': summary.completed,
+        'Health Records': summary.health
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'SPE-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Special Needs Coordinator' },
+        { label: 'Principal' }
+      ]
+    });
+  },
+
+  printIepReport() {
+    if (!this.state.selectedIepId) {
+      this.notify("No IEP selected", "warning");
+      return;
+    }
+
+    // Extract IEP data from modal
+    const iepData = {
+      studentName: this.ui.studentName?.textContent || '-',
+      admissionNo: this.ui.admNo?.textContent || '-',
+      studentClass: this.ui.studentClass?.textContent || '-',
+      stream: this.ui.stream?.textContent || '-',
+      iepType: this.ui.iepType?.textContent || '-',
+      iepCategory: this.ui.iepCategory?.textContent || '-',
+      academicYear: this.ui.academicYear?.textContent || '-',
+      status: this.ui.statusBadge?.textContent || '-',
+      createdDate: this.ui.createdDate?.textContent || '-',
+      approvedDate: this.ui.approvedDate?.textContent || '-',
+      goalsSummary: this.ui.goalsSummary?.textContent || '-',
+      strategies: this.ui.strategies?.textContent || '-',
+      accommodations: this.ui.accommodations?.textContent || '-',
+      progressMonitoring: this.ui.progressMonitoring?.textContent || '-'
+    };
+
+    const sections = [
+      {
+        title: 'Student Information',
+        fields: [
+          { label: 'Student Name', value: iepData.studentName },
+          { label: 'Admission No', value: iepData.admissionNo },
+          { label: 'Class', value: iepData.studentClass },
+          { label: 'Stream', value: iepData.stream }
+        ]
+      },
+      {
+        title: 'IEP Details',
+        fields: [
+          { label: 'IEP Type', value: iepData.iepType },
+          { label: 'Category', value: iepData.iepCategory },
+          { label: 'Academic Year', value: iepData.academicYear },
+          { label: 'Status', value: iepData.status },
+          { label: 'Created Date', value: iepData.createdDate },
+          { label: 'Approved Date', value: iepData.approvedDate }
+        ]
+      },
+      {
+        title: 'Goals Summary',
+        content: iepData.goalsSummary
+      },
+      {
+        title: 'Strategies',
+        content: iepData.strategies
+      },
+      {
+        title: 'Accommodations',
+        content: iepData.accommodations
+      },
+      {
+        title: 'Progress Monitoring',
+        content: iepData.progressMonitoring
+      }
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Individualized Education Program',
+      subtitle: 'IEP #' + this.state.selectedIepId,
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'IEP-' + this.state.selectedIepId,
+      signatureSection: [
+        { label: 'Special Needs Coordinator' },
+        { label: 'Principal' },
+        { label: 'Parent/Guardian' }
+      ]
+    });
+  },
+
+  api: async function (endpoint, method = "GET", data = null) {
+    if (window.API && typeof window.API.apiCall === "function") {
+      return window.API.apiCall(endpoint, method, data);
+    }
+
+    const base = window.APP_BASE || "";
+    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+    const options = { method, headers: {} };
+
+    if (data) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, options);
+    const json = await response.json().catch(() => ({}));
+
+    if (!response.ok || json.success === false) {
+      throw new Error(json.message || json.error || "Request failed.");
+    }
+
+    return json;
+  },
+
+  unwrap(response) {
+    if (!response) return {};
+    if (response.data && response.data.data !== undefined)
+      return response.data.data;
+    if (response.data !== undefined) return response.data;
+    return response;
+  },
+
+  escape(value) {
+    return String(value ?? "").replace(
+      /[&<>"']/g,
+      (char) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        })[char]
+    );
+  },
+
+  debounce(fn, delay) {
+    let timer;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn.apply(this, args), delay);
+    };
+  },
+
+  notify(message, type = "info") {
+    if (typeof showNotification === "function") {
+      showNotification(message, type);
+      return;
+    }
+
+    if (window.API && typeof window.API.showNotification === "function") {
+      window.API.showNotification(message, type);
+      return;
+    }
+
+    alert(message);
+  },
+};
 
 document.addEventListener("DOMContentLoaded", () =>
   SpecialNeedsController.init(),

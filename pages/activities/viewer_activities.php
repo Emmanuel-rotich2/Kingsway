@@ -19,7 +19,7 @@
     <!-- Header -->
     <header class="viewer-header">
         <div class="logo-title">
-            <img src="/images/logo.png" alt="Kingsway">
+            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
             <span>Kingsway Academy</span>
         </div>
         <h1 class="page-title">Activities</h1>

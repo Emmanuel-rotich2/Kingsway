@@ -3,6 +3,8 @@ namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
+use App\API\Services\IDCardTemplateRenderer;
+use App\API\Services\PrintService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -16,49 +18,25 @@ use function App\API\Includes\formatResponse;
  * - Personal details (name, admission no)
  * - Academic info (year joined, expected graduation)
  * - School branding
+ * - Bulk PDF generation with A4 layout
  */
 class StudentIDCardGenerator extends BaseAPI
 {
     private $uploadsPath;
     private $qrCodesPath;
     private $templatesPath;
+    private $renderer;
+    private $printService;
 
     public function __construct()
     {
         parent::__construct('student_id_cards');
-        $this->uploadsPath = $this->resolveWritablePath(__DIR__ . '/../../../images/students/', 'students');
-        $this->qrCodesPath = $this->resolveWritablePath(__DIR__ . '/../../../images/qr_codes/', 'qr_codes');
-        $this->templatesPath = $this->resolveWritablePath(__DIR__ . '/../../../templates/id_cards/', 'id_cards_templates');
-    }
-
-    /**
-     * Resolve a writable directory path without emitting PHP warnings.
-     */
-    private function resolveWritablePath(string $preferredPath, string $fallbackSuffix): string
-    {
-        $normalized = rtrim($preferredPath, '/\\') . DIRECTORY_SEPARATOR;
-
-        if (!is_dir($normalized)) {
-            @mkdir($normalized, 0755, true);
-        }
-
-        if (is_dir($normalized) && is_writable($normalized)) {
-            return $normalized;
-        }
-
-        $fallback = rtrim(sys_get_temp_dir(), '/\\') . DIRECTORY_SEPARATOR .
-            'kingsway' . DIRECTORY_SEPARATOR . $fallbackSuffix . DIRECTORY_SEPARATOR;
-
-        if (!is_dir($fallback)) {
-            @mkdir($fallback, 0755, true);
-        }
-
-        if (is_dir($fallback) && is_writable($fallback)) {
-            return $fallback;
-        }
-
-        error_log("StudentIDCardGenerator: no writable directory for {$preferredPath}");
-        return $normalized;
+        // Use Config constants for paths - environment-aware
+        $this->uploadsPath = STUDENT_PHOTOS;
+        $this->qrCodesPath = STUDENT_QR_CODES;
+        $this->templatesPath = ID_CARD_TEMPLATES;
+        $this->renderer = new IDCardTemplateRenderer($this->db);
+        $this->printService = new PrintService();
     }
 
     /**
@@ -96,27 +74,35 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'File size exceeds 5MB limit');
             }
 
-            // Generate unique filename
-            $extension = pathinfo($fileData['name'], PATHINFO_EXTENSION);
-            $filename = $student['admission_no'] . '_' . time() . '.' . $extension;
-            $filepath = $this->uploadsPath . $filename;
+            // Create student-specific directory: uploads/students/images/{student_id}/
+            $studentImageDir = STUDENT_IMAGES . '/' . $studentId . '/';
+            if (!is_dir($studentImageDir)) {
+                @mkdir($studentImageDir, 0755, true);
+            }
+
+            // Generate unique filename: photo_{YYYYMMDD}_{HHMMSS}.{ext}
+            $extension = strtolower(pathinfo($fileData['name'], PATHINFO_EXTENSION)) ?: 'jpg';
+            $filename = 'photo_' . date('Ymd_His') . '.' . $extension;
+            $filepath = $studentImageDir . $filename;
 
             // Resize and optimize image
             $this->resizeImage($fileData['tmp_name'], $filepath, 400, 500);
 
-            // Import into MediaManager to register under uploads/students/{studentId}
+            // Web-accessible path
+            $webPath = '/uploads/students/images/' . $studentId . '/' . $filename;
+
+            // Import into MediaManager
             try {
                 $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                $projectRoot = realpath(__DIR__ . '/../../..');
-                $fullSource = $projectRoot ? ($projectRoot . DIRECTORY_SEPARATOR . trim($filepath, '/')) : $filepath;
+                $projectRoot = defined('UPLOAD_PATH') ? dirname(UPLOAD_PATH) : __DIR__ . '/../../..';
+                $fullSource = $projectRoot . '/' . ltrim($webPath, '/');
                 $mediaId = null;
                 if (file_exists($fullSource)) {
-                    $mediaId = $mediaManager->import($fullSource, 'students', $studentId, $fileData['name'], null, 'student photo');
+                    $mediaId = $mediaManager->import($fullSource, 'students/images', $studentId, $filename, null, 'student photo');
                 }
-                $preview = $mediaId ? $mediaManager->getPreviewUrl($mediaId) : null;
+                $dbPath = $mediaId ? ($mediaManager->getFileUrl($mediaId) ?: $mediaManager->getPreviewUrl($mediaId)) : null;
+                $dbPath = $dbPath ?? $webPath;
 
-                // Update database with managed preview URL if available, else local images path
-                $dbPath = $preview ?? ('/images/students/' . $filename);
                 $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
                 $stmt->execute([$dbPath, $studentId]);
 
@@ -128,12 +114,12 @@ class StudentIDCardGenerator extends BaseAPI
                     'media_id' => $mediaId
                 ], 'Photo uploaded successfully');
             } catch (\Exception $e) {
-                // fallback behavior
+                // Fallback: record the web path
                 $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute(['/images/students/' . $filename, $studentId]);
+                $stmt->execute([$webPath, $studentId]);
                 $this->logAction('update', $studentId, "Uploaded student photo (fallback): {$filename}");
                 return formatResponse(true, [
-                    'photo_url' => '/images/students/' . $filename,
+                    'photo_url' => $webPath,
                     'filename' => $filename
                 ], 'Photo uploaded (fallback)');
             }
@@ -152,24 +138,8 @@ class StudentIDCardGenerator extends BaseAPI
     public function generateEnhancedQRCode($studentId)
     {
         try {
-            // Get comprehensive student details
-            $stmt = $this->db->prepare("
-                SELECT 
-                    s.id, s.admission_no, s.first_name, s.last_name,
-                    s.date_of_birth, s.status, s.admission_date,
-                    c.name as class_name,
-                    cs.stream_name,
-                    COALESCE(fb.balance, 0) as fees_balance
-                FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                LEFT JOIN (
-                    SELECT student_id, SUM(amount) as balance 
-                    FROM fee_balances 
-                    GROUP BY student_id
-                ) fb ON s.id = fb.student_id
-                WHERE s.id = ?
-            ");
+            // Get student details first to get admission number
+            $stmt = $this->db->prepare("SELECT id, admission_no FROM students WHERE id = ?");
             $stmt->execute([$studentId]);
             $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -177,22 +147,34 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'Student not found');
             }
 
+            // Per-student QR storage: uploads/students/images/{student_id}/qr_codes/
+            // Mirrors the photo layout (uploadStudentPhoto) so every artifact for a student
+            // is co-located and easy to manage/regenerate. The save dir and the web-accessible
+            // path are derived from the SAME $studentQrDir, so they can never drift apart.
+            //
+            // NOTE: STUDENT_IMAGES is derived from a RELATIVE UPLOAD_PATH (config/../uploads).
+            // Inside the framework the CWD may differ from the project root, so a relative
+            // path would mkdir in the wrong (unwritable) location. Anchor it to an ABSOLUTE
+            // root via realpath() so the save path is CWD-independent and reproducible.
+            $uploadRoot = realpath(UPLOAD_PATH) ?: UPLOAD_PATH;
+            $studentQrDir = rtrim($uploadRoot, '/') . '/students/images/' . $studentId . '/qr_codes/';
+            if (!is_dir($studentQrDir)) {
+                mkdir($studentQrDir, 0755, true);
+            }
+
             // Check if QR library exists
             if (!class_exists('\Endroid\QrCode\QrCode')) {
                 return formatResponse(false, null, 'QR code library not installed. Run: composer require endroid/qr-code');
             }
 
-            // Create QR data (JSON format for rich information)
+            // Create QR data pointing to student portal
+            $baseUrl = BASE_URL;
             $qrData = json_encode([
-                'type' => 'student_id',
-                'id' => $student['id'],
+                'type' => 'student_verification',
+                'student_id' => (int) $student['id'],
                 'admission_no' => $student['admission_no'],
-                'name' => $student['first_name'] . ' ' . $student['last_name'],
-                'class' => $student['class_name'] . ' - ' . $student['stream_name'],
-                'status' => $student['status'],
-                'fees_balance' => $student['fees_balance'],
-                'generated' => date('Y-m-d H:i:s'),
-                'verify_url' => 'https://kingsway.ac.ke/verify/' . base64_encode($student['admission_no'])
+                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details',
+                'generated' => date('Y-m-d H:i:s')
             ]);
 
             // Generate QR code
@@ -203,40 +185,28 @@ class StudentIDCardGenerator extends BaseAPI
             $writer = new \Endroid\QrCode\Writer\PngWriter();
             $result = $writer->write($qrCode);
 
-            // Save QR code
-            $filename = $student['admission_no'] . '_qr.png';
-            $filepath = $this->qrCodesPath . $filename;
+            // Save QR code with timestamp
+            $filename = 'qr_code_' . date('Ymd_His') . '.png';
+            $filepath = $studentQrDir . $filename;
             $result->saveToFile($filepath);
 
-            // Import into MediaManager and update student record with managed preview
-            try {
-                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                $projectRoot = realpath(__DIR__ . '/../../..');
-                $fullSource = $projectRoot ? ($projectRoot . DIRECTORY_SEPARATOR . trim($filepath, '/')) : $filepath;
-                $mediaId = null;
-                if (file_exists($fullSource)) {
-                    $mediaId = $mediaManager->import($fullSource, 'students', $studentId, $filename, null, 'enhanced qr');
-                }
-                $preview = $mediaId ? $mediaManager->getPreviewUrl($mediaId) : null;
-                $dbPath = $preview ?? ('/images/qr_codes/' . $filename);
-                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$dbPath, $studentId]);
-                $this->logAction('create', $studentId, "Generated enhanced QR code: {$filename}");
-                return formatResponse(true, [
-                    'qr_code_path' => $dbPath,
-                    'qr_data' => json_decode($qrData, true),
-                    'media_id' => $mediaId
-                ], 'QR code generated successfully');
-            } catch (\Exception $e) {
-                // fallback
-                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute(['/images/qr_codes/' . $filename, $studentId]);
-                $this->logAction('create', $studentId, "Generated enhanced QR code (fallback): {$filename}");
-                return formatResponse(true, [
-                    'qr_code_path' => '/images/qr_codes/' . $filename,
-                    'qr_data' => json_decode($qrData, true)
-                ], 'QR code generated (fallback)');
-            }
+            // Web-accessible path (mirrors $studentQrDir: {student_id}/qr_codes/).
+            // Prefixed with BASE_URL so the stored link is portable across environments
+            // (localhost vs production) instead of a bare /uploads path that only resolves
+            // when the project sits at the web root.
+            $webPath = rtrim(BASE_URL, '/') . '/uploads/students/images/' . $studentId . '/qr_codes/' . $filename;
+
+            // Update student record with QR code path
+            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
+            $stmt->execute([$webPath, $studentId]);
+
+            $this->logAction('create', $studentId, "Generated enhanced QR code: {$webPath}");
+            
+            return formatResponse(true, [
+                'qr_code_path' => $webPath,
+                'qr_data' => json_decode($qrData, true),
+                'portal_url' => rtrim($baseUrl, '/') . '/student_portal/' . $student['id'] . '/details'
+            ], 'QR code generated successfully');
 
         } catch (Exception $e) {
             $this->logError('generateEnhancedQRCode', $e->getMessage());
@@ -248,19 +218,20 @@ class StudentIDCardGenerator extends BaseAPI
      * Generate student ID card (HTML/PDF ready)
      * @param int $studentId Student ID
      * @param string $format 'html' or 'pdf'
+     * @param string $side 'front', 'back', or 'both'
      * @return array Response
      */
-    public function generateIDCard($studentId, $format = 'html')
+    public function generateIDCard($studentId, $format = 'html', $side = 'both')
     {
         try {
             // Get student details
             $stmt = $this->db->prepare("
-                SELECT 
+                SELECT
                     s.*,
-                    c.name as class_name, c.level,
+                    c.name as class_name, c.level_id,
                     cs.stream_name,
                     YEAR(s.admission_date) as year_joined,
-                    (YEAR(s.admission_date) + c.level) as expected_graduation_year
+                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
                 FROM students s
                 LEFT JOIN class_streams cs ON s.stream_id = cs.id
                 LEFT JOIN classes c ON cs.class_id = c.id
@@ -274,37 +245,66 @@ class StudentIDCardGenerator extends BaseAPI
             }
 
             // Ensure photo exists
+            $defaultAvatar = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
             if (empty($student['photo_url']) || !file_exists('.' . $student['photo_url'])) {
-                $student['photo_url'] = '/images/default_avatar.png';
-            }
-
-            // Ensure QR code exists, generate if not
-            if (empty($student['qr_code_path'])) {
-                $qrResponse = $this->generateEnhancedQRCode($studentId);
-                if ($qrResponse['status']) {
-                    $student['qr_code_path'] = $qrResponse['data']['qr_code_path'];
-                }
+                $student['photo_url'] = '/' . ltrim($defaultAvatar, '/');
             }
 
             // Get school configuration
             $schoolConfig = $this->getSchoolConfig();
 
-            // Generate ID card HTML
-            $html = $this->renderIDCardHTML($student, $schoolConfig);
+            // Generate card data
+            $card = [
+                'card_number' => $student['card_number'] ?? $student['admission_no'],
+                'issue_date' => $student['card_issue_date'] ?? date('Y-m-d'),
+                'expiry_date' => $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
+            ];
 
-            // Save HTML version
-            $filename = "id_card_{$student['admission_no']}_" . time() . ".html";
-            $filepath = $this->templatesPath . $filename;
-            file_put_contents($filepath, $html);
+            // Ensure QR codes directory exists (for backward compatibility)
+            if (!is_dir($this->qrCodesPath)) {
+                @mkdir($this->qrCodesPath, 0755, true);
+            }
 
-            $this->logAction('create', $studentId, "Generated ID card: {$filename}");
+            // Generate HTML using shared renderer (includes QR as data URI)
+            $html = $this->renderer->renderDirectCard($student, 'student', $side, $schoolConfig);
 
-            return formatResponse(true, [
-                'file_path' => '/templates/id_cards/' . $filename,
-                'view_url' => '/templates/id_cards/' . $filename,
-                'student_name' => $student['first_name'] . ' ' . $student['last_name'],
-                'admission_no' => $student['admission_no']
-            ], 'ID card generated successfully');
+            if ($format === 'pdf') {
+                // Generate PDF
+                $pdfPath = $this->printService->generatePDFFromHtml($html, [
+                    'orientation' => 'landscape',
+                    'paperSize' => 'A4',
+                    'filename' => 'id_card_' . $student['admission_no'] . '_' . time()
+                ]);
+
+                // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
+                $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
+                $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
+
+                $this->logAction('create', $studentId, "Generated ID card PDF: {$pdfPath}");
+
+                return formatResponse(true, [
+                    'file_path' => $webPath,
+                    'view_url' => $webPath,
+                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
+                    'admission_no' => $student['admission_no'],
+                    'format' => 'pdf'
+                ], 'ID card PDF generated successfully');
+            } else {
+                // Save HTML version
+                $filename = "id_card_{$student['admission_no']}_" . time() . ".html";
+                $filepath = $this->templatesPath . $filename;
+                file_put_contents($filepath, $html);
+
+                $this->logAction('create', $studentId, "Generated ID card HTML: {$filename}");
+
+                return formatResponse(true, [
+                    'file_path' => '/templates/id_cards/' . $filename,
+                    'view_url' => '/templates/id_cards/' . $filename,
+                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
+                    'admission_no' => $student['admission_no'],
+                    'format' => 'html'
+                ], 'ID card generated successfully');
+            }
 
         } catch (Exception $e) {
             $this->logError('generateIDCard', $e->getMessage());
@@ -313,7 +313,158 @@ class StudentIDCardGenerator extends BaseAPI
     }
 
     /**
-     * Generate bulk ID cards for a class
+     * Generate bulk ID cards PDF for selected students
+     * @param array $studentIds Array of student IDs
+     * @param string $printMode 'a4_sheet' or 'direct_card'
+     * @param bool $includeFront Include front side
+     * @param bool $includeBack Include back side
+     * @return array Response
+     */
+    public function generateBulkIDCardsPDF($studentIds, $printMode = 'a4_sheet', $includeFront = true, $includeBack = true)
+    {
+        try {
+            if (empty($studentIds)) {
+                return formatResponse(false, null, 'No student IDs provided');
+            }
+
+            // Get student details
+            $placeholders = str_repeat('?,', count($studentIds) - 1) . '?';
+            $stmt = $this->db->prepare("
+                SELECT 
+                    s.*,
+                    c.name as class_name, c.level_id,
+                    cs.stream_name,
+                    YEAR(s.admission_date) as year_joined,
+                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
+                FROM students s
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                WHERE s.id IN ({$placeholders}) AND s.status = 'active'
+            ");
+            $stmt->execute($studentIds);
+            $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($students)) {
+                return formatResponse(false, null, 'No active students found');
+            }
+
+            // Add card data to each student
+            foreach ($students as &$student) {
+                $student['card_number'] = $student['card_number'] ?? $student['admission_no'];
+                $student['issue_date'] = $student['card_issue_date'] ?? date('Y-m-d');
+                $student['expiry_date'] = $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31';
+            }
+
+            // Get school configuration
+            $schoolConfig = $this->getSchoolConfig();
+
+            if ($printMode === 'a4_sheet') {
+                // Generate bulk A4 sheet
+                $html = $this->renderer->renderBulkA4Sheet($students, 'student', $schoolConfig);
+                
+                $pdfPath = $this->printService->generatePDFFromHtml($html, [
+                    'orientation' => 'landscape',
+                    'paperSize' => 'A4',
+                    'filename' => 'id_cards_bulk_' . time()
+                ]);
+            } else {
+                // Direct card mode - generate one PDF per card
+                // For now, return error as this requires different handling
+                return formatResponse(false, null, 'Direct card mode not yet implemented for bulk generation');
+            }
+
+            // Convert to web-accessible path (env-agnostic, BASE_URL-rooted).
+            $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
+            $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
+
+            $this->logAction('create', 0, "Generated bulk ID cards PDF: " . count($students) . " students");
+
+            return formatResponse(true, [
+                'pdf_url' => $webPath,
+                'file_name' => basename($pdfPath),
+                'student_count' => count($students),
+                'card_sides' => count($students) * ($includeFront && $includeBack ? 2 : 1),
+                'layout' => 'front_back_row',
+                'print_mode' => $printMode
+            ], 'Bulk ID cards PDF generated successfully');
+
+        } catch (Exception $e) {
+            $this->logError('generateBulkIDCardsPDF', $e->getMessage());
+            return formatResponse(false, null, 'Failed to generate bulk ID cards: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Generate print-ready single card HTML for browser/system printing.
+     * Reuses the shared IDCardTemplateRenderer so the single-card print
+     * output is byte-identical to the bulk sheet (CR80 size, QR as data URI,
+     * front|back side-by-side). The frontend opens this HTML in a print window
+     * so the OS printer driver handles the actual print job.
+     *
+     * @param int $studentId
+     * @param string $side 'front'|'back'|'both'
+     * @param string $printMode 'a4_sheet'|'direct_card'
+     * @return array Response with 'html' key
+     */
+    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card')
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT
+                    s.*,
+                    c.name as class_name, c.level_id,
+                    cs.stream_name,
+                    YEAR(s.admission_date) as year_joined,
+                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
+                FROM students s
+                LEFT JOIN class_streams cs ON s.stream_id = cs.id
+                LEFT JOIN classes c ON cs.class_id = c.id
+                WHERE s.id = ?
+            ");
+            $stmt->execute([$studentId]);
+            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$student) {
+                return formatResponse(false, null, 'Student not found');
+            }
+
+            $defaultAvatar = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
+            if (empty($student['photo_url']) || !file_exists('.' . $student['photo_url'])) {
+                $student['photo_url'] = '/' . ltrim($defaultAvatar, '/');
+            }
+
+            $card = [
+                'card_number' => $student['card_number'] ?? $student['admission_no'],
+                'issue_date' => $student['card_issue_date'] ?? date('Y-m-d'),
+                'expiry_date' => $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
+            ];
+
+            $schoolConfig = $this->getSchoolConfig();
+
+            if ($printMode === 'a4_sheet') {
+                // One A4 landscape page with front and back side-by-side.
+                $html = $this->renderer->renderBulkA4Sheet([$student], 'student', $schoolConfig);
+            } else {
+                // Exact CR80 page guided by @page in renderer CSS.
+                $html = $this->renderer->renderDirectCard($student, 'student', $side, $schoolConfig);
+            }
+
+            return formatResponse(true, [
+                'html' => $html,
+                'student_name' => $student['first_name'] . ' ' . $student['last_name'],
+                'admission_no' => $student['admission_no'],
+                'side' => $side,
+                'print_mode' => $printMode
+            ], 'ID card printable HTML generated');
+
+        } catch (Exception $e) {
+            $this->logError('generatePrintableSingle', $e->getMessage());
+            return formatResponse(false, null, 'Failed to generate printable card: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Generate bulk ID cards for a class (legacy method - kept for compatibility)
      * @param int $classId Class ID
      * @param int $streamId Stream ID (optional)
      * @return array Response
@@ -336,321 +487,15 @@ class StudentIDCardGenerator extends BaseAPI
             $stmt->execute($params);
             $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $results = [
-                'total' => count($students),
-                'successful' => 0,
-                'failed' => 0,
-                'cards' => []
-            ];
-
-            foreach ($students as $student) {
-                $result = $this->generateIDCard($student['id']);
-                if ($result['status']) {
-                    $results['successful']++;
-                    $results['cards'][] = $result['data'];
-                } else {
-                    $results['failed']++;
-                }
-            }
-
-            return formatResponse(true, $results, "Generated {$results['successful']} ID cards");
+            $studentIds = array_column($students, 'id');
+            
+            // Use new bulk PDF generation
+            return $this->generateBulkIDCardsPDF($studentIds, 'a4_sheet', true, true);
 
         } catch (Exception $e) {
             $this->logError('generateBulkIDCards', $e->getMessage());
             return formatResponse(false, null, 'Failed to generate bulk ID cards: ' . $e->getMessage());
         }
-    }
-
-    // ========================================================================
-    // RENDERING METHODS
-    // ========================================================================
-
-    private function renderIDCardHTML($student, $schoolConfig)
-    {
-        $schoolName = htmlspecialchars($schoolConfig['name'] ?? 'Kingsway Academy');
-        $schoolMotto = htmlspecialchars($schoolConfig['motto'] ?? 'Excellence in Education');
-        $schoolLogo = htmlspecialchars($schoolConfig['logo'] ?? '/images/logo.png');
-        $schoolAddress = htmlspecialchars($schoolConfig['address'] ?? '');
-        $schoolPhone = htmlspecialchars($schoolConfig['phone'] ?? '');
-
-        $studentName = strtoupper(htmlspecialchars($student['first_name'] . ' ' . $student['last_name']));
-        $admissionNo = htmlspecialchars($student['admission_no']);
-        $class = htmlspecialchars(($student['class_name'] ?? '') . ' - ' . ($student['stream_name'] ?? ''));
-        $yearJoined = htmlspecialchars($student['year_joined']);
-        $expectedGrad = htmlspecialchars($student['expected_graduation_year']);
-        $photoUrl = htmlspecialchars($student['photo_url']);
-        $qrCodeUrl = htmlspecialchars($student['qr_code_path'] ?? '');
-        $bloodGroup = htmlspecialchars($student['blood_group'] ?? 'N/A');
-
-        return <<<HTML
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>Student ID Card - {$admissionNo}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        @media print {
-            .no-print { display: none; }
-            .id-card { page-break-after: always; }
-        }
-        
-        body {
-            font-family: Arial, sans-serif;
-            background: #f5f5f5;
-            padding: 20px;
-        }
-        
-        .id-card-container {
-            display: flex;
-            justify-content: center;
-            gap: 30px;
-            flex-wrap: wrap;
-        }
-        
-        .id-card {
-            width: 3.375in;
-            height: 2.125in;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 15px;
-            padding: 0;
-            box-shadow: 0 8px 16px rgba(0,0,0,0.3);
-            overflow: hidden;
-            position: relative;
-        }
-        
-        .card-front, .card-back {
-            width: 100%;
-            height: 100%;
-            position: relative;
-        }
-        
-        /* Front Side */
-        .card-header {
-            background: rgba(255,255,255,0.95);
-            padding: 8px;
-            text-align: center;
-            border-bottom: 3px solid #667eea;
-        }
-        
-        .school-logo {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            margin-bottom: 5px;
-        }
-        
-        .school-name {
-            font-size: 11px;
-            font-weight: bold;
-            color: #333;
-            margin: 0;
-            line-height: 1.2;
-        }
-        
-        .school-motto {
-            font-size: 7px;
-            color: #666;
-            font-style: italic;
-            margin: 0;
-        }
-        
-        .card-body {
-            display: flex;
-            padding: 10px;
-            background: white;
-            height: calc(100% - 70px);
-        }
-        
-        .photo-section {
-            width: 35%;
-            padding-right: 10px;
-        }
-        
-        .student-photo {
-            width: 100%;
-            height: 110px;
-            object-fit: cover;
-            border: 2px solid #667eea;
-            border-radius: 8px;
-        }
-        
-        .info-section {
-            width: 65%;
-            font-size: 9px;
-            color: #333;
-        }
-        
-        .student-name {
-            font-size: 11px;
-            font-weight: bold;
-            color: #667eea;
-            margin-bottom: 5px;
-            line-height: 1.1;
-        }
-        
-        .info-row {
-            margin-bottom: 3px;
-            display: flex;
-        }
-        
-        .info-label {
-            font-weight: 600;
-            color: #555;
-            width: 55px;
-        }
-        
-        .info-value {
-            color: #333;
-            flex: 1;
-        }
-        
-        /* Back Side */
-        .card-back {
-            background: white;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-        
-        .qr-section {
-            text-align: center;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-        
-        .qr-code {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto;
-            border: 2px solid #667eea;
-            border-radius: 8px;
-        }
-        
-        .qr-label {
-            font-size: 8px;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .emergency-info {
-            background: #f8f9fa;
-            padding: 8px;
-            border-radius: 5px;
-            font-size: 8px;
-        }
-        
-        .emergency-title {
-            font-weight: bold;
-            color: #dc3545;
-            margin-bottom: 3px;
-        }
-        
-        .card-footer {
-            background: #667eea;
-            color: white;
-            text-align: center;
-            padding: 5px;
-            font-size: 7px;
-        }
-        
-        .validity {
-            margin: 0;
-            font-weight: 600;
-        }
-    </style>
-</head>
-<body>
-    <div class="id-card-container">
-        <!-- FRONT SIDE -->
-        <div class="id-card">
-            <div class="card-front">
-                <div class="card-header">
-                    <img src="{$schoolLogo}" alt="Logo" class="school-logo" onerror="this.style.display='none'">
-                    <div class="school-name">{$schoolName}</div>
-                    <div class="school-motto">{$schoolMotto}</div>
-                </div>
-                
-                <div class="card-body">
-                    <div class="photo-section">
-                        <img src="{$photoUrl}" alt="Student Photo" class="student-photo" onerror="this.src='/images/default_avatar.png'">
-                    </div>
-                    
-                    <div class="info-section">
-                        <div class="student-name">{$studentName}</div>
-                        
-                        <div class="info-row">
-                            <div class="info-label">Adm No:</div>
-                            <div class="info-value">{$admissionNo}</div>
-                        </div>
-                        
-                        <div class="info-row">
-                            <div class="info-label">Class:</div>
-                            <div class="info-value">{$class}</div>
-                        </div>
-                        
-                        <div class="info-row">
-                            <div class="info-label">Year Joined:</div>
-                            <div class="info-value">{$yearJoined}</div>
-                        </div>
-                        
-                        <div class="info-row">
-                            <div class="info-label">Expected:</div>
-                            <div class="info-value">{$expectedGrad}</div>
-                        </div>
-                        
-                        <div class="info-row">
-                            <div class="info-label">Blood Group:</div>
-                            <div class="info-value" style="color: #dc3545; font-weight: bold;">{$bloodGroup}</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="card-footer">
-                    <p class="validity">Valid for Academic Year {$yearJoined} - {$expectedGrad}</p>
-                </div>
-            </div>
-        </div>
-        
-        <!-- BACK SIDE -->
-        <div class="id-card">
-            <div class="card-back">
-                <div class="qr-section">
-                    <img src="{$qrCodeUrl}" alt="QR Code" class="qr-code" onerror="this.style.display='none'">
-                    <div class="qr-label">Scan for student verification</div>
-                </div>
-                
-                <div class="emergency-info">
-                    <div class="emergency-title">EMERGENCY CONTACT</div>
-                    <div>School: {$schoolPhone}</div>
-                    <div>{$schoolAddress}</div>
-                    <div style="margin-top: 5px; font-size: 7px; color: #666;">
-                        If found, please return to above address or call immediately.
-                    </div>
-                </div>
-                
-                <div style="text-align: center; margin-top: 10px; font-size: 7px; color: #999;">
-                    <div>Signature: ___________________</div>
-                    <div style="margin-top: 2px;">Head Teacher/Principal</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="no-print text-center mt-4">
-        <button class="btn btn-primary btn-lg" onclick="window.print()">
-            <i class="bi bi-printer"></i> Print ID Card
-        </button>
-        <button class="btn btn-secondary btn-lg" onclick="window.close()">
-            <i class="bi bi-x-circle"></i> Close
-        </button>
-    </div>
-</body>
-</html>
-HTML;
     }
 
     // ========================================================================
@@ -707,7 +552,7 @@ HTML;
             return [
                 'name' => $configs['school_name'] ?? 'Kingsway Academy',
                 'motto' => $configs['school_motto'] ?? 'Excellence in Education',
-                'logo' => $configs['school_logo'] ?? '/images/logo.png',
+                'logo' => $configs['school_logo'] ?? '/uploads/school_assets/official_school_logo.png',
                 'address' => $configs['school_address'] ?? '',
                 'phone' => $configs['school_phone'] ?? '',
                 'email' => $configs['school_email'] ?? ''
@@ -716,7 +561,7 @@ HTML;
             return [
                 'name' => 'Kingsway Academy',
                 'motto' => 'Excellence in Education',
-                'logo' => '/images/logo.png',
+                'logo' => '/uploads/school_assets/official_school_logo.png',
                 'address' => '',
                 'phone' => '',
                 'email' => ''

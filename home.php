@@ -40,14 +40,15 @@ $roles = [$main_role];
     <link rel="shortcut icon" href="images/favicon/favicon.ico" />
     <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="KingsWay Preparatory School Dashboard" />
-    <link rel="manifest" href="images/favicon/site.webmanifest" />
+    <link rel="manifest" href="<?= $appBase ?>/manifest.webmanifest" />
     <!-- CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="<?= $appBase ?>/public/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" rel="stylesheet" referrerpolicy="no-referrer">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" referrerpolicy="no-referrer">
     <link rel="stylesheet" href="<?= $appBase ?>/css/school-theme.css">
     <link rel="stylesheet" href="<?= $appBase ?>/css/dashboards.css">
     <link rel="stylesheet" href="<?= $appBase ?>/king.css">
+    <link rel="stylesheet" href="<?= $appBase ?>/assets/css/print.css">
     <style>
         /* route-guard overlay removed — PHP already serves the correct page */
     </style>
@@ -58,6 +59,18 @@ $roles = [$main_role];
         window.USER_ROLES = <?php echo json_encode($roles); ?>;
         window.MAIN_ROLE = <?php echo json_encode($main_role); ?>;
         window.REQUESTED_ROUTE = <?php echo json_encode($route); ?>;
+        window.SCHOOL_CONFIG = {
+            name: <?php echo json_encode(defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School'); ?>,
+            code: <?php echo json_encode(defined('SCHOOL_CODE') ? SCHOOL_CODE : 'KWPS'); ?>,
+            motto: <?php echo json_encode(defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'In God We Soar'); ?>,
+            logo: <?php echo json_encode(defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : ($appBase . '/uploads/school_assets/official_school_logo.png')); ?>,
+            address: <?php echo json_encode(defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : 'P.O Box 203-20203, Londiani, Kenya'); ?>,
+            phone: <?php echo json_encode(defined('SCHOOL_PHONE') ? SCHOOL_PHONE : '+254-720-113030 / +254-720-113031'); ?>,
+            email: <?php echo json_encode(defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingswaypreparatoryschool.sc.ke'); ?>,
+            website: <?php echo json_encode(defined('SCHOOL_WEBSITE') ? SCHOOL_WEBSITE : 'www.kingswaypreparatoryschool.sc.ke'); ?>,
+            principal: <?php echo json_encode(defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr Bett Junior'); ?>,
+            principalTitle: <?php echo json_encode(defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher'); ?>
+        };
     </script>
 </head>
 
@@ -81,11 +94,24 @@ $roles = [$main_role];
     $v = time();
     ?>
     <!-- Third-party libraries -->
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js" referrerpolicy="no-referrer"></script>
+    <script src="<?= $appBase ?>/public/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" referrerpolicy="no-referrer"></script>
     <!-- Application scripts -->
     <script src="<?= $appBase ?>/js/api.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/session_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/service_worker_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/connectivity_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/data_store.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/storage_monitor.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/bfcache_handler.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/speculative_loader.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/error_reporter.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/core/push_notification_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/storage/kingsway_db.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/sync/sync_queue.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/sync/conflict_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/utils/storage_manager.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/ActionButtons.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/RoleBasedUI.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/EnhancedRoleBasedUI.js?v=<?= $v ?>"></script>
@@ -94,17 +120,40 @@ $roles = [$main_role];
     <script src="<?= $appBase ?>/js/components/UIComponents.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/PageNavigator.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/components/PageShell.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/utils/print_manager.js?v=<?= $v ?>"></script>
+    <script src="<?= $appBase ?>/js/utils/academic_context.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/sidebar.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/main.js?v=<?= $v ?>"></script>
     <script src="<?= $appBase ?>/js/index.js?v=<?= $v ?>"></script>
     <script>
         // JWT-based authentication check (stateless)
         document.addEventListener('DOMContentLoaded', async function () {
+            // Reconcile storage on boot. The access token lives in web-storage
+            // (empty on first load in a new window / incognito / cleared cache),
+            // but the server's HttpOnly refresh_token cookie survives those.
+            // initialize() performs ONE silent refresh via that cookie so we
+            // never log a user out just because web-storage was cleared.
+            if (typeof AuthContext.initialize === 'function') {
+              await AuthContext.initialize();
+            }
+
             // DEVELOPMENT BYPASS: If no token but we detect user info, redirect to login
             // This handles cases where user accessed page directly without JWT
             if (!AuthContext.isAuthenticated()) {
+                // [DIAG] capture why isAuthenticated() is false at this exact point
+                (function () {
+                  let ls = {}, ss = {};
+                  for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); ls[k] = localStorage.getItem(k) ? '(set)' : null; }
+                  for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k) ? '(set)' : null; }
+                  const cu = (window.AuthContext && AuthContext.getCurrentUser) ? AuthContext.getCurrentUser() : null;
+                  console.warn('[DIAG-AUTH] isAuthenticated=false at home.php:133',
+                    '| currentUser?=', !!cu,
+                    '| getToken?=', !!(window.AuthContext && AuthContext.getToken && AuthContext.getToken()),
+                    '| auth_storage_mode=', localStorage.getItem('auth_storage_mode'),
+                    '| ls=', ls, '| ss=', ss);
+                })();
                 console.warn('No valid JWT token found');
-                
+
                 // Check if we're in development and allow bypass with localStorage flag
                 const devBypass = localStorage.getItem('dev_bypass_auth');
                 if (devBypass === 'true') {
@@ -112,7 +161,7 @@ $roles = [$main_role];
                     // For development only - this would be replaced with proper login
                     return;
                 }
-                
+
                 console.warn('Redirecting to login to obtain JWT token');
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
@@ -160,6 +209,45 @@ $roles = [$main_role];
             console.log('Authenticated as:', AuthContext.getUser().username);
             console.log('Current route:', route);
         });
+
+        // Initialize Service Worker
+        if (typeof ServiceWorkerManager !== 'undefined') {
+            ServiceWorkerManager.initialize().then(success => {
+                if (success) {
+                    console.log('Service Worker initialized successfully');
+                } else {
+                    console.warn('Service Worker initialization failed');
+                }
+            });
+        }
+
+        // Initialize Connectivity Manager
+        if (typeof ConnectivityManager !== 'undefined') {
+            ConnectivityManager.initialize();
+        }
+
+        // Initialize IndexedDB
+        if (typeof KingswayDB !== 'undefined') {
+            KingswayDB.initialize().then(() => {
+                console.log('IndexedDB initialized successfully');
+            }).catch(error => {
+                console.warn('IndexedDB initialization failed:', error);
+            });
+        }
+
+        // Initialize SessionManager
+        if (typeof SessionManager !== 'undefined') {
+            SessionManager.initialize().then(() => {
+                console.log('SessionManager initialized successfully');
+            }).catch(error => {
+                console.warn('SessionManager initialization failed:', error);
+            });
+        }
+
+        // Initialize Storage Monitor
+        if (typeof StorageMonitor !== 'undefined') {
+            StorageMonitor.initialize();
+        }
     </script>
 </body>
 

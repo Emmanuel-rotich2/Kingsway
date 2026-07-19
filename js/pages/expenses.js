@@ -365,15 +365,37 @@ const expensesController = {
   // ── Export ────────────────────────────────────────────────────────────────
   exportCSV: function () {
     if (!this._filtered.length) { showNotification('No data to export.', 'warning'); return; }
-    const headers = ['Ref No','Date','Category','Description','Vendor','Amount','Method','Recorded By','Status'];
-    const rows = this._filtered.map(e => [
-      `"${e.expense_number||''}"`, `"${e.expense_date||''}"`, `"${e.category_name||''}"`,
-      `"${(e.description||'').replace(/"/g,"'")}"`, `"${e.vendor_name||''}"`,
-      e.amount||0, `"${e.payment_method||''}"`, `"${e.recorded_by_name||''}"`, `"${e.status||''}"`
-    ].join(','));
-    const blob = new Blob([[headers.join(','), ...rows].join('\n')], {type: 'text/csv'});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = 'expenses_' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
+    if (!window.PrintManager) { showNotification('PrintManager not available for export', 'danger'); return; }
+
+    const columns = [
+      { key: 'expense_number', label: 'Ref No' },
+      { key: 'expense_date', label: 'Date' },
+      { key: 'category_name', label: 'Category' },
+      { key: 'description', label: 'Description' },
+      { key: 'vendor_name', label: 'Vendor' },
+      { key: 'amount', label: 'Amount' },
+      { key: 'payment_method', label: 'Method' },
+      { key: 'recorded_by_name', label: 'Recorded By' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    const rows = this._filtered.map(e => ({
+      expense_number: e.expense_number || '',
+      expense_date: e.expense_date || '',
+      category_name: e.category_name || '',
+      description: (e.description || '').replace(/"/g, "'"),
+      vendor_name: e.vendor_name || '',
+      amount: e.amount || 0,
+      payment_method: e.payment_method || '',
+      recorded_by_name: e.recorded_by_name || '',
+      status: e.status || ''
+    }));
+
+    window.PrintManager.exportToCSV({
+      filename: `expenses_${new Date().toISOString().slice(0,10)}.csv`,
+      columns: columns,
+      rows: rows
+    });
   },
 
   // ── Helpers ───────────────────────────────────────────────────────────────

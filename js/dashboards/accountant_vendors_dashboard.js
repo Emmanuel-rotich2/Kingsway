@@ -136,7 +136,15 @@ const accountantVendorsDashboardController = Object.assign(
       var printBtn = document.getElementById("printDashboard");
       if (printBtn) {
         printBtn.addEventListener("click", function () {
-          window.print();
+          if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
+            window.PrintManager.printElement({
+              elementId: 'dashboardContent',
+              title: 'Vendors & Suppliers Dashboard',
+              subtitle: 'Vendor Management Overview'
+            });
+          } else {
+            window.print();
+          }
         });
       }
 

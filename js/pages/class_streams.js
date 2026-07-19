@@ -28,6 +28,22 @@ const ClassStreamsController = (() => {
       return;
     }
 
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in class_streams:', event, data);
+        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+          loadData();
+        }
+      });
+
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+    }
+
     setupEventListeners();
     await loadReferenceData();
     await loadData();
@@ -137,6 +153,17 @@ const ClassStreamsController = (() => {
         const util = cap > 0 ? Math.round((students / cap) * 100) : 0;
         const utilTone = util >= 90 ? "danger" : util >= 70 ? "warning" : "success";
         const status = String(item.status || "active");
+        const canEdit = hasPermission("academic_update") || hasPermission("academic_edit");
+        const canDelete = hasPermission("academic_delete");
+        const actions = [
+          canEdit
+            ? `<button class="btn btn-sm btn-outline-primary me-1" onclick="ClassStreamsController.editRecord(${item.id})" title="Edit"><i class="fas fa-edit"></i></button>`
+            : "",
+          canDelete
+            ? `<button class="btn btn-sm btn-outline-danger" onclick="ClassStreamsController.deleteRecord(${item.id})" title="Delete"><i class="fas fa-trash"></i></button>`
+            : "",
+        ].join("");
+
         return `
           <tr>
             <td>${index + 1}</td>
@@ -147,10 +174,7 @@ const ClassStreamsController = (() => {
             <td>${cap || "--"}</td>
             <td><div class="progress" style="height:16px;"><div class="progress-bar bg-${utilTone}" style="width:${util}%">${util}%</div></div></td>
             <td><span class="badge bg-${status === "active" ? "success" : "secondary"}">${escapeHtml(status)}</span></td>
-            <td>
-              <button class="btn btn-sm btn-outline-primary me-1" onclick="ClassStreamsController.editRecord(${item.id})" title="Edit"><i class="fas fa-edit"></i></button>
-              <button class="btn btn-sm btn-outline-danger" onclick="ClassStreamsController.deleteRecord(${item.id})" title="Delete"><i class="fas fa-trash"></i></button>
-            </td>
+            <td>${actions || '<span class="text-muted small">No actions</span>'}</td>
           </tr>
         `;
       })
@@ -233,6 +257,11 @@ const ClassStreamsController = (() => {
   }
 
   async function deleteRecord(streamId) {
+    if (!hasPermission("academic_delete")) {
+      showNotification("You do not have permission to delete class streams.", "warning");
+      return;
+    }
+
     if (!confirm("Delete this stream? Active students must be reassigned first.")) return;
     try {
       await window.API.academic.deleteStream(streamId);
@@ -312,6 +341,16 @@ const ClassStreamsController = (() => {
     const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
     bsModal.show();
     setTimeout(() => bsModal.hide(), 3000);
+  }
+
+  function hasPermission(permission) {
+    if (window.AuthContext && typeof window.AuthContext.hasPermission === "function") {
+      return window.AuthContext.hasPermission(permission);
+    }
+    if (window.SessionManager && typeof window.SessionManager.hasPermission === "function") {
+      return window.SessionManager.hasPermission(permission);
+    }
+    return false;
   }
 
   return {

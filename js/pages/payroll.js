@@ -253,7 +253,7 @@ const payrollController = {
 
       const win = window.open("", "_blank");
       win.document.write(`<html><head><title>Payslip</title>
-        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
         </head><body class="p-4">
         <div class="container">
           <div class="text-center mb-3"><h3>Kingsway Academy</h3><h5 class="text-muted">Payslip - ${months[parseInt(month)] || month} ${year}</h5></div>

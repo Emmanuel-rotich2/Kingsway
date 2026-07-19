@@ -619,10 +619,10 @@
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.refresh()">
                         <i class="fas fa-sync-alt me-1"></i> Refresh
                     </button>
-                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showBulkPayrollModal()">
+                    <button class="payroll-action-btn primary" data-hide-for-director="true" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="fas fa-users-cog me-1"></i> Bulk Payroll
                     </button>
-                    <button class="payroll-action-btn primary" onclick="PayrollManagerController.showProcessPayrollModal()">
+                    <button class="payroll-action-btn primary" data-hide-for-director="true" onclick="PayrollManagerController.showProcessPayrollModal()">
                         <i class="fas fa-plus-circle me-1"></i> Single Payroll
                     </button>
                 </div>
@@ -1131,4 +1131,33 @@
     </div>
 </div>
 
+
+<script>
+(function () {
+    function isDirectorUser() {
+        if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) return false;
+        const roles = (AuthContext.getRoles && AuthContext.getRoles()) || [];
+        return roles.some(function (role) {
+            const name = String(typeof role === 'string' ? role : (role.name || role.code || ''))
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '');
+            return name === 'director' || name === 'director_owner';
+        });
+    }
+
+    function applyDirectorPayrollMode() {
+        if (!isDirectorUser()) return;
+        document.querySelectorAll('[data-hide-for-director="true"]').forEach(function (el) {
+            el.remove();
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', applyDirectorPayrollMode);
+    } else {
+        applyDirectorPayrollMode();
+    }
+})();
+</script>
 <script src="<?= $appBase ?>/js/pages/payroll_manager.js?v=<?= time() ?>"></script>

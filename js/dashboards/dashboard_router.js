@@ -1,530 +1,385 @@
 /**
  * Dashboard Router - Permission-Aware Dashboard Routing
- * 
+ *
  * Purpose: Detect user role and route to appropriate dashboard
  * Principle: Each role sees ONLY its role-specific dashboard
- * 
+ *
  * Architecture:
  * 1. Get current user role(s) from session/auth context
- * 2. Map role to dashboard controller
- * 3. Load appropriate dashboard
+ * 2. Fetch role-to-dashboard mapping from PHP DashboardAPI (canonical source)
+ * 3. Load appropriate dashboard controller
  * 4. Handle multiple roles (show primary, offer switcher)
  * 5. Graceful fallback for unrecognized roles
  */
 
 const DashboardRouter = {
   /**
-   * Role-to-Dashboard Mapping
-   * Maps role IDs to their respective dashboard controllers
+   * Cached role-to-dashboard config from PHP DashboardAPI
+   * Fetched on init and cached in sessionStorage with version check
    */
-  ROLE_DASHBOARD_MAP: {
-    2: {
-      name: "System Administrator",
-      controller: "sysAdminDashboardController",
-      file: "system_administrator_dashboard.js",
-      scope: "technical",
-      description: "Infrastructure, System Health, Security Monitoring",
-    },
-    3: {
-      name: "Director",
-      controller: "directorDashboardController",
-      file: "director_dashboard.js",
-      scope: "executive",
-      description: "Finance, Staff, Students, Strategic KPIs",
-    },
-    4: {
-      name: "School Administrator",
-      controller: "schoolAdminDashboardController",
-      file: "school_administrative_officer_dashboard.js",
-      scope: "operational",
-      description: "Operations, Activities, Communications, Admissions",
-    },
-    5: {
-      name: "Headteacher",
-      controller: "headteacherDashboardController",
-      file: "headteacher_dashboard.js",
-      scope: "academic",
-      description: "Academic Oversight, Schedules, Student Management",
-    },
-    6: {
-      name: "Deputy Head - Academic",
-      controller: "deputyAcademicDashboard",
-      file: "deputy_head_academic_dashboard.js",
-      scope: "academic",
-      description: "Academic Support, Admissions, Timetabling",
-    },
-    // Teachers now share a unified teacher dashboard that decides which view to show
-    7: {
-      name: "Class Teacher",
-      controller: "teacherDashboardController",
-      file: "teacher_dashboard.js",
-      scope: "teaching",
-      description: "Teacher unified dashboard (class/subject/intern)",
-    },
-    8: {
-      name: "Subject Teacher",
-      controller: "teacherDashboardController",
-      file: "teacher_dashboard.js",
-      scope: "teaching",
-      description: "Teacher unified dashboard (class/subject/intern)",
-    },
-    9: {
-      name: "Intern/Student Teacher",
-      controller: "teacherDashboardController",
-      file: "teacher_dashboard.js",
-      scope: "teaching",
-      description: "Teacher unified dashboard (class/subject/intern)",
-    },
-    10: {
-      name: "Accountant",
-      controller: "schoolAccountantDashboardController",
-      file: "school_accountant_dashboard.js",
-      scope: "finance",
-      description: "Financial Management, Fees, Payroll, Budget",
-    },
-    14: {
-      name: "Inventory Manager",
-      controller: "storeDashboardController",
-      file: "store_manager_dashboard.js",
-      scope: "logistics",
-      description: "Inventory, Stock, Requisitions, Orders",
-    },
-    16: {
-      name: "Cateress",
-      controller: "cateringDashboardController",
-      file: "catering_manager_cook_lead_dashboard.js",
-      scope: "catering",
-      description: "Kitchen, Menu Planning, Food Inventory",
-    },
-    18: {
-      name: "Boarding Master",
-      controller: "boardingDashboardController",
-      file: "matron_housemother_dashboard.js",
-      scope: "boarding",
-      description: "Boarding, Student Welfare, Health, Discipline",
-    },
-    21: {
-      name: "Talent Development Manager",
-      controller: "hodDashboardController",
-      file: "hod_talent_development_dashboard.js",
-      scope: "activities",
-      description: "Sports, Music, Activities, Talent Development",
-    },
-    23: {
-      name: "Driver",
-      controller: "driverDashboardController",
-      file: "driver_dashboard.js",
-      scope: "transport",
-      description: "Routes, Student Transport, Vehicle Maintenance",
-    },
-    24: {
-      name: "Chaplain",
-      controller: "counselorDashboardController",
-      file: "school_counselor_chaplain_dashboard.js",
-      scope: "support",
-      description: "Spiritual Care, Counseling, Pastoral",
-    },
-    32: {
-      name: "Kitchen Staff",
-      controller: "supportStaffDashboardController",
-      file: "support_staff_dashboard.js",
-      scope: "readonly",
-      description: "Personal Info, Schedule, Contact",
-    },
-    33: {
-      name: "Security Staff",
-      controller: "supportStaffDashboardController",
-      file: "support_staff_dashboard.js",
-      scope: "readonly",
-      description: "Personal Info, Schedule, Contact",
-    },
-    34: {
-      name: "Janitor",
-      controller: "supportStaffDashboardController",
-      file: "support_staff_dashboard.js",
-      scope: "readonly",
-      description: "Personal Info, Schedule, Contact",
-    },
-    63: {
-      name: "Deputy Head - Discipline",
-      controller: "deputyDisciplineDashboard",
-      file: "deputy_head_discipline_dashboard.js",
-      scope: "academic",
-      description: "Discipline, Student Management, Communications",
-    },
+  _configCache: null,
+  _configVersion: null,
+  _initPromise: null,
+
+  /**
+   * Role hierarchy for multi-role users (higher = more privileges)
+   * Used to determine "primary" role when user has multiple roles
+   */
+  ROLE_HIERARCHY: {
+    2: 100, // System Administrator
+    3: 90,  // Director/Owner
+    4: 80,  // School Administrator
+    5: 70,  // Headteacher
+    6: 60,  // Deputy Head Academic
+    63: 55, // Deputy Head Discipline
+    7: 50,  // Class Teacher
+    8: 45,  // Subject Teacher
+    9: 40,  // Intern/Student Teacher
+    10: 35, // School Accountant
+    11: 34, // Accountant (M-Pesa)
+    12: 33, // Accountant (Assets)
+    13: 32, // Accountant (Vendors)
+    14: 30, // Store Manager / Accountant (Controls)
+    16: 25, // Catering Manager/Cook Lead
+    18: 20, // Matron/Housemother
+    21: 18, // HOD Talent Development
+    23: 15, // Driver
+    24: 12, // School Counselor/Chaplain
+    32: 10, // Support Staff
+    33: 10,
+    34: 10,
+    64: 10,
   },
 
   /**
-   * Get current user's roles from auth context
-   * Returns array of role IDs [2, 5, 7] or null if not authenticated
+   * Initialize dashboard router - fetch config from PHP API
+   * Uses sessionStorage cache with version check for performance
    */
-  getCurrentUserRoles: function () {
+  async init() {
+    if (this._initPromise) {
+      return this._initPromise;
+    }
+
+    this._initPromise = (async () => {
+      try {
+        const config = await this._fetchConfig();
+        this._configCache = config;
+        this._configVersion = config.version || Date.now();
+        console.log('[DashboardRouter] Config loaded from PHP API', config);
+      } catch (error) {
+        console.warn('[DashboardRouter] Failed to fetch config from API, using fallback', error);
+        this._configCache = this._getFallbackConfig();
+        this._configVersion = 'fallback';
+      }
+    })();
+
+    return this._initPromise;
+  },
+
+  /**
+   * Fetch dashboard config from PHP DashboardAPI
+   * Uses sessionStorage cache with version check
+   */
+  async _fetchConfig() {
+    const cacheKey = 'dashboard_router_config';
+    const versionKey = 'dashboard_router_config_version';
+
+    // Check sessionStorage cache first
+    const cachedConfig = sessionStorage.getItem(cacheKey);
+    const cachedVersion = sessionStorage.getItem(versionKey);
+
+    if (cachedConfig && cachedVersion) {
+      try {
+        console.log('[DashboardRouter] Using cached config');
+        return JSON.parse(cachedConfig);
+      } catch (e) {
+        sessionStorage.removeItem(cacheKey);
+        sessionStorage.removeItem(versionKey);
+        console.warn('[DashboardRouter] Cached config invalid, fetching fresh config');
+      }
+    }
+
+    // Fetch fresh config from authenticated API
+    const config = await apiCall('/dashboard/config', 'GET', null, {}, {
+      checkPermission: false,
+      showSuccess: false,
+    });
+
+    config.version = Date.now();
+
+    // Cache in sessionStorage
+    sessionStorage.setItem(cacheKey, JSON.stringify(config));
+    sessionStorage.setItem(versionKey, config.version);
+
+    return config;
+  },
+
+  /**
+   * Fallback hardcoded config if API fails
+   * Mirrors PHP DashboardRouter::ROLE_DASHBOARDS as fallback
+   */
+  _getFallbackConfig() {
+    return {
+      role_dashboards: {
+        2: "system_administrator_dashboard",
+        3: "director_owner_dashboard",
+        4: "school_administrative_officer_dashboard",
+        5: "headteacher_dashboard",
+        6: "deputy_head_academic_dashboard",
+        7: "class_teacher_dashboard",
+        8: "subject_teacher_dashboard",
+        9: "intern_student_teacher_dashboard",
+        10: "school_accountant_dashboard",
+        14: "store_manager_dashboard",
+        16: "catering_manager_cook_lead_dashboard",
+        18: "matron_housemother_dashboard",
+        21: "hod_talent_development_dashboard",
+        23: "driver_dashboard",
+        24: "school_counselor_chaplain_dashboard",
+        32: "support_staff_dashboard",
+        33: "support_staff_dashboard",
+        34: "support_staff_dashboard",
+        63: "deputy_head_discipline_dashboard",
+        64: "support_staff_dashboard",
+      },
+      role_name_map: {
+        2: "System Administrator",
+        3: "Director/Owner",
+        4: "School Administrator",
+        5: "Headteacher",
+        6: "Deputy Head Academic",
+        7: "Class Teacher",
+        8: "Subject Teacher",
+        9: "Intern/Student Teacher",
+        10: "School Accountant",
+        14: "Store Manager",
+        16: "Catering Manager/Cook Lead",
+        18: "Matron/Housemother",
+        21: "HOD Talent Development",
+        23: "Driver",
+        24: "School Counselor/Chaplain",
+        32: "Support Staff",
+        33: "Support Staff",
+        34: "Support Staff",
+        63: "Deputy Head Discipline",
+        64: "Support Staff",
+      },
+      default_dashboard: "headteacher_dashboard",
+      version: 'fallback-' + Date.now(),
+    };
+  },
+
+  /**
+   * Get dashboard key for a role ID
+   * Uses PHP config as canonical source
+   */
+  getDashboardForRole(roleId) {
+    if (!this._configCache) {
+      console.warn('[DashboardRouter] Config not loaded, using fallback');
+      this._configCache = this._getFallbackConfig();
+    }
+
+    const dashboards = this._configCache.role_dashboards || {};
+    return this.normalizeDashboardKey(dashboards[roleId] || this._configCache.default_dashboard || 'headteacher_dashboard');
+  },
+
+  normalizeDashboardKey(dashboardKey) {
+    const aliases = {
+      dashboard: "headteacher_dashboard",
+      home: "headteacher_dashboard",
+      director_dashboard: "director_owner_dashboard",
+      school_admin_dashboard: "school_administrative_officer_dashboard",
+      accountant_controls_dashboard: "store_manager_dashboard",
+    };
+    return aliases[dashboardKey] || dashboardKey;
+  },
+
+  /**
+   * Get role name for a role ID
+   */
+  getRoleName(roleId) {
+    if (!this._configCache) {
+      return 'Unknown Role';
+    }
+    return this._configCache.role_name_map?.[roleId] || `Role ${roleId}`;
+  },
+
+  /**
+   * Get current user's role IDs from AuthContext
+   * Returns array of role IDs (multi-role support)
+   */
+  getCurrentUserRoles() {
+    if (window.AuthContext && typeof window.AuthContext.getRoles === 'function') {
+      const roles = window.AuthContext.getRoles();
+      if (Array.isArray(roles)) {
+        return roles.map(r => (typeof r === 'object' ? r.id : parseInt(r, 10))).filter(id => !isNaN(id));
+      }
+    }
+
+    // Fallback: parse from localStorage user_data
     try {
-      // Check if AuthContext exists (from auth-utils.js)
-      if (typeof AuthContext !== "undefined" && AuthContext.isAuthenticated()) {
-        const user = AuthContext.getCurrentUser();
-        if (user) {
-          // First check if role_ids is directly available
-          if (user.role_ids) {
-            const roleIds = Array.isArray(user.role_ids)
-              ? user.role_ids
-              : [user.role_ids];
-            console.log("✓ Got role_ids from user.role_ids:", roleIds);
-            return roleIds;
-          }
-
-          // If not, try to extract from roles array
-          if (user.roles && Array.isArray(user.roles)) {
-            const roleIds = user.roles
-              .map((r) => r.id || r.role_id || null)
-              .filter((id) => id !== null && id !== undefined);
-            if (roleIds.length > 0) {
-              console.log("✓ Extracted role_ids from user.roles:", roleIds);
-              return roleIds;
-            }
-          }
-
-          // Fallback to single role_id
-          if (user.role_id) {
-            console.log("✓ Got single role_id:", user.role_id);
-            return [user.role_id];
-          }
-        }
+      const userData = JSON.parse(localStorage.getItem('user_data') || sessionStorage.getItem('user_data') || '{}');
+      if (userData.role_ids && Array.isArray(userData.role_ids)) {
+        return userData.role_ids.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
       }
-
-      // Fallback: Check sessionStorage for user data
-      const userJson = sessionStorage.getItem("user");
-      if (userJson) {
-        const user = JSON.parse(userJson);
-        if (user.role_ids) {
-          const roleIds = Array.isArray(user.role_ids)
-            ? user.role_ids
-            : [user.role_ids];
-          console.log("✓ Got role_ids from sessionStorage:", roleIds);
-          return roleIds;
-        }
-
-        // Try to extract from roles
-        if (user.roles && Array.isArray(user.roles)) {
-          const roleIds = user.roles
-            .map((r) => r.id || r.role_id || null)
-            .filter((id) => id !== null && id !== undefined);
-          if (roleIds.length > 0) {
-            console.log(
-              "✓ Extracted role_ids from sessionStorage roles:",
-              roleIds
-            );
-            return roleIds;
-          }
-        }
-
-        if (user.role_id) {
-          console.log("✓ Got role_id from sessionStorage:", user.role_id);
-          return [user.role_id];
-        }
+      if (userData.roles && Array.isArray(userData.roles)) {
+        return userData.roles.map(r => (typeof r === 'object' ? r.id : parseInt(r, 10))).filter(id => !isNaN(id));
       }
-
-      // Not authenticated
-      console.warn("⚠️ Could not find role information");
-      return null;
-    } catch (error) {
-      console.error("Error getting current user roles:", error);
-      return null;
-    }
-  },
-
-  /**
-   * Determine primary role from array of role IDs
-   * Priority: Higher ID (more specific) > Lower ID (more general)
-   * Or use a predefined hierarchy
-   */
-  getPrimaryRole: function (roleIds) {
-    if (!Array.isArray(roleIds) || roleIds.length === 0) {
-      return null;
-    }
-
-    // If only one role, that's the primary
-    if (roleIds.length === 1) {
-      return roleIds[0];
-    }
-
-    // Multi-role: Use hierarchy
-    // System Admin > Director > School Admin > Specialists > Teachers > Read-only
-    const hierarchy = [
-      2, 3, 4, 5, 6, 63, 21, 18, 16, 14, 10, 24, 23, 8, 7, 9, 32, 33, 34,
-    ];
-    for (let roleId of hierarchy) {
-      if (roleIds.includes(roleId)) {
-        return roleId;
+      if (userData.role_id) {
+        return [parseInt(userData.role_id, 10)];
       }
-    }
-
-    // Fallback to first role
-    return roleIds[0];
-  },
-
-  /**
-   * Get dashboard config for a role ID
-   */
-  getDashboardConfig: function (roleId) {
-    return this.ROLE_DASHBOARD_MAP[roleId] || null;
-  },
-
-  /**
-   * Retrieve a controller object by name.
-   * Handles both `var` (window property) and `const`/`let` (global scope, not on window).
-   */
-  getController: function (controllerName) {
-    if (typeof window[controllerName] !== "undefined") {
-      return window[controllerName];
-    }
-    // const/let at top-level are in global scope but NOT on window — use indirect eval
-    try {
-      // eslint-disable-next-line no-eval
-      return (0, eval)(controllerName);
+      if (userData.role) {
+        return [parseInt(userData.role, 10)];
+      }
     } catch (e) {
-      return null;
+      console.warn('[DashboardRouter] Failed to parse user roles from storage', e);
     }
+
+    return [];
   },
 
   /**
-   * Check if dashboard controller is loaded and callable
+   * Get primary role for multi-role user
+   * Uses ROLE_HIERARCHY to pick highest priority role
    */
-  isControllerLoaded: function (controllerName) {
-    const ctrl = this.getController(controllerName);
-    return ctrl != null && typeof ctrl.init === "function";
+  getPrimaryRole() {
+    const roles = this.getCurrentUserRoles();
+    if (roles.length === 0) return null;
+    if (roles.length === 1) return roles[0];
+
+    // Sort by hierarchy (higher = more privileged)
+    return roles.sort((a, b) => (this.ROLE_HIERARCHY[b] || 0) - (this.ROLE_HIERARCHY[a] || 0))[0];
   },
 
   /**
    * Load dashboard script dynamically
+   * Returns promise that resolves when controller is available
    */
-  loadDashboardScript: function (scriptPath) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${scriptPath}"]`)) {
-        // Already loaded
-        resolve();
-        return;
-      }
+  loadDashboardScript(dashboardKey) {
+    dashboardKey = this.normalizeDashboardKey(dashboardKey);
+    // Convert dashboard key to JS file name
+    // e.g., "class_teacher_dashboard" -> "class_teacher_dashboard.js"
+    const fileName = `${dashboardKey}.js`;
+    const scriptUrl = `${window.APP_BASE || ""}/js/dashboards/${fileName}`;
 
-      const script = document.createElement("script");
-      script.src = scriptPath;
+    // Check if already loaded
+    if (document.querySelector(`script[src*="${fileName}"]`)) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = scriptUrl;
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error(`Failed to load ${scriptPath}`));
+      script.onerror = () => reject(new Error(`Failed to load dashboard script: ${fileName}`));
       document.head.appendChild(script);
     });
   },
 
   /**
-   * Route to appropriate dashboard
-   * Main entry point for dashboard routing
+   * Route to appropriate dashboard for current user
+   * Called from js/index.js after auth initialization
    */
-  routeToDashboard: async function () {
-    console.log("🔀 Dashboard Router: Detecting user role...");
+  async routeToDashboard() {
+    await this.init();
+
+    const primaryRole = this.getPrimaryRole();
+
+    if (!primaryRole) {
+      console.warn('[DashboardRouter] No role found for user, using default dashboard');
+      const defaultDashboard = this._configCache?.default_dashboard || 'headteacher_dashboard';
+      await this.loadDashboardScript(defaultDashboard);
+      return { dashboardKey: defaultDashboard, roleId: null };
+    }
+
+    const dashboardKey = this.getDashboardForRole(primaryRole);
+
+    console.log(`[DashboardRouter] Routing role ${primaryRole} (${this.getRoleName(primaryRole)}) -> ${dashboardKey}`);
 
     try {
-      // 1. Get user roles
-      const userRoles = this.getCurrentUserRoles();
-      if (!userRoles) {
-        console.warn("❌ User not authenticated");
-        window.location.href = (window.APP_BASE || '') + '/index.php';
-        return;
-      }
-
-      console.log(`✓ User roles detected: [${userRoles.join(", ")}]`);
-
-      // 2. Determine primary role
-      const primaryRoleId = this.getPrimaryRole(userRoles);
-      const dashboardConfig = this.getDashboardConfig(primaryRoleId);
-
-      if (!dashboardConfig) {
-        console.error(
-          `❌ No dashboard configured for role ID ${primaryRoleId}`
-        );
-        this.showErrorPage(
-          `No dashboard available for role ID ${primaryRoleId}`
-        );
-        return;
-      }
-
-      console.log(`✓ Primary role: ${dashboardConfig.name}`);
-      console.log(`📄 Loading dashboard: ${dashboardConfig.file}`);
-
-      // 3. Load dashboard script
-      const scriptPath = `${window.APP_BASE || ''}/js/dashboards/${dashboardConfig.file}`;
-      try {
-        await this.loadDashboardScript(scriptPath);
-      } catch (error) {
-        console.warn(
-          `⚠️ Could not load ${dashboardConfig.file}: ${error.message}`
-        );
-        // Continue anyway - controller might be pre-loaded
-      }
-
-      // 4. Check if controller exists
-      if (!this.isControllerLoaded(dashboardConfig.controller)) {
-        console.warn(`⚠️ Controller ${dashboardConfig.controller} not found`);
-        this.showErrorPage(
-          `Dashboard controller not loaded: ${dashboardConfig.controller}`
-        );
-        return;
-      }
-
-      // 5. Set role context for dashboard
-      window.CURRENT_DASHBOARD_ROLE = primaryRoleId;
-      window.CURRENT_DASHBOARD_ROLES = userRoles;
-      window.CURRENT_DASHBOARD_CONFIG = dashboardConfig;
-
-      // 6. Initialize dashboard
-      console.log(`🚀 Initializing ${dashboardConfig.name} dashboard...`);
-      const controller = this.getController(dashboardConfig.controller);
-      controller.init();
-
-      // 7. Add role switcher if user has multiple roles
-      if (userRoles.length > 1) {
-        this.addRoleSwitcher(userRoles, primaryRoleId);
-      }
-
-      console.log("✓ Dashboard routing complete");
+      await this.loadDashboardScript(dashboardKey);
+      return { dashboardKey, roleId: primaryRole };
     } catch (error) {
-      console.error("❌ Dashboard routing error:", error);
-      this.showErrorPage(`Error routing to dashboard: ${error.message}`);
+      console.error('[DashboardRouter] Failed to load dashboard:', error);
+      // Fallback to default
+      const defaultDashboard = this._configCache?.default_dashboard || 'headteacher_dashboard';
+      await this.loadDashboardScript(defaultDashboard);
+      return { dashboardKey: defaultDashboard, roleId: primaryRole };
     }
   },
 
   /**
    * Add role switcher UI for multi-role users
+   * Creates dropdown in navbar to switch between role dashboards
    */
-  addRoleSwitcher: function (roleIds, currentRoleId) {
-    try {
-      const navbar =
-        document.querySelector(".navbar") || document.querySelector("nav");
-      if (!navbar) return;
+  addRoleSwitcher() {
+    const roles = this.getCurrentUserRoles();
+    if (roles.length <= 1) return; // No switcher needed for single role
 
-      const switcherHtml = `
-                <div class="btn-group ms-auto" role="group">
-                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" 
-                            id="roleSwitcher" data-bs-toggle="dropdown">
-                        <i class="bi bi-shield-check"></i> Switch Role
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" id="roleSwitcherMenu">
-                        ${roleIds
-                          .map((roleId) => {
-                            const config = this.getDashboardConfig(roleId);
-                            const isActive =
-                              roleId === currentRoleId ? "active" : "";
-                            return `
-                                <li>
-                                    <a class="dropdown-item ${isActive}" href="#" data-role-id="${roleId}">
-                                        <i class="bi bi-check-circle${
-                                          isActive ? "-fill" : ""
-                                        }"></i>
-                                        ${config.name}
-                                    </a>
-                                </li>
-                            `;
-                          })
-                          .join("")}
-                    </ul>
-                </div>
-            `;
+    const navbar = document.querySelector('.navbar-nav.ms-auto') || document.querySelector('.navbar .ms-auto');
+    if (!navbar) return;
 
-      navbar.insertAdjacentHTML("beforeend", switcherHtml);
+    const switcherHtml = `
+      <li class="nav-item dropdown">
+        <a class="nav-link dropdown-toggle" href="#" id="roleSwitcher" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="fas fa-user-tag me-1"></i> ${this.getRoleName(roles[0])}
+        </a>
+        <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="roleSwitcher">
+          ${roles.map(roleId => `
+            <li>
+              <a class="dropdown-item role-switch-item" href="#" data-role-id="${roleId}" data-dashboard="${this.getDashboardForRole(roleId)}">
+                ${this.getRoleName(roleId)} <span class="badge bg-secondary ms-1">${this.getDashboardForRole(roleId)}</span>
+              </a>
+            </li>
+          `).join('')}
+        </ul>
+      </li>
+    `;
 
-      // Add event listeners
-      document.querySelectorAll("#roleSwitcherMenu a").forEach((link) => {
-        link.addEventListener("click", (e) => {
-          e.preventDefault();
-          const roleId = parseInt(link.dataset.roleId);
-          this.switchToDashboard(roleId);
-        });
+    navbar.insertAdjacentHTML('beforeend', switcherHtml);
+
+    // Handle role switch clicks
+    document.querySelectorAll('.role-switch-item').forEach(item => {
+      item.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const roleId = parseInt(e.currentTarget.dataset.roleId, 10);
+        const dashboardKey = e.currentTarget.dataset.dashboard;
+
+        // Store selected role in sessionStorage for session
+        sessionStorage.setItem('selected_role_id', roleId.toString());
+
+        // Reload page to trigger new dashboard load
+        window.location.reload();
       });
-
-      console.log("✓ Role switcher added for multi-role user");
-    } catch (error) {
-      console.warn("Could not add role switcher:", error.message);
-    }
+    });
   },
 
   /**
-   * Switch to different dashboard (for multi-role users)
+   * Get selected role override from sessionStorage
+   * Used by role switcher
    */
-  switchToDashboard: async function (roleId) {
-    console.log(`🔄 Switching to role ID ${roleId}...`);
-
-    const config = this.getDashboardConfig(roleId);
-    if (!config) {
-      console.error(`No dashboard for role ID ${roleId}`);
-      return;
-    }
-
-    try {
-      // Load script
-      await this.loadDashboardScript(`${window.APP_BASE || ''}/js/dashboards/${config.file}`);
-
-      // Update global context
-      window.CURRENT_DASHBOARD_ROLE = roleId;
-      window.CURRENT_DASHBOARD_CONFIG = config;
-
-      // Clear previous dashboard
-      const mainContent =
-        document.getElementById("mainContent") ||
-        document.querySelector("main") ||
-        document.querySelector(".container-fluid");
-      if (mainContent) {
-        mainContent.innerHTML = ""; // Clear old content
-      }
-
-      // Initialize new controller
-      const controller = this.getController(config.controller);
-      if (this.isControllerLoaded(config.controller)) {
-        controller.init();
-        console.log(`✓ Switched to ${config.name}`);
-      }
-    } catch (error) {
-      console.error("Error switching dashboard:", error);
-    }
+  getSelectedRoleOverride() {
+    const override = sessionStorage.getItem('selected_role_id');
+    return override ? parseInt(override, 10) : null;
   },
 
   /**
-   * Show error page
+   * Clear role override (on logout)
    */
-  showErrorPage: function (message) {
-    document.body.innerHTML = `
-            <div class="container mt-5">
-                <div class="alert alert-danger" role="alert">
-                    <h4 class="alert-heading">Dashboard Error</h4>
-                    <p>${message}</p>
-                    <hr>
-                    <p class="mb-0">
-                        <a href="${window.APP_BASE || ''}/home.php" class="btn btn-primary btn-sm">Back to Home</a>
-                        <a href="${window.APP_BASE || ''}/me.php" class="btn btn-secondary btn-sm">My Profile</a>
-                    </p>
-                </div>
-            </div>
-        `;
+  clearRoleOverride() {
+    sessionStorage.removeItem('selected_role_id');
   },
 
   /**
-   * Get dashboard info for current user
-   * Useful for displaying role info on dashboard
+   * Force refresh config from server (e.g., after role assignment changes)
    */
-  getDashboardInfo: function () {
-    return {
-      currentRoleId: window.CURRENT_DASHBOARD_ROLE,
-      allRoles: window.CURRENT_DASHBOARD_ROLES,
-      config: window.CURRENT_DASHBOARD_CONFIG,
-      isMultiRole:
-        window.CURRENT_DASHBOARD_ROLES &&
-        window.CURRENT_DASHBOARD_ROLES.length > 1,
-    };
+  async refreshConfig() {
+    this._configCache = null;
+    this._configVersion = null;
+    this._initPromise = null;
+    await this.init();
   },
 };
 
-// Auto-initialize on document ready
-document.addEventListener('DOMContentLoaded', function() {
-    // Only route if this is a dashboard page
-    if (document.querySelector('[data-dashboard-page]') || 
-        window.location.pathname.includes('dashboard')) {
-        DashboardRouter.routeToDashboard();
-    }
-});
+// Attach to window for page scripts
+window.DashboardRouter = DashboardRouter;

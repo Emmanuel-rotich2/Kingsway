@@ -254,101 +254,167 @@ class PaymentsAPI extends BaseAPI
 
             $studentId = $student['id'];
 
-            // Check for duplicate M-Pesa transaction
-            $dupStmt = $this->db->prepare("SELECT id FROM mpesa_transactions WHERE mpesa_code = :mpesa_code LIMIT 1");
-            $dupStmt->execute(['mpesa_code' => $mpesaCode]);
-            if ($dupStmt->fetch()) {
-                @file_put_contents($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already exists\n", FILE_APPEND);
+            // FIX: HIGH - Validate payment amount against outstanding balance
+            if ($amount <= 0) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Invalid payment amount: {$amount}\n", FILE_APPEND);
+                return [
+                    'ResultCode' => 1,
+                    'ResultDesc' => 'Invalid payment amount'
+                ];
+            }
+
+            $outstandingBalance = $this->getStudentOutstandingBalance($studentId);
+            if ($outstandingBalance === false) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Could not calculate outstanding balance for student {$studentId}\n", FILE_APPEND);
+                return [
+                    'ResultCode' => 1,
+                    'ResultDesc' => 'Could not validate student balance'
+                ];
+            }
+
+            // Allow payment if it matches or is less than balance (allow 10% overpayment tolerance)
+            $maxAllowed = $outstandingBalance * 1.1;
+            if ($amount > $maxAllowed && $outstandingBalance > 0) {
+                @file_put_contents($logFile, $this->timestamp . " - ERROR: Payment {$amount} exceeds outstanding balance {$outstandingBalance}\n", FILE_APPEND);
+                return [
+                    'ResultCode' => 1,
+                    'ResultDesc' => 'Payment amount exceeds outstanding balance'
+                ];
+            }
+
+            // FIX: CRITICAL - Use explicit transaction with row-level locking to prevent race condition
+            // This atomically checks for duplicate AND inserts if not found
+            $this->db->beginTransaction();
+            try {
+                // Lock the row for update - if another request is processing the same code, it waits
+                $lockStmt = $this->db->prepare("
+                    SELECT id FROM mpesa_transactions 
+                    WHERE mpesa_code = :mpesa_code 
+                    LIMIT 1 
+                    FOR UPDATE
+                ");
+                $lockStmt->execute(['mpesa_code' => $mpesaCode]);
+                $existingTx = $lockStmt->fetch(\PDO::FETCH_ASSOC);
+                
+                if ($existingTx) {
+                    // Already processed - safe to return as duplicate
+                    @file_put_contents($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already exists\n", FILE_APPEND);
+                    $this->db->commit();
+                    return [
+                        'ResultCode' => 0,
+                        'ResultDesc' => 'Confirmation received successfully (already processed)'
+                    ];
+                }
+
+                // Record M-Pesa transaction with enhanced fields
+                $insertMpesa = $this->db->prepare("
+                    INSERT INTO mpesa_transactions 
+                    (mpesa_code, student_id, amount, transaction_date, phone_number, 
+                     first_name, middle_name, last_name, org_account_balance, 
+                     bill_ref_number, third_party_trans_id, status, transaction_type, raw_callback, created_at)
+                    VALUES (:mpesa_code, :student_id, :amount, :trans_date, :phone,
+                            :first_name, :middle_name, :last_name, :org_balance,
+                            :bill_ref, :third_party_id, 'processed', 'C2B', :raw_callback, NOW())
+                ");
+                $insertMpesa->execute([
+                    'mpesa_code' => $mpesaCode,
+                    'student_id' => $studentId,
+                    'amount' => $amount,
+                    'trans_date' => $transDateFormatted,
+                    'phone' => $phoneNumber,
+                    'first_name' => $firstName,
+                    'middle_name' => $middleName,
+                    'last_name' => $lastName,
+                    'org_balance' => $orgBalance,
+                    'bill_ref' => $admissionNumber,
+                    'third_party_id' => $thirdPartyTransId,
+                    'raw_callback' => json_encode($confirmationData)
+                ]);
+
+                $mpesaTxId = $this->db->lastInsertId();
+                @file_put_contents($logFile, $this->timestamp . " - M-Pesa TX recorded (ID: {$mpesaTxId})\n", FILE_APPEND);
+
+                // Get parent_id for this student
+                $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = :student_id LIMIT 1");
+                $parentStmt->execute(['student_id' => $studentId]);
+                $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
+                $parentId = $parentRow ? $parentRow['parent_id'] : null;
+
+                // Generate receipt number
+                $receiptNo = 'MPESA-' . $mpesaCode;
+
+                // System user for automated payments
+                $systemUserId = 1;
+
+                // Process payment using stored procedure sp_process_student_payment
+                // Parameters: p_student_id, p_parent_id, p_amount_paid, p_payment_method, p_reference_no, 
+                //             p_receipt_no, p_received_by, p_payment_date, p_notes
+                $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $spStmt->execute([
+                    $studentId,
+                    $parentId,
+                    $amount,
+                    'mpesa',  // payment_method ENUM value
+                    $mpesaCode,
+                    $receiptNo,
+                    $systemUserId,
+                    $transDateFormatted,
+                    "M-Pesa C2B payment from {$firstName} {$middleName} {$lastName} (Phone: {$phoneNumber}). OrgBalance: {$orgBalance}"
+                ]);
+                $spStmt->closeCursor();
+
+                // Log webhook
+                $webhookLogQuery = "INSERT INTO payment_webhooks_log (source, webhook_data, status, created_at) VALUES ('mpesa_c2b_confirmation', :webhook_data, 'processed', NOW())";
+                $webhookStmt = $this->db->prepare($webhookLogQuery);
+                $webhookStmt->execute([
+                    'webhook_data' => json_encode([
+                        'mpesa_code' => $mpesaCode,
+                        'admission_no' => $admissionNumber,
+                        'student_id' => $studentId,
+                        'mpesa_tx_id' => $mpesaTxId,
+                        'amount' => $amount,
+                        'phone' => $phoneNumber,
+                        'trans_time' => $transDateFormatted,
+                        'payer_name' => trim("{$firstName} {$middleName} {$lastName}"),
+                        'org_balance' => $orgBalance
+                    ])
+                ]);
+
+                $this->db->commit();
+
+                @file_put_contents($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
+
+                return [
+                    'ResultCode' => 0,
+                    'ResultDesc' => 'Confirmation received successfully'
+                ];
+
+            } catch (\Exception $transactionError) {
+                $this->db->rollBack();
+                throw $transactionError;
+            }
+
+        } catch (\PDOException $e) {
+            // FIX: MEDIUM - Improved error handling: distinguish between expected and unexpected errors
+            if (strpos($e->getMessage(), '1062') !== false || strpos($e->getMessage(), 'Duplicate') !== false) {
+                // Duplicate key - already processed
+                @file_put_contents($logFile, $this->timestamp . " - DUPLICATE via exception: {$mpesaCode}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'Confirmation received successfully (already processed)'
                 ];
             }
-
-            // Record M-Pesa transaction with enhanced fields
-            $insertMpesa = $this->db->prepare("
-                INSERT INTO mpesa_transactions 
-                (mpesa_code, student_id, amount, transaction_date, phone_number, 
-                 first_name, middle_name, last_name, org_account_balance, 
-                 bill_ref_number, third_party_trans_id, status, transaction_type, raw_callback, created_at)
-                VALUES (:mpesa_code, :student_id, :amount, :trans_date, :phone,
-                        :first_name, :middle_name, :last_name, :org_balance,
-                        :bill_ref, :third_party_id, 'processed', 'C2B', :raw_callback, NOW())
-            ");
-            $insertMpesa->execute([
-                'mpesa_code' => $mpesaCode,
-                'student_id' => $studentId,
-                'amount' => $amount,
-                'trans_date' => $transDateFormatted,
-                'phone' => $phoneNumber,
-                'first_name' => $firstName,
-                'middle_name' => $middleName,
-                'last_name' => $lastName,
-                'org_balance' => $orgBalance,
-                'bill_ref' => $admissionNumber,
-                'third_party_id' => $thirdPartyTransId,
-                'raw_callback' => json_encode($confirmationData)
-            ]);
-
-            $mpesaTxId = $this->db->lastInsertId();
-            @file_put_contents($logFile, $this->timestamp . " - M-Pesa TX recorded (ID: {$mpesaTxId})\n", FILE_APPEND);
-
-            // Get parent_id for this student
-            $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = :student_id LIMIT 1");
-            $parentStmt->execute(['student_id' => $studentId]);
-            $parentRow = $parentStmt->fetch(\PDO::FETCH_ASSOC);
-            $parentId = $parentRow ? $parentRow['parent_id'] : null;
-
-            // Generate receipt number
-            $receiptNo = 'MPESA-' . $mpesaCode;
-
-            // System user for automated payments
-            $systemUserId = 1;
-
-            // Process payment using stored procedure sp_process_student_payment
-            // Parameters: p_student_id, p_parent_id, p_amount_paid, p_payment_method, p_reference_no, 
-            //             p_receipt_no, p_received_by, p_payment_date, p_notes
-            $spStmt = $this->db->prepare("CALL sp_process_student_payment(?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $spStmt->execute([
-                $studentId,
-                $parentId,
-                $amount,
-                'mpesa',  // payment_method ENUM value
-                $mpesaCode,
-                $receiptNo,
-                $systemUserId,
-                $transDateFormatted,
-                "M-Pesa C2B payment from {$firstName} {$middleName} {$lastName} (Phone: {$phoneNumber}). OrgBalance: {$orgBalance}"
-            ]);
-            $spStmt->closeCursor();
-
-            // Log webhook
-            $webhookLogQuery = "INSERT INTO payment_webhooks_log (source, webhook_data, status, created_at) VALUES ('mpesa_c2b_confirmation', :webhook_data, 'processed', NOW())";
-            $webhookStmt = $this->db->prepare($webhookLogQuery);
-            $webhookStmt->execute([
-                'webhook_data' => json_encode([
-                    'mpesa_code' => $mpesaCode,
-                    'admission_no' => $admissionNumber,
-                    'student_id' => $studentId,
-                    'mpesa_tx_id' => $mpesaTxId,
-                    'amount' => $amount,
-                    'phone' => $phoneNumber,
-                    'trans_time' => $transDateFormatted,
-                    'payer_name' => trim("{$firstName} {$middleName} {$lastName}"),
-                    'org_balance' => $orgBalance
-                ])
-            ]);
-
-            @file_put_contents($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
-
+            
+            // Database connection error or other critical issue
+            @file_put_contents($logFile, $this->timestamp . " - PDO ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            error_log("M-Pesa C2B PDO Error: " . $e->getMessage());
             return [
-                'ResultCode' => 0,
-                'ResultDesc' => 'Confirmation received successfully'
+                'ResultCode' => 1,
+                'ResultDesc' => 'Database error processing payment'
             ];
-
         } catch (\Exception $e) {
+            // FIX: MEDIUM - Better logging and error messages
             @file_put_contents($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
-            // Return error with more details for debugging
             error_log("M-Pesa C2B Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
@@ -919,6 +985,28 @@ class PaymentsAPI extends BaseAPI
             }
         }
         return null;
+    }
+
+    /**
+     * FIX: HIGH - Get student's outstanding balance for payment validation
+     * @param int $studentId Student ID
+     * @return float|false Outstanding balance or false if error
+     */
+    private function getStudentOutstandingBalance($studentId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT COALESCE(SUM(balance), 0) as outstanding
+                FROM student_fees
+                WHERE student_id = ? AND balance > 0
+            ");
+            $stmt->execute([$studentId]);
+            $result = $stmt->fetch(\PDO::FETCH_ASSOC);
+            return $result ? floatval($result['outstanding']) : 0;
+        } catch (\Exception $e) {
+            error_log("Error calculating outstanding balance: " . $e->getMessage());
+            return false;
+        }
     }
 }
 

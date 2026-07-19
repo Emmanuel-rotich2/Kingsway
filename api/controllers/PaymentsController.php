@@ -250,46 +250,56 @@ class PaymentsController extends BaseController
 
     /**
      * POST /api/payments/mpesa-c2b-confirmation
+     * FIX: Pass actual request headers for webhook signature validation
      */
     public function postMpesaC2bConfirmation($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->processMpesaC2BConfirmation($data, $data['headers'] ?? []);
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $result = $this->api->processMpesaC2BConfirmation($data, $headers);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/payments/kcb-validation
+     * FIX: Pass actual request headers for webhook signature validation
      */
     public function postKcbValidation($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->processKcbValidation($data, $data['headers'] ?? []);
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $result = $this->api->processKcbValidation($data, $headers);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/payments/kcb-transfer-callback
+     * FIX: Pass actual request headers for webhook signature validation
      */
     public function postKcbTransferCallback($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->processKcbTransferCallback($data, $data['headers'] ?? []);
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $result = $this->api->processKcbTransferCallback($data, $headers);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/payments/kcb-notification
+     * FIX: Pass actual request headers for webhook signature validation
      */
     public function postKcbNotification($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->processKcbNotification($data, $data['headers'] ?? []);
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $result = $this->api->processKcbNotification($data, $headers);
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/payments/bank-webhook
+     * FIX: Pass actual request headers for webhook signature validation
      */
     public function postBankWebhook($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->processBankWebhook($data, $data['headers'] ?? []);
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $result = $this->api->processBankWebhook($data, $headers);
         return $this->handleResponse($result);
     }
 

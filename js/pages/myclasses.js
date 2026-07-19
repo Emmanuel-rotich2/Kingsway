@@ -181,7 +181,7 @@ const myclassesController = (() => {
       document.getElementById("classesContainer")?.innerHTML || "";
     const w = window.open("", "", "width=900,height=700");
     w.document.write(
-      `<html><head><title>My Classes</title><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css"></head><body class="p-4"><h3>My Classes & Assigned Subjects</h3>${content}</body></html>`,
+      `<html><head><title>My Classes</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.min.css"></head><body class="p-4"><h3>My Classes & Assigned Subjects</h3>${content}</body></html>`,
     );
     w.document.close();
     w.print();

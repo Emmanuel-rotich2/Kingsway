@@ -669,7 +669,54 @@ const manageTeachersController = {
   },
 
   printTeachers: function () {
-    window.print();
+    if (!this.state.teachers || this.state.teachers.length === 0) {
+      this.notify("No teacher data to print", "warning");
+      return;
+    }
+
+    const department = document.getElementById("departmentFilter")?.options[document.getElementById("departmentFilter").selectedIndex]?.text || 'All';
+    const subject = document.getElementById("subjectFilter")?.options[document.getElementById("subjectFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Department': department,
+      'Subject': subject
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'full_name', label: 'Teacher Name' },
+      { key: 'department_name', label: 'Department' },
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'phone', label: 'Phone' },
+      { key: 'email', label: 'Email' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Teachers List',
+      subtitle: 'School Teaching Staff',
+      columns: columns,
+      rows: this.state.teachers,
+      summary: {
+        'Total Teachers': this.state.teachers.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'TCH-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'HR Manager' },
+        { label: 'Principal' }
+      ]
+    });
   },
 };
 

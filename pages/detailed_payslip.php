@@ -75,7 +75,7 @@
             <div class="payslip-header-glow"></div>
             <div class="payslip-header-main">
                 <div class="payslip-logo-wrap">
-                    <img src="<?= $appBase ?>/images/kings%20logo.png" alt="Kingsway Preparatory School Logo" class="payslip-school-logo">
+                    <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" class="payslip-school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
                 </div>
                 <div class="payslip-school-info">
                     <div class="payslip-school-kicker">Official Staff Payroll Statement</div>

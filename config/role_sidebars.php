@@ -98,9 +98,13 @@ return [
     3 => [
         ['label' => 'Dashboard', 'url' => 'director_owner_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // Approvals first — this is the Director's primary daily task
+        // Admissions - Director oversight only (operational handled by School Admin, HT, Deputy Academic)
+        ['label' => 'Admissions Oversight', 'url' => null, 'icon' => 'fas fa-user-check', 'subitems' => [
+            ['label' => 'Enrollment Reports',      'url' => 'enrollment_reports'],        // overview of admissions stats
+        ]],
+
+        // Remaining approvals — these are Director approval gates in other workflows
         ['label' => 'Approvals', 'url' => null, 'icon' => 'fas fa-check-double', 'subitems' => [
-            ['label' => 'Admission Approvals',     'url' => 'manage_students_admissions'],  // approve new students
             ['label' => 'Fee Structure Approval',  'url' => 'manage_fee_structure'],        // approve what accountant drafted
             ['label' => 'Payroll Approval',        'url' => 'manage_payrolls'],             // approve what admin created
             ['label' => 'Staff Appointments',      'url' => 'manage_staff'],                // approve new hires
@@ -128,8 +132,7 @@ return [
 
         // Students — oversight, not operational
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
-            ['label' => 'Admissions Overview',     'url' => 'manage_students_admissions'],
+            ['label' => 'Students Overview',       'url' => 'students_overview'],
             ['label' => 'Performance Overview',    'url' => 'student_performance'],
             ['label' => 'Discipline Overview',     'url' => 'discipline_cases'],
             ['label' => 'Special Needs',           'url' => 'special_needs'],
@@ -237,19 +240,14 @@ return [
     4 => [
         ['label' => 'Dashboard', 'url' => 'school_administrative_officer_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // ADMISSIONS — Admin is the primary handler of the full workflow
+        // ADMISSIONS — School Admin is the primary handler of the full workflow
         // Application → intake → documents → schedule interview → record fee → CREATE student → generate ID → assign class
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
             ['label' => 'New Applications',        'url' => 'new_applications'],           // receive applications
-            ['label' => 'Application Intake',      'url' => 'manage_students_admissions'], // take basic details
-            ['label' => 'Admission Documents',     'url' => 'manage_students_admissions'], // check requirements
-            ['label' => 'Schedule Interview',      'url' => 'admission_interviews'],       // arrange interview with HT
-            ['label' => 'Record Admission Fee',    'url' => 'manage_payments'],            // collect admission fee
-            ['label' => 'Create Student Record',   'url' => 'manage_students'],            // approve + create after HT approves
-            ['label' => 'Generate ID Card',        'url' => 'student_id_cards'],           // generate ID after creation
-            ['label' => 'Assign to Class',         'url' => 'manage_classes'],             // place student in class
-            ['label' => 'Admission Status',        'url' => 'admission_status'],
-            ['label' => 'Enrollment Reports',      'url' => 'enrollment_reports'],
+            ['label' => 'Applications Workspace',  'url' => 'manage_students_admissions'], // tabbed workspace
+            ['label' => 'Class Placement',         'url' => 'admissions_class_placement'], // place student in class
+            ['label' => 'Placement Tests',         'url' => 'placement_tests'],          // manage placement tests
+            ['label' => 'Enrollment Reports',      'url' => 'enrollment_reports'],        // comprehensive reports
         ]],
 
         // STUDENTS — manage all student records
@@ -267,7 +265,6 @@ return [
             ['label' => 'Manage Classes',          'url' => 'manage_classes'],
             ['label' => 'Class Streams',           'url' => 'class_streams'],
             ['label' => 'Class Capacity',          'url' => 'class_capacity'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // STAFF — Admin handles full HR operations + onboarding
@@ -378,13 +375,13 @@ return [
     5 => [
         ['label' => 'Dashboard', 'url' => 'headteacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // ADMISSIONS — HT conducts interview, makes admission decision
+        // ADMISSIONS — HT review, interview, decision, oversight
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'All Applications',        'url' => 'manage_students_admissions'],
-            ['label' => 'Conduct Interview',       'url' => 'admission_interviews'],       // HT leads interview
-            ['label' => 'Admission Decisions',     'url' => 'manage_students_admissions'], // HT recommends/approves
-            ['label' => 'Pending Approvals',       'url' => 'manage_students_admissions'],
-            ['label' => 'Admission Statistics',    'url' => 'enrollment_reports'],
+            ['label' => 'Applications Review',    'url' => 'admissions_headteacher_applications'],
+            ['label' => 'Interview Queue',        'url' => 'admission_interviews'],
+            ['label' => 'Admission Decisions',    'url' => 'admissions_admission_decisions'],
+            ['label' => 'Approval Follow-up',     'url' => 'admissions_pending_admission_approvals'],
+            ['label' => 'Enrollment Reports',     'url' => 'enrollment_reports'],
         ]],
 
         // ACADEMIC — HT approves timetable + lesson plans (key workflow authority)
@@ -425,7 +422,7 @@ return [
 
         // STUDENTS
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
+            ['label' => 'Students Overview',       'url' => 'students_overview'],
             ['label' => 'Performance Overview',    'url' => 'student_performance'],
             ['label' => 'Discipline Cases',        'url' => 'discipline_cases'],
             ['label' => 'Counseling',              'url' => 'student_counseling'],
@@ -498,8 +495,8 @@ return [
 
         // ── ADMIN: ADMISSIONS ─────────────────────────────────────────────────
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'All Applications',        'url' => 'manage_students_admissions'],
-            ['label' => 'Class Placement',         'url' => 'manage_classes'],             // recommend which class
+            ['label' => 'Academic Applications',   'url' => 'admissions_academic_applications'],
+            ['label' => 'Class Placement',         'url' => 'admissions_class_placement'], // recommend which class
             ['label' => 'Placement Tests',         'url' => 'placement_tests'],
         ]],
 
@@ -511,7 +508,6 @@ return [
             ['label' => 'CBC Curriculum',          'url' => 'curriculum_cbc'],
             ['label' => 'Academic Years',          'url' => 'academic_years'],
             ['label' => 'Academic Calendar',       'url' => 'academic_calendar'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // ── ADMIN: TIMETABLE (Deputy ASSIGNS teachers — key workflow step) ────
@@ -553,7 +549,7 @@ return [
 
         // ── STUDENTS ──────────────────────────────────────────────────────────
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'all_students'],
+            ['label' => 'Academic Students',       'url' => 'academic_students'],
             ['label' => 'Performance Overview',    'url' => 'student_performance'],
             ['label' => 'Student Promotion',       'url' => 'student_promotion'],
             ['label' => 'Special Needs',           'url' => 'special_needs'],
@@ -562,7 +558,7 @@ return [
         // ── ATTENDANCE (school-wide oversight, not just own class) ────────────
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
             ['label' => 'Daily Overview',          'url' => 'view_attendance'],
-            ['label' => 'Submit Attendance',       'url' => 'submit_attendance'],
+            ['label' => 'Submit Attendance',       'url' => 'mark_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
             ['label' => 'Attendance Trends',       'url' => 'attendance_trends'],
         ]],
@@ -579,7 +575,7 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
             ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 
@@ -814,7 +810,7 @@ return [
 
         // STUDENT BILLING — bill students within approved structure
         ['label' => 'Student Billing', 'url' => null, 'icon' => 'fas fa-file-invoice', 'subitems' => [
-            ['label' => 'Student Fee Accounts',    'url' => 'all_students'],
+            ['label' => 'Student Fee Accounts',    'url' => 'student_fees'],
             ['label' => 'Generate Bills',          'url' => 'student_fees'],
             ['label' => 'Payment Records',         'url' => 'manage_payments'],
             ['label' => 'Unmatched Payments',      'url' => 'unmatched_payments'],
@@ -831,10 +827,7 @@ return [
         ]],
 
         // ADMISSION FEES — record when new student pays
-        ['label' => 'Admission Fees', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'Record Admission Fee',    'url' => 'manage_payments'],
-            ['label' => 'Admission Fee History',   'url' => 'manage_payments'],
-        ]],
+        ['label' => 'Admission Fees', 'url' => 'manage_payments', 'icon' => 'fas fa-user-plus', 'subitems' => []],
 
         // EXPENDITURE
         ['label' => 'Expenditure', 'url' => null, 'icon' => 'fas fa-receipt', 'subitems' => [
@@ -955,7 +948,7 @@ return [
         ]],
 
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'Boarding Students',       'url' => 'manage_students'],            // to plan meal quantities
+            ['label' => 'Boarding Students',       'url' => 'catering_boarding_students'], // meal quantities only
         ]],
 
         ['label' => 'Reports', 'url' => null, 'icon' => 'fas fa-chart-bar', 'subitems' => [
@@ -975,11 +968,7 @@ return [
         ['label' => 'Dashboard', 'url' => 'matron_housemother_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
         // ADMISSIONS — Boarding Master assigns dorm after Admin creates student record
-        ['label' => 'New Boarders', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'Assign Dormitory',        'url' => 'dormitory_management'],       // KEY: assign dorm to new admits
-            ['label' => 'Pending Dorm Assignment', 'url' => 'dormitory_management'],
-            ['label' => 'New Boarder List',        'url' => 'manage_students'],
-        ]],
+        ['label' => 'New Boarders', 'url' => 'dormitory_management', 'icon' => 'fas fa-user-plus', 'subitems' => []],
 
         // BOARDING — core daily operations
         ['label' => 'Boarding', 'url' => null, 'icon' => 'fas fa-bed', 'subitems' => [
@@ -987,7 +976,7 @@ return [
             ['label' => 'Roll Call',               'url' => 'boarding_roll_call'],
             ['label' => 'Dormitory Management',    'url' => 'dormitory_management'],
             ['label' => 'Room Assignments',        'url' => 'dormitory_management'],
-            ['label' => 'Boarding Students List',  'url' => 'manage_students'],
+            ['label' => 'Boarding Students List',  'url' => 'boarding_students'],
         ]],
 
         // PERMISSIONS & EXEATS
@@ -1014,7 +1003,7 @@ return [
         ]],
 
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Boarding Students',   'url' => 'manage_students'],
+            ['label' => 'All Boarding Students',   'url' => 'boarding_students'],
             ['label' => 'Student Profiles',        'url' => 'student_profiles'],
             ['label' => 'Special Needs',           'url' => 'special_needs'],
         ]],
@@ -1055,7 +1044,7 @@ return [
         ]],
 
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'manage_students'],
+            ['label' => 'Activity Participants',   'url' => 'all_students'],
             ['label' => 'Participant Registration','url' => 'manage_activities'],
             ['label' => 'Achievement Records',     'url' => 'manage_activities'],
         ]],
@@ -1084,7 +1073,7 @@ return [
         ]],
 
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-users', 'subitems' => [
-            ['label' => 'My Passengers',           'url' => 'manage_students'],
+            ['label' => 'My Passengers',           'url' => 'transport_passengers'],
             ['label' => 'Passenger Attendance',    'url' => 'mark_attendance'],
         ]],
 
@@ -1125,7 +1114,7 @@ return [
         ]],
 
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'Student Profiles',        'url' => 'student_profiles'],
+            ['label' => 'Student Welfare',         'url' => 'student_welfare'],
             ['label' => 'Welfare Records',         'url' => 'student_counseling'],
         ]],
 
@@ -1204,7 +1193,7 @@ return [
         // ── ADMIN: DISCIPLINE (primary domain) ───────────────────────────────
         ['label' => 'Discipline', 'url' => null, 'icon' => 'fas fa-gavel', 'subitems' => [
             ['label' => 'All Cases',               'url' => 'discipline_cases'],
-            ['label' => 'Log New Case',            'url' => 'student_discipline'],
+            ['label' => 'Log New Case',            'url' => 'log_discipline_case'],
             ['label' => 'Open Cases',              'url' => 'discipline_cases'],
             ['label' => 'Suspensions / Expulsions','url' => 'discipline_cases'],
             ['label' => 'Sanctions',               'url' => 'policy_violations'],
@@ -1217,7 +1206,7 @@ return [
             ['label' => 'Conduct Grades',          'url' => 'conduct_reports'],
             ['label' => 'Rewards & Recognition',   'url' => 'conduct_reports'],
             ['label' => 'Refer to Counseling',     'url' => 'student_counseling'],         // → Chaplain/Counselor workflow
-            ['label' => 'At-Risk Students',        'url' => 'all_students'],
+            ['label' => 'At-Risk Students',        'url' => 'student_welfare'],
         ]],
 
         // ── ADMIN: ATTENDANCE (truancy is a discipline matter) ────────────────
@@ -1237,15 +1226,15 @@ return [
 
         // ── STUDENTS ──────────────────────────────────────────────────────────
         ['label' => 'Students', 'url' => null, 'icon' => 'fas fa-user-graduate', 'subitems' => [
-            ['label' => 'All Students',            'url' => 'all_students'],
-            ['label' => 'Student Profiles',        'url' => 'all_students'],
+            ['label' => 'Discipline Students',     'url' => 'discipline_students'],
+            ['label' => 'Student Profiles',        'url' => 'student_profiles'],
             ['label' => 'Special Needs',           'url' => 'special_needs'],
         ]],
 
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'leave_requests'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
             ['label' => 'My Attendance',           'url' => 'staff_attendance'],
         ]],
 

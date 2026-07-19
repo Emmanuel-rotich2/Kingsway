@@ -10,7 +10,7 @@ $schoolPhone = kw_school_stat('school_phone_main', kw_school_stat('school_phone'
 $programs    = kw_programs();
 $gallery     = kw_gallery(6);
 $heroStats   = [
-    [kw_school_stat('hero_stat_1_value','1,200+'), kw_school_stat('hero_stat_1_label','Students Enrolled'),    'bi-people-fill'],
+    [kw_student_count().'+', kw_school_stat('hero_stat_1_label','Students Enrolled'),    'bi-people-fill'],
     [kw_school_stat('hero_stat_2_value','98%'),    kw_school_stat('hero_stat_2_label','KJSEA / KCPE Pass Rate'),'bi-mortarboard-fill'],
     [kw_school_stat('hero_stat_3_value','30+'),    kw_school_stat('hero_stat_3_label','Regional Awards'),       'bi-award-fill'],
     [kw_school_stat('hero_stat_4_value','Est. '.kw_school_stat('school_founded_year','2005')), kw_school_stat('hero_stat_4_label','Years of Excellence'),'bi-calendar2-check'],
@@ -84,8 +84,8 @@ $heroStats   = [
     <div class="row g-4">
       <?php
       $stats = [
-        ['icon'=>'bi-people-fill',      'target'=>(int)kw_school_stat('stat_students','1200'), 'suffix'=>'+', 'label'=>'Students Enrolled',    'color'=>'#198754'],
-        ['icon'=>'bi-person-workspace', 'target'=>(int)kw_school_stat('stat_teachers','80'),   'suffix'=>'+', 'label'=>'Qualified Teachers',   'color'=>'#0d4f2a'],
+        ['icon'=>'bi-people-fill',      'target'=>kw_student_count(), 'suffix'=>'+', 'label'=>'Students Enrolled',    'color'=>'#198754'],
+        ['icon'=>'bi-person-workspace', 'target'=>kw_staff_count(),   'suffix'=>'+', 'label'=>'Qualified Teachers',   'color'=>'#0d4f2a'],
         ['icon'=>'bi-trophy-fill',      'target'=>(int)kw_school_stat('stat_pass_rate','98'),  'suffix'=>'%', 'label'=>'Exam Pass Rate',        'color'=>'#f9c80e'],
         ['icon'=>'bi-award-fill',       'target'=>(int)kw_school_stat('stat_awards','30'),     'suffix'=>'+', 'label'=>'Awards & Honours',      'color'=>'#198754'],
         ['icon'=>'bi-house-door-fill',  'target'=>(int)kw_school_stat('stat_years','20'),      'suffix'=>'',  'label'=>'Years of Excellence',   'color'=>'#0d4f2a'],
@@ -342,7 +342,7 @@ $heroStats   = [
         <div class="section-label" style="color:var(--gold)"><span>Enrol Today</span></div>
         <h2 class="section-title">Ready to Join the <span style="color:var(--gold)">Kingsway Family?</span></h2>
         <p class="section-subtitle" style="color:rgba(255,255,255,.8);max-width:540px">
-          Applications for Term 1 <?= date('Y')+1 ?> are now open. Limited spaces available across all grade levels.
+          Applications for Term 1 <?= date('Y')+1 ?> are now open. Spaces are available across all grade levels.
           Begin your child's journey to excellence today.
         </p>
       </div>

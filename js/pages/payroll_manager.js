@@ -1073,7 +1073,7 @@ const PayrollManagerController = {
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <img src="${window.APP_BASE || ""}/images/kings%20logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;">
+                    <img src="${window.APP_BASE || ""}/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
                     <h4 class="mb-1">KINGSWAY PREPARATORY SCHOOL</h4>
                     <p class="mb-0">P.O. Box 123, Nairobi, Kenya</p>
                     <h5 class="mt-3">PAYSLIP</h5>
@@ -1297,7 +1297,7 @@ const PayrollManagerController = {
 
     const bootstrap = doc.createElement("link");
     bootstrap.rel = "stylesheet";
-    bootstrap.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    bootstrap.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
     doc.head.appendChild(bootstrap);
 
     const style = doc.createElement("style");
@@ -1324,7 +1324,7 @@ const PayrollManagerController = {
 
     var bsLink = doc.createElement("link");
     bsLink.rel = "stylesheet";
-    bsLink.href = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css";
+    bsLink.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
     doc.head.appendChild(bsLink);
 
     var style = doc.createElement("style");
