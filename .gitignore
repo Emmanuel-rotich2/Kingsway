@@ -14,8 +14,8 @@
 .openclaude-profile.json
 
 
-/tests/
 /logs/*.log
+.phpunit.cache/
 
 # Node modules (if any in the future)
 /node_modules/
