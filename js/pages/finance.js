@@ -564,14 +564,42 @@ const financeController = {
      * Export payments
      */
     exportPayments: function() {
+        if (!window.PrintManager) {
+            showNotification('PrintManager not available for export', 'error');
+            return;
+        }
+
+        if (!this.filteredData || this.filteredData.length === 0) {
+            showNotification('No data to export', 'warning');
+            return;
+        }
+
+        const columns = [
+            { key: 'receipt_no', label: 'Receipt No' },
+            { key: 'student_name', label: 'Student' },
+            { key: 'amount', label: 'Amount' },
+            { key: 'payment_type', label: 'Type' },
+            { key: 'payment_method', label: 'Method' },
+            { key: 'payment_date', label: 'Date' },
+            { key: 'status', label: 'Status' }
+        ];
+
+        const rows = this.filteredData.map(p => ({
+            receipt_no: p.receipt_no || p.id,
+            student_name: p.student_name,
+            amount: p.amount,
+            payment_type: p.payment_type,
+            payment_method: p.payment_method,
+            payment_date: p.payment_date,
+            status: p.status
+        }));
+
         try {
-            const csv = this.convertToCSV(this.filteredData);
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `payments_export_${new Date().toISOString().split('T')[0]}.csv`;
-            a.click();
+            window.PrintManager.exportToCSV({
+                filename: `payments_export_${new Date().toISOString().split('T')[0]}.csv`,
+                columns: columns,
+                rows: rows
+            });
             showNotification('Payments data exported successfully', 'success');
         } catch (error) {
             console.error('Error exporting payments:', error);
@@ -1193,24 +1221,41 @@ document.addEventListener('DOMContentLoaded', () => {
         },
 
         exportCsv: function (rows, filename) {
-            const headers = ["Date", "Type", "Category", "Description", "Amount", "Status", "Source"];
-            const dataRows = rows.map(r => [
-                this.formatDate(r.date),
-                r.type,
-                r.category,
-                (r.description || "").replace(/\\n/g, " "),
-                r.amount,
-                r.status,
-                r.source
-            ]);
-            const csv = [headers, ...dataRows].map(r => r.join(",")).join("\n");
-            const blob = new Blob([csv], { type: "text/csv" });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `${filename}_${new Date().toISOString().split("T")[0]}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url);
+            if (!window.PrintManager) {
+                this.notify("PrintManager not available for export", "error");
+                return;
+            }
+
+            if (!rows || rows.length === 0) {
+                this.notify("No data to export", "warning");
+                return;
+            }
+
+            const columns = [
+                { key: 'date', label: 'Date' },
+                { key: 'type', label: 'Type' },
+                { key: 'category', label: 'Category' },
+                { key: 'description', label: 'Description' },
+                { key: 'amount', label: 'Amount' },
+                { key: 'status', label: 'Status' },
+                { key: 'source', label: 'Source' }
+            ];
+
+            const dataRows = rows.map(r => ({
+                date: this.formatDate(r.date),
+                type: r.type,
+                category: r.category,
+                description: (r.description || "").replace(/\\n/g, " "),
+                amount: r.amount,
+                status: r.status,
+                source: r.source
+            }));
+
+            window.PrintManager.exportToCSV({
+                filename: `${filename}_${new Date().toISOString().split("T")[0]}.csv`,
+                columns: columns,
+                rows: dataRows
+            });
         },
 
         saveTransaction: async function () {
@@ -1482,14 +1527,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 ]);
             });
 
-            const csv = rows.map(r => r.join(",")).join("\n");
-            const blob = new Blob([csv], { type: "text/csv" });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `fee_statement_${this.studentId}.csv`;
-            a.click();
-            window.URL.revokeObjectURL(url);
+            if (!window.PrintManager) {
+                this.notify("PrintManager not available for export", "error");
+                return;
+            }
+
+            const columns = [
+                { key: 'section', label: 'Section' },
+                { key: 'date', label: 'Date' },
+                { key: 'description', label: 'Description' },
+                { key: 'amount', label: 'Amount' },
+                { key: 'balance', label: 'Balance' }
+            ];
+
+            const dataRows = [];
+            obligations.forEach((o) => {
+                dataRows.push({
+                    section: "Obligation",
+                    date: o.created_at || "",
+                    description: o.fee_structure_name || "",
+                    amount: o.amount || o.total_fee || 0,
+                    balance: o.balance || 0
+                });
+            });
+
+            payments.forEach((p) => {
+                dataRows.push({
+                    section: "Payment",
+                    date: p.payment_date || "",
+                    description: p.payment_method || "",
+                    amount: p.amount_paid || p.amount || 0,
+                    balance: ""
+                });
+            });
+
+            window.PrintManager.exportToCSV({
+                filename: `fee_statement_${this.studentId}.csv`,
+                columns: columns,
+                rows: dataRows
+            });
         },
 
         getStatusBadge: function (status) {

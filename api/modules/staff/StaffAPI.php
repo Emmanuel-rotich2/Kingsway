@@ -1,10 +1,9 @@
 <?php
 
 namespace App\API\Modules\staff;
-require_once __DIR__ . '/../../includes/BaseAPI.php';
-require_once __DIR__ . '/StaffService.php';
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\staff\StaffService;
 use App\API\Modules\system\MediaManager;
 use PDO;
 use Exception;

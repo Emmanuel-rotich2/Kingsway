@@ -31,7 +31,7 @@ class MessageService
             'email' => defined('SCHOOL_EMAIL') ? SCHOOL_EMAIL : 'info@kingsway.ac.ke',
             'principal_name' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr, Bett Junior',
             'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher',
-            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '../../images/logo.jpg'
+            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '../../uploads/school_assets/official_school_logo.png'
         ];
 
         $schoolDetails = array_merge($defaultDetails, $schoolDetails);
@@ -48,7 +48,10 @@ class MessageService
         // This is the standard way to embed images in emails (works best with Gmail)
         $logoSection = '';
         if (!empty($schoolDetails['logo'])) {
-            $logoPath = __DIR__ . '/../../images/logo.jpg';
+            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
+            if (!file_exists($logoPath)) {
+                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
+            }
             if (file_exists($logoPath)) {
                 // Use cid: reference for MIME attachment (will be added in sendEmail)
                 $logoSection = '<img src="cid:school_logo" alt="Kingsway Preparatory School Logo" style="max-height: 95px; width: auto; display: block; border-radius: 6px; margin: 0; padding: 0; border: 2px solid rgba(255,255,255,0.1); box-shadow: 0 2px 8px rgba(0,0,0,0.2);" />';
@@ -194,9 +197,12 @@ class MessageService
             $mail->Body = $htmlBody;
 
             // Attach logo as embedded image (MIME attachment with Content-ID)
-            $logoPath = __DIR__ . '/../../images/logo.jpg';
+            $logoPath = __DIR__ . '/../../uploads/school_assets/official_school_logo.png';
+            if (!file_exists($logoPath)) {
+                $logoPath = __DIR__ . '/../../images/official_school_logo.png';
+            }
             if (file_exists($logoPath)) {
-                $mail->addEmbeddedImage($logoPath, 'school_logo', 'logo.jpg', 'base64', 'image/jpeg');
+                $mail->addEmbeddedImage($logoPath, 'school_logo', 'official_school_logo.png', 'base64', 'image/png');
             }
 
             // Attachments

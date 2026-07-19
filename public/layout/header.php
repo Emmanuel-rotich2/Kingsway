@@ -36,7 +36,7 @@ $activePage = $activePage ?? 'home';
   <div class="container">
 
     <a class="navbar-brand" href="<?= $appBase ?>/index.php">
-      <img src="<?= $appBase ?>/images/kings logo.png" alt="Kingsway Logo" onerror="this.style.display='none'">
+      <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
       <span>Kingsway Prep</span>
     </a>
 
@@ -114,7 +114,7 @@ $activePage = $activePage ?? 'home';
     <form class="modal-content" id="loginForm">
       <div class="modal-login-header">
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        <img src="<?= $appBase ?>/images/logo.jpg" alt="Logo" class="logo" onerror="this.style.display='none'">
+        <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
         <h5>Welcome Back</h5>
         <p>Sign in to Kingsway Academy Portal</p>
       </div>

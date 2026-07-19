@@ -235,6 +235,7 @@ const StudentIdCardsController = {
         this.safeListen("previewGenerateBtn", "click", () => this.showGenerateModal());
         this.safeListen("previewGenerateQRBtn", "click", () => this.generateQRCode());
         this.safeListen("previewPrintBtn", "click", () => this.printSingleCard());
+        this.safeListen("previewDownloadBtn", "click", () => this.downloadSingleCard());
         this.safeListen("previewMarkPrintedBtn", "click", () => this.markPrinted());
         this.safeListen("previewMarkIssuedBtn", "click", () => this.showIssueModal());
         this.safeListen("previewRenewBtn", "click", () => this.showRenewModal());
@@ -750,16 +751,116 @@ const StudentIdCardsController = {
         }
 
         try {
-            const response = await this.apiCall('/students/id-card/generate-bulk', 'POST', {
-                student_ids: Array.from(this.selectedStudents),
-                academic_year_id: this.dom.filterAcademicYear?.value || null,
-                generate_qr: true,
-            });
-            this.notify("success", "ID cards generated successfully");
-            await this.loadStudents();
+            // Show generation modal with options
+            this.showBulkGenerateModal();
         } catch (error) {
-            console.error('Failed to generate cards:', error);
-            this.notify("error", error.message || "Failed to generate ID cards");
+            console.error('Failed to show bulk generation modal:', error);
+            this.notify("error", error.message || "Failed to show bulk generation options");
+        }
+    },
+
+    showBulkGenerateModal: function() {
+        // Create or update bulk generation modal
+        let modal = document.getElementById('bulkGenerateModal');
+        if (!modal) {
+            const modalHTML = `
+                <div class="modal fade" id="bulkGenerateModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Generate Bulk ID Cards</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Number of selected students: <strong>${this.selectedStudents.size}</strong></label>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Card Sides</label>
+                                    <div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bulkIncludeFront" checked>
+                                            <label class="form-check-label" for="bulkIncludeFront">Front Side</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="bulkIncludeBack" checked>
+                                            <label class="form-check-label" for="bulkIncludeBack">Back Side</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Print Layout</label>
+                                    <select class="form-select" id="bulkPrintMode">
+                                        <option value="a4_sheet">A4 Sheet (Front + Back per row)</option>
+                                        <option value="direct_card">Direct ID-Card Printer</option>
+                                    </select>
+                                </div>
+                                <div class="alert alert-info">
+                                    <small>
+                                        <strong>A4 Sheet:</strong> Generates one PDF with all students arranged in rows (front | back).<br>
+                                        <strong>Direct Card:</strong> Opens print dialog for direct card printer (requires browser print dialog).
+                                    </small>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" onclick="StudentIdCardsController.generateBulkPDF()">Generate PDF</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+            modal = document.getElementById('bulkGenerateModal');
+        }
+
+        if (typeof bootstrap !== "undefined") {
+            const bootstrapModal = new bootstrap.Modal(modal);
+            bootstrapModal.show();
+        }
+    },
+
+    generateBulkPDF: async function() {
+        try {
+            const includeFront = document.getElementById('bulkIncludeFront').checked;
+            const includeBack = document.getElementById('bulkIncludeBack').checked;
+            const printMode = document.getElementById('bulkPrintMode').value;
+
+            if (!includeFront && !includeBack) {
+                this.notify("warning", "Please select at least one card side");
+                return;
+            }
+
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: Array.from(this.selectedStudents),
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+
+            const data = this.unwrapPayload(response);
+            
+            if (data && data.pdf_url) {
+                this.notify("success", `Bulk PDF generated for ${data.student_count} students`);
+                
+                // Close modal
+                const modal = document.getElementById('bulkGenerateModal');
+                if (modal && typeof bootstrap !== "undefined") {
+                    const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                    if (bootstrapModal) bootstrapModal.hide();
+                }
+
+                // Open PDF in new tab
+                window.open(data.pdf_url, '_blank');
+                
+                // Reload students to update status
+                await this.loadStudents();
+            } else {
+                this.notify("error", response.message || "Failed to generate bulk PDF");
+            }
+        } catch (error) {
+            console.error('Failed to generate bulk PDF:', error);
+            this.notify("error", error.message || "Failed to generate bulk PDF");
         }
     },
 
@@ -801,22 +902,15 @@ const StudentIdCardsController = {
     },
 
     printCard: async function(studentId) {
-        try {
-            const response = await this.apiCall(`/students/id-card-details/${studentId}`, 'GET');
-            const data = this.unwrapPayload(response);
-
-            // Generate card HTML for printing
-            const cardHTML = this.generatePrintCardHTML(data);
-
-            // Use PrintManager for ID card printing
-            window.PrintManager.printIdCard({
-                front: cardHTML.front,
-                back: cardHTML.back
-            });
-        } catch (error) {
-            console.error('Failed to print card:', error);
-            this.notify("error", "Failed to print card");
-        }
+        // Single-card print: fetch server-rendered HTML (CR80, QR as data URI,
+        // front|back side-by-side) and open the OS print dialog.
+        const modeSelect = document.getElementById('printModeDirect');
+        const printMode = modeSelect?.value || 'direct_card';
+        await this.openServerPrintHtml(
+            '/students/id-card/print-single',
+            { student_id: studentId, side: 'both', print_mode: printMode },
+            `ID Card - ${studentId}`
+        );
     },
 
     generatePrintCardHTML: function(data) {
@@ -824,7 +918,7 @@ const StudentIdCardsController = {
         const school = data.school_settings || data.school_profile || {};
         const appBase = window.APP_BASE || "";
         const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
-        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/images/kings%20logo.png`);
+        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
         const fullName = this.getFullName(student);
         const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
         const cardNumber = student.card_number || "Not generated";
@@ -886,7 +980,7 @@ const StudentIdCardsController = {
         const school = data.school_settings || data.school_profile || {};
         const appBase = window.APP_BASE || "";
         const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
-        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/images/kings%20logo.png`);
+        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
         const fullName = this.getFullName(student);
         const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
         const cardNumber = student.card_number || "Not generated";
@@ -974,87 +1068,137 @@ const StudentIdCardsController = {
         return date.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
     },
 
-    printSingleCard: function() {
-        // Get the currently displayed card
-        const cardFront = this.dom.cardFrontPreview?.innerHTML;
-        const cardBack = this.dom.cardBackPreview?.innerHTML;
-        
-        if (!cardFront) {
+    printSingleCard: async function() {
+        // Print the currently displayed card by fetching server-rendered HTML.
+        if (!this.currentPreviewStudentId) {
             this.notify("warning", "No card preview available");
             return;
         }
 
-        window.PrintManager.printIdCard({
-            front: cardFront,
-            back: cardBack || ''
-        });
+        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
+        const side = document.getElementById('printSideSelect')?.value || 'both';
+        await this.openServerPrintHtml(
+            '/students/id-card/print-single',
+            {
+                student_id: this.currentPreviewStudentId,
+                side: side,
+                print_mode: printMode
+            },
+            `ID Card - ${this.currentPreviewStudentId}`
+        );
     },
 
-    printSelected: function() {
-        // Collect selected students
+    downloadSingleCard: async function() {
+        // Generate a single-card PDF via the bulk endpoint (single ID) and open it.
+        if (!this.currentPreviewStudentId) {
+            this.notify("warning", "No card preview available");
+            return;
+        }
+
+        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
+        const side = document.getElementById('printSideSelect')?.value || 'both';
+        const includeFront = side === 'both' || side === 'front';
+        const includeBack = side === 'both' || side === 'back';
+
+        try {
+            this.notify("info", "Generating single card PDF...");
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: [this.currentPreviewStudentId],
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+            const data = this.unwrapPayload(response);
+            if (data && data.pdf_url) {
+                window.open(data.pdf_url, '_blank');
+                this.notify("success", "Single card PDF ready");
+            } else {
+                this.notify("error", response.message || "Failed to generate PDF");
+            }
+        } catch (error) {
+            console.error('Failed to download single card:', error);
+            this.notify("error", error.message || "Failed to generate PDF");
+        }
+    },
+
+    printSelected: async function() {
+        // Collect selected students and produce ONE combined A4/PDF sheet via
+        // the server renderer (front | back per row, table layout, QR as data URI).
         const selectedStudentIds = Array.from(this.selectedStudents);
         if (selectedStudentIds.length === 0) {
             this.notify("warning", "Please select students first");
             return;
         }
 
-        // Generate bulk card HTML
-        const cardsHTML = selectedStudentIds.map((studentId, index) => {
-            const student = this.students.find(s => s.id === studentId);
-            if (!student) return '';
-            
-            const cardData = {
-                student: student,
-                school_settings: this.metadata.schoolProfile
-            };
-            
-            const cardHTML = this.generatePrintCardHTML(cardData);
-            return `
-                <div style="page-break-after: always;">
-                    ${cardHTML.front}
-                    ${cardHTML.back}
-                </div>
-            `;
-        }).join('');
+        const includeFront = document.getElementById('bulkIncludeFront')?.checked ?? true;
+        const includeBack = document.getElementById('bulkIncludeBack')?.checked ?? true;
+        const printMode = document.getElementById('bulkPrintMode')?.value || 'a4_sheet';
 
-        // Use PrintManager with custom content
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-            alert('Please allow popups for bulk printing');
+        if (!includeFront && !includeBack) {
+            this.notify("warning", "Please select at least one card side");
             return;
         }
 
-        const printDocument = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <title>Bulk ID Cards Print</title>
-                <style>
-                    @page {
-                        size: auto;
-                        margin: 0;
-                    }
-                    body {
-                        margin: 0;
-                        padding: 0;
-                    }
-                </style>
-            </head>
-            <body>
-                ${cardsHTML}
-            </body>
-            </html>
-        `;
+        try {
+            this.notify("info", `Generating print file for ${selectedStudentIds.length} student(s)...`);
 
-        printWindow.document.write(printDocument);
-        printWindow.document.close();
-        
-        printWindow.onload = function() {
-            setTimeout(() => {
-                printWindow.print();
-            }, 250);
-        };
+            // Direct-card mode: each card is a separate CR80 page. Fetch the
+            // server-rendered HTML once per student would be heavy; instead the
+            // bulk PDF endpoint already supports direct_card. Use it.
+            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
+                student_ids: selectedStudentIds,
+                print_mode: printMode,
+                include_front: includeFront,
+                include_back: includeBack
+            });
+
+            const data = this.unwrapPayload(response);
+            if (data && data.pdf_url) {
+                window.open(data.pdf_url, '_blank');
+                this.notify("success", `Print file ready for ${data.student_count} student(s)`);
+            } else {
+                this.notify("error", response.message || "Failed to generate print file");
+            }
+        } catch (error) {
+            console.error('Failed to print selected:', error);
+            this.notify("error", error.message || "Failed to generate print file");
+        }
+    },
+
+    /**
+     * Open server-rendered print HTML in a dedicated print window and trigger
+     * the browser/system print dialog. The OS printer driver handles the job,
+     * including any installed ID-card printer selected by the user.
+     */
+    openServerPrintHtml: async function(endpoint, body, docTitle) {
+        try {
+            this.notify("info", "Preparing print-ready card...");
+            const response = await this.apiCall(endpoint, 'POST', body);
+            const data = this.unwrapPayload(response);
+
+            if (!data || !data.html) {
+                this.notify("error", response.message || "Failed to generate print card");
+                return;
+            }
+
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                this.notify("warning", "Please allow popups to print ID cards");
+                return;
+            }
+
+            printWindow.document.open();
+            printWindow.document.write(data.html);
+            printWindow.document.close();
+            printWindow.document.title = docTitle || 'ID Card';
+
+            printWindow.onload = function () {
+                setTimeout(() => printWindow.print(), 300);
+            };
+        } catch (error) {
+            console.error('Failed to open print HTML:', error);
+            this.notify("error", error.message || "Failed to open print view");
+        }
     },
 
     exportData: function() {

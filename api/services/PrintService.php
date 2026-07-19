@@ -3,6 +3,7 @@ namespace App\API\Services;
 
 use Dompdf\Dompdf;
 use Dompdf\Options;
+use App\Config\Config;
 
 /**
  * PrintService - Unified Server-Side Printing Service
@@ -29,16 +30,28 @@ class PrintService
      */
     public function __construct()
     {
-        $this->templatesPath = __DIR__ . '/../../templates/print/server/';
-        $this->outputPath = __DIR__ . '/../../temp/print/';
-        
-        // Ensure output directory exists
-        if (!file_exists($this->outputPath)) {
-            mkdir($this->outputPath, 0755, true);
+        $this->templatesPath = defined('TEMPLATES_PATH') ? TEMPLATES_PATH . '/print/server/' : __DIR__ . '/../../templates/print/server/';
+        $this->outputPath = defined('PRINT_OUTPUT_PATH') ? rtrim(PRINT_OUTPUT_PATH, '/') . '/' : __DIR__ . '/../../temp/print/';
+
+        // Ensure output directory exists and is writable. The web server (Apache)
+        // runs as a different user than the deployer, so use a permissive mode.
+        if (!is_dir($this->outputPath)) {
+            @mkdir($this->outputPath, 0777, true);
         }
+        @chmod($this->outputPath, 0777);
         
         // Load school configuration
         $this->schoolConfig = $this->loadSchoolConfig();
+    }
+    
+    /**
+     * Get output path
+     * 
+     * @return string Output directory path
+     */
+    public function getOutputPath()
+    {
+        return $this->outputPath;
     }
     
     /**
@@ -120,7 +133,7 @@ class PrintService
         $data = array_merge([
             'schoolName' => $this->schoolConfig['name'] ?? 'Kingsway Preparatory School',
             'schoolMotto' => $this->schoolConfig['motto'] ?? 'In God We Soar',
-            'schoolLogo' => $this->schoolConfig['logo'] ?? '/images/logo.jpg',
+            'schoolLogo' => $this->schoolConfig['logo'] ?? '/uploads/school_assets/official_school_logo.png',
             'schoolAddress' => $this->schoolConfig['address'] ?? 'P.O Box 203-20203, Londiani, Kenya',
             'schoolPhone' => $this->schoolConfig['phone'] ?? '+254-720-113030 / +254-720-113031',
             'schoolEmail' => $this->schoolConfig['email'] ?? 'info@kingswaypreparatoryschool.sc.ke',
@@ -190,7 +203,19 @@ class PrintService
     }
     
     /**
-     * Generate PDF from HTML
+     * Generate PDF from HTML (public method)
+     * 
+     * @param string $html HTML content
+     * @param array $options PDF generation options
+     * @return string Path to generated PDF file
+     */
+    public function generatePDFFromHtml(string $html, array $options = [])
+    {
+        return $this->generatePDF($html, $options);
+    }
+    
+    /**
+     * Generate PDF from HTML (internal method)
      * 
      * @param string $html HTML content
      * @param array $options PDF generation options
@@ -201,6 +226,8 @@ class PrintService
         $options = array_merge([
             'orientation' => 'landscape',
             'paperSize' => 'A4',
+            'custom_width' => null,
+            'custom_height' => null,
             'filename' => 'document_' . time()
         ], $options);
         
@@ -213,13 +240,24 @@ class PrintService
         
         $dompdf = new Dompdf($dompdfOptions);
         $dompdf->loadHtml($html);
-        $dompdf->setPaper($options['paperSize'], $options['orientation']);
-        $dompdf->render();
         
+        // Set paper size - support custom dimensions
+        if ($options['custom_width'] && $options['custom_height']) {
+            $dompdf->setPaper([$options['custom_width'], $options['custom_height']], $options['orientation']);
+        } else {
+            $dompdf->setPaper($options['paperSize'], $options['orientation']);
+        }
+        
+        $dompdf->render();
+
         // Save to file
         $filepath = $this->outputPath . $options['filename'] . '.pdf';
+        $outputDir = dirname($filepath);
+        if (!is_dir($outputDir)) {
+            mkdir($outputDir, 0755, true);
+        }
         file_put_contents($filepath, $dompdf->output());
-        
+
         return $filepath;
     }
     
@@ -526,7 +564,7 @@ class PrintService
      */
     private function getDefaultHeader(array $config)
     {
-        $logo = $this->schoolConfig['logo'] ?? '/images/kings%20logo.png';
+        $logo = $this->schoolConfig['logo'] ?? '/uploads/school_assets/official_school_logo.png';
         $name = $this->schoolConfig['name'] ?? 'Kingsway Preparatory Academy';
         $motto = $this->schoolConfig['motto'] ?? 'Education for Excellence';
         
@@ -591,7 +629,7 @@ class PrintService
             'name' => defined('SCHOOL_NAME') ? SCHOOL_NAME : 'Kingsway Preparatory School',
             'code' => defined('SCHOOL_CODE') ? SCHOOL_CODE : 'KWPS',
             'motto' => defined('SCHOOL_MOTTO') ? SCHOOL_MOTTO : 'In God We Soar',
-            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '/images/logo.jpg',
+            'logo' => defined('SCHOOL_LOGO_URL') ? SCHOOL_LOGO_URL : '/uploads/school_assets/official_school_logo.png',
             'principal' => defined('SCHOOL_PRINCIPAL_NAME') ? SCHOOL_PRINCIPAL_NAME : 'Mr Bett Junior',
             'principal_title' => defined('SCHOOL_PRINCIPAL_TITLE') ? SCHOOL_PRINCIPAL_TITLE : 'Headteacher',
             'address' => defined('SCHOOL_ADDRESS') ? SCHOOL_ADDRESS : 'P.O Box 203-20203, Londiani, Kenya',

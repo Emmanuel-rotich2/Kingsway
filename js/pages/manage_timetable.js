@@ -2,6 +2,7 @@
  * Manage Timetable Page Controller
  * Full timetable management: load, filter, edit, generate, conflict-check, export, print
  * Connected to class_schedules table via SchedulesAPI
+ * Integrates with AcademicContext for academic year awareness
  */
 const timetableController = (() => {
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -13,12 +14,36 @@ const timetableController = (() => {
     subjects = [],
     rooms = [],
     terms = [];
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   async function init() {
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in manage_timetable:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload timetable when academic year or term changes
+          loadTimetable();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+    }
+    
     // Gate edit controls — only users with schedules_create can modify the timetable
     const canEdit = typeof AuthContext !== "undefined" && AuthContext.hasPermission('schedules_create');
     if (!canEdit) {
@@ -65,7 +90,7 @@ const timetableController = (() => {
     try {
       const [clsRes, subRes, termsRes] = await Promise.all([
         API.academic.listClasses(),
-        API.academic.listLearningAreas(),
+        API.academic.listCurriculumUnits(),
         API.academic.listTerms(),
       ]);
       classes = clsRes?.data || clsRes || [];
@@ -95,7 +120,8 @@ const timetableController = (() => {
         subjects.forEach((s) => {
           const o = document.createElement("option");
           o.value = s.id || s.subject_id;
-          o.textContent = s.subject_name || s.name;
+          const area = s.learning_area_name || s.subject_name || "";
+          o.textContent = area ? `${area} - ${s.name}` : s.name;
           sf.appendChild(o);
         });
       }
@@ -250,7 +276,7 @@ const timetableController = (() => {
           const teacherName = entry.teacher_name || "";
           const roomName = entry.room_name ? `<br><small class="text-info"><i class="bi bi-door-open"></i> ${entry.room_name}</small>` : "";
           if (editMode) {
-            html += `<td class="timetable-cell" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" data-entry-id="${entry.id}" onclick="timetableController.editCell(this)" style="cursor:pointer;">
+            html += `<td class="timetable-cell" data-day="${day}" data-start="${slot.start}" data-end="${slot.end}" data-entry-id="${entry.id}" data-subject-id="${entry.subject_id || ""}" data-teacher-id="${entry.teacher_id || ""}" data-room-id="${entry.room_id || ""}" onclick="timetableController.editCell(this)" style="cursor:pointer;">
               <span class="fw-bold text-primary">${subName}</span><br><small>${teacherName}</small>${roomName}</td>`;
           } else {
             html += `<td><span class="fw-bold text-primary">${subName}</span><br><small>${teacherName}</small>${roomName}</td>`;
@@ -331,17 +357,17 @@ const timetableController = (() => {
     const subOpts = subjects
       .map(
         (s) =>
-          `<option value="${s.id || s.subject_id}">${s.subject_name || s.name}</option>`,
+          `<option value="${s.id || s.subject_id}" ${(td.dataset.subjectId || "") == (s.id || s.subject_id) ? "selected" : ""}>${s.learning_area_name ? `${s.learning_area_name} - ` : ""}${s.name || s.subject_name}</option>`,
       )
       .join("");
     const teachOpts = teachers
       .map(
         (t) =>
-          `<option value="${t.id || t.teacher_id}">${t.first_name || ""} ${t.last_name || ""}</option>`,
+          `<option value="${t.id || t.teacher_id}" ${(td.dataset.teacherId || "") == (t.id || t.teacher_id) ? "selected" : ""}>${t.first_name || ""} ${t.last_name || ""}</option>`,
       )
       .join("");
     const roomOpts = rooms
-      .map((r) => `<option value="${r.id}">${r.name}${r.code ? ` (${r.code})` : ""}</option>`)
+      .map((r) => `<option value="${r.id}" ${(td.dataset.roomId || "") == r.id ? "selected" : ""}>${r.name}${r.code ? ` (${r.code})` : ""}</option>`)
       .join("");
     td.innerHTML = `
       <select class="form-select form-select-sm mb-1 edit-subject"><option value="">Subject</option>${subOpts}</select>
@@ -374,6 +400,8 @@ const timetableController = (() => {
         day_of_week: day,
         start_time: startTime + ":00",
         end_time: endTime + ":00",
+        academic_year_id: currentAcademicYear || undefined,
+        term_id: currentTerm || undefined,
       };
       if (entryId) {
         // Update existing entry
@@ -418,33 +446,46 @@ const timetableController = (() => {
   async function exportTimetable() {
     const table = document.querySelector(".table");
     if (!table) return;
-    let csv = "";
-    table.querySelectorAll("tr").forEach((row) => {
-      const cells = [];
-      row
-        .querySelectorAll("th,td")
-        .forEach((c) =>
-          cells.push('"' + c.textContent.replace(/"/g, '""').trim() + '"'),
-        );
-      csv += cells.join(",") + "\n";
+
+    if (!window.PrintManager) {
+      showNotification("PrintManager not available.", "danger");
+      return;
+    }
+
+    const headers = Array.from(table.querySelectorAll("thead th")).map((cell, index) => ({
+      key: `col_${index}`,
+      label: cell.textContent.trim(),
+    }));
+    const rows = Array.from(table.querySelectorAll("tbody tr")).map((row) => {
+      const record = {};
+      row.querySelectorAll("td").forEach((cell, index) => {
+        record[`col_${index}`] = cell.textContent.trim();
+      });
+      return record;
     });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "timetable.csv";
-    a.click();
+
+    window.PrintManager.exportToCSV({
+      filename: "timetable",
+      columns: headers,
+      rows,
+    });
   }
 
   function printMyTimetable() {
-    const table = document.querySelector(".table")?.outerHTML || "";
-    const classText =
-      document.getElementById("classFilter")?.selectedOptions[0]?.textContent || "All Classes";
-    const w = window.open("", "", "width=900,height=700");
-    w.document.write(
-      `<html><head><title>Timetable - ${classText}</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"></head><body class="p-4"><h3>Timetable - ${classText}</h3>${table}</body></html>`,
-    );
-    w.document.close();
-    w.print();
+    const table = document.querySelector(".table");
+    if (!table) return;
+    if (!window.PrintManager) {
+      showNotification("PrintManager not available.", "danger");
+      return;
+    }
+
+    window.PrintManager.printElement("timetableCard", {
+      title: "Timetable",
+      subtitle:
+        document.getElementById("classFilter")?.selectedOptions[0]?.textContent || "All Classes",
+      orientation: "landscape",
+      paperSize: "A4",
+    });
   }
 
   function showConflictReportModal() {

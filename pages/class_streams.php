@@ -17,7 +17,7 @@
                     <h4 class="mb-1"><i class="fas fa-stream me-2"></i>Class Streams</h4>
                     <p class="text-muted mb-0">View and manage class streams</p>
                 </div>
-                <button class="btn btn-primary" onclick="ClassStreamsController.showAddModal()"><i class="fas fa-plus me-1"></i> Add New</button>
+                <button class="btn btn-primary" onclick="ClassStreamsController.showAddModal()" data-permission="academic_create"><i class="fas fa-plus me-1"></i> Add New</button>
             </div>
         </div>
     </div>

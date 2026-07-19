@@ -2,11 +2,14 @@
  * Intern Schedule Controller
  * Weekly teaching timetable for intern placement.
  * API: GET /schedules/timetable?user=self&week=YYYY-WW
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const internScheduleController = (() => {
   const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   let currentWeek = ''; // YYYY-WW format
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   function getISOWeek(date) {
     const d = new Date(date);
@@ -144,7 +147,28 @@ const internScheduleController = (() => {
     loadSchedule();
   }
 
-  function init() {
+  async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in intern_schedule:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload schedule when academic year or term changes
+          loadSchedule();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+    }
+    
     currentWeek = getISOWeek(new Date());
 
     const prevBtn = document.getElementById('isPrevWeek');

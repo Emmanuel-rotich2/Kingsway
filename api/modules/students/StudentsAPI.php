@@ -2586,8 +2586,12 @@ class StudentsAPI extends BaseAPI
             $qrClass = '\Endroid\QrCode\QrCode';
             $writerClass = '\Endroid\QrCode\Writer\PngWriter';
 
-            // Generate QR code
-            $qrCode = new $qrClass('https://kingsway.ac.ke/student/qr/' . $id);
+            // Generate QR code pointing to the role-aware student portal.
+            // Built from BASE_URL (env-aware: localhost in dev, prod domain in prod) so
+            // the scanned link resolves correctly in ANY environment. The portal gates
+            // sections by the viewer's role (public -> basic only, see pages/student_portal.php).
+            $portalUrl = rtrim(BASE_URL, '/') . '/student_portal.php?student_id=' . (int) $id;
+            $qrCode = new $qrClass($portalUrl);
             $qrCode->setSize(300);
             $qrCode->setMargin(10);
 
@@ -2597,44 +2601,49 @@ class StudentsAPI extends BaseAPI
             // Generate QR code image
             $result = $writer->write($qrCode);
 
-            // Save QR code to images folder
-            $qrPath = 'images/qr_codes/' . $student['admission_no'] . '.png';
-            $dir = dirname($qrPath);
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
+            // Save QR code to uploads/students/images/{student_id}/qr_codes/ (absolute, per-student).
+            // Anchored to the ABSOLUTE UPLOAD_PATH so the path is CWD-independent. Mirrors the
+            // enhanced generator (StudentIDCardGenerator::generateEnhancedQRCode) so both routes
+            // store QR codes in the same, co-located, easy-to-manage location.
+            $uploadRoot = realpath(UPLOAD_PATH) ?: UPLOAD_PATH;
+            $studentQrDir = rtrim($uploadRoot, '/') . '/students/images/' . $id . '/qr_codes/';
+            if (!is_dir($studentQrDir)) {
+                mkdir($studentQrDir, 0755, true);
             }
+            $qrFilename = $student['admission_no'] . '.png';
+            $qrPath = $studentQrDir . $qrFilename;
             $result->saveToFile($qrPath);
+
+            // Web-relative path (mirrors the enhanced generator's layout so the stored
+            // value is always UI-displayable regardless of the MediaManager fallback).
+            $webQrPath = rtrim(BASE_URL, '/') . '/uploads/students/images/' . $id . '/qr_codes/' . $qrFilename;
 
             // Import generated QR into MediaManager so it's managed under uploads/students/{id}
             try {
                 $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                $projectRoot = realpath(__DIR__ . '/../../..');
-                if ($projectRoot) {
-                    $fullSource = $projectRoot . DIRECTORY_SEPARATOR . $qrPath;
-                    if (file_exists($fullSource)) {
-                        $mediaId = $mediaManager->import($fullSource, 'students', $id, basename($fullSource), null, 'student qr code');
-                        $preview = $mediaManager->getPreviewUrl($mediaId);
-                        // Update student record with managed preview URL if available
-                        if ($preview) {
-                            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                            $stmt->execute([$preview, $id]);
-                        } else {
-                            $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                            $stmt->execute(['/' . $qrPath, $id]);
-                        }
+                if (file_exists($qrPath)) {
+                    $mediaId = $mediaManager->import($qrPath, 'students', $id, basename($qrPath), null, 'student qr code');
+                    $preview = $mediaManager->getPreviewUrl($mediaId);
+                    // Update student record with managed preview URL if available
+                    if ($preview) {
+                        $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
+                        $stmt->execute([$preview, $id]);
+                    } else {
+                        $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
+                        $stmt->execute([$webQrPath, $id]);
                     }
                 }
             } catch (\Exception $e) {
-                // Fallback: store local path
+                // Fallback: store the web-relative local path
                 $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                $stmt->execute(['/' . $qrPath, $id]);
+                $stmt->execute([$webQrPath, $id]);
             }
 
             return $this->response([
                 'status' => 'success',
                 'message' => 'QR code generated successfully',
                 'data' => [
-                    'qr_path' => $qrPath
+                    'qr_path' => $webQrPath
                 ]
             ]);
 
@@ -5145,6 +5154,22 @@ class StudentsAPI extends BaseAPI
     }
 
     /**
+     * Generate bulk ID cards PDF for selected students
+     */
+    public function generateBulkIDCardsPDF($studentIds, $printMode = 'a4_sheet', $includeFront = true, $includeBack = true)
+    {
+        return $this->idCardGenerator->generateBulkIDCardsPDF($studentIds, $printMode, $includeFront, $includeBack);
+    }
+
+    /**
+     * Generate print-ready single card HTML for browser/system printing.
+     */
+    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card')
+    {
+        return $this->idCardGenerator->generatePrintableSingle($studentId, $side, $printMode);
+    }
+
+    /**
      * Get normalized student payload for ID card preview.
      */
     public function getIdCardPayload($studentId)
@@ -5263,19 +5288,16 @@ class StudentsAPI extends BaseAPI
             $value = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
         }
 
-        if (preg_match('/^(https?:)?\\/\\//i', $value) || str_starts_with($value, 'data:')) {
+        if (preg_match('#^https?://#i', $value) || str_starts_with($value, 'data:')) {
             return $value;
         }
 
-        if (str_starts_with($value, '/Kingsway/')) {
-            return $value;
-        }
+        // Strip any environment-specific web-root prefix (e.g. '/Kingsway') so the path
+        // can be rebuilt portably from BASE_URL for the current environment.
+        $clean = preg_replace('#^/Kingsway#i', '', $value);
+        $clean = '/' . ltrim($clean, '/');
 
-        if (str_starts_with($value, '/')) {
-            return '/Kingsway' . $value;
-        }
-
-        return '/Kingsway/' . ltrim($value, '/');
+        return rtrim(BASE_URL, '/') . $clean;
     }
 
     // ============================================================

@@ -38,7 +38,11 @@ const uploadResourceController = {
 
   _loadSubjects: async function () {
     try {
-      const r = await callAPI('/academic/subjects', 'GET');
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const r = await DataStore.fetchPage('subjects', {
+        endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       this._subjects = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       ['utrSubject', 'tmSubject'].forEach(selId => {
         const sel = document.getElementById(selId);

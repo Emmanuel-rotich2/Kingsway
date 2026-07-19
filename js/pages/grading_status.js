@@ -1,6 +1,7 @@
 /**
  * Grading Status Page Controller
  * Monitors grading completion progress across subjects using api.js
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const GradingStatusController = (() => {
@@ -11,6 +12,8 @@ const GradingStatusController = (() => {
     pagination: { page: 1, limit: 10, total: 0 },
     summary: { total: 0, fully_graded: 0, partially_graded: 0, not_started: 0 },
     overallPercentage: 0,
+    currentAcademicYear: null,
+    currentTerm: null,
   };
 
   const filters = {
@@ -121,13 +124,24 @@ const GradingStatusController = (() => {
       if (filters.class_id) params.append("class_id", filters.class_id);
       if (filters.status) params.append("status", filters.status);
 
+      // Re-pointed from the non-existent `grading-status` slug (which fell through
+      // the router into the subjects-list fallback). `assessments-list` returns the
+      // same per-subject grading-count shape this page already renders; we map its
+      // field names onto the page's expected `subject_name`/`graded_count` shape.
       const resp = await window.API.apiCall(
-        `/academic/grading-status?${params.toString()}`,
+        `/academic/assessments-list?${params.toString()}`,
         "GET"
       );
 
       const payload = unwrapPayload(resp) || {};
-      state.gradingData = payload.subjects || payload.data || [];
+      const raw = Array.isArray(payload) ? payload : (payload.data || payload.subjects || payload.items || []);
+      state.gradingData = raw.map((a) => ({
+        name: a.title,
+        subject_name: a.learning_area_name || a.subject_name || "—",
+        class_name: a.class_name || "—",
+        total_students: a.total_students || 0,
+        graded_count: a.graded_count || 0,
+      }));
       if (!Array.isArray(state.gradingData)) state.gradingData = [];
 
       state.pagination = payload.pagination || state.pagination;
@@ -417,6 +431,32 @@ const GradingStatusController = (() => {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in grading_status:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload grading status when academic year or term changes
+          loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      state.currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (state.currentTerm) {
+        filters.term = state.currentTerm;
+      }
     }
 
     attachEventListeners();

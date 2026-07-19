@@ -23,7 +23,7 @@
     <!-- Sidebar Navigation -->
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="logo-section">
-            <img src="/images/logo.png" alt="Kingsway Academy">
+            <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
             <span class="logo-text">Kingsway Academy</span>
         </div>
 

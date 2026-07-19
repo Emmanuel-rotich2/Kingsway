@@ -45,7 +45,7 @@ define('SCHOOL_WEBSITE', 'www.kingswaypreparatoryschool.sc.ke');
 define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
-define('SCHOOL_LOGO_URL', BASE_URL . '/images/logo.jpg'); // School logo image URL
+define('SCHOOL_LOGO_URL', BASE_URL . '/uploads/school_assets/official_school_logo.png'); // Canonical logo (alt: /images/official_school_logo.png)
 
 // Pagination defaults
 define('DEFAULT_PAGE_SIZE', 10);

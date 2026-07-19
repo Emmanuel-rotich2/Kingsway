@@ -3,15 +3,39 @@
  * Display feedback received from classroom observation sessions.
  * Ratings: Planning, Delivery, Classroom Management, Student Engagement, Assessment.
  * API: GET /staff/observation-feedback
+ * Integrates with AcademicContext for academic year awareness
  */
 const observationFeedbackController = {
   _data: [],
+  _currentAcademicYear: null,
+  _currentTerm: null,
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in observation_feedback:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          this._load();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getTermId();
+    }
+    
     await this._load();
   },
 

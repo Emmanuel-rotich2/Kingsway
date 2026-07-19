@@ -7,6 +7,7 @@
 const academicsController = {
     state: {
         classes: [],
+        allClasses: [],
         streams: [],
         teachers: [],
         currentPage: 1,
@@ -14,7 +15,6 @@ const academicsController = {
         searchTerm: '',
         filters: {
             gradeLevel: '',
-            section: '',
             status: ''
         }
     },
@@ -47,6 +47,7 @@ const academicsController = {
             // Only load classes if the element exists
             if (document.getElementById('classesTableBody')) {
                 await this.loadClasses();
+                await this.loadClassData();
             }
 
             // Load subjects if on manage_subjects page
@@ -67,6 +68,21 @@ const academicsController = {
             if (e.target.closest('[data-permission]')) {
                 // Permission checks handled by middleware
             }
+        });
+
+        document.querySelectorAll('#classesTabs button[data-bs-toggle="tab"]').forEach((tab) => {
+            tab.addEventListener('shown.bs.tab', (e) => {
+                const target = e.target.getAttribute('data-bs-target');
+                if (target === '#streams') {
+                    this.loadStreams();
+                } else if (target === '#class-teachers') {
+                    this.loadClassTeachers();
+                } else if (target === '#timetables') {
+                    this.loadTimetables();
+                } else if (target === '#all-classes') {
+                    this.loadClasses();
+                }
+            });
         });
     },
 
@@ -143,25 +159,63 @@ const academicsController = {
 
     async loadClassData() {
         try {
-            // Load static data for dropdowns
-            const classesRes = await window.API.academic.listClasses();
+            // Load static data for dropdowns and full summary-card totals.
+            const [classesRes, levelsRes, streamsRes] = await Promise.all([
+                window.API.academic.listClasses({ limit: 500 }),
+                window.API.academic.listLevels().catch(() => []),
+                window.API.academic.listStreams().catch(() => [])
+            ]);
             const classes = Array.isArray(classesRes) ? classesRes : classesRes?.data || [];
+            const levels = Array.isArray(levelsRes) ? levelsRes : levelsRes?.data || [];
+            const streams = Array.isArray(streamsRes) ? streamsRes : streamsRes?.data || [];
+
+            this.state.allClasses = classes;
+            this.state.streams = streams;
+
+            const classLevelSelect = document.getElementById('classGradeLevel');
+            if (classLevelSelect && levels.length > 0) {
+                classLevelSelect.innerHTML = '<option value="">Select Grade Level</option>' +
+                    levels.map(level => `<option value="${level.id}">${level.name}</option>`).join('');
+            }
             
             // Populate class teacher dropdown in modals
             const classTeacherSelect = document.getElementById('classTeacher');
             if (classTeacherSelect && this.state.teachers.length > 0) {
                 classTeacherSelect.innerHTML = '<option value="">Select Class Teacher</option>' +
                     this.state.teachers.map(t => 
-                        `<option value="${t.id}">${t.first_name} ${t.last_name}</option>`
+                        `<option value="${t.id}">${t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim()}</option>`
                     ).join('');
+            }
+
+            const streamTeacherSelect = document.getElementById('streamTeacher');
+            const assignTeacherSelect = document.getElementById('assignTeacher');
+            const teacherOptions = this.state.teachers.map(t =>
+                `<option value="${t.id}">${t.full_name || `${t.first_name || ''} ${t.last_name || ''}`.trim()}</option>`
+            ).join('');
+            if (streamTeacherSelect) {
+                streamTeacherSelect.innerHTML = '<option value="">Select Teacher</option>' + teacherOptions;
+            }
+            if (assignTeacherSelect) {
+                assignTeacherSelect.innerHTML = '<option value="">Select Teacher</option>' + teacherOptions;
             }
 
             // Populate stream class dropdown
             const streamClassSelect = document.getElementById('streamClass');
+            const assignClassSelect = document.getElementById('assignClass');
+            const timetableClassSelect = document.getElementById('timetableClassFilter');
+            const classOptions = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
             if (streamClassSelect && classes.length > 0) {
-                streamClassSelect.innerHTML = '<option value="">Select Class</option>' +
-                    classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+                streamClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
             }
+            if (assignClassSelect && classes.length > 0) {
+                assignClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
+                assignClassSelect.addEventListener('change', () => this.populateAssignStreams(assignClassSelect.value));
+            }
+            if (timetableClassSelect && classes.length > 0) {
+                timetableClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
+            }
+
+            this.updateClassStatistics();
         } catch (error) {
             console.error('Error loading class data:', error);
         }
@@ -173,17 +227,14 @@ const academicsController = {
             console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
             console.log('Is authenticated:', AuthContext.isAuthenticated());
             
-            // Get teachers from users API
-            const response = await window.API.users.index();
+            // Get teaching staff from the academic API. /users/index is only the
+            // Users API health endpoint in this app and does not return user rows.
+            const response = await window.API.academic.listTeachers({ limit: 200 });
             console.log('Teachers API response:', response);
             
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
-            // Filter for users with teacher role
-            this.state.teachers = data.filter(user => 
-                user.role === 'teacher' || 
-                (Array.isArray(user.roles) && user.roles.some(r => r.name === 'teacher' || r === 'teacher'))
-            );
+            this.state.teachers = data;
             
             console.log('Processed teachers data:', this.state.teachers);
         } catch (error) {
@@ -213,7 +264,7 @@ const academicsController = {
         if (this.state.classes.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="10" class="text-center py-4">
+                    <td colspan="9" class="text-center py-4">
                         <p class="text-muted">No classes found</p>
                     </td>
                 </tr>
@@ -226,7 +277,6 @@ const academicsController = {
                 <td>${(this.state.currentPage - 1) * this.state.pageSize + index + 1}</td>
                 <td><strong>${cls.name || cls.class_name || '-'}</strong></td>
                 <td>${cls.level_name || cls.grade_level || '-'}</td>
-                <td>${cls.section || '-'}</td>
                 <td><span class="badge bg-info">${cls.stream_count || 0}</span></td>
                 <td><span class="badge bg-primary">${cls.student_count || cls.students_count || 0}</span></td>
                 <td>${cls.class_teacher_name || cls.teacher_name || 'Not assigned'}</td>
@@ -260,20 +310,51 @@ const academicsController = {
         const studentsCount = document.getElementById('studentsEnrolledCount');
         const teachersCount = document.getElementById('teachersAssignedCount');
 
-        if (totalCount) totalCount.textContent = this.state.classes.length;
+        const classes = this.state.allClasses.length ? this.state.allClasses : this.state.classes;
+        const streams = this.state.streams || [];
+        const activeStreams = streams.filter(stream => (stream.status || 'active') === 'active');
+        const teacherIds = new Set();
+
+        streams.forEach((stream) => {
+            if ((stream.status || 'active') !== 'active') return;
+            if (stream.teacher_id) {
+                teacherIds.add(`id:${stream.teacher_id}`);
+            } else if (stream.teacher_name) {
+                teacherIds.add(`name:${stream.teacher_name}`);
+            }
+        });
+
+        classes.forEach((cls) => {
+            if (cls.teacher_id) {
+                teacherIds.add(`class:${cls.teacher_id}`);
+            } else if (cls.class_teacher_name) {
+                teacherIds.add(`class-name:${cls.class_teacher_name}`);
+            }
+        });
+
+        const streamStudentTotal = activeStreams.reduce((sum, stream) => {
+            return sum + (Number(stream.student_count ?? stream.current_students ?? 0) || 0);
+        }, 0);
+        const classStudentTotal = classes.reduce((sum, cls) => {
+            return sum + (Number(cls.student_count ?? cls.students_count ?? 0) || 0);
+        }, 0);
+        const studentTotal = streamStudentTotal || classStudentTotal;
+
+        if (totalCount) totalCount.textContent = this.formatNumber(classes.length);
         if (activeCount) {
-            const streamCount = this.state.classes.reduce((sum, cls) => sum + (cls.stream_count || 0), 0);
-            activeCount.textContent = streamCount;
+            const streamCount = activeStreams.length || classes.reduce((sum, cls) => sum + (Number(cls.stream_count) || 0), 0);
+            activeCount.textContent = this.formatNumber(streamCount);
         }
         if (studentsCount) {
-            const studentTotal = this.state.classes.reduce((sum, cls) => 
-                sum + (cls.student_count || cls.students_count || 0), 0);
-            studentsCount.textContent = studentTotal;
+            studentsCount.textContent = this.formatNumber(studentTotal);
         }
         if (teachersCount) {
-            const assignedTeachers = this.state.classes.filter(cls => cls.class_teacher_name).length;
-            teachersCount.textContent = assignedTeachers;
+            teachersCount.textContent = this.formatNumber(teacherIds.size);
         }
+    },
+
+    formatNumber(value) {
+        return new Intl.NumberFormat().format(Number(value) || 0);
     },
 
     showClassModal(classId = null) {
@@ -291,13 +372,11 @@ const academicsController = {
             const classData = this.state.classes.find(c => c.id === classId);
             if (classData) {
                 document.getElementById('className').value = classData.name || '';
-                document.getElementById('classGradeLevel').value = classData.grade_level || '';
-                document.getElementById('classSection').value = classData.section || 'primary';
+                document.getElementById('classGradeLevel').value = classData.level_id || '';
                 document.getElementById('classCapacity').value = classData.capacity || '';
                 document.getElementById('classRoom').value = classData.room_number || '';
-                document.getElementById('classTeacher').value = classData.class_teacher_id || '';
+                document.getElementById('classTeacher').value = classData.teacher_id || '';
                 document.getElementById('classAcademicYear').value = classData.academic_year || new Date().getFullYear();
-                document.getElementById('classDescription').value = classData.description || '';
                 document.getElementById('classStatus').value = classData.status || 'active';
             }
         } else {
@@ -317,18 +396,16 @@ const academicsController = {
         const classId = document.getElementById('classId').value;
         const data = {
             name: document.getElementById('className').value.trim(),
-            grade_level: document.getElementById('classGradeLevel').value,
-            section: document.getElementById('classSection').value,
+            level_id: document.getElementById('classGradeLevel').value,
             capacity: parseInt(document.getElementById('classCapacity').value) || 0,
             room_number: document.getElementById('classRoom').value.trim(),
-            class_teacher_id: document.getElementById('classTeacher').value || null,
+            teacher_id: document.getElementById('classTeacher').value || null,
             academic_year: document.getElementById('classAcademicYear').value,
-            description: document.getElementById('classDescription').value.trim(),
             status: document.getElementById('classStatus').value
         };
 
         // Validation
-        if (!data.name || !data.grade_level) {
+        if (!data.name || !data.level_id) {
             this.showToast('Please fill in all required fields', 'warning', 'Validation');
             return;
         }
@@ -378,49 +455,42 @@ const academicsController = {
         this.loadClasses(1);
     },
 
-    filterBySection(section) {
-        this.state.filters.section = section;
-        this.loadClasses(1);
-    },
-
     filterByClassStatus(status) {
         this.state.filters.status = status;
         this.loadClasses(1);
     },
 
     exportClasses() {
-        try {
-            const headers = ['#', 'Name', 'Grade Level', 'Section', 'Capacity', 'Students', 'Status'];
-            const rows = this.state.classes.map((cls, idx) => [
-                idx + 1,
-                cls.name,
-                cls.grade_level,
-                cls.section,
-                cls.capacity,
-                cls.student_count || 0,
-                cls.status
-            ]);
-
-            const csv = [
-                headers.join(','),
-                ...rows.map(row => row.join(','))
-            ].join('\n');
-
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `classes-${new Date().getTime()}.csv`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-
-            this.showToast('Classes exported successfully', 'success', 'Success');
-        } catch (error) {
-            console.error('Error exporting classes:', error);
-            this.showToast('Failed to export classes', 'error', 'Error');
+        if (!window.PrintManager) {
+            this.showToast('PrintManager not available', 'error', 'Error');
+            return;
         }
+
+        const columns = [
+            { key: 'index', label: '#' },
+            { key: 'name', label: 'Name' },
+            { key: 'grade_level', label: 'Grade Level' },
+            { key: 'capacity', label: 'Capacity' },
+            { key: 'student_count', label: 'Students' },
+            { key: 'status', label: 'Status' }
+        ];
+
+        const rows = this.state.classes.map((cls, idx) => ({
+            index: idx + 1,
+            name: cls.name,
+            grade_level: cls.level_name || cls.grade_level,
+            capacity: cls.capacity,
+            student_count: cls.student_count || 0,
+            status: cls.status
+        }));
+
+        window.PrintManager.exportToCSV({
+            filename: `classes_${new Date().toISOString().slice(0,10)}.csv`,
+            columns: columns,
+            rows: rows
+        });
+
+        this.showToast('Classes exported successfully', 'success', 'Success');
     },
 
     // ==================== STREAMS MANAGEMENT ====================
@@ -431,8 +501,19 @@ const academicsController = {
             
             this.state.streams = data;
             this.renderStreamsTable();
+            this.updateClassStatistics();
         } catch (error) {
             console.error('Error loading streams:', error);
+            const tbody = document.getElementById('streamsTableBody');
+            if (tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="text-center text-danger py-4">
+                            Failed to load streams: ${this._escH(error.message || 'Request failed')}
+                        </td>
+                    </tr>
+                `;
+            }
             this.showToast('Failed to load streams', 'error', 'Error');
         }
     },
@@ -444,7 +525,7 @@ const academicsController = {
         if (this.state.streams.length === 0) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="8" class="text-center py-4">
+                    <td colspan="7" class="text-center py-4">
                         <p class="text-muted">No streams found</p>
                     </td>
                 </tr>
@@ -457,27 +538,13 @@ const academicsController = {
                 <td>${index + 1}</td>
                 <td><strong>${stream.name || stream.stream_name || '-'}</strong></td>
                 <td>${stream.class_name || '-'}</td>
-                <td><span class="badge bg-primary">${stream.student_count || 0}</span></td>
+                <td><span class="badge bg-primary">${stream.student_count || stream.current_students || 0}</span></td>
                 <td>${stream.teacher_name || 'Not assigned'}</td>
                 <td>${stream.capacity || '-'}</td>
                 <td>
                     <span class="badge ${stream.status === 'active' ? 'bg-success' : 'bg-secondary'}">
                         ${stream.status || 'active'}
                     </span>
-                </td>
-                <td>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-info" 
-                                onclick="academicsController.editStream(${stream.id})" 
-                                title="Edit">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                        <button type="button" class="btn btn-outline-danger" 
-                                onclick="academicsController.deleteStream(${stream.id})" 
-                                title="Delete">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </div>
                 </td>
             </tr>
         `).join('');
@@ -496,7 +563,7 @@ const academicsController = {
             if (streamData) {
                 document.getElementById('streamId').value = streamId;
                 document.getElementById('streamClass').value = streamData.class_id || '';
-                document.getElementById('streamName').value = streamData.name || '';
+                document.getElementById('streamName').value = streamData.stream_name || streamData.name || '';
                 document.getElementById('streamTeacher').value = streamData.teacher_id || '';
                 document.getElementById('streamCapacity').value = streamData.capacity || '';
                 document.getElementById('streamStatus').value = streamData.status || 'active';
@@ -567,14 +634,23 @@ const academicsController = {
     // ==================== CLASS TEACHERS MANAGEMENT ====================
     async loadClassTeachers() {
         try {
-            // Load classes with teacher assignments
-            const response = await window.API.academic.listClasses();
+            const response = await window.API.academic.listStreams();
             const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
-            const classesWithTeachers = data.filter(cls => cls.class_teacher_id);
-            this.renderClassTeachersTable(classesWithTeachers);
+            const streamsWithTeachers = data.filter(stream => stream.teacher_id || stream.teacher_name);
+            this.renderClassTeachersTable(streamsWithTeachers);
         } catch (error) {
             console.error('Error loading class teachers:', error);
+            const tbody = document.getElementById('classTeachersTableBody');
+            if (tbody) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="text-center text-danger py-4">
+                            Failed to load class teachers: ${this._escH(error.message || 'Request failed')}
+                        </td>
+                    </tr>
+                `;
+            }
             this.showToast('Failed to load class teachers', 'error', 'Error');
         }
     },
@@ -597,16 +673,16 @@ const academicsController = {
         tbody.innerHTML = teachers.map((item, index) => `
             <tr>
                 <td>${index + 1}</td>
-                <td><strong>${item.class_teacher_name || '-'}</strong></td>
-                <td>${item.name || item.class_name || '-'}</td>
+                <td><strong>${item.teacher_name || item.class_teacher_name || '-'}</strong></td>
+                <td>${item.class_name || item.name || '-'}</td>
                 <td>${item.stream_name || '-'}</td>
-                <td><span class="badge bg-primary">${item.student_count || 0}</span></td>
+                <td><span class="badge bg-primary">${item.student_count || item.current_students || 0}</span></td>
                 <td>${item.subject_name || '-'}</td>
                 <td>${item.teacher_contact || '-'}</td>
                 <td>
                     <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-warning" 
-                                onclick="academicsController.showAssignTeacherModal(${item.id})" 
+                        <button type="button" class="btn btn-outline-warning"
+                                onclick="academicsController.showAssignTeacherModal(${item.class_id || 'null'}, ${item.id})"
                                 title="Reassign">
                             <i class="bi bi-person-check"></i>
                         </button>
@@ -616,12 +692,13 @@ const academicsController = {
         `).join('');
     },
 
-    showAssignTeacherModal(classId = null) {
+    showAssignTeacherModal(classId = null, streamId = null) {
         const modal = document.getElementById('assignTeacherModal');
         if (!modal) return;
 
         if (classId) {
             document.getElementById('assignClass').value = classId;
+            this.populateAssignStreams(classId, streamId);
         }
 
         const bsModal = new bootstrap.Modal(modal);
@@ -634,9 +711,7 @@ const academicsController = {
         const data = {
             class_id: document.getElementById('assignClass').value,
             stream_id: document.getElementById('assignStream').value || null,
-            teacher_id: document.getElementById('assignTeacher').value,
-            subject_id: document.getElementById('assignSubject').value || null,
-            assignment_type: document.getElementById('assignmentType').value
+            teacher_id: document.getElementById('assignTeacher').value
         };
 
         if (!data.class_id || !data.teacher_id) {
@@ -645,15 +720,48 @@ const academicsController = {
         }
 
         try {
-            await window.API.academic.assignTeacher(data);
+            if (data.stream_id) {
+                await window.API.academic.updateStream(data.stream_id, { teacher_id: data.teacher_id });
+            } else {
+                await window.API.academic.updateClass(data.class_id, { teacher_id: data.teacher_id });
+            }
             this.showToast('Teacher assigned successfully', 'success', 'Success');
             
             const modal = bootstrap.Modal.getInstance(document.getElementById('assignTeacherModal'));
             modal.hide();
+            await this.loadClasses();
+            await this.loadStreams();
             await this.loadClassTeachers();
         } catch (error) {
             console.error('Error assigning teacher:', error);
             this.showToast(error.message || 'Failed to assign teacher', 'error', 'Error');
+        }
+    },
+
+    async populateAssignStreams(classId, selectedStreamId = null) {
+        const select = document.getElementById('assignStream');
+        if (!select) return;
+
+        if (!classId) {
+            select.innerHTML = '<option value="">No specific stream</option>';
+            return;
+        }
+
+        try {
+            if (!this.state.streams.length) {
+                const response = await window.API.academic.listStreams();
+                this.state.streams = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
+            }
+
+            const streams = this.state.streams.filter((stream) => String(stream.class_id) === String(classId));
+            select.innerHTML = '<option value="">Assign to class record</option>' +
+                streams.map((stream) => `<option value="${stream.id}">${stream.stream_name || stream.name}</option>`).join('');
+            if (selectedStreamId) {
+                select.value = String(selectedStreamId);
+            }
+        } catch (error) {
+            console.error('Error loading assign streams:', error);
+            select.innerHTML = '<option value="">Assign to class record</option>';
         }
     },
 
@@ -667,6 +775,10 @@ const academicsController = {
             this.renderTimetablesSelect(data);
         } catch (error) {
             console.error('Error loading timetables:', error);
+            const container = document.getElementById('timetableContainer');
+            if (container) {
+                container.innerHTML = `<p class="text-danger text-center">Failed to load timetables: ${this._escH(error.message || 'Request failed')}</p>`;
+            }
             this.showToast('Failed to load timetables', 'error', 'Error');
         }
     },
@@ -689,10 +801,10 @@ const academicsController = {
         }
 
         try {
-            const response = await window.API.academic.getSchedule(classId);
-            const data = response || {};
+            const response = await window.API.academic.listSchedules({ class_id: classId });
+            const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
             
-            if (!data || Object.keys(data).length === 0) {
+            if (!data.length) {
                 document.getElementById('timetableContainer').innerHTML = 
                     '<p class="text-muted text-center">No timetable found for this class</p>';
                 return;
@@ -710,26 +822,36 @@ const academicsController = {
         const container = document.getElementById('timetableContainer');
         if (!container) return;
 
-        // Simple timetable display (customize based on actual data structure)
+        const schedules = Array.isArray(timetableData) ? timetableData : [];
+        if (!schedules.length) {
+            container.innerHTML = '<p class="text-muted text-center">No timetable found for this class</p>';
+            return;
+        }
+
         container.innerHTML = `
             <div class="table-responsive">
-                <table class="table table-bordered table-sm">
+                <table class="table table-hover table-sm align-middle">
                     <thead class="table-light">
                         <tr>
+                            <th>Day</th>
                             <th>Time</th>
-                            <th>Monday</th>
-                            <th>Tuesday</th>
-                            <th>Wednesday</th>
-                            <th>Thursday</th>
-                            <th>Friday</th>
+                            <th>Subject</th>
+                            <th>Teacher</th>
+                            <th>Room</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr>
-                            <td colspan="6" class="text-center py-3">
-                                <p class="text-muted">Timetable data structure to be implemented</p>
-                            </td>
-                        </tr>
+                        ${schedules.map((slot) => `
+                            <tr>
+                                <td>${slot.day_of_week || '-'}</td>
+                                <td>${slot.start_time || '-'} - ${slot.end_time || '-'}</td>
+                                <td>${slot.subject_name || slot.learning_area_name || '-'}</td>
+                                <td>${slot.teacher_name || 'Not assigned'}</td>
+                                <td>${slot.room_name || '-'}</td>
+                                <td><span class="badge ${slot.status === 'active' ? 'bg-success' : 'bg-secondary'}">${slot.status || 'active'}</span></td>
+                            </tr>
+                        `).join('')}
                     </tbody>
                 </table>
             </div>
@@ -910,15 +1032,34 @@ const academicsController = {
     },
 
     exportSubjects() {
-        const rows = [['Code','Name','Category','Level','Department','Status']];
-        this._subjects.forEach(s => rows.push([
-            s.code || s.subject_code || '', s.name || s.subject_name || '',
-            s.category || '', s.grade_level || '', s.department || '', s.status || 'active',
-        ]));
-        const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const a    = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = 'subjects.csv'; a.click();
+        if (!window.PrintManager) {
+            this.showToast('PrintManager not available', 'error', 'Error');
+            return;
+        }
+
+        const columns = [
+            { key: 'code', label: 'Code' },
+            { key: 'name', label: 'Name' },
+            { key: 'category', label: 'Category' },
+            { key: 'grade_level', label: 'Level' },
+            { key: 'department', label: 'Department' },
+            { key: 'status', label: 'Status' }
+        ];
+
+        const rows = this._subjects.map(s => ({
+            code: s.code || s.subject_code || '',
+            name: s.name || s.subject_name || '',
+            category: s.category || '',
+            grade_level: s.grade_level || '',
+            department: s.department || '',
+            status: s.status || 'active'
+        }));
+
+        window.PrintManager.exportToCSV({
+            filename: `subjects_${new Date().toISOString().slice(0,10)}.csv`,
+            columns: columns,
+            rows: rows
+        });
     },
 
     // ── Curriculum Unit Modal ───────────────────────────────────────

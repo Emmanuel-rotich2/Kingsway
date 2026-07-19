@@ -1,310 +1,332 @@
 /**
- * All Teachers Page Controller
- * Displays read-only list of all teachers with stats, filters, and CSV export.
- * Loaded by all_teachers.php
+ * All Teachers Controller
+ * Page: all_teachers.php
+ * Academic-specific view of all teaching staff
+ * Integrates with AcademicContext for academic year awareness
  */
-
-(function () {
-    "use strict";
-
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
-    function esc(str) {
-        if (!str) return "";
-        return String(str).replace(/[&<>"']/g, function (m) {
-            return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
-        });
+const AllTeachersController = {
+  state: {
+    teachers: [],
+    departments: [],
+    subjects: [],
+    currentAcademicYear: null,
+    stats: {
+      totalTeachers: 0,
+      classTeachers: 0,
+      hods: 0
     }
+  },
 
-    function extractList(response) {
-        if (!response) return [];
-        if (Array.isArray(response)) return response;
-        if (Array.isArray(response.teachers)) return response.teachers;
-        if (Array.isArray(response.data?.teachers)) return response.data.teachers;
-        if (Array.isArray(response.staff)) return response.staff;
-        if (Array.isArray(response.data?.staff)) return response.data.staff;
-        if (Array.isArray(response.data)) return response.data;
-        return [];
+  async init() {
+    if (!window.AuthContext?.isAuthenticated()) {
+      window.location.href = (window.APP_BASE || "") + "/index.php";
+      return;
     }
-
-    function showToast(msg, type) {
-        type = type || "success";
-        var el = document.createElement("div");
-        el.className = "alert alert-" + (type === "error" ? "danger" : type) + " alert-dismissible position-fixed top-0 end-0 m-3";
-        el.style.zIndex = "9999";
-        el.innerHTML = esc(msg) + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-        document.body.appendChild(el);
-        setTimeout(function () { el.remove(); }, 4000);
-    }
-
-    function formatDate(dateStr) {
-        if (!dateStr) return "—";
-        try {
-            return new Date(dateStr).toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "numeric" });
-        } catch (e) {
-            return dateStr;
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in all_teachers:', event, data);
+        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+          this.loadTeachers();
         }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+    }
+    
+    this.bindEvents();
+    await this.loadTeachers();
+    await this.loadFilters();
+  },
+
+  bindEvents() {
+    // Search input
+    const searchInput = document.getElementById('searchTeacher');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => {
+        this.filterTeachers(e.target.value);
+      });
     }
 
-    // ── Controller ─────────────────────────────────────────────────────────────
+    // Department filter
+    const deptFilter = document.getElementById('filterDepartment');
+    if (deptFilter) {
+      deptFilter.addEventListener('change', () => {
+        this.applyFilters();
+      });
+    }
 
-    var Controller = {
-        data: [],
-        filtered: [],
+    // Subject filter
+    const subjectFilter = document.getElementById('filterSubject');
+    if (subjectFilter) {
+      subjectFilter.addEventListener('change', () => {
+        this.applyFilters();
+      });
+    }
 
-        init: async function () {
-            if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
-                window.location.href = (window.APP_BASE || "") + "/index.php";
-                return;
-            }
-            this.bindEvents();
-            await this.loadData();
-        },
+    // Export button
+    const exportBtn = document.getElementById('exportTeachers');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        this.exportTeachers();
+      });
+    }
+  },
 
-        bindEvents: function () {
-            var self = this;
+  async loadTeachers() {
+    try {
+      const academicYearId = this.state.currentAcademicYear;
+      const params = academicYearId ? { academic_year_id: academicYearId } : {};
+      
+      const res = await window.API.apiCall('/staff/teachers', 'GET', params);
+      
+      if (res?.success) {
+        this.state.teachers = res.data || [];
+        this.renderTeachersTable();
+        this.updateStats();
+      } else {
+        this.showNotification('Failed to load teachers', 'error');
+      }
+    } catch (error) {
+      console.error('Error loading teachers:', error);
+      this.showNotification('Failed to load teachers', 'error');
+    }
+  },
 
-            var searchEl = document.getElementById("searchTeacher");
-            if (searchEl) {
-                searchEl.addEventListener("input", function () { self.applyFilters(); });
-            }
-
-            var deptEl = document.getElementById("filterDepartment");
-            if (deptEl) {
-                deptEl.addEventListener("change", function () { self.applyFilters(); });
-            }
-
-            var subjectEl = document.getElementById("filterSubject");
-            if (subjectEl) {
-                subjectEl.addEventListener("change", function () { self.applyFilters(); });
-            }
-
-            var exportBtn = document.getElementById("exportTeachers");
-            if (exportBtn) {
-                exportBtn.addEventListener("click", function () { self.exportCSV(); });
-            }
-        },
-
-        loadData: async function () {
-            try {
-                var response = await window.API.academic.getTeachers({ role: "teacher", limit: 500 });
-                this.data = extractList(response);
-            } catch (err) {
-                console.error("all_teachers: loadData error", err);
-                showToast("Failed to load teachers list", "error");
-                this.data = [];
-            }
-
-            this.render();
-        },
-
-        render: function () {
-            this.renderStats();
-            this.populateFilterDropdowns();
-            this.applyFilters();
-        },
-
-        renderStats: function () {
-            var total = this.data.length;
-            var classTeachers = this.data.filter(function (t) {
-                var role = (t.teacher_role || t.role || "").toLowerCase();
-                return role === "class_teacher" || role === "class teacher";
-            }).length;
-            var hods = this.data.filter(function (t) {
-                var role = (t.teacher_role || t.role || "").toLowerCase();
-                return role === "head_of_department" || role === "hod" || role === "head of department";
-            }).length;
-
-            var setEl = function (id, val) {
-                var el = document.getElementById(id);
-                if (el) el.textContent = val;
-            };
-
-            setEl("totalTeachers", total);
-            setEl("classTeachers", classTeachers);
-            setEl("hods", hods);
-        },
-
-        populateFilterDropdowns: function () {
-            var departments = {};
-            var subjects = {};
-
-            this.data.forEach(function (t) {
-                var dept = t.department_name || t.department || "";
-                if (dept) departments[dept] = true;
-
-                var subs = t.subjects || t.learning_areas || [];
-                if (typeof subs === "string") {
-                    subs.split(",").forEach(function (s) {
-                        var trimmed = s.trim();
-                        if (trimmed) subjects[trimmed] = true;
-                    });
-                } else if (Array.isArray(subs)) {
-                    subs.forEach(function (s) {
-                        var name = s.name || s.subject_name || s;
-                        if (name) subjects[name] = true;
-                    });
-                }
-            });
-
-            var deptEl = document.getElementById("filterDepartment");
-            if (deptEl) {
-                var currentDept = deptEl.value;
-                deptEl.innerHTML = '<option value="">All Departments</option>';
-                Object.keys(departments).sort().forEach(function (d) {
-                    deptEl.innerHTML += '<option value="' + esc(d) + '">' + esc(d) + "</option>";
-                });
-                deptEl.value = currentDept;
-            }
-
-            var subjectEl = document.getElementById("filterSubject");
-            if (subjectEl) {
-                var currentSub = subjectEl.value;
-                subjectEl.innerHTML = '<option value="">All Subjects</option>';
-                Object.keys(subjects).sort().forEach(function (s) {
-                    subjectEl.innerHTML += '<option value="' + esc(s) + '">' + esc(s) + "</option>";
-                });
-                subjectEl.value = currentSub;
-            }
-        },
-
-        applyFilters: function () {
-            var searchTerm = (document.getElementById("searchTeacher")?.value || "").toLowerCase().trim();
-            var deptFilter = (document.getElementById("filterDepartment")?.value || "").toLowerCase();
-            var subjectFilter = (document.getElementById("filterSubject")?.value || "").toLowerCase();
-
-            this.filtered = this.data.filter(function (t) {
-                var name = (
-                    (t.first_name || "") + " " +
-                    (t.last_name || "") + " " +
-                    (t.name || "") + " " +
-                    (t.staff_no || "")
-                ).toLowerCase();
-
-                if (searchTerm && !name.includes(searchTerm)) return false;
-
-                if (deptFilter) {
-                    var dept = (t.department_name || t.department || "").toLowerCase();
-                    if (dept !== deptFilter) return false;
-                }
-
-                if (subjectFilter) {
-                    var subs = t.subjects || t.learning_areas || [];
-                    var subString = "";
-                    if (typeof subs === "string") {
-                        subString = subs.toLowerCase();
-                    } else if (Array.isArray(subs)) {
-                        subString = subs.map(function (s) {
-                            return (s.name || s.subject_name || s || "").toLowerCase();
-                        }).join(",");
-                    }
-                    if (!subString.includes(subjectFilter)) return false;
-                }
-
-                return true;
-            });
-
-            this.renderTable();
-        },
-
-        renderTable: function () {
-            var tbody = document.querySelector(".card table tbody");
-            if (!tbody) {
-                // Fallback: first tbody in the page
-                tbody = document.querySelector("table tbody");
-            }
-            if (!tbody) return;
-
-            if (!this.filtered.length) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4"><i class="bi bi-inbox fs-2 d-block mb-2"></i>No teachers found matching your criteria.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = this.filtered.map(function (t) {
-                var name = (t.first_name && t.last_name)
-                    ? t.first_name + " " + t.last_name
-                    : (t.name || "—");
-
-                var subs = t.subjects || t.learning_areas || [];
-                var subsList = "";
-                if (typeof subs === "string") {
-                    subsList = subs || "—";
-                } else if (Array.isArray(subs) && subs.length) {
-                    subsList = subs.map(function (s) {
-                        return s.name || s.subject_name || s;
-                    }).join(", ");
-                } else {
-                    subsList = "—";
-                }
-
-                var className = t.class_name || t.assigned_class || "";
-                var role = (t.teacher_role || t.role || "").toLowerCase();
-                var isClassTeacher = role === "class_teacher" || role === "class teacher";
-                var classDisplay = isClassTeacher && className ? esc(className) : (isClassTeacher ? "Assigned" : "—");
-
-                var statusColor = (t.status || "").toLowerCase() === "active" ? "success" : "secondary";
-                var statusLabel = t.status ? t.status.charAt(0).toUpperCase() + t.status.slice(1).toLowerCase() : "Unknown";
-
-                var profileUrl = (window.APP_BASE || "") + "/home.php?route=staff_profile&id=" + (t.id || t.staff_id || "");
-
-                return '<tr>' +
-                    '<td><div class="fw-semibold">' + esc(name) + '</div>' +
-                    '<small class="text-muted">' + esc(t.email || "") + '</small></td>' +
-                    '<td><span class="font-monospace">' + esc(t.staff_no || "—") + '</span></td>' +
-                    '<td><small>' + esc(subsList) + '</small></td>' +
-                    '<td>' + classDisplay + '</td>' +
-                    '<td>' + esc(t.department_name || t.department || "—") + '</td>' +
-                    '<td><span class="badge bg-' + statusColor + '">' + esc(statusLabel) + '</span></td>' +
-                    '<td><a href="' + esc(profileUrl) + '" class="btn btn-sm btn-outline-primary"><i class="bi bi-person-lines-fill me-1"></i>Profile</a></td>' +
-                    '</tr>';
-            }).join("");
-        },
-
-        exportCSV: function () {
-            var data = this.filtered.length ? this.filtered : this.data;
-            if (!data.length) {
-                showToast("No data to export", "warning");
-                return;
-            }
-
-            var headers = ["Staff No", "Name", "Email", "Subjects", "Assigned Class", "Department", "Role", "Status"];
-            var rows = data.map(function (t) {
-                var name = (t.first_name && t.last_name)
-                    ? t.first_name + " " + t.last_name
-                    : (t.name || "");
-
-                var subs = t.subjects || t.learning_areas || [];
-                var subsList = "";
-                if (typeof subs === "string") subsList = subs;
-                else if (Array.isArray(subs)) subsList = subs.map(function (s) { return s.name || s.subject_name || s; }).join("; ");
-
-                return [
-                    t.staff_no || "",
-                    name,
-                    t.email || "",
-                    subsList,
-                    t.class_name || t.assigned_class || "",
-                    t.department_name || t.department || "",
-                    t.teacher_role || t.role || "",
-                    t.status || ""
-                ];
-            });
-
-            var csv = [headers.join(",")]
-                .concat(rows.map(function (r) {
-                    return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");
-                }))
-                .join("\n");
-
-            var a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            a.download = "teachers_" + new Date().toISOString().split("T")[0] + ".csv";
-            a.click();
-            URL.revokeObjectURL(a.href);
-            showToast("Export started", "success");
+  async loadFilters() {
+    try {
+      // Load departments
+      const deptRes = await window.API.apiCall('/staff/departments', 'GET');
+      if (deptRes?.success) {
+        this.state.departments = deptRes.data || [];
+        const deptFilter = document.getElementById('filterDepartment');
+        if (deptFilter) {
+          deptFilter.innerHTML = '<option value="">All Departments</option>' + 
+            this.state.departments.map(dept => `<option value="${dept.id}">${dept.name}</option>`).join('');
         }
-    };
+      }
 
-    document.addEventListener("DOMContentLoaded", function () { Controller.init(); });
+      // Load subjects
+      const subjectRes = await window.API.apiCall('/academic/subjects', 'GET');
+      if (subjectRes?.success) {
+        this.state.subjects = subjectRes.data || [];
+        const subjectFilter = document.getElementById('filterSubject');
+        if (subjectFilter) {
+          subjectFilter.innerHTML = '<option value="">All Subjects</option>' + 
+            this.state.subjects.map(subject => `<option value="${subject.id}">${subject.name}</option>`).join('');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading filters:', error);
+    }
+  },
 
-})();
+  renderTeachersTable() {
+    const tbody = document.querySelector('#teachersTable tbody');
+    if (!tbody) return;
+
+    if (this.state.teachers.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No teachers found</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = this.state.teachers.map((teacher, index) => {
+      const statusBadge = teacher.status === 'active' 
+        ? '<span class="badge bg-success">Active</span>' 
+        : '<span class="badge bg-secondary">Inactive</span>';
+
+      const photoUrl = teacher.photo_url 
+        ? `<img src="${teacher.photo_url}" alt="${teacher.first_name}" class="rounded-circle" width="40" height="40">`
+        : `<div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center" width="40" height="40"><i class="bi bi-person text-white"></i></div>`;
+
+      return `
+        <tr>
+          <td>${photoUrl}</td>
+          <td>
+            <strong>${this.escapeHtml(teacher.first_name + ' ' + teacher.last_name)}</strong>
+            <br><small class="text-muted">${teacher.email || '--'}</small>
+          </td>
+          <td>${teacher.employee_id || '--'}</td>
+          <td>${teacher.department_name || '--'}</td>
+          <td>${teacher.subjects_count || 0} subjects</td>
+          <td>${teacher.role_name || '--'}</td>
+          <td>${statusBadge}</td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary" onclick="AllTeachersController.viewTeacher(${teacher.id})" title="View">
+                <i class="bi bi-eye"></i>
+              </button>
+              <button class="btn btn-outline-info" onclick="AllTeachersController.viewAssignments(${teacher.id})" title="View Assignments">
+                <i class="bi bi-journal-text"></i>
+              </button>
+              <button class="btn btn-outline-warning" onclick="AllTeachersController.viewWorkload(${teacher.id})" title="View Workload">
+                <i class="bi bi-bar-chart"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  },
+
+  updateStats() {
+    document.getElementById('totalTeachers').textContent = this.state.teachers.length;
+    document.getElementById('classTeachers').textContent = this.state.teachers.filter(t => t.is_class_teacher).length;
+    document.getElementById('hods').textContent = this.state.teachers.filter(t => t.is_hod).length;
+  },
+
+  filterTeachers(searchTerm) {
+    const filtered = this.state.teachers.filter(teacher => {
+      const searchLower = searchTerm.toLowerCase();
+      const fullName = (teacher.first_name + ' ' + teacher.last_name).toLowerCase();
+      return fullName.includes(searchLower) ||
+             (teacher.email && teacher.email.toLowerCase().includes(searchLower)) ||
+             (teacher.employee_id && teacher.employee_id.toLowerCase().includes(searchLower));
+    });
+    
+    this.renderFilteredTeachers(filtered);
+  },
+
+  applyFilters() {
+    const deptId = document.getElementById('filterDepartment')?.value || '';
+    const subjectId = document.getElementById('filterSubject')?.value || '';
+    
+    let filtered = [...this.state.teachers];
+    
+    if (deptId) {
+      filtered = filtered.filter(t => t.department_id == deptId);
+    }
+    
+    if (subjectId) {
+      filtered = filtered.filter(t => t.subject_ids && t.subject_ids.includes(parseInt(subjectId)));
+    }
+    
+    this.renderFilteredTeachers(filtered);
+  },
+
+  renderFilteredTeachers(filtered) {
+    const tbody = document.querySelector('#teachersTable tbody');
+    if (!tbody) return;
+
+    if (filtered.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center text-muted py-4">No teachers match your filters</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = filtered.map((teacher, index) => {
+      const statusBadge = teacher.status === 'active' 
+        ? '<span class="badge bg-success">Active</span>' 
+        : '<span class="badge bg-secondary">Inactive</span>';
+
+      const photoUrl = teacher.photo_url 
+        ? `<img src="${teacher.photo_url}" alt="${teacher.first_name}" class="rounded-circle" width="40" height="40">`
+        : `<div class="rounded-circle bg-secondary d-flex align-items-center justify-content-center" width="40" height="40"><i class="bi bi-person text-white"></i></div>`;
+
+      return `
+        <tr>
+          <td>${photoUrl}</td>
+          <td>
+            <strong>${this.escapeHtml(teacher.first_name + ' ' + teacher.last_name)}</strong>
+            <br><small class="text-muted">${teacher.email || '--'}</small>
+          </td>
+          <td>${teacher.employee_id || '--'}</td>
+          <td>${teacher.department_name || '--'}</td>
+          <td>${teacher.subjects_count || 0} subjects</td>
+          <td>${teacher.role_name || '--'}</td>
+          <td>${statusBadge}</td>
+          <td>
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-primary" onclick="AllTeachersController.viewTeacher(${teacher.id})" title="View">
+                <i class="bi bi-eye"></i>
+              </button>
+              <button class="btn btn-outline-info" onclick="AllTeachersController.viewAssignments(${teacher.id})" title="View Assignments">
+                <i class="bi bi-journal-text"></i>
+              </button>
+              <button class="btn btn-outline-warning" onclick="AllTeachersController.viewWorkload(${teacher.id})" title="View Workload">
+                <i class="bi bi-bar-chart"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  },
+
+  viewTeacher(teacherId) {
+    // Navigate to staff detail page
+    window.location.href = (window.APP_BASE || '') + '/home.php?route=manage_staff&id=' + teacherId;
+  },
+
+  viewAssignments(teacherId) {
+    // Navigate to subject assignments page filtered by teacher
+    window.location.href = (window.APP_BASE || '') + '/home.php?route=assign_subjects_to_teachers&teacher_id=' + teacherId;
+  },
+
+  viewWorkload(teacherId) {
+    // Navigate to teacher workload page
+    window.location.href = (window.APP_BASE || '') + '/home.php?route=teacher_workload&teacher_id=' + teacherId;
+  },
+
+  exportTeachers() {
+    if (!this.state.teachers.length) return;
+    
+    const headers = ['#', 'Name', 'Employee ID', 'Department', 'Subjects', 'Role', 'Status'];
+    const rows = this.state.teachers.map((teacher, i) => [
+      i + 1,
+      teacher.first_name + ' ' + teacher.last_name,
+      teacher.employee_id || '--',
+      teacher.department_name || '--',
+      teacher.subjects_count || 0,
+      teacher.role_name || '--',
+      teacher.status || '--'
+    ]);
+    
+    if (window.PrintManager) {
+      window.PrintManager.exportToCSV({
+        headers,
+        rows
+      }, 'teachers');
+    } else {
+      // Fallback
+      let csv = headers.join(',') + '\n' + 
+        rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
+      
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'teachers.csv';
+      a.click();
+    }
+  },
+
+  escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  },
+
+  showNotification(message, type = 'info') {
+    if (typeof showNotification === 'function') {
+      showNotification(message, type);
+    } else {
+      // Fallback notification
+      const container = document.querySelector('.container-fluid') || document.body;
+      const alert = document.createElement('div');
+      alert.className = `alert alert-${type === 'error' ? 'danger' : type} alert-dismissible fade show position-fixed top-0 end-0 m-3`;
+      alert.style.zIndex = '9999';
+      alert.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+      container.appendChild(alert);
+      setTimeout(() => alert.remove(), 4000);
+    }
+  }
+};
+
+document.addEventListener('DOMContentLoaded', () => AllTeachersController.init());

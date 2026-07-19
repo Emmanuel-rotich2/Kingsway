@@ -252,7 +252,7 @@
   }
 
   function summCard(label, value, color, icon) {
-    return '<div class="col-md-4 mb-2"><div class="card border-0 shadow-sm rounded-4 bg-' + color + ' bg-opacity-10">' +
+    return '<div class="col-md-4 mb-2"><div class="card border-0 shadow-sm rounded-4 kw-balance-card bg-' + color + ' bg-opacity-10">' +
       '<div class="card-body p-3 d-flex align-items-center">' +
       '<div class="me-3 fs-3 text-' + color + '"><i class="' + icon + '"></i></div>' +
       '<div><div class="text-muted small">' + label + '</div><div class="fw-bold fs-6">' + value + '</div></div>' +

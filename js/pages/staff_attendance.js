@@ -63,7 +63,11 @@ const StaffAttendanceController = {
 
   async loadDepartments() {
     try {
-      const response = await window.API.apiCall("/staff/departments/get", "GET");
+      // Reference data: cache 7d (rarely changes) to skip DB re-query.
+      const response = await DataStore.fetchPage('departments', {
+        endpoint: '/staff/departments/get', storeName: 'reference_departments',
+        ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+      });
       this.departments = Array.isArray(response) ? response : [];
       this.renderDepartmentDropdowns();
     } catch (error) {

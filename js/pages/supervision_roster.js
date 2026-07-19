@@ -38,7 +38,11 @@ const SupervisionRosterController = (() => {
 
     async function loadStaff() {
         try {
-            const resp = await window.API.apiCall('/staff/teachers', 'GET');
+            // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+            const resp = await DataStore.fetchPage('teachers', {
+              endpoint: '/staff/teachers', storeName: 'reference_teachers',
+              ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+            });
             staff = Array.isArray(resp?.data || resp) ? (resp?.data || resp) : [];
             populateSupervisorDropdown();
         } catch (e) {

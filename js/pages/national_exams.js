@@ -55,7 +55,11 @@ const natExamCtrl = {
 
   _loadClasses: async function () {
     try {
-      const r    = await callAPI('/academic/classes-list', 'GET');
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const r    = await DataStore.fetchPage('classes', {
+        endpoint: '/academic/classes-list', storeName: 'reference_classes',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       this._classes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const sel  = document.getElementById('natEntryClass');
       if (!sel) return;

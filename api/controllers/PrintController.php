@@ -49,11 +49,11 @@ class PrintController extends BaseController
      * 
      * @return array Response with PDF URL
      */
-    public function postTable()
+    public function postTable($id = null, $data = [])
     {
         try {
-            $data = $this->request->data;
-            
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
             if (empty($data['rows'])) {
                 return formatResponse(false, null, 'No data provided');
             }
@@ -65,8 +65,8 @@ class PrintController extends BaseController
             $pdfPath = $this->printService->printTable($data['rows'], $data);
             
             // Convert to relative URL
-            $pdfUrl = str_replace($this->getBasePath(), '', $pdfPath);
-            
+            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+
             return formatResponse(true, [
                 'pdf_url' => $pdfUrl,
                 'filename' => basename($pdfPath)
@@ -101,11 +101,11 @@ class PrintController extends BaseController
      * 
      * @return array Response with PDF URL
      */
-    public function postRecord()
+    public function postRecord($id = null, $data = [])
     {
         try {
-            $data = $this->request->data;
-            
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
             if (empty($data['sections'])) {
                 return formatResponse(false, null, 'No sections provided');
             }
@@ -113,8 +113,8 @@ class PrintController extends BaseController
             $pdfPath = $this->printService->printRecord($data, $data);
             
             // Convert to relative URL
-            $pdfUrl = str_replace($this->getBasePath(), '', $pdfPath);
-            
+            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+
             return formatResponse(true, [
                 'pdf_url' => $pdfUrl,
                 'filename' => basename($pdfPath)
@@ -142,11 +142,11 @@ class PrintController extends BaseController
      * 
      * @return array Response with PDF URL
      */
-    public function postCertificate()
+    public function postCertificate($id = null, $data = [])
     {
         try {
-            $data = $this->request->data;
-            
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
             if (empty($data['type'])) {
                 return formatResponse(false, null, 'Certificate type is required');
             }
@@ -158,8 +158,8 @@ class PrintController extends BaseController
             $pdfPath = $this->printService->printCertificate($data['type'], $data);
             
             // Convert to relative URL
-            $pdfUrl = str_replace($this->getBasePath(), '', $pdfPath);
-            
+            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+
             return formatResponse(true, [
                 'pdf_url' => $pdfUrl,
                 'filename' => basename($pdfPath)
@@ -183,11 +183,11 @@ class PrintController extends BaseController
      * 
      * @return array Response with CSV URL
      */
-    public function postExportCsv()
+    public function postExportCsv($id = null, $data = [])
     {
         try {
-            $data = $this->request->data;
-            
+            $data = $data ?: json_decode(file_get_contents('php://input'), true) ?: [];
+
             if (empty($data['data'])) {
                 return formatResponse(false, null, 'No data provided');
             }
@@ -196,8 +196,8 @@ class PrintController extends BaseController
             $csvPath = $this->printService->exportCSV($data['data'], $filename);
             
             // Convert to relative URL
-            $csvUrl = str_replace($this->getBasePath(), '', $csvPath);
-            
+            $csvUrl = $this->getWebUrl(basename($csvPath));
+
             return formatResponse(true, [
                 'csv_url' => $csvUrl,
                 'filename' => basename($csvPath)
@@ -209,12 +209,18 @@ class PrintController extends BaseController
     }
     
     /**
-     * Get base path for URL conversion
-     * 
-     * @return string Base path
+     * Build a web-accessible URL for a file inside the public temp/print/ dir.
+     *
+     * Uses BASE_URL (env-aware: http://localhost/Kingsway in dev, the prod
+     * domain in production) so the returned URL is valid in ANY environment,
+     * instead of stripping the filesystem root (which only works when the project
+     * sits directly under the web root).
+     *
+     * @param string $filename Basename of the generated file
+     * @return string Absolute, environment-agnostic URL
      */
-    private function getBasePath()
+    private function getWebUrl($filename)
     {
-        return __DIR__ . '/../../';
+        return rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($filename, '/');
     }
 }

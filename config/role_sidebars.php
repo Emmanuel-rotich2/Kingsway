@@ -265,7 +265,6 @@ return [
             ['label' => 'Manage Classes',          'url' => 'manage_classes'],
             ['label' => 'Class Streams',           'url' => 'class_streams'],
             ['label' => 'Class Capacity',          'url' => 'class_capacity'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // STAFF — Admin handles full HR operations + onboarding
@@ -509,7 +508,6 @@ return [
             ['label' => 'CBC Curriculum',          'url' => 'curriculum_cbc'],
             ['label' => 'Academic Years',          'url' => 'academic_years'],
             ['label' => 'Academic Calendar',       'url' => 'academic_calendar'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // ── ADMIN: TIMETABLE (Deputy ASSIGNS teachers — key workflow step) ────

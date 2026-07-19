@@ -143,8 +143,37 @@ const MarkAttendanceController = {
         trip_session: tripSession,
       });
 
-      const response = await this.api(`/students/transport-passengers?${params.toString()}`, "GET");
-      const passengers = this.unwrap(response) || [];
+      let passengers;
+      
+      // Try DataStore first for caching
+      if (typeof DataStore !== 'undefined') {
+        try {
+          passengers = await DataStore.get('attendance_roster', {
+            strategy: 'network-first',
+            ttl: 300000, // 5 minutes
+            storeName: 'attendance_roster_cache',
+            endpoint: `/students/transport-passengers?${params.toString()}`,
+            params: Object.fromEntries(params)
+          });
+          console.log("[Attendance] Data from DataStore:", passengers);
+        } catch (dataStoreError) {
+          console.warn("[Attendance] DataStore failed, falling back to API:", dataStoreError);
+        }
+      }
+      
+      // Fallback to direct API call
+      if (!passengers) {
+        const response = await this.api(`/students/transport-passengers?${params.toString()}`, "GET");
+        passengers = this.unwrap(response) || [];
+        
+        // Cache in DataStore
+        if (typeof DataStore !== 'undefined') {
+          await DataStore.set('attendance_roster', passengers, {
+            ttl: 300000,
+            storeName: 'attendance_roster_cache'
+          });
+        }
+      }
 
       this.state.passengers = passengers;
       this.state.attendance = {};
@@ -359,6 +388,33 @@ const MarkAttendanceController = {
     };
 
     try {
+      // Check if offline
+      if (!navigator.onLine) {
+        // Queue operation for sync
+        if (typeof SyncQueue !== 'undefined') {
+          await SyncQueue.addOperation({
+            module: 'attendance',
+            endpoint: '/students/transport-attendance',
+            method: 'POST',
+            payload: data,
+            entity_type: 'attendance',
+            entity_id: null,
+            priority: 5
+          });
+          this.notify("Attendance saved. Will sync when connection is restored.", "info");
+          if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {
+            const modalInstance = bootstrap.Modal.getInstance(this.ui.saveConfirmationModal);
+            modalInstance?.hide();
+          }
+          return;
+        }
+        
+        // Fallback error
+        this.notify("You are offline. Attendance will sync when connection is restored.", "warning");
+        return;
+      }
+      
+      // Online - proceed normally
       const response = await this.api("/students/transport-attendance", "POST", data);
       this.notify("Attendance saved successfully", "success");
       if (typeof bootstrap !== "undefined" && this.ui.saveConfirmationModal) {

@@ -659,6 +659,59 @@ class StudentsController extends BaseController
     }
 
     /**
+     * POST /api/students/id-card/generate-bulk-pdf
+     * Generate bulk PDF for selected students with A4 layout
+     */
+    public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(
+            self::STUDENT_ID_CARD_GENERATE_PERMS,
+            'Insufficient permission to generate bulk ID card PDFs'
+        )) {
+            return $auth;
+        }
+
+        $studentIds = $data['student_ids'] ?? [];
+        if (empty($studentIds) || !is_array($studentIds)) {
+            return $this->badRequest('Student IDs array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $includeFront = $data['include_front'] ?? true;
+        $includeBack = $data['include_back'] ?? true;
+
+        $result = $this->api->generateBulkIDCardsPDF($studentIds, $printMode, $includeFront, $includeBack);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/students/id-card/print-single
+     * Generate print-ready single card HTML for browser/system printing.
+     * Returns renderer HTML (CR80, QR as data URI, front|back side-by-side)
+     * which the frontend opens in a print window.
+     */
+    public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(
+            self::STUDENT_ID_CARD_GENERATE_PERMS,
+            'Insufficient permission to print ID cards'
+        )) {
+            return $auth;
+        }
+
+        $studentId = $data['student_id'] ?? ($segments[0] ?? null);
+        if (!$studentId) {
+            return $this->badRequest('Student ID is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
+        $result = $this->api->generatePrintableSingle((int) $studentId, $side, $printMode);
+        return $this->handleResponse($result);
+    }
+
+    /**
      * POST /api/students/id-card/{cardId}/generate-qr
      * Generate QR code for a card
      */
@@ -3327,7 +3380,7 @@ class StudentsController extends BaseController
     /**
      * GET /api/students/family-group/{parentId}
      */
-    public function getFamilyGroupDetail($id = null, $data = [], $segments = [])
+    public function getFamilyGroup($id = null, $data = [], $segments = [])
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
@@ -3562,10 +3615,14 @@ class StudentsController extends BaseController
 
         try {
             $db = $this->db->getConnection();
-            $userId = $this->user['id'];
+            $userId = (int)($this->user['id'] ?? $this->user['user_id'] ?? 0);
+            if ($userId <= 0) {
+                return $this->unauthorized('Authenticated user ID could not be resolved');
+            }
 
             $fromYearId = !empty($data['from_academic_year_id']) ? (int)$data['from_academic_year_id'] : null;
             $toYearId = !empty($data['to_academic_year_id']) ? (int)$data['to_academic_year_id'] : null;
+            $fromTermId = !empty($data['from_term_id']) ? (int)$data['from_term_id'] : null;
             $fromClassId = !empty($data['from_class_id']) ? (int)$data['from_class_id'] : null;
             $toClassId = !empty($data['to_class_id']) ? (int)$data['to_class_id'] : null;
             $fromStreamId = !empty($data['from_stream_id']) ? (int)$data['from_stream_id'] : null;
@@ -3577,19 +3634,55 @@ class StudentsController extends BaseController
                 return $this->badRequest('Required fields: from_academic_year_id, to_academic_year_id, students');
             }
 
+            $yearStmt = $db->prepare("SELECT id, year_code FROM academic_years WHERE id IN (?, ?)");
+            $yearStmt->execute([$fromYearId, $toYearId]);
+            $yearRows = $yearStmt->fetchAll(\PDO::FETCH_KEY_PAIR);
+
+            $extractYear = static function ($value) {
+                if (preg_match('/^\d{4}/', (string)$value, $matches)) {
+                    return (int)$matches[0];
+                }
+                return null;
+            };
+
+            $fromYear = $extractYear($yearRows[$fromYearId] ?? null);
+            $toYear = $extractYear($yearRows[$toYearId] ?? null);
+
+            if (!$fromYear || !$toYear) {
+                return $this->badRequest('Selected academic years do not contain valid YEAR values');
+            }
+
+            if (!$fromTermId) {
+                $termStmt = $db->query("
+                    SELECT id
+                    FROM academic_terms
+                    WHERE status IN ('current', 'active') OR CURDATE() BETWEEN start_date AND end_date
+                    ORDER BY
+                        CASE status WHEN 'current' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
+                        start_date DESC
+                    LIMIT 1
+                ");
+                $fromTermId = (int)($termStmt->fetchColumn() ?: 0);
+            }
+
+            if (!$fromTermId) {
+                return $this->badRequest('Current academic term could not be resolved');
+            }
+
             // Start transaction
             $db->beginTransaction();
 
             // Create promotion batch
-            $batchCode = 'PROMO' . date('YmdHis');
             $insertBatchStmt = $db->prepare("
                 INSERT INTO promotion_batches (from_academic_year, to_academic_year, batch_type, status, created_by, notes)
                 VALUES (?, ?, 'manual', 'in_progress', ?, ?)
             ");
-            $insertBatchStmt->execute([$fromYearId, $toYearId, $userId, $notes]);
+            $insertBatchStmt->execute([$fromYear, $toYear, $userId, $notes]);
             $batchId = $db->lastInsertId();
 
             $promoted = 0;
+            $retained = 0;
+            $processed = 0;
             foreach ($students as $studentData) {
                 $studentId = (int)$studentData['student_id'];
                 $finalAction = $studentData['final_action'] ?? 'promote';
@@ -3605,7 +3698,16 @@ class StudentsController extends BaseController
                 $enrollStmt->execute([$studentId, $fromYearId]);
                 $enrollment = $enrollStmt->fetch(\PDO::FETCH_ASSOC);
 
-                if ($enrollment && $finalAction === 'promote') {
+                if (!$enrollment) {
+                    continue;
+                }
+
+                $targetClassId = $toClassId ?: (int)$enrollment['class_id'];
+                $targetStreamId = $toStreamId ?: (int)$enrollment['stream_id'];
+                $toEnrollmentId = null;
+                $promotionStatus = $finalAction === 'retain' ? 'retained' : 'approved';
+
+                if ($finalAction === 'promote') {
                     // Update or create new enrollment for next year
                     $checkNewEnrollStmt = $db->prepare("
                         SELECT id FROM class_enrollments
@@ -3618,17 +3720,20 @@ class StudentsController extends BaseController
                         // Update existing
                         $updateEnrollStmt = $db->prepare("
                             UPDATE class_enrollments
-                            SET class_id = ?, stream_id = ?
+                            SET class_id = ?, stream_id = ?, enrollment_status = 'active'
                             WHERE id = ?
                         ");
-                        $updateEnrollStmt->execute([$toClassId ?: $enrollment['class_id'], $toStreamId ?: $enrollment['stream_id'], $newEnrollment['id']]);
+                        $updateEnrollStmt->execute([$targetClassId, $targetStreamId, $newEnrollment['id']]);
+                        $toEnrollmentId = (int)$newEnrollment['id'];
                     } else {
                         // Create new
                         $insertEnrollStmt = $db->prepare("
-                            INSERT INTO class_enrollments (student_id, class_id, stream_id, academic_year_id)
-                            VALUES (?, ?, ?, ?)
+                            INSERT INTO class_enrollments
+                                (student_id, class_id, stream_id, academic_year_id, enrollment_date, enrollment_status)
+                            VALUES (?, ?, ?, ?, CURDATE(), 'active')
                         ");
-                        $insertEnrollStmt->execute([$studentId, $toClassId ?: $enrollment['class_id'], $toStreamId ?: $enrollment['stream_id'], $toYearId]);
+                        $insertEnrollStmt->execute([$studentId, $targetClassId, $targetStreamId, $toYearId]);
+                        $toEnrollmentId = (int)$db->lastInsertId();
                     }
 
                     // Update student stream if needed
@@ -3637,42 +3742,82 @@ class StudentsController extends BaseController
                         $updateStudentStmt->execute([$toStreamId, $studentId]);
                     }
 
+                    $updateOldEnrollStmt = $db->prepare("
+                        UPDATE class_enrollments
+                        SET promotion_status = 'promoted',
+                            promoted_to_class_id = ?,
+                            promoted_to_stream_id = ?,
+                            promotion_date = CURDATE(),
+                            completed_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ");
+                    $updateOldEnrollStmt->execute([$targetClassId, $targetStreamId, $enrollment['id']]);
+
                     $promoted++;
+                } else {
+                    $updateOldEnrollStmt = $db->prepare("
+                        UPDATE class_enrollments
+                        SET promotion_status = 'retained',
+                            promotion_date = CURDATE()
+                        WHERE id = ?
+                    ");
+                    $updateOldEnrollStmt->execute([$enrollment['id']]);
+                    $retained++;
                 }
 
                 // Record in student_promotions
                 $insertPromoStmt = $db->prepare("
                     INSERT INTO student_promotions
-                    (batch_id, student_id, current_class_id, current_stream_id, from_academic_year_id, to_academic_year_id,
-                     promoted_to_class_id, promoted_to_stream_id, promotion_status, overall_score, promotion_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', NULL, ?)
+                    (batch_id, from_enrollment_id, to_enrollment_id, from_academic_year_id, to_academic_year_id,
+                     student_id, current_class_id, current_stream_id, promoted_to_class_id, promoted_to_stream_id,
+                     from_academic_year, to_academic_year, from_term_id, promotion_status, overall_score,
+                     promotion_reason, approved_by, approval_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NOW())
                 ");
                 $insertPromoStmt->execute([
                     $batchId,
-                    $studentId,
-                    $enrollment['class_id'] ?? null,
-                    $enrollment['stream_id'] ?? null,
+                    $enrollment['id'],
+                    $toEnrollmentId,
                     $fromYearId,
                     $toYearId,
-                    $toClassId ?: $enrollment['class_id'],
-                    $toStreamId ?: $enrollment['stream_id'],
-                    $studentNotes
+                    $studentId,
+                    $enrollment['class_id'],
+                    $enrollment['stream_id'],
+                    $targetClassId,
+                    $targetStreamId,
+                    $fromYear,
+                    $toYear,
+                    $fromTermId,
+                    $promotionStatus,
+                    $studentNotes,
+                    $userId
                 ]);
+                $processed++;
             }
 
             // Update batch
             $updateBatchStmt = $db->prepare("
                 UPDATE promotion_batches
-                SET status = 'completed', total_students_processed = ?, total_promoted = ?, completed_at = CURRENT_TIMESTAMP
+                SET status = 'completed',
+                    total_students_processed = ?,
+                    total_promoted = ?,
+                    total_rejected = ?,
+                    completed_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             ");
-            $updateBatchStmt->execute([count($students), $promoted, $batchId]);
+            $updateBatchStmt->execute([$processed, $promoted, $retained, $batchId]);
 
             $db->commit();
 
-            return $this->success(['message' => "Promotion completed successfully. $promoted students promoted.", 'batch_id' => $batchId]);
+            return $this->success([
+                'message' => "Promotion completed successfully. {$promoted} promoted, {$retained} retained.",
+                'batch_id' => $batchId,
+                'processed' => $processed,
+                'promoted' => $promoted,
+                'retained' => $retained
+            ]);
         } catch (\Exception $e) {
-            if ($db->inTransaction()) {
+            if (isset($db) && $db->inTransaction()) {
                 $db->rollBack();
             }
             return $this->badRequest('Failed to execute promotion: ' . $e->getMessage());

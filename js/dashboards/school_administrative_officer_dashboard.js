@@ -150,6 +150,30 @@ const schoolAdminDashboardController = {
     const startTime = performance.now();
 
     try {
+      // Paint instantly from the IndexedDB cache (cache-first) while the
+      // network revalidation below refreshes the data in the background.
+      if (typeof DataStore !== "undefined") {
+        // Cache-first instant paint. DataStore.get(key, options) — the 2nd arg
+        // MUST be an options object (not a bare storeName string), and we must
+        // pass the real endpoint so a cache-miss revalidates /dashboard/school-admin/full
+        // instead of the non-existent /api/dashboard_school_admin.
+        const cached = await DataStore.get("dashboard_school_admin", {
+          endpoint: "/dashboard/school-admin/full",
+          storeName: "dashboard_cache",
+          strategy: "stale-while-revalidate"
+        }).catch(() => null);
+        if (cached && cached.cards) {
+          this.log("⚡ Rendering dashboard from cache (instant paint)");
+          this.processCardsData(cached.cards);
+          this.processChartsData(cached.charts);
+          this.processTablesData(cached.tables);
+          this.renderCards();
+          this.renderCharts();
+          this.renderTables();
+          this.updateLastRefreshTime();
+        }
+      }
+
       this.log("📡 Fetching operational metrics from API...");
 
       // Use the optimized full dashboard endpoint for initial load

@@ -75,6 +75,20 @@ const StaffController = (() => {
   // ── Data Loading ─────────────────────────────────────
   async function loadData() {
     try {
+      // Directory data: read-first from IndexedDB (network-first strategy) so
+      // the list paints instantly on reload while revalidating in the background.
+      const cachedStaff = await DataStore.fetchPage("staff", {
+        endpoint: "/staff/index",
+        storeName: "staff_directory_cache",
+        ttl: DataStore.DEFAULT_TTL.REFERENCE,
+        strategy: "network-first",
+      }).catch(() => null);
+      if (cachedStaff && extractList(cachedStaff).length) {
+        allStaff = extractList(cachedStaff);
+        renderStatsFromList();
+        applyFilters();
+      }
+
       const [staffResp, deptResp, statsResp] = await Promise.allSettled([
         window.API.staff.index(),
         window.API.staff.getDepartments(),

@@ -2,6 +2,7 @@
  * Formative Assessments Controller
  * CBC Classroom Assessments: Assignments, Homework, Quizzes, Projects, Oral, Portfolio, Observation
  * API: /api/academic/formative-assessments
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const fAssCtrl = {
@@ -11,6 +12,8 @@ const fAssCtrl = {
   _subjects: [],
   _types:    [],
   _assessments: [],
+  _currentAcademicYear: null,
+  _currentTerm: null,
 
   // ── INIT ──────────────────────────────────────────────────────────────
 
@@ -19,6 +22,35 @@ const fAssCtrl = {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in formative_assessments:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload assessments when academic year or term changes
+          this.loadAll();
+          this._loadSummary();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getTermId();
+      
+      // Update term filter to use current context
+      if (this._currentTerm) {
+        const termFilter = document.getElementById('faTermFilter');
+        if (termFilter) termFilter.value = this._currentTerm;
+      }
+    }
+    
     await Promise.all([
       this._loadTerms(),
       this._loadClasses(),
@@ -60,7 +92,11 @@ const fAssCtrl = {
 
   _loadClasses: async function () {
     try {
-      const r = await callAPI('/academic/classes-list', 'GET');
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const r = await DataStore.fetchPage('classes', {
+        endpoint: '/academic/classes-list', storeName: 'reference_classes',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       const list = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       ['faClassFilter', 'faClass'].forEach(id => {
         const sel = document.getElementById(id);

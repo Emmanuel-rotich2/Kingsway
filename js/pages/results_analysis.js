@@ -1,11 +1,14 @@
 /**
  * Results Analysis Page Controller
  * Manages exam results analysis, subject means, and chart rendering
+ * Integrates with AcademicContext for academic year awareness
  */
 const ResultsAnalysisController = (() => {
   let resultsData = [];
   let pagination = { page: 1, limit: 20, total: 0 };
   let chartInstances = {};
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   async function loadData(page = 1) {
     try {
@@ -44,10 +47,21 @@ const ResultsAnalysisController = (() => {
 
   async function loadReferenceData() {
     try {
+      // Reference data is read-mostly: cache it client-side (24h TTL,
+      // stale-while-revalidate) to avoid re-querying the DB on every page load.
       const [classResp, subjectResp, yearResp] = await Promise.all([
-        window.API.apiCall("/academic/classes", "GET").catch(() => []),
-        window.API.apiCall("/academic/subjects", "GET").catch(() => []),
-        window.API.apiCall("/academic/years", "GET").catch(() => []),
+        DataStore.fetchPage('classes', {
+          endpoint: '/academic/classes', storeName: 'reference_classes',
+          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
+        DataStore.fetchPage('subjects', {
+          endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
+        DataStore.fetchPage('academic_years', {
+          endpoint: '/academic/years', storeName: 'reference_academic_years',
+          ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
       ]);
 
       const classes = Array.isArray(classResp?.data || classResp)
@@ -395,6 +409,33 @@ const ResultsAnalysisController = (() => {
   }
 
   async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in results_analysis:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload results when academic year or term changes
+          loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (currentTerm) {
+        const termFilter = document.getElementById('termFilterResults');
+        if (termFilter) termFilter.value = currentTerm;
+      }
+    }
+    
     attachListeners();
     await loadReferenceData();
     await loadData();

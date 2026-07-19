@@ -1073,7 +1073,7 @@ const PayrollManagerController = {
     const html = `
             <div class="payslip-container" id="payslipPrintArea">
                 <div class="text-center mb-4">
-                    <img src="${window.APP_BASE || ""}/images/kings%20logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;">
+                    <img src="${window.APP_BASE || ""}/uploads/school_assets/official_school_logo.png" alt="Kingsway Preparatory School Logo" style="width: 72px; height: 72px; object-fit: contain; margin-bottom: 8px;" onerror="this.onerror=null;this.src='${window.APP_BASE || ''}/images/official_school_logo.png';">
                     <h4 class="mb-1">KINGSWAY PREPARATORY SCHOOL</h4>
                     <p class="mb-0">P.O. Box 123, Nairobi, Kenya</p>
                     <h5 class="mt-3">PAYSLIP</h5>

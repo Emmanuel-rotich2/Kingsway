@@ -58,7 +58,11 @@ const staffOnboardingController = {
 
   _loadDepartments: async function () {
     try {
-      const r = await callAPI('/staff/departments/get', 'GET');
+      // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+      const r = await DataStore.fetchPage('departments', {
+        endpoint: '/staff/departments/get', storeName: 'reference_departments',
+        ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+      });
       const list = r?.data || r || [];
       const sel = document.getElementById('obDeptFilter');
       if (sel) sel.innerHTML = '<option value="">All Departments</option>' +

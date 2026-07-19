@@ -2,6 +2,7 @@
  * view_results.js — Student Result Viewer
  * Controller: viewResultsCtrl
  * Page: pages/view_results.php
+ * Integrates with AcademicContext for academic year awareness
  *
  * API:
  *   GET /academic/terms-list   → terms
@@ -9,6 +10,9 @@
  *   GET /students/student?class_id=X → students (double-wrapped: data.data.students[])
  */
 const viewResultsCtrl = (() => {
+    let currentAcademicYear = null;
+    let currentTerm = null;
+    
     function toast(msg, type = 'info') {
         const el = document.getElementById('vrToast');
         if (!el) return;
@@ -245,18 +249,35 @@ const viewResultsCtrl = (() => {
             csvRows.push([subject, pct, grade]);
         });
 
-        const csv = csvRows
-            .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-            .join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `student_results_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        // Use PrintManager for CSV export if available
+        if (window.PrintManager) {
+            const columns = [
+                { key: 'subject', label: 'Subject' },
+                { key: 'percentage', label: 'Percentage' },
+                { key: 'grade', label: 'Grade' }
+            ];
+
+            const rows = subjectRows.map((row) => {
+                const subject = row.querySelector('.fw-semibold')?.textContent?.trim() || '';
+                const metricEls = row.querySelectorAll('.d-flex.gap-2.align-items-center span');
+                const pct = metricEls[0]?.textContent?.trim() || '';
+                const grade = metricEls[1]?.textContent?.trim() || '';
+                return {
+                    subject: subject,
+                    percentage: pct,
+                    grade: grade
+                };
+            });
+
+            window.PrintManager.exportToCSV({
+                filename: `student_results_${new Date().toISOString().slice(0,10)}.csv`,
+                columns: columns,
+                rows: rows
+            });
+        } else {
+            toast('PrintManager not available', 'error');
+            return;
+        }
         toast('Results exported to CSV', 'success');
     }
 
@@ -265,6 +286,29 @@ const viewResultsCtrl = (() => {
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
+        
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+            // Subscribe to context changes
+            window.AcademicContext.subscribe((context, event, data) => {
+                console.log('AcademicContext changed in view_results:', event, data);
+                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                    // Reload terms and classes when academic year or term changes
+                    loadTerms();
+                    loadClasses();
+                }
+            });
+            
+            // Ensure context is loaded
+            if (!window.AcademicContext.isLoaded()) {
+                await window.AcademicContext.init();
+            }
+            
+            // Get current academic context
+            currentAcademicYear = window.AcademicContext.getAcademicYearId();
+            currentTerm = window.AcademicContext.getTermId();
+        }
+        
         await Promise.all([loadTerms(), loadClasses()]);
         const classEl = document.getElementById('vrClassSelect');
         if (classEl) classEl.addEventListener('change', loadStudents);

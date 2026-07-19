@@ -193,6 +193,7 @@ class ExportHelper {
         $dompdf->render();
         $dompdf->stream($filename . '.pdf');
         exit;
+        }
     }
 
     private function exportWord($rows, $filename) {

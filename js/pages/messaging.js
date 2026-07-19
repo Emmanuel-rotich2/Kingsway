@@ -348,7 +348,11 @@ async function initializeComposeForm() {
         } else if (type === 'class') {
             recipientContainer.style.display = 'block';
             // Load classes
-            const classes = await window.API.apiCall('/academic/classes-list', 'GET');
+            // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+            const classes = await DataStore.fetchPage('classes', {
+              endpoint: '/academic/classes-list', storeName: 'reference_classes',
+              ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+            });
             recipientSelect.innerHTML = classes.map(c => 
                 `<option value="${c.id}">${c.name}</option>`
             ).join('');

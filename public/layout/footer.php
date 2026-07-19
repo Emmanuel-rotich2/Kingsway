@@ -6,7 +6,7 @@
       <!-- Brand col -->
       <div class="col-lg-4 col-md-6">
         <div class="footer-brand d-flex align-items-center gap-2 mb-3">
-          <img src="<?= $appBase ?>/images/kings logo.png" alt="Kingsway Logo" onerror="this.style.display='none'">
+          <img src="<?= $appBase ?>/uploads/school_assets/official_school_logo.png" alt="Kingsway Logo" class="school-logo" onerror="this.onerror=null;this.src='<?= $appBase ?>/images/official_school_logo.png';">
           <div>
             <div class="footer-brand-name">Kingsway Prep School</div>
             <div class="footer-tagline">In God We Soar</div>
@@ -102,6 +102,25 @@
   window.APP_BASE = <?= json_encode($appBase) ?>;
 </script>
 <script src="<?= $appBase ?>/js/api.js?v=<?= filemtime(__DIR__.'/../../js/api.js') ?>"></script>
-<script src="<?= $appBase ?>/public/js/public.js?v=<?= time() ?>"></script>
+<!-- Public-facing cache layer: reuses the SAME js/core storage stack the admin
+     SPA uses (IndexedDB via KingswayDB + DataStore, plus the service worker for
+     offline/bfcache). Order matters: kingsway_db.js defines window.KingswayDB,
+     data_store.js depends on it, then service_worker_manager.js. -->
+<script src="<?= $appBase ?>/js/storage/kingsway_db.js?v=<?= filemtime(__DIR__.'/../../js/storage/kingsway_db.js') ?>"></script>
+<script src="<?= $appBase ?>/js/core/data_store.js?v=<?= filemtime(__DIR__.'/../../js/core/data_store.js') ?>"></script>
+<script src="<?= $appBase ?>/js/core/service_worker_manager.js?v=<?= filemtime(__DIR__.'/../../js/core/service_worker_manager.js') ?>"></script>
+<script>
+  // Open the IndexedDB store, then register the service worker. Both are guarded
+  // so a missing global degrades gracefully instead of throwing on every page.
+  (function () {
+    const initSW = () => { if (window.ServiceWorkerManager && window.ServiceWorkerManager.initialize) window.ServiceWorkerManager.initialize().catch(() => {}); };
+    if (window.KingswayDB && typeof window.KingswayDB.initialize === 'function') {
+      window.KingswayDB.initialize().then(initSW).catch(initSW);
+    } else {
+      initSW();
+    }
+  })();
+</script>
+<script src="<?= $appBase ?>/public/js/public.js?v=<?= filemtime(__DIR__.'/../../public/js/public.js') ?>"></script>
 </body>
 </html>

@@ -2,16 +2,40 @@
  * Observation Schedule Controller
  * View and schedule classroom observation sessions.
  * API: GET/POST /staff/observation-schedule
+ * Integrates with AcademicContext for academic year awareness
  */
 const observationScheduleController = {
   _data: [],
   _modal: null,
+  _currentAcademicYear: null,
+  _currentTerm: null,
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in observation_schedule:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          this._load();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getTermId();
+    }
+    
     this._modal = new bootstrap.Modal(document.getElementById('osModal'));
     document.getElementById('osScheduleBtn')?.addEventListener('click', () => this.showModal());
     document.getElementById('osSaveBtn')?.addEventListener('click', () => this.save());

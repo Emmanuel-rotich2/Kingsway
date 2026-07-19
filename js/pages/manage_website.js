@@ -38,6 +38,7 @@
         applications: 'website_applications_view',
         inquiries:    'website_inquiries_view',
         content:      'website_content_manage',
+        static:       'website_content_manage',
         settings:     'website_settings_manage',
       };
       const tab = btn.dataset.tab;
@@ -75,6 +76,7 @@
       applications: loadApplications,
       inquiries:    loadInquiries,
       content:      loadContent,
+      static:       loadStaticTables,
       settings:     loadSettings,
     };
     if (loaders[tab]) loaders[tab]();
@@ -434,15 +436,17 @@
   window.wsOpenDownloadModal = async function(id = null) {
     document.getElementById('dlEditId').value = id || '';
     document.getElementById('wsDownloadModalTitle').textContent = id ? 'Edit Download' : 'Add Download';
-    ['dlTitle','dlUrl','dlSize'].forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
+    ['dlTitle','dlUrl','dlDesc','dlSize'].forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
     document.getElementById('dlCategory').value = 'General';
     document.getElementById('dlType').value = 'PDF';
+    const fileInput = document.getElementById('dlFile'); if (fileInput) fileInput.value = '';
     if (id) {
       const r = await API('GET','website/downloads');
       const item = (r?.data?.items||[]).find(d => d.id == id);
       if (item) {
         document.getElementById('dlTitle').value    = item.title||'';
         document.getElementById('dlUrl').value      = item.file_url||'';
+        document.getElementById('dlDesc').value     = item.description||'';
         document.getElementById('dlSize').value     = item.file_size||'';
         document.getElementById('dlCategory').value = item.category||'General';
         document.getElementById('dlType').value     = item.file_type||'PDF';
@@ -453,16 +457,24 @@
 
   window.wsSaveDownload = async function() {
     const id = document.getElementById('dlEditId').value;
-    const payload = {
-      title:     document.getElementById('dlTitle').value.trim(),
-      file_url:  document.getElementById('dlUrl').value.trim(),
-      file_size: document.getElementById('dlSize').value.trim(),
-      category:  document.getElementById('dlCategory').value,
-      file_type: document.getElementById('dlType').value,
-    };
-    if (!payload.title || !payload.file_url) return notify('Title and file URL are required.','warning');
+    const title = document.getElementById('dlTitle').value.trim();
+    if (!title) return notify('Title is required.','warning');
+    const fileInput = document.getElementById('dlFile');
+    const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
+    const manualUrl = document.getElementById('dlUrl').value.trim();
+    if (!hasFile && !manualUrl) return notify('Choose a file to upload or paste a file URL.','warning');
+
+    // Build multipart so the backend stores the upload under uploads/school_assets/documents.
+    const fd = new FormData();
+    fd.append('title', title);
+    fd.append('description', document.getElementById('dlDesc').value.trim());
+    fd.append('category', document.getElementById('dlCategory').value);
+    fd.append('file_type', document.getElementById('dlType').value);
+    if (document.getElementById('dlSize').value.trim()) fd.append('file_size', document.getElementById('dlSize').value.trim());
+    if (manualUrl) fd.append('file_url', manualUrl);
+    if (hasFile) fd.append('file', fileInput.files[0]);
     try {
-      const r = id ? await API('PUT',`website/downloads/${id}`,payload) : await API('POST','website/downloads',payload);
+      const r = id ? await API('PUT',`website/downloads/${id}`, fd, {}, { isFile: true }) : await API('POST','website/downloads', fd, {}, { isFile: true });
       if (r.status === 'success') {
         notify(id ? 'Download updated' : 'Download added');
         bootstrap.Modal.getInstance(document.getElementById('wsDownloadModal')).hide();
@@ -779,6 +791,174 @@
   /* ════════════════════════════════════════════════════════════════════════════
      INIT
   ════════════════════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════════════════════
+     STATIC CONTENT TABLES (values, history, leadership, programs, facilities,
+     departments, steps, benefits) — one generic CRUD widget driven by ST_TABLES.
+     Add a resource to ST_TABLES to get a full editable card with zero extra code.
+  ════════════════════════════════════════════════════════════════════════════ */
+  const ST_TABLES = {
+    values:     { title: 'School Values',       fields: [
+      {k:'name',l:'Name',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'icon',l:'Icon',type:'text'},
+      {k:'color',l:'Color',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    history:    { title: 'School History',       fields: [
+      {k:'year',l:'Year',type:'text',req:1},
+      {k:'event_title',l:'Title',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    leadership: { title: 'Leadership Team',      fields: [
+      {k:'name',l:'Name',type:'text',req:1},
+      {k:'title',l:'Position',type:'text',req:1},
+      {k:'bio',l:'Bio',type:'textarea'},
+      {k:'avatar_url',l:'Photo URL',type:'text'},
+      {k:'email',l:'Email',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    programs:   { title: 'Academic Programs',    fields: [
+      {k:'name',l:'Name',type:'text',req:1},
+      {k:'level_range',l:'Level Range',type:'text'},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'icon',l:'Icon',type:'text'},
+      {k:'color',l:'Color',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    facilities: { title: 'Facilities',          fields: [
+      {k:'name',l:'Name',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'icon',l:'Icon',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    departments:{ title: 'Departments',         fields: [
+      {k:'name',l:'Name',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'email',l:'Email',type:'text'},
+      {k:'phone',l:'Phone',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    steps:      { title: 'Admission Steps',     fields: [
+      {k:'step_number',l:'Step #',type:'number',req:1},
+      {k:'title',l:'Title',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'icon',l:'Icon',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+    benefits:   { title: 'Careers Benefits',    fields: [
+      {k:'title',l:'Title',type:'text',req:1},
+      {k:'description',l:'Description',type:'textarea'},
+      {k:'icon',l:'Icon',type:'text'},
+      {k:'display_order',l:'Order',type:'number'} ] },
+  };
+
+  function stEscape(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  function buildField(field, val='') {
+    const id = `st-${field.k}-${Math.random().toString(36).slice(2,7)}`;
+    let input;
+    if (field.type === 'textarea') {
+      input = `<textarea class="form-control form-control-sm" data-k="${field.k}" rows="2">${stEscape(val)}</textarea>`;
+    } else {
+      const t = field.type === 'number' ? 'number' : 'text';
+      input = `<input class="form-control form-control-sm" data-k="${field.k}" type="${t}" value="${stEscape(val)}">`;
+    }
+    return `<div class="ws-form-group mb-1"><label>${field.l}${field.req?' *':''}</label>${input}</div>`;
+  }
+
+  function stReadForm(root) {
+    const out = {};
+    root.querySelectorAll('[data-k]').forEach(el => { out[el.dataset.k] = el.value.trim(); });
+    return out;
+  }
+
+  async function loadStaticTables() {
+    for (const resource of Object.keys(ST_TABLES)) {
+      const cfg = ST_TABLES[resource];
+      const card = document.getElementById('staticCard-' + resource);
+      if (!card) continue;
+      card.innerHTML = `<div class="ws-stat-card"><div class="ws-stat-icon" style="background:#e9f7ef;color:#198754"><i class="bi bi-hourglass-split"></i></div><div><h6 class="mb-0">${cfg.title}</h6><small class="text-muted">Loading…</small></div></div>`;
+      try {
+        const r = await API('GET', 'website/' + resource);
+        if (r.status !== 'success') { card.innerHTML = `<div class="alert alert-warning small">${stEscape(r.message)}</div>`; continue; }
+        renderStaticTable(resource, cfg, r.data.items || []);
+      } catch(e) { card.innerHTML = `<div class="alert alert-danger small">${stEscape(e.message)}</div>`; }
+    }
+  }
+
+  function renderStaticTable(resource, cfg, items) {
+    const card = document.getElementById('staticCard-' + resource);
+    if (!card) return;
+    let rows = items.map(it => `
+      <tr data-id="${it.id}">
+        ${cfg.fields.map(f => `<td class="small">${stEscape(it[f.k] ?? '')}</td>`).join('')}
+        <td class="text-end" style="white-space:nowrap">
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="stEdit('${resource}',${it.id})"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="stDelete('${resource}',${it.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`).join('') || `<tr><td colspan="${cfg.fields.length+1}" class="text-muted text-center small py-3">No records yet.</td></tr>`;
+
+    const icon = {values:'stars',history:'clock-history',leadership:'people',programs:'book',facilities:'building',departments:'diagram-3',steps:'list-check',benefits:'gift'}[resource] || 'grid-1x2';
+    card.innerHTML = `
+      <div class="ws-stat-card mb-2">
+        <div class="ws-stat-icon" style="background:#e9f7ef;color:#198754"><i class="bi bi-${icon}"></i></div>
+        <div class="flex-grow-1"><h6 class="mb-0">${cfg.title}</h6><small class="text-muted">${items.length} record(s)</small></div>
+        <button class="btn btn-sm btn-success" onclick="stAdd('${resource}')"><i class="bi bi-plus-lg"></i> Add</button>
+      </div>
+      <div id="st-form-${resource}"></div>
+      <div class="table-responsive"><table class="table table-sm ws-table align-middle mb-0">
+        <thead><tr>${cfg.fields.map(f=>`<th class="small">${f.l}</th>`).join('')}<th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  window.stAdd = function(resource) {
+    const cfg = ST_TABLES[resource];
+    const box = document.getElementById('st-form-' + resource);
+    box.innerHTML = `<div class="card card-body border-success mb-2 p-2">
+      <h6 class="small fw-bold mb-2">New ${cfg.title.replace(/s$/, '')}</h6>
+      ${cfg.fields.map(f => buildField(f)).join('')}
+      <div class="mt-2">
+        <button class="btn btn-sm btn-success me-1" onclick="stSave('${resource}',null)">Save</button>
+        <button class="btn btn-sm btn-light" onclick="loadStaticTables()">Cancel</button>
+      </div></div>`;
+    box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  };
+
+  window.stEdit = async function(resource, id) {
+    const cfg = ST_TABLES[resource];
+    try {
+      const r = await API('GET','website/'+resource+'/'+id);
+      if (r.status !== 'success') return notify(r.message,'warning');
+      const it = r.data;
+      const box = document.getElementById('st-form-' + resource);
+      box.innerHTML = `<div class="card card-body border-primary mb-2 p-2">
+        <h6 class="small fw-bold mb-2">Edit #${id}</h6>
+        ${cfg.fields.map(f => buildField(f, it[f.k] ?? '')).join('')}
+        <div class="mt-2">
+          <button class="btn btn-sm btn-primary me-1" onclick="stSave('${resource}',${id})">Update</button>
+          <button class="btn btn-sm btn-light" onclick="loadStaticTables()">Cancel</button>
+        </div></div>`;
+      box.scrollIntoView({behavior:'smooth',block:'nearest'});
+    } catch(e){ notify(e.message,'danger'); }
+  };
+
+  window.stSave = async function(resource, id) {
+    const cfg = ST_TABLES[resource];
+    const box = document.getElementById('st-form-' + resource);
+    if (!box) return;
+    const payload = stReadForm(box);
+    for (const f of cfg.fields) if (f.req && !payload[f.k]) return notify(`${f.l} is required`,'warning');
+    try {
+      const r = await API(id ? 'PUT' : 'POST', 'website/'+resource+(id?'/'+id:''), payload);
+      if (r.status === 'success') { notify(id ? 'Updated' : 'Created'); loadStaticTables(); }
+      else notify(r.message,'warning');
+    } catch(e){ notify(e.message,'danger'); }
+  };
+
+  window.stDelete = async function(resource, id) {
+    if (!window.confirm('Delete this record? This cannot be undone.')) return;
+    try {
+      const r = await API('DELETE','website/'+resource+'/'+id);
+      if (r.status === 'success') { notify('Deleted'); loadStaticTables(); }
+      else notify(r.message,'warning');
+    } catch(e){ notify(e.message,'danger'); }
+  };
+
   function init() {
     loadStats();
     initTabs();

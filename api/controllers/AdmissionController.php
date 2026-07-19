@@ -6,6 +6,8 @@ use App\API\Modules\admission\AdmissionPolicy;
 use App\API\Modules\admission\AdmissionPaymentService;
 use App\API\Modules\admission\AdmissionStageAuthorization;
 use Exception;
+use function App\API\Includes\errorResponse;
+use function App\API\Includes\successResponse;
 
 class AdmissionController extends BaseController
 {
@@ -1481,7 +1483,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-file-earmark-text',
                         'color' => 'warning',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=documents_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=documents_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1514,7 +1516,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-calendar-event',
                         'color' => 'info',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=interview_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=interview_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1536,7 +1538,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-check-circle',
                         'color' => 'primary',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=placement_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=placement_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1556,7 +1558,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-cash-stack',
                         'color' => 'success',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=payment_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=payment_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1575,7 +1577,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-person-check',
                         'color' => 'dark',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=enrollment_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=enrollment_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1612,6 +1614,29 @@ class AdmissionController extends BaseController
             $response = $this->success($result);
         }
         return $response;
+    }
+
+    /**
+     * Build a fully-qualified (absolute) in-app URL usable in any deployment.
+     *
+     * Derived from the live request (scheme + HTTP_HOST + mount prefix from
+     * SCRIPT_NAME), never from a hardcoded '/Kingsway'. Produces a portable
+     * absolute URL (e.g. https://kingsway.ac.ke/home.php?route=...) so links
+     * work even outside the app shell (email, cross-origin, deep links).
+     * Mirrors AuthAPI::generateResetLink().
+     *
+     * @param string $path Path starting with '/' (e.g. '/home.php?route=...')
+     * @return string Absolute URL (scheme://host[/base]/path)
+     */
+    private function buildAppUrl(string $path): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+
+        return $scheme . '://' . $host . rtrim($appBase, '/') . '/' . ltrim($path, '/');
     }
 
     private function hasAnyAdmissionPermission(string $group): bool

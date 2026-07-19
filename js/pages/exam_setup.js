@@ -32,6 +32,8 @@ const examSetupController = (() => {
   let pagination = { page: 1, limit: 15, total: 0 };
   let _searchTimeout = null;
   let _currentViewId = null; // id shown in View Details modal
+  let _currentAcademicYear = null;
+  let _currentTerm = null;
 
   /* Grading scale presets */
   const GRADING_SCALES = {
@@ -1353,6 +1355,33 @@ const examSetupController = (() => {
     if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
+    }
+
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in exam_setup:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload exams when academic year or term changes
+          loadExams();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      _currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      _currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (_currentTerm) {
+        const termFilter = $('termFilter');
+        if (termFilter) termFilter.value = _currentTerm;
+      }
     }
 
     const canCreate = typeof AuthContext !== 'undefined'

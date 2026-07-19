@@ -1,6 +1,9 @@
 const PerformanceAnalysisController = (() => {
     let allData = [];
     let charts = {};
+    let currentAcademicYear = null;
+    let currentTerm = null;
+    
     async function init() {
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
         if (typeof AuthContext !== 'undefined' && !AuthContext.hasPermission('academic_view') && !AuthContext.hasPermission('reports_view')) {
@@ -8,6 +11,28 @@ const PerformanceAnalysisController = (() => {
             if (el) el.insertAdjacentHTML('afterbegin', '<div class="alert alert-danger m-3">Access denied: insufficient permissions to view performance analysis.</div>');
             return;
         }
+        
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+            // Subscribe to context changes
+            window.AcademicContext.subscribe((context, event, data) => {
+                console.log('AcademicContext changed in performance_analysis:', event, data);
+                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                    // Reload data when academic year or term changes
+                    loadData();
+                }
+            });
+            
+            // Ensure context is loaded
+            if (!window.AcademicContext.isLoaded()) {
+                await window.AcademicContext.init();
+            }
+            
+            // Get current academic context
+            currentAcademicYear = window.AcademicContext.getAcademicYearId();
+            currentTerm = window.AcademicContext.getTermId();
+        }
+        
         await loadData(); setupEventListeners();
     }
     function setupEventListeners() {
@@ -29,7 +54,7 @@ const PerformanceAnalysisController = (() => {
                 r = await window.API.academic.compileData({ date: dateFilter }).catch(() => null);
             }
             if (!r && window.API?.apiCall) {
-                r = await window.API.apiCall('/academic/performance-analysis', 'GET', null, { date: dateFilter }, { checkPermission: false }).catch(() => null);
+                r = await window.API.apiCall('/academic/performance-overview', 'GET', null, { date: dateFilter }, { checkPermission: false }).catch(() => null);
             }
             allData = r?.data ?? r ?? [];
             renderStats(allData); renderTable(Array.isArray(allData) ? allData : []);

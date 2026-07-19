@@ -1,10 +1,13 @@
 /**
  * Lesson Plans by Teacher Page Controller
  * Displays lesson plan submission tracking per teacher
+ * Integrates with AcademicContext for academic year awareness
  */
 const LessonPlansByTeacherController = (() => {
   let teacherData = [];
   let pagination = { page: 1, limit: 15, total: 0 };
+  let currentAcademicYear = null;
+  let currentTerm = null;
 
   async function loadData(page = 1) {
     try {
@@ -156,6 +159,27 @@ const LessonPlansByTeacherController = (() => {
   }
 
   async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in lesson_plans_by_teacher:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload data when academic year or term changes
+          loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+    }
+    
     attachListeners();
     await loadData();
   }

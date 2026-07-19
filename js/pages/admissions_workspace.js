@@ -29,6 +29,13 @@ const admissionsWorkspaceController = {
             this.cacheDom();
             this.setupEventListeners();
             await this.loadQueueData();
+            
+            // Subscribe to conflict events
+            if (typeof ConflictManager !== 'undefined') {
+                ConflictManager.subscribe('CONFLICT_DETECTED', (conflict) => {
+                    this.handleConflict(conflict);
+                });
+            }
 
             console.log("admissionsWorkspaceController: Initialization complete");
         } catch (error) {
@@ -147,14 +154,45 @@ const admissionsWorkspaceController = {
     
     loadQueueData: async function() {
         try {
-            const response = await this.apiCall('/admission/queues', 'GET');
-            console.log("Admissions workspace response:", response);
+            let queueData;
+            
+            // Try DataStore first for caching
+            if (typeof DataStore !== 'undefined') {
+                try {
+                    queueData = await DataStore.get('admissions', {
+                        strategy: 'stale-while-revalidate',
+                        ttl: 60000, // 1 minute for fresh queue data
+                        storeName: 'admission_queue_cache',
+                        endpoint: '/admission/queues',
+                        forceRefresh: false
+                    });
+                    console.log("Admissions data from DataStore:", queueData);
+                } catch (dataStoreError) {
+                    console.warn("DataStore failed, falling back to API:", dataStoreError);
+                }
+            }
+            
+            // Fallback to direct API call
+            if (!queueData) {
+                const response = await this.apiCall('/admission/queues', 'GET');
+                console.log("Admissions workspace response:", response);
 
-            if (!this.isSuccessfulResponse(response)) {
-                throw new Error(response?.message || "Failed to load admissions data.");
+                if (!this.isSuccessfulResponse(response)) {
+                    throw new Error(response?.message || "Failed to load admissions data.");
+                }
+
+                queueData = this.unwrapPayload(response);
+                
+                // Cache in DataStore
+                if (typeof DataStore !== 'undefined') {
+                    await DataStore.set('admissions', queueData, {
+                        ttl: 60000,
+                        storeName: 'admission_queue_cache'
+                    });
+                }
             }
 
-            this.queueData = this.unwrapPayload(response);
+            this.queueData = queueData;
             console.log("Queue data loaded:", this.queueData);
 
             this.updateSummaryCards();
@@ -896,43 +934,73 @@ const admissionsWorkspaceController = {
         window.location.href = window.APP_BASE + '/home.php?route=new_applications';
     },
     
-    viewApplication: function(applicationId) {
+    viewApplication: async function(applicationId) {
         if (!applicationId || Number.isNaN(Number(applicationId))) {
             this.notify("error", "Invalid application selected");
             return;
         }
 
-        this.apiCall(`/admission/application/${applicationId}`, "GET")
-            .then((response) => {
+        try {
+            let payload;
+            
+            // Try DataStore first for caching
+            if (typeof DataStore !== 'undefined') {
+                try {
+                    payload = await DataStore.get(`admissions:${applicationId}`, {
+                        strategy: 'network-first',
+                        ttl: 300000, // 5 minutes
+                        storeName: 'admission_queue_cache',
+                        endpoint: `/admission/application/${applicationId}`,
+                        params: { id: applicationId }
+                    });
+                    console.log("Application data from DataStore:", payload);
+                } catch (dataStoreError) {
+                    console.warn("DataStore failed, falling back to API:", dataStoreError);
+                }
+            }
+            
+            // Fallback to direct API call
+            if (!payload) {
+                const response = await this.apiCall(`/admission/application/${applicationId}`, "GET");
+                
                 if (!this.isSuccessfulResponse(response)) {
                     throw new Error(response?.message || "Failed to load application details");
                 }
 
-                const payload = this.unwrapPayload(response);
-                if (!payload?.application) {
-                    throw new Error("Application details were not returned");
+                payload = this.unwrapPayload(response);
+                
+                // Cache in DataStore
+                if (typeof DataStore !== 'undefined') {
+                    await DataStore.set(`admissions:${applicationId}`, payload, {
+                        ttl: 300000,
+                        storeName: 'admission_queue_cache'
+                    });
                 }
+            }
 
-                this.renderApplicationDetails(payload);
-                const contentElement = document.getElementById("admissionsWorkspaceApplicationContent");
+            if (!payload?.application) {
+                throw new Error("Application details were not returned");
+            }
 
-                // Store current application ID for actions
-                this.currentApplicationId = applicationId;
-                this.currentApplicationData = payload;
+            this.renderApplicationDetails(payload);
+            const contentElement = document.getElementById("admissionsWorkspaceApplicationContent");
 
-                const documents = Array.isArray(payload.documents) ? payload.documents : [];
-                const workflowData = this.parseJsonSafe(payload.workflow_data || payload.application.workflow_data_json || payload.application.data_json || {});
+            // Store current application ID for actions
+            this.currentApplicationId = applicationId;
+            this.currentApplicationData = payload;
 
-                this.showWorkspaceModal(
-                    '<i class="bi bi-person-badge me-2"></i>Application Details',
-                    contentElement?.innerHTML || "",
-                    this.renderApplicationActionFooter(applicationId, payload.application, documents, workflowData)
-                );
-            })
-            .catch((error) => {
-                console.error("Failed to load application details:", error);
-                this.notify("error", error.message || "Failed to load application details");
-            });
+            const documents = Array.isArray(payload.documents) ? payload.documents : [];
+            const workflowData = this.parseJsonSafe(payload.workflow_data || payload.application.workflow_data_json || payload.application.data_json || {});
+
+            this.showWorkspaceModal(
+                '<i class="bi bi-person-badge me-2"></i>Application Details',
+                contentElement?.innerHTML || "",
+                this.renderApplicationActionFooter(applicationId, payload.application, documents, workflowData)
+            );
+        } catch (error) {
+            console.error("Failed to load application details:", error);
+            this.notify("error", error.message || "Failed to load application details");
+        }
     },
 
     renderApplicationDetails: function(payload) {
@@ -2440,6 +2508,158 @@ const admissionsWorkspaceController = {
                 `;
             }
         });
+    },
+
+    // ========== Draft Management (Phase 2) ==========
+    
+    saveDraft: async function(formType, formData) {
+        if (typeof KingswayDB === 'undefined') {
+            console.warn("KingswayDB not available, skipping draft save");
+            return;
+        }
+
+        try {
+            const draft = {
+                id: this.generateUUID(),
+                module: 'admissions',
+                form_type: formType,
+                form_data: formData,
+                created_at: Date.now(),
+                updated_at: Date.now(),
+                user_id: this.getCurrentUserId(),
+                status: 'draft'
+            };
+
+            await KingswayDB.add('offline_drafts', draft);
+            console.log("[Admissions] Draft saved:", draft.id);
+            this.notify("info", "Draft saved automatically");
+        } catch (error) {
+            console.error("[Admissions] Failed to save draft:", error);
+        }
+    },
+
+    loadDraft: async function(formType) {
+        if (typeof KingswayDB === 'undefined') {
+            return null;
+        }
+
+        try {
+            const drafts = await KingswayDB.getByIndex('offline_drafts', 'form_type', formType);
+            const userDrafts = drafts.filter(d => d.user_id === this.getCurrentUserId());
+            
+            if (userDrafts.length > 0) {
+                const latestDraft = userDrafts.sort((a, b) => b.updated_at - a.updated_at)[0];
+                console.log("[Admissions] Found draft:", latestDraft.id);
+                return latestDraft;
+            }
+            
+            return null;
+        } catch (error) {
+            console.error("[Admissions] Failed to load draft:", error);
+            return null;
+        }
+    },
+
+    // ========== Conflict Resolution (Phase 4) ==========
+    
+    handleConflict: function(conflict) {
+        console.log("[Admissions] Conflict detected:", conflict);
+        
+        // Show conflict resolution UI
+        const conflictMessage = `
+            <div class="alert alert-warning" style="position: fixed; top: 20px; right: 20px; z-index: 10000; max-width: 400px;">
+                <h5><i class="bi bi-exclamation-triangle"></i> Data Conflict Detected</h5>
+                <p>There is a conflict between your offline changes and the server data.</p>
+                <p><strong>Entity:</strong> ${conflict.entity_type} #${conflict.entity_id}</p>
+                <div class="mt-3">
+                    <button class="btn btn-primary btn-sm" onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_server')">Keep Server Version</button>
+                    <button class="btn btn-success btn-sm" onclick="admissionsWorkspaceController.resolveConflict('${conflict.id}', 'keep_local')">Keep Your Changes</button>
+                </div>
+            </div>
+        `;
+        
+        // Insert conflict UI
+        const existingAlert = document.querySelector('.alert.warning[style*="position: fixed"]');
+        if (existingAlert) {
+            existingAlert.remove();
+        }
+        
+        document.body.insertAdjacentHTML('beforeend', conflictMessage);
+        
+        this.notify("warning", "Data conflict detected. Please check the conflict resolution panel.");
+    },
+
+    resolveConflict: async function(conflictId, resolution) {
+        if (typeof ConflictManager === 'undefined') {
+            return;
+        }
+
+        try {
+            await ConflictManager.resolveConflict(conflictId, resolution);
+            this.notify("success", "Conflict resolved successfully");
+            
+            // Remove conflict UI
+            const conflictAlert = document.querySelector('.alert.warning[style*="position: fixed"]');
+            if (conflictAlert) {
+                conflictAlert.remove();
+            }
+            
+            await this.loadQueueData();
+        } catch (error) {
+            console.error("[Admissions] Failed to resolve conflict:", error);
+            this.notify("error", error.message || "Failed to resolve conflict");
+        }
+    },
+
+    // ========== Offline Operations (Phase 3) ==========
+    
+    handleOfflineOperation: async function(endpoint, method, data, entityInfo) {
+        // Check if offline
+        if (!navigator.onLine) {
+            // Queue operation for sync
+            if (typeof SyncQueue !== 'undefined') {
+                await SyncQueue.addOperation({
+                    module: 'admissions',
+                    endpoint: endpoint,
+                    method: method,
+                    payload: data,
+                    entity_type: entityInfo.type,
+                    entity_id: entityInfo.id,
+                    priority: 5
+                });
+                this.notify("info", "Operation saved. Will sync when connection is restored.");
+                return { queued: true };
+            }
+            
+            // Fallback error
+            this.notify("warning", "You are offline. Please check your connection.");
+            return { queued: false, offline: true };
+        }
+        
+        // Online - proceed normally
+        return { queued: false, offline: false };
+    },
+
+    // ========== Utility Functions ==========
+    
+    generateUUID: function() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    },
+
+    getCurrentUserId: function() {
+        if (typeof SessionManager !== 'undefined' && SessionManager.isAuthenticated()) {
+            const user = SessionManager.getCurrentUser();
+            return user ? user.id : null;
+        }
+        if (window.AuthContext && window.AuthContext.isAuthenticated()) {
+            const user = window.AuthContext.getUser();
+            return user ? user.id : null;
+        }
+        return null;
     }
 };
 

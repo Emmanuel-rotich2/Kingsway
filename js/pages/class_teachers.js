@@ -43,8 +43,15 @@ const ClassTeachersController = (() => {
   async function loadReferenceData() {
     try {
       const [teacherResp, classResp] = await Promise.all([
-        window.API.apiCall("/staff/teachers", "GET").catch(() => []),
-        window.API.apiCall("/academic/classes", "GET").catch(() => []),
+        // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+        DataStore.fetchPage('teachers', {
+          endpoint: '/staff/teachers', storeName: 'reference_teachers',
+          ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
+        DataStore.fetchPage('classes', {
+          endpoint: '/academic/classes-list', storeName: 'reference_classes',
+          ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+        }).catch(() => []),
       ]);
       teachers = Array.isArray(teacherResp?.data || teacherResp)
         ? teacherResp?.data || teacherResp

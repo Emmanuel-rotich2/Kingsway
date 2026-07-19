@@ -41,9 +41,20 @@ const AssignSubjectsController = (() => {
     async function loadReferenceData() {
         try {
             const [teacherResp, subjectResp, classResp] = await Promise.all([
-                window.API.apiCall('/staff/teachers', 'GET').catch(() => []),
-                window.API.apiCall('/academic/subjects', 'GET').catch(() => []),
-                window.API.apiCall('/academic/classes', 'GET').catch(() => [])
+                // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
+                DataStore.fetchPage('teachers', {
+                  endpoint: '/staff/teachers', storeName: 'reference_teachers',
+                  ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
+                }).catch(() => []),
+                // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+                DataStore.fetchPage('subjects', {
+                  endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+                  ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+                }).catch(() => []),
+                DataStore.fetchPage('classes', {
+                  endpoint: '/academic/classes-list', storeName: 'reference_classes',
+                  ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+                }).catch(() => [])
             ]);
             teachers = Array.isArray(teacherResp?.data || teacherResp) ? (teacherResp?.data || teacherResp) : [];
             subjects = Array.isArray(subjectResp?.data || subjectResp) ? (subjectResp?.data || subjectResp) : [];

@@ -4,6 +4,7 @@ namespace App\API\Controllers;
 
 use App\API\Modules\staff\StaffAPI;
 use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Modules\staff\StaffIDCardGenerator;
 use RuntimeException;
 use Exception;
 
@@ -17,12 +18,14 @@ class StaffController extends BaseController
 {
     private $api;
     private $payroll;
+    private $idCardGenerator;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new StaffAPI();
         $this->payroll = new StaffPayrollManager();
+        $this->idCardGenerator = new StaffIDCardGenerator();
     }
 
     public function index()
@@ -1663,5 +1666,99 @@ class StaffController extends BaseController
             "UPDATE staff_onboarding SET progress_percent = ? WHERE id = ?",
             [$pct, $onboardingId]
         );
+    }
+
+    // ========================================================================
+    // STAFF ID CARD ENDPOINTS
+    // ========================================================================
+
+    /**
+     * POST /api/staff/id-card/generate
+     * Generate staff ID card
+     */
+    public function postIdCardGenerate($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $format = $data['format'] ?? 'html';
+        $side = $data['side'] ?? 'both';
+
+        $result = $this->idCardGenerator->generateIDCard((int) $staffId, $format, $side);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/generate-bulk-pdf
+     * Generate bulk PDF for selected staff with A4 layout
+     */
+    public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffIds = $data['staff_ids'] ?? [];
+        if (empty($staffIds) || !is_array($staffIds)) {
+            return $this->badRequest('Staff IDs array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $includeFront = $data['include_front'] ?? true;
+        $includeBack = $data['include_back'] ?? true;
+
+        $result = $this->idCardGenerator->generateBulkIDCardsPDF($staffIds, $printMode, $includeFront, $includeBack);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/print-single
+     * Generate print-ready single card HTML for browser/system printing.
+     */
+    public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? ($segments[0] ?? null);
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
+        $result = $this->idCardGenerator->generatePrintableSingle((int) $staffId, $side, $printMode);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/staff/id-card/upload-photo
+     * Upload staff photo for ID card
+     */
+    public function postIdCardUploadPhoto($id = null, $data = [], $segments = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        $staffId = $data['staff_id'] ?? null;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        if (!isset($_FILES['photo'])) {
+            return $this->badRequest('Photo file is required');
+        }
+
+        $result = $this->idCardGenerator->uploadStaffPhoto((int) $staffId, $_FILES['photo']);
+        return $this->handleResponse($result);
     }
 }

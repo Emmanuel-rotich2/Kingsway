@@ -48,7 +48,11 @@ const studentGrowthCtrl = {
 
   _loadClasses: async function () {
     try {
-      const r = await callAPI('/academic/classes-list', 'GET');
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const r = await DataStore.fetchPage('classes', {
+        endpoint: '/academic/classes-list', storeName: 'reference_classes',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       const classes = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
       const el = document.getElementById('sgClassFilter');
       if (el) el.innerHTML = '<option value="">All Classes</option>' +

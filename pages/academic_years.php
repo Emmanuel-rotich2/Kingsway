@@ -1,4 +1,5 @@
 <?php
+$appBase = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/\\');
 /**
  * Academic Years Management Page
  * 
@@ -20,9 +21,14 @@
                     <h4 class="mb-1"><i class="fas fa-calendar me-2"></i>Academic Years</h4>
                     <p class="text-muted mb-0">Manage academic years, terms, and school calendar</p>
                 </div>
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAcademicYearModal">
-                    <i class="fas fa-plus me-1"></i> Add Academic Year
-                </button>
+                <div class="btn-group">
+                    <button class="btn btn-outline-success" id="exportYearsBtn">
+                        <i class="fas fa-download me-1"></i> Export
+                    </button>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAcademicYearModal">
+                        <i class="fas fa-plus me-1"></i> Add Academic Year
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -142,4 +148,4 @@
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/academic_years.js"></script>
+<script src="<?= $appBase ?>/js/pages/academic_years.js?v=<?= time() ?>"></script>

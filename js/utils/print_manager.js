@@ -784,7 +784,7 @@ const PrintManager = (function() {
         printWindow.location.href = `${appBase}/${templateUrl}?` + new URLSearchParams({
             schoolName: window.SCHOOL_CONFIG?.name || 'Kingsway Preparatory School',
             schoolMotto: window.SCHOOL_CONFIG?.motto || 'In God We Soar',
-            schoolLogo: window.SCHOOL_CONFIG?.logo || `${appBase}/images/logo.jpg`,
+            schoolLogo: window.SCHOOL_CONFIG?.logo || `${appBase}/uploads/school_assets/official_school_logo.png`,
             schoolAddress: window.SCHOOL_CONFIG?.address || 'P.O Box 203-20203, Londiani, Kenya',
             schoolPhone: window.SCHOOL_CONFIG?.phone || '+254-720-113030 / +254-720-113031',
             schoolEmail: window.SCHOOL_CONFIG?.email || 'info@kingswaypreparatoryschool.sc.ke',

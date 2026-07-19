@@ -2,6 +2,15 @@
 namespace App\API\Modules\staff;
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\staff\StaffPayrollManager;
+use App\API\Modules\staff\StaffOnboardingManager;
+use App\API\Modules\staff\StaffPerformanceManager;
+use App\API\Modules\staff\StaffLeaveManager;
+use App\API\Modules\staff\StaffAssignmentManager;
+use App\API\Modules\staff\OnboardingWorkflow;
+use App\API\Modules\staff\EvaluationWorkflow;
+use App\API\Modules\staff\LeaveWorkflow;
+use App\API\Modules\staff\AssignmentWorkflow;
 use Exception;
 use function App\API\Includes\formatResponse;
 
@@ -37,12 +46,6 @@ class StaffService extends BaseAPI
      */
     private function initializeManagers()
     {
-        require_once __DIR__ . '/StaffPayrollManager.php';
-        require_once __DIR__ . '/StaffOnboardingManager.php';
-        require_once __DIR__ . '/StaffPerformanceManager.php';
-        require_once __DIR__ . '/StaffLeaveManager.php';
-        require_once __DIR__ . '/StaffAssignmentManager.php';
-
         $this->payrollManager = new StaffPayrollManager();
         $this->onboardingManager = new StaffOnboardingManager();
         $this->performanceManager = new StaffPerformanceManager();
@@ -55,11 +58,6 @@ class StaffService extends BaseAPI
      */
     private function initializeWorkflows()
     {
-        require_once __DIR__ . '/OnboardingWorkflow.php';
-        require_once __DIR__ . '/EvaluationWorkflow.php';
-        require_once __DIR__ . '/LeaveWorkflow.php';
-        require_once __DIR__ . '/AssignmentWorkflow.php';
-
         $this->onboardingWorkflow = new OnboardingWorkflow('staff_onboarding');
         $this->evaluationWorkflow = new EvaluationWorkflow('staff_evaluation');
         $this->leaveWorkflow = new LeaveWorkflow('staff_leave');
