@@ -1,12 +1,13 @@
 # Composer dependencies
 /vendor/
 ./vendor
-/uploads/
+
 /*.lock
 /.remember/
 /.claude
-/uploads/
-
+.agents
+.devin
+.openclaude
 .htaccess
 /.htaccess
 ./.htaccess
@@ -66,3 +67,9 @@ cache/
 # Environment files
 .env
 config/.env
+.codex
+ADMISSION_SUBMISSION_PROCESS.md
+AGENTS.md
+CLAUDE.md
+structure.txt
+Kingsway.code-workspace

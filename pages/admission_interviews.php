@@ -79,8 +79,7 @@
           <select id="aiFilterStage" class="form-select">
             <option value="">All Stages</option>
             <option value="interview_scheduling">Interview Scheduling</option>
-            <option value="interview_assessment">Interview Assessment</option>
-            <option value="placement_pending">Placement Pending</option>
+            <option value="interview_results">Assessment Pending</option>
           </select>
         </div>
         <div class="col-md-3">
@@ -269,7 +268,7 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/admission_interviews.js"></script>
+<script src="<?= $appBase ?>/js/pages/admission_interviews.js?v=<?= time() ?>"></script>
 <script>
 function initWhenAPIReady() {
     if (typeof API !== 'undefined' && API.callAPI) {

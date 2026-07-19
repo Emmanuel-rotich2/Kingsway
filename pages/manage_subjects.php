@@ -1,8 +1,9 @@
 <?php
 /**
  * Manage Subjects Page  
- * HTML structure only - all logic in js/pages/academics.js (academicsController)
+ * HTML structure - logic in js/pages/manage_subjects.js (ManageSubjectsController)
  * Embedded in app_layout.php
+ * Block 1: Academic Setup - Learning Areas (Subjects) and Curriculum Units
  */
 ?>
 
@@ -11,13 +12,13 @@
         <div class="d-flex justify-content-between align-items-center">
             <h4 class="mb-0"><i class="bi bi-book-fill"></i> Subjects & Curriculum Management</h4>
             <div class="btn-group">
-                <button class="btn btn-light btn-sm" onclick="academicsController.showSubjectModal()" data-permission="academic_create">
+                <button class="btn btn-light btn-sm" onclick="ManageSubjectsController.showSubjectModal()" data-permission="academic_create">
                     <i class="bi bi-plus-circle"></i> Add Subject
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="academicsController.showCurriculumUnitModal()" data-permission="academic_create">
+                <button class="btn btn-outline-light btn-sm" onclick="ManageSubjectsController.showCurriculumUnitModal()" data-permission="academic_create">
                     <i class="bi bi-journal-text"></i> Add Curriculum Unit
                 </button>
-                <button class="btn btn-outline-light btn-sm" onclick="academicsController.exportSubjects()">
+                <button class="btn btn-outline-light btn-sm" onclick="ManageSubjectsController.exportSubjects()">
                     <i class="bi bi-download"></i> Export
                 </button>
             </div>
@@ -67,12 +68,11 @@
                 <div class="input-group">
                     <span class="input-group-text"><i class="bi bi-search"></i></span>
                     <input type="text" id="searchSubjects" class="form-control" 
-                           placeholder="Search subjects..." 
-                           onkeyup="academicsController.searchSubjects(this.value)">
+                           placeholder="Search subjects...">
                 </div>
             </div>
             <div class="col-md-3">
-                <select id="categoryFilter" class="form-select" onchange="academicsController.filterByCategory(this.value)">
+                <select id="categoryFilter" class="form-select">
                     <option value="">All Categories</option>
                     <option value="core">Core</option>
                     <option value="optional">Optional</option>
@@ -80,14 +80,14 @@
                 </select>
             </div>
             <div class="col-md-3">
-                <select id="levelFilter" class="form-select" onchange="academicsController.filterByLevel(this.value)">
+                <select id="levelFilter" class="form-select">
                     <option value="">All Levels</option>
                     <option value="primary">Primary</option>
                     <option value="secondary">Secondary</option>
                 </select>
             </div>
             <div class="col-md-2">
-                <select id="subjectStatusFilter" class="form-select" onchange="academicsController.filterByStatus(this.value)">
+                <select id="subjectStatusFilter" class="form-select">
                     <option value="">All Status</option>
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
@@ -97,23 +97,21 @@
 
         <!-- Subjects Table -->
         <div class="table-responsive" id="subjectsTableContainer">
-            <table class="table table-hover table-striped">
+            <table class="table table-hover table-striped" id="subjectsTable">
                 <thead class="table-light">
                     <tr>
                         <th>#</th>
-                        <th>Code</th>
                         <th>Subject Name</th>
-                        <th>Category</th>
-                        <th>Level</th>
-                        <th>Teachers</th>
-                        <th>Classes</th>
+                        <th>Code</th>
+                        <th>Type</th>
+                        <th>Levels</th>
                         <th>Status</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody id="subjectsTableBody">
+                <tbody>
                     <tr>
-                        <td colspan="9" class="text-center py-4">
+                        <td colspan="7" class="text-center py-4">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
                             </div>
@@ -146,7 +144,7 @@
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="subjectForm" onsubmit="academicsController.saveSubject(event)">
+            <form id="subjectForm" onsubmit="event.preventDefault(); ManageSubjectsController.saveSubject();">
                 <div class="modal-body">
                     <input type="hidden" id="subjectId">
                     
@@ -254,7 +252,7 @@
                 </h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
-            <form id="curriculumUnitForm" onsubmit="academicsController.saveCurriculumUnit(event)">
+            <form id="curriculumUnitForm" onsubmit="event.preventDefault(); ManageSubjectsController.saveCurriculumUnit();">
                 <div class="modal-body">
                     <input type="hidden" id="unitId">
                     
@@ -360,4 +358,4 @@
 </div>
 
 <!-- Link to Controller -->
-<script src="<?= $appBase ?>/js/pages/academics.js"></script>
+<script src="<?= $appBase ?>/js/pages/manage_subjects.js?v=<?= time() ?>"></script>

@@ -2,6 +2,23 @@ const ClassCapacityController = (() => {
     let allData = [];
     async function init() {
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) { window.location.href = (window.APP_BASE || '') + '/index.php'; return; }
+
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+          // Subscribe to context changes
+          window.AcademicContext.subscribe((context, event, data) => {
+            console.log('AcademicContext changed in class_capacity:', event, data);
+            if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+              loadData();
+            }
+          });
+
+          // Ensure context is loaded
+          if (!window.AcademicContext.isLoaded()) {
+            await window.AcademicContext.init();
+          }
+        }
+
         await loadData(); setupEventListeners();
     }
     function setupEventListeners() {
@@ -12,12 +29,9 @@ const ClassCapacityController = (() => {
     }
     async function loadData() {
         try {
-            const r =
-              (await window.API.apiCall(
-                "/academic/class-capacity",
-                "GET",
-              ).catch(() => null)) ||
-              (await window.API.academic.listClasses().catch(() => null));
+            const r = window.API.academic?.getClassCapacity
+              ? await window.API.academic.getClassCapacity()
+              : await window.API.apiCall("/academic/class-capacity", "GET");
             allData = r?.data || r || [];
             renderStats(allData);
             renderTable(Array.isArray(allData) ? allData : []);
@@ -31,7 +45,7 @@ const ClassCapacityController = (() => {
         );
         const totalEnrolled = items.reduce(
           (s, c) =>
-            s + (parseInt(c.enrolled || c.student_count || c.students) || 0),
+            s + (parseInt(c.enrolled || c.student_count || c.current_students || c.students) || 0),
           0,
         );
         const available = totalCapacity - totalEnrolled;
@@ -60,7 +74,7 @@ const ClassCapacityController = (() => {
           .map((c, i) => {
             const capacity = parseInt(c.capacity) || 40;
             const enrolled =
-              parseInt(c.enrolled || c.student_count || c.students) || 0;
+              parseInt(c.enrolled || c.student_count || c.current_students || c.students) || 0;
             const available = Math.max(0, capacity - enrolled);
             const util =
               capacity > 0 ? Math.round((enrolled / capacity) * 100) : 0;
@@ -92,7 +106,7 @@ const ClassCapacityController = (() => {
             const util =
               parseInt(item.capacity) > 0
                 ? Math.round(
-                    (parseInt(item.enrolled || item.student_count || 0) /
+                    (parseInt(item.enrolled || item.student_count || item.current_students || 0) /
                       parseInt(item.capacity)) *
                       100,
                   )
@@ -106,32 +120,40 @@ const ClassCapacityController = (() => {
     }
     function exportCSV() {
         if (!allData.length) return;
+        if (!window.PrintManager) {
+          showNotification("PrintManager not available", "error");
+          return;
+        }
         const headers = ['#', 'Class', 'Stream', 'Capacity', 'Enrolled', 'Available', 'Utilization', 'Status'];
         const rows = allData.map((c, i) => {
           const cap = parseInt(c.capacity) || 40;
-          const enr = parseInt(c.enrolled || c.student_count || 0);
+          const enr = parseInt(c.enrolled || c.student_count || c.current_students || 0);
           const util = cap > 0 ? Math.round((enr / cap) * 100) : 0;
-          return [
-            i + 1,
-            c.name || c.class_name,
-            c.stream || "",
-            cap,
-            enr,
-            Math.max(0, cap - enr),
-            util + "%",
-            util >= 90 ? "Full" : "Available",
-          ];
+          return {
+            index: i + 1,
+            class_name: c.name || c.class_name,
+            stream_name: c.stream || c.stream_name || "",
+            capacity: cap,
+            enrolled: enr,
+            available: Math.max(0, cap - enr),
+            utilization: util + "%",
+            status: util >= 90 ? "Full" : util >= 70 ? "Near Full" : "Available",
+          };
         });
-        let csv =
-          headers.join(",") +
-          "\n" +
-          rows
-            .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
-            .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "class_capacity.csv";
-        a.click();
+        window.PrintManager.exportToCSV({
+          filename: `class_capacity_${new Date().toISOString().slice(0, 10)}.csv`,
+          columns: [
+            { key: "index", label: headers[0] },
+            { key: "class_name", label: headers[1] },
+            { key: "stream_name", label: headers[2] },
+            { key: "capacity", label: headers[3] },
+            { key: "enrolled", label: headers[4] },
+            { key: "available", label: headers[5] },
+            { key: "utilization", label: headers[6] },
+            { key: "status", label: headers[7] },
+          ],
+          rows,
+        });
     }
     function escapeHtml(s) {
       return String(s || "")

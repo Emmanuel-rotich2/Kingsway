@@ -5,14 +5,36 @@
 const pendingApprovalsController = {
     applications: [],
     filteredApplications: [],
-    
-    init: function() {
-        console.log('Initializing Pending Admission Approvals Controller');
-        this.loadApplications();
-        this.setupEventListeners();
+    initialized: false,
+
+    init: async function() {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        console.log("pendingApprovalsController: Initializing...");
+
+        try {
+            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                if (!window.AuthContext.isAuthenticated()) {
+                    console.warn("pendingApprovalsController: Not authenticated, redirecting to login");
+                    window.location.href = `${window.APP_BASE || ""}/index.php`;
+                    return;
+                }
+            } else {
+                console.warn("pendingApprovalsController: AuthContext not available");
+            }
+
+            this.setupEventListeners();
+            await this.loadApplications();
+
+            console.log("pendingApprovalsController: Initialization complete");
+        } catch (error) {
+            console.error("Failed to initialize Pending Admission Approvals Controller:", error);
+            this.showError(error.message || "Failed to initialize pending approvals page.");
+        }
     },
-    
-    loadApplications: function() {
+
+    loadApplications: async function() {
         document.getElementById('approvalsGrid').innerHTML = `
             <div class="col-12 text-center py-4">
                 <div class="spinner-border text-danger" role="status"></div>
@@ -20,68 +42,55 @@ const pendingApprovalsController = {
             </div>
         `;
         
-        API.callAPI('/admission/queues', 'GET')
-            .then(response => {
-                if (response.success && response.data) {
-                    // Focus on enrollment queue (placement done, fees paid, awaiting final approval)
-                    const approvalApplications = [];
-                    const queues = response.data.queues || {};
-                    
-                    // Add applications from enrollment queue
-                    if (queues.enrollment_pending && Array.isArray(queues.enrollment_pending)) {
-                        queues.enrollment_pending.forEach(app => {
-                            approvalApplications.push({
-                                ...app,
-                                approval_status: 'ready'
-                            });
+        try {
+            const response = await API.callAPI('/admission/queues', 'GET');
+            const payload = response?.data || response || {};
+            const approvalApplications = [];
+            const queues = payload.queues || {};
+            const followUpQueues = [
+                { name: 'final_approval_pending', status: 'final_approval' },
+                { name: 'payment_pending', status: 'payment_follow_up' },
+                { name: 'enrollment_pending', status: 'enrollment_follow_up' },
+                { name: 'id_generation_pending', status: 'id_follow_up' },
+            ];
+
+            followUpQueues.forEach(queue => {
+                if (Array.isArray(queues[queue.name])) {
+                    queues[queue.name].forEach(app => {
+                        approvalApplications.push({
+                            ...app,
+                            queue_name: queue.name,
+                            approval_status: queue.status
                         });
-                    }
-                    
-                    // Also check payment queue for approved payments
-                    if (queues.payment_pending && Array.isArray(queues.payment_pending)) {
-                        queues.payment_pending.forEach(app => {
-                            const workflowData = app.data_json ? JSON.parse(app.data_json) : {};
-                            if (workflowData.payment_status === 'paid') {
-                                approvalApplications.push({
-                                    ...app,
-                                    approval_status: 'ready'
-                                });
-                            }
-                        });
-                    }
-                    
-                    this.applications = approvalApplications;
-                    this.applyFilters();
-                    this.updateSummaryCards();
+                    });
                 }
-            })
-            .catch(error => {
-                console.error('Failed to load applications:', error);
-                this.showError('Failed to load applications');
             });
+
+            this.applications = approvalApplications;
+            this.applyFilters();
+            this.updateSummaryCards();
+        } catch (error) {
+            console.error('Failed to load applications:', error);
+            this.showError('Failed to load applications');
+        }
     },
     
     updateSummaryCards: function() {
-        const pending = this.applications.filter(app => app.approval_status === 'ready').length;
-        const approvedToday = this.applications.filter(app => {
-            if (app.approval_status === 'approved' && app.approved_at) {
-                const approvedDate = new Date(app.approved_at);
-                const today = new Date();
-                return approvedDate.toDateString() === today.toDateString();
-            }
-            return false;
-        }).length;
-        
-        document.getElementById('statPendingApproval').textContent = pending;
-        document.getElementById('statApprovedToday').textContent = approvedToday;
-        document.getElementById('statAvgProcessingTime').textContent = '2.5 days'; // Would calculate from actual data
-        document.getElementById('statApprovalRate').textContent = '92%'; // Would calculate from actual data
+        const finalApproval = this.applications.filter(app => app.approval_status === 'final_approval').length;
+        const paymentFollowUp = this.applications.filter(app => app.approval_status === 'payment_follow_up').length;
+        const enrollmentFollowUp = this.applications.filter(app => app.approval_status === 'enrollment_follow_up').length;
+        const idFollowUp = this.applications.filter(app => app.approval_status === 'id_follow_up').length;
+
+        document.getElementById('statPendingApproval').textContent = finalApproval;
+        document.getElementById('statApprovedToday').textContent = enrollmentFollowUp;
+        document.getElementById('statAvgProcessingTime').textContent = paymentFollowUp;
+        document.getElementById('statApprovalRate').textContent = idFollowUp;
     },
     
     applyFilters: function() {
-        const approvalStatus = document.getElementById('filterApprovalStatus').value;
-        const classFilter = document.getElementById('filterClass').value;
-        const searchTerm = document.getElementById('searchApplications').value.toLowerCase();
+        const approvalStatus = document.getElementById('filterApprovalStatus')?.value || '';
+        const classFilter = document.getElementById('filterClass')?.value || '';
+        const searchTerm = (document.getElementById('searchApplications')?.value || '').toLowerCase();
         
         this.filteredApplications = this.applications.filter(app => {
             if (approvalStatus && app.approval_status !== approvalStatus) return false;
@@ -115,7 +124,14 @@ const pendingApprovalsController = {
         }
         
         grid.innerHTML = this.filteredApplications.map(app => {
-            const approvalStatusClass = app.approval_status === 'ready' ? 'ready' : 'review';
+            const approvalStatusClass = app.approval_status === 'final_approval' ? 'ready' : 'review';
+            const statusLabels = {
+                final_approval: { badge: 'success', label: 'Final Approval' },
+                payment_follow_up: { badge: 'warning text-dark', label: 'Payment Follow-up' },
+                enrollment_follow_up: { badge: 'primary', label: 'Enrollment Follow-up' },
+                id_follow_up: { badge: 'secondary', label: 'ID Follow-up' }
+            };
+            const status = statusLabels[app.approval_status] || { badge: 'secondary', label: app.approval_status || 'Follow-up' };
             const readinessPercent = this.calculateReadinessPercentage(app);
             const assignedClass = this.extractAssignedClass(app);
             const paymentStatus = this.extractPaymentStatus(app);
@@ -129,7 +145,7 @@ const pendingApprovalsController = {
                                     <h6 class="mb-1">${app.applicant_name || 'Unknown'}</h6>
                                     <small class="text-muted">${app.application_no || '—'}</small>
                                 </div>
-                                <span class="badge bg-${app.approval_status === 'ready' ? 'success' : 'warning'}">${app.approval_status === 'ready' ? 'Ready' : 'Review'}</span>
+                                <span class="badge bg-${status.badge}">${status.label}</span>
                             </div>
                             
                             <div class="mb-3">
@@ -155,9 +171,9 @@ const pendingApprovalsController = {
                                 <button class="btn btn-sm btn-outline-primary flex-grow-1" onclick="pendingApprovalsController.viewApplication(${app.id})">
                                     <i class="bi bi-eye me-1"></i>View
                                 </button>
-                                <button class="btn btn-sm btn-success flex-grow-1" onclick="pendingApprovalsController.finalApproval(${app.id})">
-                                    <i class="bi bi-check-circle me-1"></i>Approve
-                                </button>
+                                ${app.approval_status === 'final_approval' ? `<button class="btn btn-sm btn-success flex-grow-1" onclick="pendingApprovalsController.finalApproval(${app.id})">
+                                    <i class="bi bi-check-circle me-1"></i>Final Approval
+                                </button>` : ''}
                             </div>
                         </div>
                     </div>
@@ -206,13 +222,14 @@ const pendingApprovalsController = {
     
     setupEventListeners: function() {
         // Filter changes
-        document.getElementById('filterApprovalStatus').addEventListener('change', () => this.applyFilters());
-        document.getElementById('filterClass').addEventListener('change', () => this.applyFilters());
-        document.getElementById('searchApplications').addEventListener('input', this.debounce(() => this.applyFilters(), 300));
-        
+        document.getElementById('filterApprovalStatus')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterClass')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('searchApplications')?.addEventListener('input', this.debounce(() => this.applyFilters(), 300));
+
         // Decision type change - show/hide conditions
-        document.getElementById('finalDecision').addEventListener('change', function() {
+        document.getElementById('finalDecision')?.addEventListener('change', function() {
             const conditionsGroup = document.getElementById('conditionsGroup');
+            if (!conditionsGroup) return;
             const decision = this.value;
             
             if (decision === 'conditional' || decision === 'request_info') {
@@ -235,8 +252,9 @@ const pendingApprovalsController = {
     viewApplication: function(applicationId) {
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    this.renderApplicationDetails(response.data);
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    this.renderApplicationDetails(payload);
                     const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
@@ -318,9 +336,10 @@ const pendingApprovalsController = {
         // Load applicant details for the modal
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    const app = response.data.application;
-                    const workflowData = response.data.workflow_data || {};
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    const app = payload.application;
+                    const workflowData = payload.workflow_data || {};
                     
                     const summary = `
                         <strong>Applicant:</strong> ${app.applicant_name}<br>
@@ -444,3 +463,23 @@ const pendingApprovalsController = {
         };
     }
 };
+
+window.pendingApprovalsController = pendingApprovalsController;
+
+function initPendingApprovalsWhenAPIReady() {
+    const hasApi = window.API && typeof window.API.callAPI === "function";
+
+    if (hasApi) {
+        console.log("API is ready, initializing pending approvals controller");
+        window.pendingApprovalsController.init();
+        return;
+    }
+
+    setTimeout(initPendingApprovalsWhenAPIReady, 100);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initPendingApprovalsWhenAPIReady);
+} else {
+    initPendingApprovalsWhenAPIReady();
+}

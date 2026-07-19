@@ -98,7 +98,7 @@ class FeeStructureController {
    * Load academic years for filter dropdown
    */
   loadAcademicYears() {
-    API.GET("/api/academic/years/list", {})
+    API.GET("/academic/years/list", {})
       .then((response) => {
         if (response.success && response.data.years) {
           const select = document.getElementById("academicYearFilter");
@@ -117,7 +117,7 @@ class FeeStructureController {
    * Load classes for filter dropdown
    */
   loadClasses() {
-    API.GET("/api/academics/classes/list", {})
+    API.GET("/academics/classes/list", {})
       .then((response) => {
         if (response.success && response.data.classes) {
           const select = document.getElementById("classFilter");
@@ -152,7 +152,7 @@ class FeeStructureController {
       }
     });
 
-    API.GET("/api/finance/fee-structures/list", filters)
+    API.GET("/finance/fee-structures/list", filters)
       .then((response) => {
         if (response.success) {
           this.renderFeeStructures(response.data.fee_structures);
@@ -462,7 +462,7 @@ class FeeStructureController {
     this.duplicateStructureId = structureId;
 
     // Load available academic years for duplication
-    API.GET("/api/academic/years/list", {}).then((response) => {
+    API.GET("/academic/years/list", {}).then((response) => {
       if (response.success) {
         const select = document.getElementById("duplicateYear");
         select.innerHTML = '<option value="">Select Year</option>';
@@ -552,7 +552,7 @@ class FeeStructureController {
       if (filters[key] === "") delete filters[key];
     });
 
-    API.GET("/api/finance/fee-structures/export", filters)
+    API.GET("/finance/fee-structures/export", filters)
       .then((response) => {
         if (response.success) {
           this.downloadCSV(response.data);

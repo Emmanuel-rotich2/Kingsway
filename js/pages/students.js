@@ -10,11 +10,44 @@ const studentsManagementController = {
             });
     },
 
-    loadStudents(search = '') {
-        const request = search
-            ? apiCall(`/students/student?search=${encodeURIComponent(search)}`, 'GET')
-            : API.students.get();
-        request.then(data => {
+    loadStudents: async function(search = '') {
+        try {
+            let data;
+            
+            // Try DataStore first for caching
+            if (typeof DataStore !== 'undefined') {
+                try {
+                    const params = search ? { search: search } : {};
+                    data = await DataStore.get('students', {
+                        strategy: 'stale-while-revalidate',
+                        ttl: 300000, // 5 minutes
+                        storeName: 'student_directory_cache',
+                        endpoint: '/api/students',
+                        params: params
+                    });
+                    console.log("[Students] Data from DataStore:", data);
+                } catch (dataStoreError) {
+                    console.warn("[Students] DataStore failed, falling back to API:", dataStoreError);
+                }
+            }
+            
+            // Fallback to direct API call
+            if (!data) {
+                const request = search
+                    ? apiCall(`/students/student?search=${encodeURIComponent(search)}`, 'GET')
+                    : API.students.get();
+                data = await request;
+                
+                // Cache in DataStore
+                if (typeof DataStore !== 'undefined') {
+                    const params = search ? { search: search } : {};
+                    await DataStore.set('students', data, {
+                        ttl: 300000,
+                        storeName: 'student_directory_cache'
+                    });
+                }
+            }
+            
             let html = '';
             data.forEach((s, i) => {
                 html += `
@@ -34,7 +67,9 @@ const studentsManagementController = {
                     </tr>`;
             });
             studentsTableBody.innerHTML = html;
-        });
+        } catch (error) {
+            console.error("[Students] Failed to load students:", error);
+        }
     },
 
     searchStudents(val) {

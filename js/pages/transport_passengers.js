@@ -108,7 +108,7 @@ const TransportPassengersController = {
       this.loadSummary();
       this.loadPassengers();
     });
-    this.ui.printListBtn?.addEventListener("click", () => window.print());
+    this.ui.printListBtn?.addEventListener("click", () => this.printPassengerList());
     this.ui.exportSheetBtn?.addEventListener("click", () => this.exportSheet());
     this.ui.reportIncidentBtn?.addEventListener("click", () => this.openIncidentModal());
 
@@ -463,31 +463,81 @@ const TransportPassengersController = {
       return;
     }
 
-    const headers = ["Adm No", "Student Name", "Class", "Stream", "Gender", "Route", "Vehicle", "Pickup Point", "Drop-off Point", "Guardian Contact", "Today Status"];
-    const rows = this.state.passengers.map(p => [
-      p.admission_no || "",
-      p.full_name || "",
-      p.class_name || "",
-      p.stream_name || "",
-      p.gender || "",
-      p.route_name || "",
-      p.vehicle_name || "",
-      p.pickup_point || "",
-      p.dropoff_point || "",
-      p.guardian_phone || "",
-      p.today_status || "",
-    ]);
+    const columns = [
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'full_name', label: 'Student Name' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'gender', label: 'Gender' },
+      { key: 'route_name', label: 'Route' },
+      { key: 'vehicle_name', label: 'Vehicle' },
+      { key: 'pickup_point', label: 'Pickup Point' },
+      { key: 'dropoff_point', label: 'Drop-off Point' },
+      { key: 'guardian_phone', label: 'Guardian Contact' },
+      { key: 'today_status', label: 'Today Status' }
+    ];
 
-    const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `transport_sheet_${this.state.selectedDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: this.state.passengers,
+      filename: 'transport_sheet'
+    });
+  },
+
+  printPassengerList() {
+    if (!this.state.passengers.length) {
+      this.notify("No data to print", "warning");
+      return;
+    }
+
+    const filters = {
+      'Date': this.state.selectedDate,
+      'Route': this.ui.routeFilter?.options[this.ui.routeFilter.selectedIndex]?.text || 'All',
+      'Vehicle': this.ui.vehicleFilter?.options[this.ui.vehicleFilter.selectedIndex]?.text || 'All',
+      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
+      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All'
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'admission_no', label: 'Adm No' },
+      { key: 'full_name', label: 'Student Name' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'stream_name', label: 'Stream' },
+      { key: 'gender', label: 'Gender' },
+      { key: 'route_name', label: 'Route' },
+      { key: 'vehicle_name', label: 'Vehicle' },
+      { key: 'pickup_point', label: 'Pickup Point' },
+      { key: 'dropoff_point', label: 'Drop-off Point' },
+      { key: 'guardian_phone', label: 'Guardian Contact' },
+      { key: 'today_status', label: 'Today Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Transport Passenger List',
+      subtitle: 'Daily Transport Manifest',
+      columns: columns,
+      rows: this.state.passengers,
+      summary: {
+        'Total Passengers': this.state.passengers.length,
+        'Date': this.state.selectedDate,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'TRN-' + this.state.selectedDate.replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Driver' },
+        { label: 'Transport Manager' }
+      ]
+    });
   },
 
   setLoading(loading) {

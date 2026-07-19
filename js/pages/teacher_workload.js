@@ -2,6 +2,7 @@
  * Teacher Workload Page Controller
  * Displays workload stats, horizontal bar chart, and filterable table.
  * Loaded by teacher_workload.php
+ * Integrates with AcademicContext for academic year awareness
  */
 
 (function () {
@@ -61,12 +62,33 @@
         data: [],      // raw teacher+assignment records
         filtered: [],
         chart: null,
+        currentAcademicYear: null,
 
         init: async function () {
             if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
             }
+            
+            // Initialize Academic Context if available
+            if (window.AcademicContext) {
+                // Subscribe to context changes
+                window.AcademicContext.subscribe((context, event, data) => {
+                    console.log('AcademicContext changed in teacher_workload:', event, data);
+                    if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+                        this.loadData();
+                    }
+                });
+                
+                // Ensure context is loaded
+                if (!window.AcademicContext.isLoaded()) {
+                    await window.AcademicContext.init();
+                }
+                
+                // Get current academic context
+                this.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+            }
+            
             this.bindEvents();
             await this.loadData();
         },
@@ -388,6 +410,16 @@
                 ];
             });
 
+            // Use PrintManager if available
+            if (window.PrintManager) {
+                window.PrintManager.exportToCSV({
+                    headers: headers,
+                    rows: rows
+                }, 'teacher_workload');
+                return;
+            }
+
+            // Fallback if PrintManager not available
             var csv = [headers.join(",")]
                 .concat(rows.map(function (r) {
                     return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(",");

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kingsway Academy - Offline</title>
+    <link href="./public/vendor/bootstrap/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.10.5/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        
+        .offline-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        
+        .offline-icon {
+            font-size: 80px;
+            color: #667eea;
+            margin-bottom: 20px;
+        }
+        
+        .offline-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .offline-message {
+            color: #666;
+            font-size: 16px;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .offline-features {
+            text-align: left;
+            margin-bottom: 30px;
+        }
+        
+        .offline-features h4 {
+            font-size: 16px;
+            color: #333;
+            margin-bottom: 15px;
+        }
+        
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+        
+        .feature-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+            color: #666;
+        }
+        
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .feature-list i {
+            color: #22c55e;
+            margin-right: 10px;
+        }
+        
+        .feature-list.disabled i {
+            color: #ef4444;
+        }
+        
+        .retry-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .retry-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .retry-button:active {
+            transform: translateY(0);
+        }
+        
+        .pending-changes {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .pending-changes h5 {
+            color: #92400e;
+            margin-bottom: 10px;
+        }
+        
+        .pending-count {
+            font-size: 24px;
+            font-weight: 700;
+            color: #92400e;
+        }
+        
+        .connection-status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+        
+        .connection-status.offline {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #ef4444;
+        }
+        
+        .connection-status.online {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #22c55e;
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="offline-icon">
+            <i class="bi bi-wifi-off"></i>
+        </div>
+        
+        <h1 class="offline-title">You're Offline</h1>
+        
+        <p class="offline-message">
+            Kingsway Academy is currently offline. Some features may be unavailable until your connection is restored.
+        </p>
+        
+        <div class="pending-changes" id="pendingChanges" style="display: none;">
+            <h5><i class="bi bi-clock-history"></i> Pending Changes</h5>
+            <div class="pending-count" id="pendingCount">0</div>
+            <small>changes will sync when you're back online</small>
+        </div>
+        
+        <div class="offline-features">
+            <h4><i class="bi bi-check-circle-fill" style="color: #22c55e;"></i> Available Offline</h4>
+            <ul class="feature-list">
+                <li><i class="bi bi-check-circle"></i> Cached dashboard</li>
+                <li><i class="bi bi-check-circle"></i> Cached class lists</li>
+                <li><i class="bi bi-check-circle"></i> Attendance drafts</li>
+                <li><i class="bi bi-check-circle"></i> Saved forms</li>
+                <li><i class="bi bi-check-circle"></i> Pending synchronization</li>
+            </ul>
+            
+            <h4 style="margin-top: 20px;"><i class="bi bi-x-circle-fill" style="color: #ef4444;"></i> Unavailable Offline</h4>
+            <ul class="feature-list disabled">
+                <li><i class="bi bi-x-circle"></i> Payments</li>
+                <li><i class="bi bi-x-circle"></i> Approvals</li>
+                <li><i class="bi bi-x-circle"></i> Live reports</li>
+                <li><i class="bi bi-x-circle"></i> Real-time data</li>
+            </ul>
+        </div>
+        
+        <button class="retry-button" onclick="retryConnection()">
+            <i class="bi bi-arrow-clockwise"></i> Retry Connection
+        </button>
+        
+        <div class="connection-status offline" id="connectionStatus">
+            <i class="bi bi-wifi-off"></i> No internet connection
+        </div>
+    </div>
+
+    <script>
+        // Check connection status
+        function updateConnectionStatus() {
+            const statusDiv = document.getElementById('connectionStatus');
+            const isOnline = navigator.onLine;
+            
+            if (isOnline) {
+                statusDiv.className = 'connection-status online';
+                statusDiv.innerHTML = '<i class="bi bi-wifi"></i> Connection restored';
+                
+                // Redirect to home after a short delay
+                setTimeout(() => {
+                    window.location.href = './home.php';
+                }, 2000);
+            } else {
+                statusDiv.className = 'connection-status offline';
+                statusDiv.innerHTML = '<i class="bi bi-wifi-off"></i> No internet connection';
+            }
+        }
+        
+        // Retry connection
+        function retryConnection() {
+            const button = document.querySelector('.retry-button');
+            button.innerHTML = '<i class="bi bi-arrow-repeat"></i> Checking...';
+            button.disabled = true;
+            
+            // Try to fetch a small resource
+            fetch('./home.php', { 
+                method: 'HEAD',
+                cache: 'no-cache'
+            })
+            .then(() => {
+                window.location.href = './home.php';
+            })
+            .catch(() => {
+                button.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Retry Connection';
+                button.disabled = false;
+                updateConnectionStatus();
+            });
+        }
+        
+        // Check for pending changes
+        function checkPendingChanges() {
+            // This will be implemented when we have the offline queue
+            // For now, just show the section if we detect offline storage
+            if ('indexedDB' in window) {
+                // Check if there are pending operations
+                // TODO: Implement actual check
+            }
+        }
+        
+        // Listen for connection changes
+        window.addEventListener('online', updateConnectionStatus);
+        window.addEventListener('offline', updateConnectionStatus);
+        
+        // Initial check
+        updateConnectionStatus();
+        checkPendingChanges();
+        
+        // Periodically check connection
+        setInterval(updateConnectionStatus, 5000);
+    </script>
+</body>
+</html>

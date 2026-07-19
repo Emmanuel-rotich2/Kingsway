@@ -2,15 +2,40 @@
  * Teaching Materials Controller
  * Searchable grid of shared teaching resources.
  * API base: /api/academic/resources?type=material
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const teachingMaterialsController = {
+  _currentAcademicYear: null,
+  _currentTerm: null,
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in teaching_materials:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload materials when academic year or term changes
+          this.loadMaterials();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getTermId();
+    }
+    
     await Promise.all([
       this._loadSubjectDropdown(),
       this._loadClassDropdown(),
@@ -124,7 +149,7 @@ const teachingMaterialsController = {
   // ── DOWNLOAD ───────────────────────────────────────────────────────
 
   download: function (id, filename) {
-    window.location.href = (window.APP_BASE || '') + '/api/academic/resources/' + id + '/download';
+    window.location.href = (window.APP_BASE || '') + '/api/academic/resources/download/' + id;
   },
 
   // ── HELPERS ────────────────────────────────────────────────────────

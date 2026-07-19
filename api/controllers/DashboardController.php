@@ -171,50 +171,6 @@ class DashboardController extends BaseController
     }
 
     /**
-     * GET /api/academics/kpis
-     * CEO-only: Academic performance KPIs
-     */
-    public function getAcademicsKpis($id = null, $data = [], $segments = [])
-    {
-        if (!$this->hasRoleId(3)) {
-            return $this->forbidden('Director access only');
-        }
-        try {
-            $analytics = new DirectorAnalyticsService();
-            $kpis = $analytics->getAcademicKPIs();
-
-            return $this->success([
-                'kpis' => $kpis
-            ], 'Academic KPIs retrieved');
-
-        } catch (Exception $e) {
-            return $this->serverError('Failed to fetch academic KPIs: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * GET /api/academics/performance-matrix
-     * CEO-only: Performance heatmap data
-     */
-    public function getAcademicsPerformanceMatrix($id = null, $data = [], $segments = [])
-    {
-        if (!$this->hasRoleId(3)) {
-            return $this->forbidden('Director access only');
-        }
-        try {
-            $analytics = new DirectorAnalyticsService();
-            $matrix = $analytics->getPerformanceMatrix();
-
-            return $this->success([
-                'data' => $matrix
-            ], 'Performance matrix retrieved');
-
-        } catch (Exception $e) {
-            return $this->serverError('Failed to fetch performance matrix: ' . $e->getMessage());
-        }
-    }
-
-    /**
      * GET /api/attendance/trends
      * CEO-only: Attendance trends data including trends, absent students, absent staff
      */

@@ -4,7 +4,8 @@
  * This ensures JS router uses PHP config as single source of truth
  */
 
-require_once __DIR__ . '/../../../config/DashboardRouter.php';
+// role_sidebars.php is procedural config data (returns an array), not a class,
+// so it cannot be autoloaded and is intentionally required here.
 require_once __DIR__ . '/../../../config/role_sidebars.php';
 
 use App\Config\DashboardRouter;

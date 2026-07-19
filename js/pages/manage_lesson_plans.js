@@ -12,6 +12,7 @@ const lessonPlansController = (() => {
     learningAreas = [],
     curriculumUnits = [],
     teachers = [];
+  let currentStaffId = null;
 
   const statusBadge = (s) => {
     const normalized = (s || "draft").toLowerCase();
@@ -51,6 +52,12 @@ const lessonPlansController = (() => {
       classes = classRes?.data || classRes || [];
       learningAreas = laRes?.data || laRes || [];
       teachers = teacherRes?.data || teacherRes || [];
+      const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
+      const userId = user?.id || user?.user_id || "";
+      const staffRecord = teachers.find(
+        (t) => String(t.user_id || "") === String(userId),
+      );
+      currentStaffId = staffRecord?.id || user?.staff_id || null;
     } catch (e) {
       console.warn("Failed to load reference data:", e);
     }
@@ -72,11 +79,10 @@ const lessonPlansController = (() => {
       const res = await API.academic.listLessonPlans();
       allPlans = res?.data || res || [];
       if (!Array.isArray(allPlans)) allPlans = [];
-      const user =
-        typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
-      const uid = user?.id || user?.user_id || "";
       myPlans = allPlans.filter(
-        (p) => (p.teacher_id || "").toString() === uid.toString(),
+        (p) =>
+          currentStaffId &&
+          (p.teacher_id || "").toString() === currentStaffId.toString(),
       );
       pendingPlans = allPlans.filter(
         (p) => p.status === "submitted",
@@ -187,8 +193,7 @@ const lessonPlansController = (() => {
 
   function showFormModal(plan = null) {
     const isEdit = !!plan;
-    const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
-    const currentTeacherId = user?.staff_id || user?.id || "";
+    const currentTeacherId = currentStaffId || "";
 
     const classOpts = classes.map(
       (c) => `<option value="${c.id}" ${plan && plan.class_id == c.id ? "selected" : ""}>${c.name}</option>`

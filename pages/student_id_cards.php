@@ -619,15 +619,30 @@ if ($appBase === '.')
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                <button type="button" class="btn btn-success" id="previewGenerateBtn">Generate Card</button>
-                <button type="button" class="btn btn-info" id="previewGenerateQRBtn">Generate QR</button>
-                <button type="button" class="btn btn-primary" id="previewPrintBtn">Print Card</button>
-                <button type="button" class="btn btn-warning" id="previewMarkPrintedBtn">Mark Printed</button>
-                <button type="button" class="btn btn-outline-success" id="previewMarkIssuedBtn">Mark Issued</button>
-                <button type="button" class="btn btn-outline-warning" id="previewRenewBtn">Renew</button>
-                <button type="button" class="btn btn-outline-danger" id="previewReplaceBtn">Replace</button>
+            <div class="modal-footer flex-wrap justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <label class="form-label mb-0 small">Print Mode</label>
+                    <select class="form-select form-select-sm" id="printModeDirect" style="width:auto;">
+                        <option value="direct_card">Direct ID-Card Printer (CR80)</option>
+                        <option value="a4_sheet">A4 Sheet (Front + Back)</option>
+                    </select>
+                    <select class="form-select form-select-sm" id="printSideSelect" style="width:auto;">
+                        <option value="both">Both Sides</option>
+                        <option value="front">Front Only</option>
+                        <option value="back">Back Only</option>
+                    </select>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-success" id="previewGenerateBtn">Generate Card</button>
+                    <button type="button" class="btn btn-info" id="previewGenerateQRBtn">Generate QR</button>
+                    <button type="button" class="btn btn-primary" id="previewPrintBtn">Print Card</button>
+                    <button type="button" class="btn btn-outline-primary" id="previewDownloadBtn">Download PDF</button>
+                    <button type="button" class="btn btn-warning" id="previewMarkPrintedBtn">Mark Printed</button>
+                    <button type="button" class="btn btn-outline-success" id="previewMarkIssuedBtn">Mark Issued</button>
+                    <button type="button" class="btn btn-outline-warning" id="previewRenewBtn">Renew</button>
+                    <button type="button" class="btn btn-outline-danger" id="previewReplaceBtn">Replace</button>
+                </div>
             </div>
         </div>
     </div>

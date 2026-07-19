@@ -249,7 +249,8 @@ const AuthContext = (() => {
   }
 
   function getItem(key) {
-    return detectAuthStorage().getItem(key);
+    // Use the same activeStorage as setItem - don't re-detect
+    return activeStorage.getItem(key);
   }
 
   function setItem(key, value) {
@@ -281,25 +282,90 @@ const AuthContext = (() => {
   /**
    * Initialize user context from configured auth storage (on page load)
    */
-  function initialize() {
-    const storage = detectAuthStorage();
-    const token = storage.getItem("token");
-    const userData = storage.getItem("user_data");
-    const permissionsData = storage.getItem("user_permissions");
+  /**
+   * Silent boot refresh.
+   *
+   * Web-storage (where this access token lives) can be empty on a fresh window,
+   * incognito tab, after "clear cache", or in a second tab — but the server's
+   * HttpOnly `refresh_token` cookie survives all of those. So when web-storage
+   * has no token, we attempt one silent refresh via that cookie BEFORE deciding
+   * the user is logged out. This is the single point that reconciles the two
+   * storage worlds and stops the "logged out on first load in a new window" bug.
+   *
+   * Returns a Promise<boolean> (resolved, not thrown) so callers can await it.
+   */
+  // One-shot guard: the boot refresh may be triggered both by the module-load
+  // initialize() call and by home.php awaiting initialize() — run it only once.
+  let _bootRefreshDone = false;
+  let _bootRefreshResult = null;
+
+  async function bootstrapFromRefreshCookie() {
+    if (_bootRefreshDone) return _bootRefreshResult;
+    _bootRefreshDone = true;
+    try {
+      const refreshToken = getRefreshToken();
+      const url = new URL(API_BASE_URL + "/auth/refresh-token", window.location.origin);
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "include", // carries the HttpOnly refresh_token cookie
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+      });
+      if (!response.ok) return false;
+      const result = await readJsonSafely(response, "Token refresh");
+      if (result && (result.status === "success" || result.success === true) && result.data && result.data.token) {
+        // Rehydrate auth state from the refreshed response. The response has the
+        // full user/permissions envelope only on the auth/refresh-token endpoint.
+        const full = result.data;
+        setTokens(full.token, full.refresh_token || null);
+        if (full.user) {
+          // Preserve the user's original remember-me choice so the refreshed
+          // access token lands in the same storage (local vs session).
+          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
+          setUser(full.user, full, rememberMe);
+        }
+        console.log("[AuthContext] Session restored from refresh cookie on boot");
+        _bootRefreshResult = true;
+        return true;
+      }
+    } catch (e) {
+      console.warn("[AuthContext] Boot refresh failed:", e);
+    }
+    _bootRefreshResult = false;
+    return false;
+  }
+
+  async function initialize() {
+    // Set activeStorage once based on what actually has data
+    detectAuthStorage();
+    let token = activeStorage.getItem("token");
+    const userData = activeStorage.getItem("user_data");
+    const permissionsData = activeStorage.getItem("user_permissions");
 
     if (token && userData) {
       try {
         currentUser = JSON.parse(userData);
         if (permissionsData) {
           permissions = new Set(JSON.parse(permissionsData));
-          roles = JSON.parse(storage.getItem("user_roles") || "[]");
+          roles = JSON.parse(activeStorage.getItem("user_roles") || "[]");
         }
       } catch (e) {
         console.warn("Failed to restore user context from auth storage:", e);
         currentUser = null;
         permissions.clear();
         roles = [];
-        removeAuthKeys(storage);
+        removeAuthKeys(activeStorage);
+      }
+    }
+
+    // Single source of truth: if web-storage had no token, fall back to the
+    // server-side refresh cookie exactly once. Resolve rather than throw so the
+    // caller can decide whether to redirect.
+    if (!token) {
+      try {
+        await bootstrapFromRefreshCookie();
+      } catch (e) {
+        console.warn("AuthContext initialize refresh skipped:", e);
       }
     }
   }
@@ -321,6 +387,24 @@ const AuthContext = (() => {
       fullResponse?.permissions || userData?.permissions || [];
 
     console.log("Permissions array:", permissionsArray);
+
+    // Use StorageManager for user preferences if available
+    if (typeof StorageManager !== 'undefined' && typeof StorageManager.setPreference === 'function') {
+      try {
+        StorageManager.setPreference('user_theme', userData.theme || 'light');
+        StorageManager.setPreference('sidebar_collapsed', false);
+      } catch (e) {
+        console.warn('StorageManager.setPreference failed:', e);
+      }
+    } else {
+      // Fallback to localStorage directly
+      try {
+        localStorage.setItem('user_theme', userData.theme || 'light');
+        localStorage.setItem('sidebar_collapsed', JSON.stringify(false));
+      } catch (e) {
+        console.warn('localStorage fallback failed:', e);
+      }
+    }
 
     if (Array.isArray(permissionsArray) && permissionsArray.length > 0) {
       // Create Set of unique permission codes (automatically deduplicates)
@@ -611,6 +695,7 @@ const AuthContext = (() => {
     getRefreshToken,
     getPersistenceMode,
     clearUser,
+    initialize,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
@@ -667,8 +752,13 @@ const APIState = (() => {
 // Infer primary resource from endpoint for automatic invalidation
 function inferResourceKey(endpoint = "") {
   const clean = endpoint.split("?")[0].replace(/^\/+/, "");
-  const [resource] = clean.split("/");
-  return resource || null;
+  const segments = clean.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+  // Preserve the module + sub-resource (e.g. "academic/classes-list", "academic/years",
+  // "staff/departments") so distinct routes get distinct cache keys and mutation-time
+  // invalidation doesn't collide. /api/academic/classes and /api/academic/classes-list are
+  // different resources and must not share a key.
+  return segments.slice(0, 2).join("/");
 }
 
 const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -862,6 +952,9 @@ const ENDPOINT_PERMISSIONS = {
   "/students/promotion-graduate-grade9": "students_promote",
   "/students/promotion-batches": "students_view",
   "/students/promotion-history": "students_view",
+  "/students/promotion-meta-v2": "students_view",
+  "/students/promotion-candidates-v2": "students_view",
+  "/students/promotion-execute-v2": "students_promote",
   "/students/enrollment-history": "students_view",
   "/students/alumni-get": "students_view",
   "/students/enrollment-current": "students_view",
@@ -893,6 +986,58 @@ const ENDPOINT_PERMISSIONS = {
 
   // Academic
   "/academic/index": "academic_view",
+  "/academic/classes-list": "academic_view",
+  "/academic/classes/create": "academic_create",
+  "/academic/classes/update": "academic_update",
+  "/academic/classes/delete": "academic_delete",
+  "/academic/streams-list": "academic_view",
+  "/academic/streams/create": "academic_create",
+  "/academic/streams/update": "academic_update",
+  "/academic/streams/delete": "academic_delete",
+  "/academic/class-capacity": "academic_view",
+  "/academic/teachers-list": "academic_view",
+  "/academic/levels-list": "academic_view",
+  "/academic/context": "academic_view",
+  "/academic/subjects": "academic_view",
+  "/academic/subjects-list": "academic_view",
+  "/academic/learning-areas/list": "academic_view",
+  "/academic/learning-areas/get": "academic_view",
+  "/academic/learning-areas/create": "academic_create",
+  "/academic/learning-areas/update": "academic_update",
+  "/academic/learning-areas/delete": "academic_delete",
+  "/academic/curriculum-units": "academic_view",
+  "/academic/curriculum-units-list": "academic_view",
+  "/academic/curriculum-units-create": "academic_create",
+  "/academic/curriculum-units-get": "academic_view",
+  "/academic/curriculum-units-update": "academic_update",
+  "/academic/curriculum-units-delete": "academic_delete",
+  "/academic/curriculum-units/create": "academic_create",
+  "/academic/curriculum-units/update": "academic_update",
+  "/academic/curriculum-units/delete": "academic_delete",
+  "/academic/exam-schedule": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/schemes-of-work": {
+    GET: "academic_view",
+    POST: "academic_update",
+    PUT: "academic_update",
+    DELETE: "academic_update",
+  },
+  "/academic/scheme-of-work-get": "academic_view",
+  "/academic/lesson-plans-list": "academic_view",
+  "/academic/lesson-plans-approval": "academic_view",
+  "/academic/lesson-plans-review": "academic_update",
+  "/academic/lesson-plans-bulk-approve": "academic_update",
+  "/academic/performance-overview": "academic_view",
+  "/academic/student-results": "academic_view",
+  "/academic/custom": {
+    GET: "academic_view",
+    POST: "academic_update",
+  },
+  "/academic/schedules-list": "academic_view",
   "/academic/curriculum": {
     GET: "academic_view",
     POST: "academic_create",
@@ -991,6 +1136,14 @@ const ENDPOINT_PERMISSIONS = {
     POST: "schedules_create",
     PUT: "schedules_update",
   },
+  "/schedules/timetable-get": "schedules_view",
+  "/schedules/timetable-create": "schedules_create",
+  "/schedules/timetable-update": "schedules_update",
+  "/schedules/timetable-delete": "schedules_update",
+  "/schedules/timetable-check-conflicts": "schedules_view",
+  "/schedules/timetable-report-conflict": "schedules_create",
+  "/schedules/timetable-time-slots": "schedules_view",
+  "/schedules/rooms-get": "schedules_view",
 
   // Reports
   "/reports/index": "reports_view",
@@ -1195,6 +1348,10 @@ async function refreshAccessToken() {
       // Only log out if the server itself rejects the refresh attempt.
 
       console.log("Attempting to refresh access token...");
+      // [DIAG] report refresh inputs
+      console.warn('[DIAG-REFRESH] jsRefreshToken?=', !!refreshToken,
+        '| accessToken?=', !!AuthContext.getToken(),
+        '| cookie=include will send HttpOnly refresh_token if present');
 
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
@@ -1223,9 +1380,16 @@ async function refreshAccessToken() {
 
       const result = await readJsonSafely(response, "Token refresh");
 
-      if (result.status === "success" && result.data.token) {
+      if ((result.status === "success" || result.success === true) && result.data.token) {
         // Store new tokens in selected auth storage
         AuthContext.setTokens(result.data.token, result.data.refresh_token || null);
+        // On a refresh, rehydrate the full session if the server returned the
+        // user envelope (it does for our refresh endpoint), so a fresh window
+        // that cleared web-storage stays logged in via the HttpOnly cookie.
+        if (result.data.user) {
+          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
+          AuthContext.setUser(result.data.user, result.data, rememberMe);
+        }
         console.log("Token refreshed successfully");
         return true;
       } else {
@@ -1281,6 +1445,9 @@ async function apiCall(
   options = {}
 ) {
   try {
+    const queryParams =
+      params && typeof params === "object" && !Array.isArray(params) ? params : {};
+
     // Check if token is about to expire and refresh if needed
     if (AuthContext.isAuthenticated() && isTokenExpired()) {
       console.log("Token expiring soon, refreshing...");
@@ -1298,9 +1465,12 @@ async function apiCall(
 
     // Construct URL with query parameters
     const url = new URL(API_BASE_URL + endpoint, window.location.origin);
-    Object.keys(params).forEach((key) =>
-      url.searchParams.append(key, params[key])
-    );
+    Object.keys(queryParams).forEach((key) => {
+      const value = queryParams[key];
+      if (value !== null && value !== undefined) {
+        url.searchParams.append(key, value);
+      }
+    });
 
     // Check if token exists
     const token = AuthContext.getToken();
@@ -1336,14 +1506,33 @@ async function apiCall(
 
     // Handle 401 Unauthorized - token may have expired, try to refresh
     if (response.status === 401 && !options.isRefreshAttempt) {
+      // [DIAG] capture auth storage state at first 401 of this session
+      if (!sessionStorage.getItem('_diag_401_dumped')) {
+        sessionStorage.setItem('_diag_401_dumped', '1');
+        const _ls = {}, _ss = {};
+        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); _ls[k] = localStorage.getItem(k); }
+        for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); _ss[k] = sessionStorage.getItem(k); }
+        console.warn('[DIAG-401] url=', url, '| hasToken=', !!AuthContext.getToken(),
+          '| ls.auth_storage_mode=', localStorage.getItem('auth_storage_mode'),
+          '| ls.token?=', !!localStorage.getItem('token'),
+          '| ss.token?=', !!sessionStorage.getItem('token'),
+          '| localStorage=', _ls, '| sessionStorage=', _ss);
+      }
       console.log("Received 401 Unauthorized, attempting token refresh...");
       const refreshed = await refreshAccessToken();
 
       if (refreshed) {
         // Retry the original request with new token
+        const newToken = AuthContext.getToken();
+        if (!newToken) {
+          // Refresh reported success but no access token is available to the
+          // client. Retrying would only 401 again ("Missing Authorization
+          // header") silently. Fail loud so the session is treated as invalid.
+          console.error("Token refresh succeeded but no access token is available; session is invalid.");
+          throw new Error("Authentication failed, please log in again");
+        }
         console.log("Retrying original request with refreshed token...");
-        fetchOptions.headers.Authorization =
-          "Bearer " + AuthContext.getToken();
+        fetchOptions.headers.Authorization = "Bearer " + newToken;
         response = await fetch(url, fetchOptions);
       } else {
         // Refresh failed, user is logged out and redirected
@@ -1372,17 +1561,63 @@ async function apiCall(
     // Auto-invalidate cached data on mutations
     if (MUTATION_METHODS.has(String(method).toUpperCase())) {
       const targets = options.invalidate || [inferResourceKey(endpoint)];
+
+      // Use DataStore for automatic cache invalidation if available
+      if (typeof DataStore !== 'undefined') {
+        DataStore.invalidateMany(targets.filter(Boolean)).catch((err) => {
+          console.warn('DataStore invalidation failed:', err);
+        });
+      }
+
+      // Fallback to APIState
       APIState.invalidateMany(targets.filter(Boolean)).catch((err) => {
         console.warn("Auto-refresh failed for targets:", targets, err);
       });
+
+      // Propagate the invalidation to OTHER tabs so they don't keep stale
+      // IndexedDB snapshots. Server stays authoritative; this only drops the
+      // local cache in sibling tabs (session_manager handles the broadcast).
+      if (typeof SessionManager !== 'undefined' && SessionManager.broadcastCacheInvalidation) {
+        SessionManager.broadcastCacheInvalidation(targets.filter(Boolean));
+      }
     }
 
     return handled;
   } catch (error) {
+    error.endpoint = error.endpoint || endpoint;
+    error.method = error.method || method;
+
     // For permission denied errors, log to console instead of showing popup
     if (error.code === "PERMISSION_DENIED") {
       console.warn("Permission Denied:", error.message);
     }
+
+    // Offline write-queue producer: if a mutation fails because the network is
+    // unreachable, enqueue it so SyncQueue (and Background Sync) replays it on
+    // reconnect. This is what makes the /js/sync/sync_queue.js engine actually
+    // get fed instead of sitting dormant. Only mutations are queued — a failed
+    // GET is just a cache miss and the SW serves the last good response.
+    const isMutation = MUTATION_METHODS.has(String(method).toUpperCase());
+    const isOffline = navigator.onLine === false ||
+      (typeof error === "object" && error !== null && /Failed to fetch|NetworkError|network/i.test(error.message || ""));
+    if (isMutation && isOffline && typeof SyncQueue !== "undefined") {
+      try {
+        const module = (endpoint.split("/").filter(Boolean)[0] || "api").replace(/^api\//, "").split("/")[0];
+        await SyncQueue.addOperation({
+          module,
+          endpoint: (window.APP_BASE || "") + endpoint,
+          method: String(method).toUpperCase(),
+          payload: data,
+          entity_type: module,
+        });
+        console.warn("[api.js] Offline — mutation queued for sync:", endpoint);
+        // Surface a clear, non-error state so the UI knows it is pending.
+        return { status: "queued", message: "Saved offline; will sync when connection returns." };
+      } catch (queueError) {
+        console.error("[api.js] Failed to queue offline mutation:", queueError);
+      }
+    }
+
     return handleApiError(error);
   }
 }
@@ -1404,6 +1639,8 @@ function createFormData(data, files = {}) {
 //attach API to window for global access
 window.API = {
   apiCall,
+  // Alias so controllers using API.callAPI() instead of API.apiCall() work
+  callAPI: apiCall,
   showNotification,
   applyPermissionContract,
   state: APIState,
@@ -2031,6 +2268,7 @@ window.API = {
   // Academic endpoints
   academic: {
     index: async () => apiCall("/academic/index", "GET"),
+    getContext: async () => apiCall("/academic/context", "GET"),
     get: async (id = null) =>
       id ? apiCall(`/academic/${id}`, "GET") : apiCall("/academic", "GET"),
     create: async (data) => apiCall("/academic", "POST", data),
@@ -2179,6 +2417,8 @@ window.API = {
       apiCall("/academic/classes/create", "POST", data),
     listClasses: async (params) =>
       apiCall("/academic/classes-list", "GET", null, params),
+    getClassCapacity: async (params) =>
+      apiCall("/academic/class-capacity", "GET", null, params),
     getClass: async (id = null) =>
       id
         ? apiCall(`/academic/classes-get/${id}`, "GET")
@@ -2325,6 +2565,19 @@ window.API = {
     getCustom: async (params) =>
       apiCall("/academic/custom", "GET", null, params),
     postCustom: async (data) => apiCall("/academic/custom", "POST", data),
+
+    // ---- Admission Stage 5: period-aware, cohort-aware capacity projection ----
+    // Capacity for a target academic year / class (optionally a term & stream).
+    // Params: target_academic_year_id (required), target_class_id (required),
+    //         target_term_id?, target_stream_id?, applied_academic_year?.
+    getCohortCapacity: async (params = {}) =>
+      apiCall("/academic/cohort-capacity", "GET", null, params),
+    // Capacity for a specific admission application (resolves its target class).
+    getCohortProjection: async (applicationId) =>
+      apiCall(
+        `/academic/cohort-projection?application_id=${applicationId}`,
+        "GET",
+      ),
   },
 
   // Attendance endpoints
@@ -3265,7 +3518,18 @@ window.API = {
 
   // Staff endpoints
   staff: {
-    index: async () => apiCall("/staff/index", "GET"),
+    index: async () => {
+      const data = await apiCall("/staff/index", "GET");
+      // Directory data: warm the staff IndexedDB cache so reloads render
+      // instantly and revalidate in the background (network-first strategy).
+      if (typeof DataStore !== "undefined" && data != null) {
+        DataStore.set("staff", data, {
+          ttl: DataStore.DEFAULT_TTL.REFERENCE,
+          storeName: "staff_directory_cache",
+        });
+      }
+      return data;
+    },
     get: async (id = null) =>
       id ? apiCall(`/staff/${id}`, "GET") : apiCall("/staff", "GET"),
     create: async (data) => apiCall("/staff", "POST", data),
@@ -3448,6 +3712,22 @@ window.API = {
       apiCall("/staff/contracts-create", "POST", data),
     updateContract: async (id, data) =>
       apiCall(`/staff/contracts-update/${id}`, "PUT", data),
+
+    // Media (photos & documents) — routes to POST /staff/upload/{id}
+    uploadPhoto: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "photo", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-photo/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
+    uploadDocument: async (staffId, file, extra = {}) => {
+      const formData = createFormData(
+        { type: "document", description: extra.description || "", tags: extra.tags || "" },
+        { file },
+      );
+      return apiCall(`/staff/upload-document/${staffId}`, "POST", formData, {}, { isFile: true });
+    },
   },
 
   // Transport endpoints
@@ -4500,7 +4780,16 @@ window.API = {
      * Returns: cards, charts, tables, timestamp
      */
     getSchoolAdminFull: async () => {
-      return await apiCall("/dashboard/school-admin/full", "GET");
+      // Dashboard metrics: warm an IndexedDB cache so navigating back to the
+      // dashboard paints instantly (cache-first) while revalidating in background.
+      const data = await apiCall("/dashboard/school-admin/full", "GET");
+      if (typeof DataStore !== "undefined" && data != null) {
+        DataStore.set("dashboard_school_admin", data, {
+          ttl: DataStore.DEFAULT_TTL.DIRECTORY,
+          storeName: "dashboard_cache",
+        });
+      }
+      return data;
     },
 
     /**

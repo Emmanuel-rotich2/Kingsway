@@ -1,6 +1,7 @@
 /**
  * Schemes of Work Page Controller
  * Manages schemes of work CRUD and approval workflow using api.js
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const SchemesOfWorkController = (() => {
@@ -12,6 +13,8 @@ const SchemesOfWorkController = (() => {
     academicYears: [],
     pagination: { page: 1, limit: 10, total: 0 },
     summary: { total: 0, approved: 0, pending: 0, overdue: 0 },
+    currentAcademicYear: null,
+    currentTerm: null,
   };
 
   const filters = {
@@ -87,7 +90,11 @@ const SchemesOfWorkController = (() => {
     }
 
     try {
-      const subjectResp = await window.API.apiCall("/academic/subjects", "GET");
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const subjectResp = await DataStore.fetchPage('subjects', {
+        endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       const subjectPayload = unwrapPayload(subjectResp);
       state.subjects = Array.isArray(subjectPayload) ? subjectPayload : [];
       populateSubjectDropdowns();
@@ -419,7 +426,7 @@ const SchemesOfWorkController = (() => {
     if (!state.currentViewId) return;
     try {
       await window.API.apiCall(
-        `/academic/schemes-of-work/${state.currentViewId}/approve`,
+        `/academic/schemes-of-work/approve/${state.currentViewId}`,
         "PUT",
       );
       showSuccess("Scheme approved successfully");
@@ -439,7 +446,7 @@ const SchemesOfWorkController = (() => {
 
     try {
       await window.API.apiCall(
-        `/academic/schemes-of-work/${state.currentViewId}/reject`,
+        `/academic/schemes-of-work/reject/${state.currentViewId}`,
         "PUT",
         { reason },
       );
@@ -475,22 +482,26 @@ const SchemesOfWorkController = (() => {
       return;
     }
 
-    const rows = ["Subject,Class,Teacher,Term,Topic Count,Status,Last Updated"];
-    state.schemes.forEach((s) => {
-      rows.push(
-        `"${s.subject_name || ""}","${s.class_name || ""}","${s.teacher_name || ""}","Term ${s.term || ""}",${s.topic_count || 0},"${s.status || ""}","${s.updated_at || ""}"`,
-      );
-    });
+    if (!window.PrintManager) {
+      showError("PrintManager not available");
+      return;
+    }
 
-    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "schemes_of_work.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      filename: "schemes_of_work",
+      columns: [
+        { key: "subject_name", label: "Subject" },
+        { key: "class_name", label: "Class" },
+        { key: "teacher_name", label: "Teacher" },
+        { key: "term_label", label: "Term" },
+        { key: "status", label: "Status" },
+        { key: "updated_at", label: "Last Updated" },
+      ],
+      rows: state.schemes.map((scheme) => ({
+        ...scheme,
+        term_label: scheme.term_name || `Term ${scheme.term_number || scheme.term || ""}`.trim(),
+      })),
+    });
   }
 
   // ---- Event Listeners ----
@@ -546,6 +557,32 @@ const SchemesOfWorkController = (() => {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in schemes_of_work:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload schemes when academic year or term changes
+          loadSchemes();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      state.currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (state.currentTerm) {
+        filters.term = state.currentTerm;
+      }
     }
 
     attachEventListeners();

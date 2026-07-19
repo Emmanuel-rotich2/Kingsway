@@ -34,7 +34,7 @@ const TimetableController = {
     if (loadBtn) loadBtn.addEventListener("click", () => this.loadTimetable());
 
     const printBtn = document.getElementById("printTimetable");
-    if (printBtn) printBtn.addEventListener("click", () => window.print());
+    if (printBtn) printBtn.addEventListener("click", () => this.printTimetable());
 
     // Auto-load from URL params
     const params = new URLSearchParams(window.location.search);
@@ -249,6 +249,60 @@ const TimetableController = {
     if (!t) return "";
     const parts = t.split(":");
     return parts.slice(0, 2).join(":");
+  },
+
+  printTimetable() {
+    if (!this.state.timetable || this.state.timetable.length === 0) {
+      this.showNotification("No timetable data to print", "warning");
+      return;
+    }
+
+    const classSelect = document.getElementById("selectClass");
+    const className = classSelect?.options[classSelect.selectedIndex]?.text || 'All Classes';
+    const viewType = this.state.viewType || 'weekly';
+
+    const filters = {
+      'Class': className,
+      'View Type': viewType
+    };
+
+    // Convert timetable to printable format
+    const timetableRows = this.state.timetable.map(item => ({
+      day: item.day || '—',
+      time: `${item.start_time || ''} - ${item.end_time || ''}`,
+      subject: item.subject_name || item.subject || '—',
+      teacher: item.teacher_name || item.teacher || '—',
+      room: item.room || item.classroom || '—'
+    }));
+
+    const columns = [
+      { key: 'day', label: 'Day' },
+      { key: 'time', label: 'Time' },
+      { key: 'subject', label: 'Subject' },
+      { key: 'teacher', label: 'Teacher' },
+      { key: 'room', label: 'Room' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Class Timetable',
+      subtitle: `${className} - ${viewType} View`,
+      columns: columns,
+      rows: timetableRows,
+      summary: {
+        'Class': className,
+        'View Type': viewType,
+        'Total Periods': timetableRows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'TT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Head Teacher' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   populateSelect(selector, items, valueKey, labelKey) {

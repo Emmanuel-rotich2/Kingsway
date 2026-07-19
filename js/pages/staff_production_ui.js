@@ -79,7 +79,7 @@ const StaffProductionUI = {
           data: null,
           render: function (data, type, row) {
             const avatar =
-              row.avatar_url || (window.APP_BASE || "") + "/images/avatar-placeholder.png";
+              row.avatar_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
             const name =
               `${row.first_name || ""} ${row.last_name || ""}`.trim() || "N/A";
             const initials = name

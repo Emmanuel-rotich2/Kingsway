@@ -69,7 +69,7 @@ const studentTimelineController = {
     const s = d.student;
 
     // Bio
-    document.getElementById('tlPhoto').src = (window.APP_BASE || '') + '/' + (s.photo_url || 'assets/images/avatar.png');
+    document.getElementById('tlPhoto').src = (window.APP_BASE || '') + '/' + (s.photo_url || 'uploads/students/avatar.jpg');
     document.getElementById('tlStudentName').textContent = [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' ');
     document.getElementById('tlAdmNo').textContent     = s.admission_no || '—';
     document.getElementById('tlDob').textContent       = s.date_of_birth || '—';
@@ -326,8 +326,48 @@ const studentTimelineController = {
   },
 
   exportPDF: function () {
-    showNotification('PDF export not yet implemented — use browser Print → Save as PDF.', 'info');
-    window.print();
+    if (!this.state.timeline || this.state.timeline.length === 0) {
+      showNotification('No timeline data to print', 'warning');
+      return;
+    }
+
+    const studentName = this.state.studentName || 'Student';
+    const admissionNo = this.state.admissionNo || '—';
+
+    // Convert timeline events to printable format
+    const timelineRows = this.state.timeline.map(event => ({
+      date: event.date || event.created_at || '—',
+      event: event.event_type || event.event || '—',
+      description: event.description || event.details || '—',
+      recordedBy: event.recorded_by || event.user || '—'
+    }));
+
+    const columns = [
+      { key: 'date', label: 'Date' },
+      { key: 'event', label: 'Event' },
+      { key: 'description', label: 'Description' },
+      { key: 'recordedBy', label: 'Recorded By' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Student Timeline Report',
+      subtitle: `${studentName} (${admissionNo})`,
+      columns: columns,
+      rows: timelineRows,
+      summary: {
+        'Student Name': studentName,
+        'Admission No': admissionNo,
+        'Total Events': timelineRows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'STL-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Administrator' },
+        { label: 'Principal' }
+      ]
+    });
   },
 
   _set: (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; },

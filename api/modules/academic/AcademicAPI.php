@@ -40,6 +40,20 @@ class AcademicAPI extends BaseAPI
         $this->yearTransitionWorkflow = new AcademicYearTransitionWorkflow();
     }
 
+    private function getCurrentStaffId(): ?int
+    {
+        $userId = $this->getCurrentUserId();
+        if (!$userId) {
+            return null;
+        }
+
+        $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? LIMIT 1");
+        $stmt->execute([(int) $userId]);
+        $staffId = $stmt->fetchColumn();
+
+        return $staffId ? (int) $staffId : null;
+    }
+
     // ========================================================================
     // WORKFLOW METHODS - Examination (11-Stage Workflow)
     // Maps to actual ExaminationWorkflow methods
@@ -723,6 +737,9 @@ class AcademicAPI extends BaseAPI
                     // Get assessments for this curriculum unit
                     $result = $this->getSubjectAssessments($id, $params);
                     break;
+                case 'calendar-events':
+                    $result = $this->getCalendarEvents($params);
+                    break;
                 default:
                     $result = errorResponse(['status' => 'error', 'message' => 'Invalid action'], 400);
                     break;
@@ -751,8 +768,114 @@ class AcademicAPI extends BaseAPI
                 $data['subject_id'] = $id;
                 return $this->assessmentWorkflow->planAssessment($data);
 
+            case 'create-calendar-event':
+                return $this->createCalendarEvent($data);
+
             default:
                 return errorResponse('Invalid action');
+        }
+    }
+
+    public function getCalendarEvents($params = [])
+    {
+        try {
+            $where = ['1=1'];
+            $bindings = [];
+
+            if (!empty($params['academic_year_id'])) {
+                $where[] = 'academic_year_id = ?';
+                $bindings[] = (int) $params['academic_year_id'];
+            }
+            if (!empty($params['term_id'])) {
+                $where[] = 'term_id = ?';
+                $bindings[] = (int) $params['term_id'];
+            }
+
+            $sql = "
+                SELECT
+                    id,
+                    title,
+                    title AS event_name,
+                    description,
+                    date,
+                    date AS start_date,
+                    date AS end_date,
+                    day_type,
+                    CASE
+                        WHEN day_type IN ('public_holiday', 'school_holiday') THEN 'holiday'
+                        WHEN day_type = 'exam_day' THEN 'exam'
+                        WHEN day_type = 'special_event' THEN 'event'
+                        ELSE 'academic'
+                    END AS type,
+                    CASE
+                        WHEN day_type IN ('public_holiday', 'school_holiday') THEN 'holiday'
+                        WHEN day_type = 'exam_day' THEN 'exam'
+                        WHEN day_type = 'special_event' THEN 'event'
+                        ELSE 'academic'
+                    END AS event_type,
+                    CASE
+                        WHEN day_type IN ('public_holiday', 'school_holiday') THEN 'holiday'
+                        WHEN day_type = 'exam_day' THEN 'exam'
+                        ELSE 'academic'
+                    END AS category,
+                    academic_year_id,
+                    term_id
+                FROM school_calendar
+                WHERE " . implode(' AND ', $where) . "
+                ORDER BY date ASC, id ASC
+            ";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+
+            return successResponse($stmt->fetchAll(PDO::FETCH_ASSOC));
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function createCalendarEvent($data)
+    {
+        try {
+            $title = trim((string) ($data['title'] ?? $data['event_name'] ?? ''));
+            $date = $data['date'] ?? $data['start_date'] ?? null;
+            if ($title === '' || empty($date)) {
+                return errorResponse('title and date are required', 400);
+            }
+
+            $dayType = $data['day_type'] ?? $data['event_type'] ?? $data['type'] ?? 'special_event';
+            $allowedTypes = ['school_day', 'weekend', 'public_holiday', 'school_holiday', 'half_day', 'exam_day', 'special_event'];
+            if (!in_array($dayType, $allowedTypes, true)) {
+                $dayType = $dayType === 'holiday' ? 'school_holiday' : 'special_event';
+            }
+
+            $stmt = $this->db->prepare("
+                INSERT INTO school_calendar (
+                    date, day_type, title, description, academic_year_id, term_id, created_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    day_type = VALUES(day_type),
+                    title = VALUES(title),
+                    description = VALUES(description),
+                    academic_year_id = VALUES(academic_year_id),
+                    term_id = VALUES(term_id)
+            ");
+            $stmt->execute([
+                $date,
+                $dayType,
+                $title,
+                $data['description'] ?? null,
+                !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : null,
+                !empty($data['term_id']) ? (int) $data['term_id'] : null,
+                $this->getCurrentUserId(),
+            ]);
+
+            return successResponse([
+                'id' => $this->db->lastInsertId(),
+                'message' => 'Calendar event saved successfully'
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
         }
     }
 
@@ -1300,23 +1423,45 @@ class AcademicAPI extends BaseAPI
                 ], 400);
             }
 
+            // academic_terms has no `description` column (schema mismatch):
+            // insert only real columns. year/term_number default sensibly when
+            // the caller omits them (term_dates.js sends name/start/end only).
             $sql = "
                 INSERT INTO academic_terms (
                     name,
+                    academic_year_id,
                     start_date,
                     end_date,
-                    description,
+                    year,
+                    term_number,
                     status
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ";
+
+            $termNumber = isset($data['term_number']) ? (int) $data['term_number'] : 1;
+            // academic_terms.year is a calendar YEAR(4) derived from the linked
+            // academic_year's year_code (e.g. "2026/2027" -> 2026), NOT the
+            // academic_years.id surrogate key. Resolve it from the FK when present.
+            if (!empty($data['year'])) {
+                $yearValue = (int) $data['year'];
+            } elseif (!empty($data['academic_year_id'])) {
+                $yr = $this->db->prepare('SELECT year_code FROM academic_years WHERE id = ?');
+                $yr->execute([(int) $data['academic_year_id']]);
+                $code = $yr->fetch(\PDO::FETCH_ASSOC);
+                $yearValue = $code ? (int) substr($code['year_code'], 0, 4) : date('Y');
+            } else {
+                $yearValue = (int) date('Y');
+            }
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['name'],
+                !empty($data['academic_year_id']) ? (int) $data['academic_year_id'] : null,
                 $data['start_date'],
                 $data['end_date'],
-                $data['description'] ?? null,
-                'active'
+                $yearValue,
+                $termNumber,
+                'upcoming'
             ]);
 
             $termId = $this->db->lastInsertId();
@@ -1410,6 +1555,8 @@ class AcademicAPI extends BaseAPI
                 'message' => 'Academic year created successfully',
                 'data' => $year
             ], 201);
+        } catch (\InvalidArgumentException $e) {
+            return errorResponse($e->getMessage(), 422);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -1612,25 +1759,82 @@ class AcademicAPI extends BaseAPI
     public function getSchemeOfWork($params = [])
     {
         try {
+            $id = is_scalar($params) ? (int) $params : (int) ($params['id'] ?? 0);
+            $filters = is_array($params) ? $params : [];
+            $where = ['1=1'];
+            $bindings = [];
+
+            if ($id > 0) {
+                $where[] = 'sw.id = ?';
+                $bindings[] = $id;
+            }
+            if (!empty($filters['class_id'])) {
+                $where[] = 'sw.class_id = ?';
+                $bindings[] = (int) $filters['class_id'];
+            }
+            if (!empty($filters['subject_id'])) {
+                $where[] = '(sw.learning_area_id = ? OR sw.subject_id = ?)';
+                $bindings[] = (int) $filters['subject_id'];
+                $bindings[] = (int) $filters['subject_id'];
+            }
+            if (!empty($filters['term_id'])) {
+                $where[] = 'sw.term_id = ?';
+                $bindings[] = (int) $filters['term_id'];
+            } elseif (!empty($filters['term'])) {
+                $where[] = 'sw.term_number = ?';
+                $bindings[] = (int) $filters['term'];
+            }
+            if (!empty($filters['academic_year_id'])) {
+                $where[] = 'sw.academic_year_id = ?';
+                $bindings[] = (int) $filters['academic_year_id'];
+            }
+            if (!empty($filters['status'])) {
+                $where[] = 'sw.status = ?';
+                $bindings[] = $filters['status'];
+            }
+
             $sql = "
                 SELECT 
                     sw.*,
-                    la.name as learning_area_name,
+                    COALESCE(la.name, la2.name, sw.subject_name) as subject_name,
+                    COALESCE(la.name, la2.name, sw.subject_name) as learning_area_name,
                     c.name as class_name,
-                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name
+                    CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
+                    sw.week_number as topic_count
                 FROM schemes_of_work sw
-                JOIN learning_areas la ON sw.learning_area_id = la.id
-                JOIN classes c ON sw.class_id = c.id
-                JOIN staff s ON sw.teacher_id = s.id
-                WHERE sw.status = 'active'
-                ORDER BY sw.term_id, sw.week_number
+                LEFT JOIN learning_areas la ON sw.learning_area_id = la.id
+                LEFT JOIN learning_areas la2 ON sw.subject_id = la2.id
+                LEFT JOIN classes c ON sw.class_id = c.id
+                LEFT JOIN staff s ON sw.teacher_id = s.id
+                WHERE " . implode(' AND ', $where) . "
+                ORDER BY sw.term_id, sw.week_number, sw.id
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute();
+            $stmt->execute($bindings);
             $schemes = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            return successResponse($schemes);
+            if ($id > 0) {
+                return !empty($schemes)
+                    ? successResponse($schemes[0])
+                    : errorResponse('Scheme of work not found', 404);
+            }
+
+            return successResponse([
+                'schemes' => $schemes,
+                'summary' => [
+                    'total' => count($schemes),
+                    'approved' => count(array_filter($schemes, fn($s) => ($s['status'] ?? '') === 'approved')),
+                    'pending' => count(array_filter($schemes, fn($s) => in_array(($s['status'] ?? ''), ['draft', 'submitted'], true))),
+                    'overdue' => 0,
+                ],
+                'pagination' => [
+                    'page' => 1,
+                    'limit' => count($schemes),
+                    'total' => count($schemes),
+                    'total_pages' => count($schemes) > 0 ? 1 : 0,
+                ],
+            ]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -1639,7 +1843,8 @@ class AcademicAPI extends BaseAPI
     public function createSchemeOfWork($data)
     {
         try {
-            $required = ['learning_area_id', 'class_id', 'teacher_id', 'term_id', 'week_number'];
+            $data = $this->normalizeSchemeOfWorkPayload($data);
+            $required = ['learning_area_id', 'class_id', 'teacher_id', 'term_id', 'week_number', 'title'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return errorResponse([
@@ -1652,32 +1857,42 @@ class AcademicAPI extends BaseAPI
             $sql = "
                 INSERT INTO schemes_of_work (
                     learning_area_id,
+                    subject_id,
+                    subject_name,
                     class_id,
                     teacher_id,
+                    academic_year_id,
                     term_id,
+                    term_number,
+                    title,
+                    description,
                     week_number,
-                    topics,
-                    objectives,
+                    learning_outcomes,
                     resources,
                     activities,
-                    assessment,
+                    assessment_methods,
                     status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['learning_area_id'],
+                $data['learning_area_id'],
+                $data['subject_name'] ?? null,
                 $data['class_id'],
                 $data['teacher_id'],
+                $data['academic_year_id'] ?? null,
                 $data['term_id'],
+                $data['term_number'] ?? null,
+                $data['title'],
+                $data['description'] ?? null,
                 $data['week_number'],
-                json_encode($data['topics'] ?? []),
-                json_encode($data['objectives'] ?? []),
-                json_encode($data['resources'] ?? []),
-                json_encode($data['activities'] ?? []),
-                json_encode($data['assessment'] ?? []),
-                'active'
+                $data['learning_outcomes'] ?? null,
+                $data['resources'] ?? null,
+                $data['activities'] ?? null,
+                $data['assessment_methods'] ?? null,
+                $data['status'] ?? 'draft'
             ]);
 
             $schemeId = $this->db->lastInsertId();
@@ -1690,6 +1905,161 @@ class AcademicAPI extends BaseAPI
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    public function updateSchemeOfWork($id, $data)
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Scheme of work ID is required', 400);
+            }
+
+            $data = $this->normalizeSchemeOfWorkPayload($data, false);
+            $allowed = [
+                'learning_area_id', 'subject_id', 'subject_name', 'class_id', 'teacher_id',
+                'academic_year_id', 'term_id', 'term_number', 'title', 'description',
+                'week_number', 'learning_outcomes', 'resources', 'activities',
+                'assessment_methods', 'status'
+            ];
+            $fields = [];
+            $values = [];
+            foreach ($allowed as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $values[] = $data[$field];
+                }
+            }
+
+            if (empty($fields)) {
+                return errorResponse('No valid fields to update', 400);
+            }
+
+            $values[] = $id;
+            $stmt = $this->db->prepare("UPDATE schemes_of_work SET " . implode(', ', $fields) . " WHERE id = ?");
+            $stmt->execute($values);
+
+            return successResponse(['id' => (int) $id, 'message' => 'Scheme of work updated successfully']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function approveSchemeOfWork($id, $data = [])
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Scheme of work ID is required', 400);
+            }
+
+            $stmt = $this->db->prepare("
+                UPDATE schemes_of_work
+                SET status = 'approved', approved_by = ?, approved_at = NOW(), rejection_reason = NULL
+                WHERE id = ?
+            ");
+            $approvedBy = $data['approved_by'] ?? $this->getCurrentStaffId();
+            $stmt->execute([$approvedBy, $id]);
+
+            return successResponse(['id' => (int) $id, 'message' => 'Scheme of work approved']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function rejectSchemeOfWork($id, $data = [])
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Scheme of work ID is required', 400);
+            }
+
+            $stmt = $this->db->prepare("
+                UPDATE schemes_of_work
+                SET status = 'rejected', approved_by = ?, approved_at = NOW(), rejection_reason = ?
+                WHERE id = ?
+            ");
+            $stmt->execute([
+                $data['rejected_by'] ?? $this->getCurrentStaffId(),
+                $data['reason'] ?? $data['rejection_reason'] ?? null,
+                $id
+            ]);
+
+            return successResponse(['id' => (int) $id, 'message' => 'Scheme of work rejected']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function deleteSchemeOfWork($id)
+    {
+        try {
+            if (!$id) {
+                return errorResponse('Scheme of work ID is required', 400);
+            }
+
+            $stmt = $this->db->prepare("DELETE FROM schemes_of_work WHERE id = ?");
+            $stmt->execute([$id]);
+
+            return successResponse(['id' => (int) $id, 'message' => 'Scheme of work deleted']);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    private function normalizeSchemeOfWorkPayload(array $data, bool $forCreate = true): array
+    {
+        if (!empty($data['subject_id']) && empty($data['learning_area_id'])) {
+            $data['learning_area_id'] = (int) $data['subject_id'];
+        }
+        if (!empty($data['learning_area_id']) && empty($data['subject_id'])) {
+            $data['subject_id'] = (int) $data['learning_area_id'];
+        }
+        if (!empty($data['topics']) && empty($data['learning_outcomes'])) {
+            $data['learning_outcomes'] = $data['topics'];
+        }
+        if (!empty($data['notes']) && empty($data['description'])) {
+            $data['description'] = $data['notes'];
+        }
+        if (!empty($data['term']) && empty($data['term_id'])) {
+            $termNumber = (int) $data['term'];
+            $data['term_number'] = $termNumber;
+            if (!empty($data['academic_year_id'])) {
+                $stmt = $this->db->prepare("
+                    SELECT id FROM academic_terms
+                    WHERE academic_year_id = ? AND term_number = ?
+                    ORDER BY FIELD(status, 'current', 'active', 'upcoming'), id DESC
+                    LIMIT 1
+                ");
+                $stmt->execute([(int) $data['academic_year_id'], $termNumber]);
+                $termId = (int) ($stmt->fetchColumn() ?: 0);
+                if ($termId > 0) {
+                    $data['term_id'] = $termId;
+                }
+            }
+        }
+        if ($forCreate && empty($data['week_number'])) {
+            $data['week_number'] = 1;
+        }
+        if (!empty($data['learning_area_id']) && empty($data['subject_name'])) {
+            $stmt = $this->db->prepare("SELECT name FROM learning_areas WHERE id = ? LIMIT 1");
+            $stmt->execute([(int) $data['learning_area_id']]);
+            $data['subject_name'] = $stmt->fetchColumn() ?: null;
+        }
+        if ($forCreate && empty($data['teacher_id'])) {
+            $userId = $data['created_by'] ?? $this->getCurrentUserId();
+            if ($userId) {
+                $stmt = $this->db->prepare("SELECT id FROM staff WHERE user_id = ? LIMIT 1");
+                $stmt->execute([(int) $userId]);
+                $staffId = (int) ($stmt->fetchColumn() ?: 0);
+                if ($staffId > 0) {
+                    $data['teacher_id'] = $staffId;
+                }
+            }
+        }
+        if (!empty($data['status']) && $data['status'] === 'pending') {
+            $data['status'] = 'submitted';
+        }
+
+        return $data;
     }
 
     public function getLessonObservations($params = [])
@@ -2561,7 +2931,7 @@ class AcademicAPI extends BaseAPI
                 return errorResponse('Only submitted lesson plans can be approved');
             }
 
-            $approver_id = is_array($data) ? ($data['approved_by'] ?? $this->getCurrentUserId()) : $this->getCurrentUserId();
+            $approver_id = is_array($data) ? ($data['approved_by'] ?? $this->getCurrentStaffId()) : $this->getCurrentStaffId();
             $remarks = is_array($data) ? ($data['remarks'] ?? $data['feedback'] ?? null) : null;
 
             $sql = "UPDATE lesson_plans SET status = 'approved', approved_by = ?, approved_at = NOW(), remarks = ? WHERE id = ?";
@@ -2602,7 +2972,7 @@ class AcademicAPI extends BaseAPI
             }
 
             $remarks = is_array($data) ? ($data['remarks'] ?? $data['feedback'] ?? null) : null;
-            $rejectedBy = is_array($data) ? ($data['rejected_by'] ?? $this->getCurrentUserId()) : $this->getCurrentUserId();
+            $rejectedBy = is_array($data) ? ($data['rejected_by'] ?? $this->getCurrentStaffId()) : $this->getCurrentStaffId();
 
             $sql = "UPDATE lesson_plans SET status = 'rejected', remarks = ?, approved_by = ?, approved_at = NOW() WHERE id = ?";
             $stmt = $this->db->prepare($sql);
@@ -3050,11 +3420,12 @@ class AcademicAPI extends BaseAPI
                 SELECT DISTINCT
                     s.id as teacher_id,
                     CONCAT(s.first_name, ' ', s.last_name) as teacher_name,
-                    s.email,
+                    u.email,
                     s.phone,
                     COUNT(DISTINCT cs.class_id) as class_count
                 FROM class_schedules cs
                 JOIN staff s ON cs.teacher_id = s.id
+                LEFT JOIN users u ON u.id = s.user_id
                 WHERE cs.subject_id = ? AND cs.status = 'active'
                 GROUP BY s.id
             ";
@@ -3329,6 +3700,79 @@ class AcademicAPI extends BaseAPI
 
             // Return just the data array - successResponse will wrap it properly
             return successResponse($classes);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    /**
+     * Stream-level class capacity for capacity dashboards.
+     */
+    public function getClassCapacity($params = [])
+    {
+        try {
+            $currentYearId = null;
+            if (!empty($params['academic_year_id'])) {
+                $currentYearId = (int) $params['academic_year_id'];
+            } else {
+                $stmt = $this->db->query("SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1");
+                $currentYearId = (int) ($stmt->fetchColumn() ?: 0);
+            }
+
+            $where = ["c.status = 'active'"];
+            $bindings = [];
+
+            if (!empty($params['class_id'])) {
+                $where[] = 'c.id = ?';
+                $bindings[] = (int) $params['class_id'];
+            }
+
+            $yearJoin = '';
+            if ($currentYearId > 0) {
+                $yearJoin = 'AND ce.academic_year_id = ?';
+            }
+
+            $sql = "
+                SELECT
+                    c.id AS class_id,
+                    c.name AS class_name,
+                    cs.id AS stream_id,
+                    cs.stream_name,
+                    COALESCE(NULLIF(cs.capacity, 0), c.capacity, 40) AS capacity,
+                    COUNT(DISTINCT ce.student_id) AS enrolled,
+                    COUNT(DISTINCT ce.student_id) AS student_count,
+                    GREATEST(COALESCE(NULLIF(cs.capacity, 0), c.capacity, 40) - COUNT(DISTINCT ce.student_id), 0) AS available,
+                    CASE
+                        WHEN COALESCE(NULLIF(cs.capacity, 0), c.capacity, 40) > 0
+                        THEN ROUND((COUNT(DISTINCT ce.student_id) / COALESCE(NULLIF(cs.capacity, 0), c.capacity, 40)) * 100)
+                        ELSE 0
+                    END AS utilization,
+                    cs.status,
+                    sl.name AS level_name,
+                    CONCAT(st.first_name, ' ', st.last_name) AS teacher_name
+                FROM classes c
+                LEFT JOIN school_levels sl ON sl.id = c.level_id
+                LEFT JOIN class_streams cs ON cs.class_id = c.id AND cs.status = 'active'
+                LEFT JOIN staff st ON st.id = cs.teacher_id
+                LEFT JOIN class_enrollments ce
+                    ON ce.class_id = c.id
+                    AND ce.stream_id = cs.id
+                    AND ce.enrollment_status = 'active'
+                    {$yearJoin}
+                WHERE " . implode(' AND ', $where) . "
+                GROUP BY c.id, cs.id
+                ORDER BY c.academic_year DESC, sl.code, c.name, cs.stream_name
+            ";
+
+            if ($currentYearId > 0) {
+                array_unshift($bindings, $currentYearId);
+            }
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return successResponse($rows);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
@@ -4233,6 +4677,11 @@ class AcademicAPI extends BaseAPI
 
             $termJoin = '';
             $termBindings = [];
+            // When no term filter is supplied the term_scores subquery is not joined,
+            // so referencing term_scores.* in the SELECT would raise "Unknown column".
+            // Fall back to NULL so COALESCE() resolves to the class_enrollments averages.
+            $termAverageExpr = 'NULL';
+            $termGradeExpr = 'NULL';
             if ($termId !== null) {
                 $termJoin = "
                     LEFT JOIN (
@@ -4246,6 +4695,8 @@ class AcademicAPI extends BaseAPI
                     ) term_scores ON term_scores.student_id = s.id
                 ";
                 $termBindings[] = $termId;
+                $termAverageExpr = 'term_scores.term_average';
+                $termGradeExpr = 'term_scores.term_grade';
             }
 
             $feeJoin = "
@@ -4308,8 +4759,8 @@ class AcademicAPI extends BaseAPI
                     c.name AS class_name,
                     cs.id AS stream_id,
                     cs.stream_name,
-                    COALESCE(term_scores.term_average, ce.year_average) AS average_score,
-                    COALESCE(term_scores.term_grade, ce.overall_grade) AS grade,
+                    COALESCE({$termAverageExpr}, ce.year_average) AS average_score,
+                    COALESCE({$termGradeExpr}, ce.overall_grade) AS grade,
                     COALESCE(ce.attendance_percentage, 0) AS attendance_rate,
                     COALESCE(ce.class_rank, ce.stream_rank) AS position,
                     COALESCE(fee_summary.balance, 0) AS fee_balance,
@@ -4677,11 +5128,12 @@ class AcademicAPI extends BaseAPI
                     sl.name as level_name,
                     sl.code as level_code,
                     CONCAT(s.first_name, ' ', s.last_name) as class_teacher_name,
-                    s.email as class_teacher_email,
+                    u.email as class_teacher_email,
                     s.phone as class_teacher_phone
                 FROM classes c
                 LEFT JOIN school_levels sl ON c.level_id = sl.id
                 LEFT JOIN staff s ON c.teacher_id = s.id
+                LEFT JOIN users u ON u.id = s.user_id
                 WHERE c.id = ?
             ";
 
@@ -5145,7 +5597,7 @@ class AcademicAPI extends BaseAPI
                 $streamName,
                 (int) $data['capacity'],
                 !empty($data['teacher_id']) ? (int) $data['teacher_id'] : null,
-                in_array(($data['status'] ?? 'active'), ['active', 'inactive'], true) ? $data['status'] : 'active'
+                in_array(($data['status'] ?? 'active'), ['active', 'inactive'], true) ? ($data['status'] ?? 'active') : 'active'
             ]);
 
             $streamId = $this->db->lastInsertId();

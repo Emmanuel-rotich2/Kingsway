@@ -265,7 +265,6 @@ return [
             ['label' => 'Manage Classes',          'url' => 'manage_classes'],
             ['label' => 'Class Streams',           'url' => 'class_streams'],
             ['label' => 'Class Capacity',          'url' => 'class_capacity'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // STAFF — Admin handles full HR operations + onboarding
@@ -376,13 +375,13 @@ return [
     5 => [
         ['label' => 'Dashboard', 'url' => 'headteacher_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
 
-        // ADMISSIONS — HT conducts interview, makes admission decision
+        // ADMISSIONS — HT review, interview, decision, oversight
         ['label' => 'Admissions', 'url' => null, 'icon' => 'fas fa-user-plus', 'subitems' => [
-            ['label' => 'All Applications',        'url' => 'admissions_headteacher_applications'],
-            ['label' => 'Conduct Interview',       'url' => 'admission_interviews'],       // HT leads interview
-            ['label' => 'Admission Decisions',     'url' => 'admissions_admission_decisions'], // HT recommends/approves
-            ['label' => 'Pending Approvals',       'url' => 'admissions_pending_admission_approvals'],
-            ['label' => 'Enrollment Reports',      'url' => 'enrollment_reports'],
+            ['label' => 'Applications Review',    'url' => 'admissions_headteacher_applications'],
+            ['label' => 'Interview Queue',        'url' => 'admission_interviews'],
+            ['label' => 'Admission Decisions',    'url' => 'admissions_admission_decisions'],
+            ['label' => 'Approval Follow-up',     'url' => 'admissions_pending_admission_approvals'],
+            ['label' => 'Enrollment Reports',     'url' => 'enrollment_reports'],
         ]],
 
         // ACADEMIC — HT approves timetable + lesson plans (key workflow authority)
@@ -509,7 +508,6 @@ return [
             ['label' => 'CBC Curriculum',          'url' => 'curriculum_cbc'],
             ['label' => 'Academic Years',          'url' => 'academic_years'],
             ['label' => 'Academic Calendar',       'url' => 'academic_calendar'],
-            ['label' => 'Student Promotion',       'url' => 'student_promotion'],
         ]],
 
         // ── ADMIN: TIMETABLE (Deputy ASSIGNS teachers — key workflow step) ────

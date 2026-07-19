@@ -1,6 +1,7 @@
 /**
  * Exam Schedule Page Controller
  * Manages exam schedule CRUD and viewing workflow using api.js
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const ExamScheduleController = (() => {
@@ -12,6 +13,8 @@ const ExamScheduleController = (() => {
     teachers: [],
     pagination: { page: 1, limit: 10, total: 0 },
     summary: { total: 0, upcoming: 0, in_progress: 0, completed: 0 },
+    currentAcademicYear: null,
+    currentTerm: null,
   };
 
   const filters = {
@@ -98,7 +101,11 @@ const ExamScheduleController = (() => {
     }
 
     try {
-      const subjectResp = await window.API.apiCall("/academic/subjects", "GET");
+      // Reference data: cache 24h (stale-while-revalidate) to skip DB re-query.
+      const subjectResp = await DataStore.fetchPage('subjects', {
+        endpoint: '/academic/subjects-list', storeName: 'reference_subjects',
+        ttl: DataStore.DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate'
+      });
       const subjectPayload = unwrapPayload(subjectResp);
       state.subjects = Array.isArray(subjectPayload) ? subjectPayload : [];
       populateSubjectDropdowns();
@@ -358,6 +365,15 @@ const ExamScheduleController = (() => {
       notes: document.getElementById("examNotes").value,
     };
 
+    if (payload.start_time && payload.duration) {
+      const [hours, minutes] = payload.start_time
+        .split(":")
+        .map((part) => parseInt(part, 10));
+      const end = new Date(2000, 0, 1, hours || 0, minutes || 0);
+      end.setMinutes(end.getMinutes() + payload.duration);
+      payload.end_time = `${String(end.getHours()).padStart(2, "0")}:${String(end.getMinutes()).padStart(2, "0")}:00`;
+    }
+
     if (
       !payload.exam_name ||
       !payload.subject_id ||
@@ -401,30 +417,89 @@ const ExamScheduleController = (() => {
     }
   }
 
+  function printSchedule() {
+    if (!state.exams.length) {
+      showError("No data to print");
+      return;
+    }
+
+    const term = document.getElementById("termFilter")?.options[document.getElementById("termFilter").selectedIndex]?.text || 'All';
+    const classFilter = document.getElementById("classFilter")?.options[document.getElementById("classFilter").selectedIndex]?.text || 'All';
+    const subject = document.getElementById("subjectFilter")?.options[document.getElementById("subjectFilter").selectedIndex]?.text || 'All';
+    const status = document.getElementById("statusFilter")?.options[document.getElementById("statusFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Term': term,
+      'Class': classFilter,
+      'Subject': subject,
+      'Status': status
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'exam_name', label: 'Exam Name' },
+      { key: 'subject_name', label: 'Subject' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'exam_date', label: 'Date' },
+      { key: 'start_time', label: 'Time' },
+      { key: 'duration', label: 'Duration' },
+      { key: 'venue', label: 'Venue' },
+      { key: 'supervisor_name', label: 'Supervisor' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Examination Schedule',
+      subtitle: 'School Exam Timetable',
+      columns: columns,
+      rows: state.exams,
+      summary: {
+        'Total Exams': state.exams.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'EXS-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function exportSchedule() {
     if (!state.exams.length) {
       showError("No data to export");
       return;
     }
 
-    const rows = [
-      "Exam Name,Subject,Class,Date,Time,Duration,Venue,Supervisor,Status",
-    ];
-    state.exams.forEach((e) => {
-      rows.push(
-        `"${e.exam_name || ""}","${e.subject_name || ""}","${e.class_name || ""}","${e.exam_date || ""}","${e.start_time || ""}","${e.duration || ""} min","${e.venue || ""}","${e.supervisor_name || ""}","${e.status || ""}"`,
-      );
-    });
+    if (!window.PrintManager) {
+      showError("PrintManager not available");
+      return;
+    }
 
-    const blob = new Blob([rows.join("\n")], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "exam_schedule.csv";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      filename: "exam_schedule",
+      columns: [
+        { key: "exam_name", label: "Exam Name" },
+        { key: "subject_name", label: "Subject" },
+        { key: "class_name", label: "Class" },
+        { key: "exam_date", label: "Date" },
+        { key: "start_time", label: "Time" },
+        { key: "duration", label: "Duration" },
+        { key: "venue", label: "Venue" },
+        { key: "supervisor_name", label: "Supervisor" },
+        { key: "status", label: "Status" },
+      ],
+      rows: state.exams,
+    });
   }
 
   // ---- Event Listeners ----
@@ -446,7 +521,7 @@ const ExamScheduleController = (() => {
 
     document
       .getElementById("printScheduleBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printSchedule());
 
     // Filters
     document.getElementById("termFilter")?.addEventListener("change", (e) => {
@@ -478,6 +553,32 @@ const ExamScheduleController = (() => {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
+    }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in exam_schedule:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload exams when academic year or term changes
+          loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      state.currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (state.currentTerm) {
+        filters.term = state.currentTerm;
+      }
     }
 
     const canCreate = AuthContext.hasPermission('assessments_create');

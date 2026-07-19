@@ -52,7 +52,14 @@
         <div class="card-body">
             <div class="row g-3">
                 <div class="col-md-4"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div>
-                <div class="col-md-3"><select class="form-select" id="filterSelect"><option value="">All</option></select></div>
+                <div class="col-md-3">
+                    <select class="form-select" id="filterSelect">
+                        <option value="">All</option>
+                        <option value="available">Available</option>
+                        <option value="near_full">Near Full</option>
+                        <option value="full">Full</option>
+                    </select>
+                </div>
                 <div class="col-md-3"><input type="date" class="form-control" id="dateFilter"></div>
                 <div class="col-md-2"><button class="btn btn-outline-secondary w-100" onclick="ClassCapacityController.refresh()"><i class="fas fa-sync-alt"></i></button></div>
             </div>

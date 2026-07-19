@@ -40,13 +40,16 @@ const classPlacementController = {
         }
     },
 
-    apiCall: function(endpoint, method = "GET", data = null) {
+    apiCall: function(endpoint, method = "GET", data = null, params = {}) {
+        const queryParams =
+            params && typeof params === "object" && !Array.isArray(params) ? params : {};
+
         if (window.API && typeof window.API.callAPI === "function") {
-            return window.API.callAPI(endpoint, method, data);
+            return window.API.callAPI(endpoint, method, data, queryParams);
         }
 
         if (window.API && typeof window.API.apiCall === "function") {
-            return window.API.apiCall(endpoint, method, data);
+            return window.API.apiCall(endpoint, method, data, queryParams);
         }
 
         throw new Error("API helper not available. Expected window.API.callAPI or window.API.apiCall.");
@@ -112,6 +115,13 @@ const classPlacementController = {
             classesTab: document.getElementById("classesTab"),
             placementsTab: document.getElementById("placementsTab"),
             capacityTab: document.getElementById("capacityTab"),
+            projectionYear: document.getElementById("projectionYear"),
+            projectionClass: document.getElementById("projectionClass"),
+            projectionTerm: document.getElementById("projectionTerm"),
+            projectionStream: document.getElementById("projectionStream"),
+            projectionResult: document.getElementById("projectionResult"),
+            projectionResolutionBadge: document.getElementById("projectionResolutionBadge"),
+            btnProjectCapacity: document.getElementById("btnProjectCapacity"),
             editPlacementModal: document.getElementById("editPlacementModal"),
             editPlacementForm: document.getElementById("editPlacementForm"),
             editPlacementApplicationId: document.getElementById("editPlacementApplicationId"),
@@ -392,8 +402,12 @@ const classPlacementController = {
         document.getElementById('classesTab').style.display = tabName === 'classes' ? 'block' : 'none';
         document.getElementById('placementsTab').style.display = tabName === 'placements' ? 'block' : 'none';
         document.getElementById('capacityTab').style.display = tabName === 'capacity' ? 'block' : 'none';
+
+        if (tabName === 'capacity' && this.dom.projectionYear) {
+            this.loadProjectionOptions();
+        }
     },
-    
+
     setupEventListeners: function() {
         // Edit placement form submission
         const editForm = document.getElementById('editPlacementForm');
@@ -403,8 +417,165 @@ const classPlacementController = {
                 this.updatePlacement();
             });
         }
+
+        // Populate stream options when the target class changes.
+        if (this.dom.projectionClass) {
+            this.dom.projectionClass.addEventListener('change', () => {
+                this.loadStreamOptions();
+            });
+        }
     },
-    
+
+    // ---- Admission Stage 5: period-aware, cohort-aware capacity projection ----
+    loadProjectionOptions: async function() {
+        if (this._projectionOptionsLoaded) return;
+        try {
+            const years = await this.apiCall("/academic/years/list", "GET");
+            if (years && years.success) {
+                this.dom.projectionYear.innerHTML =
+                    '<option value="">Select Year</option>' +
+                    (years.data || []).map(y =>
+                        `<option value="${y.id}">${this.escapeHtml(y.year_name || y.year_code || y.id)}</option>`
+                    ).join("");
+            }
+            const classes = await this.apiCall("/academic/classes-list", "GET");
+            if (classes && classes.success) {
+                this.dom.projectionClass.innerHTML =
+                    '<option value="">Select Class</option>' +
+                    (classes.data || []).map(c =>
+                        `<option value="${c.id}">${this.escapeHtml(c.name || c.id)}</option>`
+                    ).join("");
+            }
+            this._projectionOptionsLoaded = true;
+        } catch (err) {
+            console.warn("Could not load projection options:", err);
+        }
+    },
+
+    loadStreamOptions: async function() {
+        const classId = this.dom.projectionClass.value;
+        if (!this.dom.projectionStream) return;
+        this.dom.projectionStream.innerHTML = '<option value="">Auto</option>';
+        if (!classId) return;
+        try {
+            const res = await this.apiCall(
+                `/academic/streams-list?class_id=${classId}`,
+                "GET"
+            );
+            if (res && res.success) {
+                (res.data || []).forEach(s => {
+                    this.dom.projectionStream.insertAdjacentHTML(
+                        "beforeend",
+                        `<option value="${s.id}">${this.escapeHtml(s.stream_name || s.name || s.id)}</option>`
+                    );
+                });
+            }
+        } catch (err) {
+            console.warn("Could not load stream options:", err);
+        }
+    },
+
+    projectCapacity: async function() {
+        const yearId = this.dom.projectionYear.value;
+        const classId = this.dom.projectionClass.value;
+        if (!yearId || !classId) {
+            this.renderProjectionError("Select an academic year and target class.");
+            return;
+        }
+
+        this.dom.btnProjectCapacity.disabled = true;
+        this.dom.btnProjectCapacity.innerHTML =
+            '<span class="spinner-border spinner-border-sm"></span> Projecting...';
+        this.dom.projectionResult.innerHTML = "";
+        if (this.dom.projectionResolutionBadge)
+            this.dom.projectionResolutionBadge.style.display = "none";
+
+        const params = {
+            target_academic_year_id: yearId,
+            target_class_id: classId,
+        };
+        if (this.dom.projectionTerm.value) params.target_term_id = this.dom.projectionTerm.value;
+        if (this.dom.projectionStream.value) params.target_stream_id = this.dom.projectionStream.value;
+
+        try {
+            const res = await this.apiCall("/academic/cohort-capacity", "GET", null, params);
+            if (!res || !res.success) {
+                this.renderProjectionError(res && res.message ? res.message : "Projection failed.");
+                return;
+            }
+            this.renderProjection(res.data || res);
+        } catch (err) {
+            this.renderProjectionError(err.message || "Projection request failed.");
+        } finally {
+            this.dom.btnProjectCapacity.disabled = false;
+            this.dom.btnProjectCapacity.innerHTML =
+                '<i class="bi bi-lightbulb me-1"></i>Project';
+        }
+    },
+
+    renderProjection: function(d) {
+        const statusMap = {
+            available: "success",
+            limited: "warning",
+            full: "danger",
+            over_capacity: "danger",
+            setup_required: "secondary",
+            projected_available: "info",
+            projected_limited: "warning",
+            projected_full: "danger",
+            projected_over_capacity: "danger",
+        };
+        const status = d.capacity_status || "unknown";
+        const cls = statusMap[status] || "secondary";
+
+        if (this.dom.projectionResolutionBadge) {
+            this.dom.projectionResolutionBadge.style.display = "inline-block";
+            this.dom.projectionResolutionBadge.textContent =
+                (d.resolution || "").replace(/_/g, " ");
+        }
+
+        const occupancy = d.projected_occupancy ?? d.current_enrollment ?? d.enrolled ?? 0;
+        const capacity = d.capacity ?? 0;
+        const spaces = d.spaces_available ?? (capacity - occupancy);
+        const pct = capacity > 0 ? Math.round((occupancy / capacity) * 100) : 0;
+        const confidence = d.confidence || "—";
+        const sourceCohort = d.source_cohort_name || d.source_class_name || "—";
+        const warnings = Array.isArray(d.warnings) ? d.warnings : [];
+
+        let warningHtml = "";
+        if (warnings.length) {
+            warningHtml = `<div class="alert alert-warning small mt-3 mb-0">` +
+                warnings.map(w => `<div>• ${this.escapeHtml(w)}</div>`).join("") +
+                `</div>`;
+        }
+
+        this.dom.projectionResult.innerHTML = `
+            <div class="alert alert-${cls} d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <strong>${this.escapeHtml((d.target_class_name || "Class") + " — " + (d.target_academic_year || ""))}</strong>
+                    <div class="small">Status: ${this.escapeHtml(status.replace(/_/g, " "))}</div>
+                </div>
+                <span class="badge bg-light text-dark">confidence: ${this.escapeHtml(confidence)}</span>
+            </div>
+            <div class="progress mb-2" style="height:10px;">
+                <div class="progress-bar bg-${cls}" style="width:${pct}%"></div>
+            </div>
+            <div class="row g-2 small">
+                <div class="col-6 col-md-3"><strong>Capacity:</strong> ${capacity}</div>
+                <div class="col-6 col-md-3"><strong>Projected occupancy:</strong> ${occupancy}</div>
+                <div class="col-6 col-md-3"><strong>Spaces available:</strong> ${spaces}</div>
+                <div class="col-6 col-md-3"><strong>Source cohort:</strong> ${this.escapeHtml(sourceCohort)}</div>
+            </div>
+            ${warningHtml}`;
+    },
+
+    renderProjectionError: function(msg) {
+        if (this.dom.projectionResolutionBadge)
+            this.dom.projectionResolutionBadge.style.display = "none";
+        this.dom.projectionResult.innerHTML =
+            `<div class="alert alert-danger small mb-0">${this.escapeHtml(msg)}</div>`;
+    },
+
     editPlacement: function(applicationId) {
         const application = this.placements.find(app => app.id === applicationId);
         if (!application) {

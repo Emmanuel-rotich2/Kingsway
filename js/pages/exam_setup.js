@@ -32,6 +32,8 @@ const examSetupController = (() => {
   let pagination = { page: 1, limit: 15, total: 0 };
   let _searchTimeout = null;
   let _currentViewId = null; // id shown in View Details modal
+  let _currentAcademicYear = null;
+  let _currentTerm = null;
 
   /* Grading scale presets */
   const GRADING_SCALES = {
@@ -1213,23 +1215,59 @@ const examSetupController = (() => {
   }
 
   function printTable() {
-    const table = $("examsTable");
-    if (!table) return;
-    const win = window.open("", "_blank");
-    win.document.write(`
-            <html><head><title>Exam Configurations</title>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
-            <style>
-                body { padding: 20px; font-size: 12px; }
-                @media print { .no-print { display: none; } }
-            </style></head><body>
-            <h3>Exam Setup & Configuration</h3>
-            <p>Printed: ${new Date().toLocaleString()}</p>
-            ${table.outerHTML}
-            <script>window.onload = function(){ window.print(); }</script>
-            </body></html>
-        `);
-    win.document.close();
+    if (!_exams || _exams.length === 0) {
+      toast("No exam data to print", "warning");
+      return;
+    }
+
+    const year = $("filterYear")?.options[$("filterYear").selectedIndex]?.text || 'All';
+    const term = $("filterTerm")?.options[$("filterTerm").selectedIndex]?.text || 'All';
+    const classFilter = $("filterClass")?.options[$("filterClass").selectedIndex]?.text || 'All';
+    const status = $("filterStatus")?.options[$("filterStatus").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Academic Year': year,
+      'Term': term,
+      'Class': classFilter,
+      'Status': status
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'exam_name', label: 'Exam Name' },
+      { key: 'academic_year', label: 'Academic Year' },
+      { key: 'term_name', label: 'Term' },
+      { key: 'class_name', label: 'Class' },
+      { key: 'exam_date', label: 'Exam Date' },
+      { key: 'start_time', label: 'Start Time' },
+      { key: 'duration', label: 'Duration' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Exam Setup & Configuration',
+      subtitle: 'School Exam Configurations',
+      columns: columns,
+      rows: _exams,
+      summary: {
+        'Total Exams': _exams.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'EXM-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Examinations Officer' },
+        { label: 'Principal' }
+      ]
+    });
   }
 
   /* =================================================================
@@ -1317,6 +1355,33 @@ const examSetupController = (() => {
     if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
+    }
+
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in exam_setup:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload exams when academic year or term changes
+          loadExams();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      _currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      _currentTerm = window.AcademicContext.getTermId();
+      
+      // Update filters to use current context
+      if (_currentTerm) {
+        const termFilter = $('termFilter');
+        if (termFilter) termFilter.value = _currentTerm;
+      }
     }
 
     const canCreate = typeof AuthContext !== 'undefined'

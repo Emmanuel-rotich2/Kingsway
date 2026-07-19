@@ -699,6 +699,7 @@ class AuthAPI extends BaseAPI
                 'message' => 'Login successful',
                 'data' => [
                     'token' => $token,
+                    'refresh_token' => $refreshToken,
                     'token_expires_in' => JWT_EXPIRY,
                     'remember_me' => $rememberMe,
                     'user' => $userData,
@@ -954,6 +955,7 @@ class AuthAPI extends BaseAPI
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
+                'refresh_token' => $refreshToken,
                 'token_expires_in' => JWT_EXPIRY,
                 'remember_me' => $rememberMe,
                 'user' => $userData,
@@ -1039,9 +1041,11 @@ class AuthAPI extends BaseAPI
 
             // Get user and generate new access token
             $userId = $result['user_id'];
-            $userData = $this->usersApi->get($userId);
+            $userLookup = $this->usersApi->get($userId);
+            // UsersAPI::get() returns a {success, data} envelope; unwrap it.
+            $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
 
-            if (!$userData) {
+            if (!$userData || empty($userData['id'])) {
                 return [
                     'success' => false,
                     'message' => 'User not found'
@@ -1069,15 +1073,20 @@ class AuthAPI extends BaseAPI
                 'permissions' => $permissionCodes
             ]);
 
-            return [
-                'success' => true,
-                'message' => 'Token refreshed successfully',
-                'data' => [
-                    'token' => $newToken,
-                    'refresh_token' => $refreshToken,
-                    'token_expires_in' => JWT_EXPIRY
-                ]
-            ];
+            // Reuse the same proven envelope builder as login so the SPA can
+            // rehydrate a full session (user_data / permissions / roles /
+            // sidebar / dashboard) from the refresh cookie alone. This is what
+            // lets a fresh window / incognito / cleared-cache survive without
+            // an immediate logout — web-storage is empty, but the refresh
+            // cookie is still valid, so one refresh restores everything.
+            $roleIds = [];
+            foreach ($userData['roles'] ?? [] as $r) {
+                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
+            }
+            $roleIds = array_values(array_filter(array_unique($roleIds)));
+            $primaryRoleId = $roleIds[0] ?? null;
+
+            return $this->buildLoginResponseFromDatabase($userData, $primaryRoleId, $roleIds, $newToken);
         } catch (\Exception $e) {
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [

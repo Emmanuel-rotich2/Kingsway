@@ -1,6 +1,7 @@
 /**
  * Placement Tests Controller
  * Manage academic placement tests and assessments
+ * Integrates with AcademicContext for academic year awareness
  */
 
 console.log("placement_tests.js loaded successfully");
@@ -11,6 +12,8 @@ const placementTestsController = {
     learningAreas: [],
     initialized: false,
     dom: {},
+    currentAcademicYear: null,
+    currentTerm: null,
 
     init: async function() {
         if (this.initialized) return;
@@ -27,6 +30,27 @@ const placementTestsController = {
                 }
             } else {
                 console.warn("placementTestsController: AuthContext not available");
+            }
+            
+            // Initialize Academic Context if available
+            if (window.AcademicContext) {
+                // Subscribe to context changes
+                window.AcademicContext.subscribe((context, event, data) => {
+                    console.log('AcademicContext changed in placement_tests:', event, data);
+                    if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                        // Reload tests when academic year or term changes
+                        this.loadTests();
+                    }
+                });
+                
+                // Ensure context is loaded
+                if (!window.AcademicContext.isLoaded()) {
+                    await window.AcademicContext.init();
+                }
+                
+                // Get current academic context
+                this.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+                this.currentTerm = window.AcademicContext.getTermId();
             }
 
             this.cacheDom();

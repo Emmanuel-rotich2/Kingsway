@@ -60,7 +60,7 @@ function renderProfileHeader(student) {
     headerContainer.innerHTML = `
         <div class="row align-items-center mb-4">
             <div class="col-auto">
-                <img src="${student.photo_url || (window.APP_BASE || '') + '/images/default-avatar.png'}" 
+                <img src="${student.photo_url || (window.APP_BASE || '') + '/uploads/students/avatar.jpg'}"
                      class="rounded-circle" 
                      width="100" 
                      height="100"
@@ -659,7 +659,32 @@ async function openEditProfileModal(student) {
 }
 
 async function printIdCard(studentId) {
-    window.open((window.APP_BASE || "") + `/api/students/print-id-card?student_id=${studentId}`, '_blank');
+    // Use the server-rendered, correct ID card (front|back per row / CR80 direct-card).
+    // POST to the same bulk endpoint with a single student, open the returned PDF.
+    try {
+        const base = (window.APP_BASE || "");
+        const res = await fetch(base + '/api/students/id-card/generate-bulk-pdf', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                student_ids: [studentId],
+                print_mode: 'direct_card',
+                include_front: true,
+                include_back: true
+            })
+        });
+        const json = await res.json();
+        const payload = json && json.data ? json.data : json;
+        if (payload && payload.pdf_url) {
+            window.open(payload.pdf_url, '_blank');
+        } else {
+            console.error('Failed to generate ID card', json);
+            alert('Unable to generate ID card');
+        }
+    } catch (err) {
+        console.error('Failed to print ID card', err);
+        alert('Unable to generate ID card');
+    }
 }
 
 async function openMessageModal(student) {

@@ -223,9 +223,9 @@ class ExaminationWorkflow extends WorkflowHandler {
                 throw new Exception("Invalid workflow state for question paper submission");
             }
 
-            // Upload question paper file via MediaManager into uploads/documents/{assessment_id}
+            // Upload question paper file via MediaManager into uploads/academic/assessments/{assessment_id}
             $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-            $mediaId = $mediaManager->upload($file, 'documents', $assessment_id, null, $this->user_id, 'question paper');
+            $mediaId = $mediaManager->upload($file, 'academic/assessments', $assessment_id, null, $this->user_id, 'question paper');
             $preview = $mediaManager->getPreviewUrl($mediaId) ?: $mediaId;
 
             // Store paper path in workflow data

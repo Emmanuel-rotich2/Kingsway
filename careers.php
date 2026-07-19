@@ -7,7 +7,7 @@ require_once __DIR__ . '/public/layout/public_data.php';
 $jobs     = kw_open_jobs();
 $benefits = kw_careers_benefits();
 $staffStats = [
-    [kw_school_stat('careers_stat_staff','80+'),      'Qualified Staff'],
+    [kw_staff_count().'+',                          'Qualified Staff'],
     [kw_school_stat('careers_stat_experience','15+'), 'Years Avg Experience'],
     [kw_school_stat('careers_stat_retention','98%'),  'Staff Retention Rate'],
     [kw_school_stat('careers_stat_cpd','100%'),       'CPD Participation'],

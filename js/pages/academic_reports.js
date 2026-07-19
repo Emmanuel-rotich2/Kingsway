@@ -1,6 +1,7 @@
 /**
  * academic_reports.js — Academic Analytics Controller
  * Uses live classes/students data and avoids synthetic placeholder scores.
+ * Integrates with AcademicContext for academic year awareness
  */
 const academicReportsCtrl = (() => {
     let perfChart = null;
@@ -12,7 +13,9 @@ const academicReportsCtrl = (() => {
         terms: [],
         classes: [],
         learningAreas: [],
-        classMetrics: []
+        classMetrics: [],
+        currentAcademicYear: null,
+        currentTerm: null
     };
 
     function toast(msg, type = 'info') {
@@ -385,30 +388,38 @@ const academicReportsCtrl = (() => {
             return;
         }
 
-        const header = ['Class', 'Level', 'Students', 'Scored Students', 'Average Score', 'Pass Rate', 'Top Score'];
-        const data = rows.map((m) => [
-            m.class_name,
-            m.level_name,
-            m.student_count,
-            m.scored_count,
-            m.average_score != null ? m.average_score.toFixed(2) : '',
-            m.pass_rate != null ? m.pass_rate.toFixed(2) : '',
-            m.top_score != null ? m.top_score.toFixed(2) : '',
-        ]);
+        // Use PrintManager for CSV export if available
+        if (window.PrintManager) {
+            const columns = [
+                { key: 'class_name', label: 'Class' },
+                { key: 'level_name', label: 'Level' },
+                { key: 'student_count', label: 'Students' },
+                { key: 'scored_count', label: 'Scored Students' },
+                { key: 'average_score', label: 'Average Score' },
+                { key: 'pass_rate', label: 'Pass Rate' },
+                { key: 'top_score', label: 'Top Score' }
+            ];
 
-        const csv = [header, ...data]
-            .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
-            .join('\n');
+            const data = rows.map((m) => ({
+                class_name: m.class_name,
+                level_name: m.level_name,
+                student_count: m.student_count,
+                scored_count: m.scored_count,
+                average_score: m.average_score != null ? m.average_score.toFixed(2) : '',
+                pass_rate: m.pass_rate != null ? m.pass_rate.toFixed(2) : '',
+                top_score: m.top_score != null ? m.top_score.toFixed(2) : ''
+            }));
 
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `academic_report_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+            window.PrintManager.exportToCSV({
+                filename: `academic_report_${new Date().toISOString().slice(0, 10)}.csv`,
+                columns: columns,
+                rows: data
+            });
+        } else {
+            toast('PrintManager not available for export', 'error');
+            return;
+        }
+        toast('Academic report exported successfully', 'success');
     }
 
     async function init() {
@@ -420,6 +431,30 @@ const academicReportsCtrl = (() => {
             toast('Access denied: insufficient permissions to view academic reports.', 'danger');
             return;
         }
+        
+        // Initialize Academic Context if available
+        if (window.AcademicContext) {
+            // Subscribe to context changes
+            window.AcademicContext.subscribe((context, event, data) => {
+                console.log('AcademicContext changed in academic_reports:', event, data);
+                if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                    // Reload years, terms, and report when academic year or term changes
+                    loadYears();
+                    loadTerms();
+                    generateReport();
+                }
+            });
+            
+            // Ensure context is loaded
+            if (!window.AcademicContext.isLoaded()) {
+                await window.AcademicContext.init();
+            }
+            
+            // Get current academic context
+            state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+            state.currentTerm = window.AcademicContext.getTermId();
+        }
+        
         try {
             await Promise.all([loadYears(), loadTerms(), loadClasses(), loadLearningAreas()]);
             await generateReport();

@@ -2,10 +2,14 @@
  * School Events Page Controller
  * Calendar view, upcoming events list, events table, add/delete events.
  * Loaded by school_events.php
+ * Integrates with AcademicContext for academic year awareness
  */
 
 (function () {
     "use strict";
+    
+    let currentAcademicYear = null;
+    let currentTerm = null;
 
     // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -72,6 +76,28 @@
                 window.location.href = (window.APP_BASE || "") + "/index.php";
                 return;
             }
+            
+            // Initialize Academic Context if available
+            if (window.AcademicContext) {
+                // Subscribe to context changes
+                window.AcademicContext.subscribe((context, event, data) => {
+                    console.log('AcademicContext changed in school_events:', event, data);
+                    if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                        // Reload events when academic year or term changes
+                        this.loadData();
+                    }
+                });
+                
+                // Ensure context is loaded
+                if (!window.AcademicContext.isLoaded()) {
+                    await window.AcademicContext.init();
+                }
+                
+                // Get current academic context
+                currentAcademicYear = window.AcademicContext.getAcademicYearId();
+                currentTerm = window.AcademicContext.getTermId();
+            }
+            
             this.ensureAddButton();
             this.ensureModal();
             this.bindEvents();

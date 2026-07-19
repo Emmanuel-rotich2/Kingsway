@@ -1,10 +1,9 @@
 <?php
 
 namespace App\API\Modules\staff;
-require_once __DIR__ . '/../../includes/BaseAPI.php';
-require_once __DIR__ . '/StaffService.php';
 
 use App\API\Includes\BaseAPI;
+use App\API\Modules\staff\StaffService;
 use App\API\Modules\system\MediaManager;
 use PDO;
 use Exception;
@@ -21,11 +20,21 @@ class StaffAPI extends BaseAPI {
     }
 
     // --- Media Operations ---
-    // Upload staff document or photo
+    // Upload staff document or photo.
+    // Documents -> uploads/staff/documents/{staff_no}/
+    // Photos    -> uploads/staff/profile_pictures/{staff_no}/
     public function uploadStaffMedia($staffId, $file, $type = 'document', $uploaderId = null, $description = '', $tags = '')
     {
-        $context = 'staff';
+        // Resolve the staff_no so uploads nest under the staff's own folder.
         $entityId = $staffId;
+        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && !empty($row['staff_no'])) {
+            $entityId = $row['staff_no'];
+        }
+
+        $context = ($type === 'photo') ? 'staff/profile_pictures' : 'staff/documents';
         $albumId = null;
         return $this->mediaManager->upload($file, $context, $entityId, $albumId, $uploaderId, $description, $tags);
     }
@@ -33,8 +42,15 @@ class StaffAPI extends BaseAPI {
     // List staff media
     public function listStaffMedia($staffId, $filters = [])
     {
-        $filters['context'] = 'staff';
-        $filters['entity_id'] = $staffId;
+        // Resolve staff_no so we match media stored under staff/documents & staff/profile_pictures.
+        $entityId = $staffId;
+        $stmt = $this->db->prepare("SELECT staff_no FROM staff WHERE id = ?");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && !empty($row['staff_no'])) {
+            $entityId = $row['staff_no'];
+        }
+        $filters['entity_id'] = $entityId;
         return $this->mediaManager->listMedia($filters);
     }
 
@@ -42,6 +58,20 @@ class StaffAPI extends BaseAPI {
     public function deleteStaffMedia($mediaId)
     {
         return $this->mediaManager->deleteMedia($mediaId);
+    }
+
+    // Return the served URL for an uploaded media item (original, falling back to thumbnail).
+    public function getMediaFileUrl($mediaId)
+    {
+        return $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
+    }
+
+    // Persist an uploaded photo URL onto the staff profile record.
+    public function setProfilePicUrl($staffId, $url)
+    {
+        $stmt = $this->db->prepare("UPDATE staff SET profile_pic_url = ? WHERE id = ?");
+        $stmt->execute([$url, $staffId]);
+        return true;
     }
 
     // List all staff members with pagination and search
@@ -362,8 +392,8 @@ class StaffAPI extends BaseAPI {
             }
 
             // Ensure placeholders for profile picture and documents folder
-            $placeholderPic = '/images/placeholders/profile.png';
-            $defaultDocsFolder = "uploads/staff/{$staffNo}";
+            $placeholderPic = '/uploads/staff/profile_pictures/staff_avatar.jpeg';
+            $defaultDocsFolder = "uploads/staff/documents/{$staffNo}";
             $needUpdate = false;
             $updateParams = [];
             $updateFields = [];
@@ -400,12 +430,12 @@ class StaffAPI extends BaseAPI {
                 }
 
                 // Register placeholder profile image via MediaManager so metadata exists
-                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'placeholders' . DIRECTORY_SEPARATOR . 'profile.png';
+                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'staff' . DIRECTORY_SEPARATOR . 'profile_pictures' . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
                 if (file_exists($placeholderFs)) {
                     try {
-                        // import into uploads/staff/{staffNo}
-                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff', $staffId, 'profile.png', null, 'placeholder profile');
-                        $preview = $this->mediaManager->getPreviewUrl($mediaId);
+                        // import into uploads/staff/profile_pictures/{staffNo}/
+                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff/profile_pictures', $staffNo, 'staff_avatar.jpeg', null, 'placeholder profile');
+                        $preview = $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
                         // Update staff profile_pic_url to the managed preview path if not already set
                         if (empty($profilePic) && $preview) {
                             $stmt = $this->db->prepare('UPDATE staff SET profile_pic_url = ? WHERE id = ?');
@@ -413,7 +443,11 @@ class StaffAPI extends BaseAPI {
                         }
                     } catch (Exception $e) {
                         // fallback: attempt a raw copy if import fails
-                        $destPic = $fullDocsPath . DIRECTORY_SEPARATOR . 'profile.png';
+                        $destDir = $fullDocsPath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'profile_pictures';
+                        if (!is_dir($destDir)) {
+                            @mkdir($destDir, 0755, true);
+                        }
+                        $destPic = $destDir . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
                         if (!file_exists($destPic)) {
                             @copy($placeholderFs, $destPic);
                             @chmod($destPic, 0644);

@@ -176,7 +176,48 @@ const payslipsController = {
   },
 
   viewCurrentSlip: function () { this.viewSlip(null); },
-  printCurrentSlip: function () { window.print(); },
+  printCurrentSlip: function () {
+    if (!this.data.currentPayslip) {
+      showNotification("No payslip to print", "warning");
+      return;
+    }
+
+    const payslip = this.data.currentPayslip;
+    const staff = this.data.selectedStaff || {};
+
+    // Build payslip items
+    const items = [];
+    
+    // Add earnings
+    if (payslip.earnings && payslip.earnings.length) {
+      payslip.earnings.forEach(earning => {
+        items.push({
+          name: earning.description || earning.name || 'Earning',
+          price: earning.amount || earning.value || 0
+        });
+      });
+    }
+    
+    // Add deductions
+    if (payslip.deductions && payslip.deductions.length) {
+      payslip.deductions.forEach(deduction => {
+        items.push({
+          name: deduction.description || deduction.name || 'Deduction',
+          price: -(deduction.amount || deduction.value || 0)
+        });
+      });
+    }
+
+    window.PrintManager.printReceipt({
+      schoolName: 'Kingsway Preparatory Academy',
+      schoolAddress: 'Londiani, Kenya',
+      receiptNumber: payslip.payslip_number || payslip.id || '—',
+      date: payslip.pay_date || payslip.period || new Date().toISOString(),
+      customer: `${staff.first_name || ''} ${staff.last_name || ''} (${staff.staff_no || '—'})`,
+      items: items,
+      total: payslip.net_pay || payslip.net_salary || 0
+    });
+  },
 
   downloadP9: async function () {
     try {

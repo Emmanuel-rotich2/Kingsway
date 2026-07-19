@@ -69,8 +69,16 @@ class ControllerRouter
             if ($isPlural) {
                 $candidates[] = $httpLower . $singular;
             }
-            $candidates[] = $httpLower;
-            $candidates[] = 'index';
+            // Only fall back to the generic action/list handlers (get, index) for a
+            // BARE resource (e.g. GET /api/academic or /api/academic/{id}). A NAMED
+            // resource that has no handler must 404 — otherwise unknown slugs silently
+            // resolve to get() and return the controller's list payload (masking
+            // broken endpoints as a false "success"). This was the root cause of
+            // academic pages appearing to work while fetching irrelevant subjects data.
+            if (!$resource) {
+                $candidates[] = $httpLower;
+                $candidates[] = 'index';
+            }
             $candidates = array_values(array_unique($candidates));
 
             // Find the first method that exists
@@ -151,6 +159,10 @@ class ControllerRouter
             }
         }
         $key = strtolower($controllerName);
+        // Hyphenated route segments (e.g. parent-portal) map to CamelCase
+        // controller filenames (ParentPortalController → map key 'parentportal').
+        // Normalize '-' to '' so the URI slug matches the map key.
+        $key = str_replace('-', '', $key);
         // Try plural, then singular if not found
         if (!isset($controllerMap[$key]) && substr($key, -1) === 's') {
             $singular = substr($key, 0, -1);

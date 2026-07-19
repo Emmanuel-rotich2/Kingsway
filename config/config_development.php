@@ -13,12 +13,34 @@ define('DEBUG', true);
 // Base URL - Local development
 define('BASE_URL', $_ENV['BASE_URL'] ?? 'http://localhost/Kingsway');
 
+// School branding (canonical logo lives at uploads/school_assets/official_school_logo.png;
+// images/official_school_logo.png is the alt/backward-compat path)
+define('SCHOOL_LOGO_URL', BASE_URL . '/uploads/school_assets/official_school_logo.png');
+
 // File upload paths - Development (relative to project root)
 define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? __DIR__ . '/../uploads');
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
-define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
+define('STUDENT_IMAGES', STUDENT_PHOTOS . '/images');
+define('STUDENT_QR_CODES', STUDENT_IMAGES . '/qr_codes');
+define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
+define('STAFF_PHOTOS', UPLOAD_PATH . '/staff/profile_pictures'); // Note: actual structure is staff/profile_pictures
+define('STAFF_IMAGES', UPLOAD_PATH . '/staff/images'); // Will be created for ID cards
+define('STAFF_QR_CODES', STAFF_IMAGES . '/qr_codes');
+define('STAFF_DOCUMENTS', UPLOAD_PATH . '/staff/documents');
 define('DOCUMENTS', UPLOAD_PATH . '/documents');
+define('ACADEMIC_ASSESSMENTS', UPLOAD_PATH . '/academic/assessments');
 define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
+define('SCHOOL_ASSETS', UPLOAD_PATH . '/school_assets');
+define('SCHOOL_ASSETS_DOCUMENTS', SCHOOL_ASSETS . '/documents');
+define('SCHOOL_ASSETS_GALLERY', SCHOOL_ASSETS . '/gallery');
+define('SCHOOL_ASSETS_QR_CODES', SCHOOL_ASSETS . '/qr_codes');
+define('TEMPLATES_PATH', UPLOAD_PATH . '/../templates');
+define('ID_CARD_TEMPLATES', TEMPLATES_PATH . '/id_cards');
+// Output dir for server-generated PDFs/exports. Derived from the project root
+// (config dir's parent) so it works in ANY environment — never hardcode the
+// localhost home directory. Generated files are reachable via
+// BASE_URL . '/temp/print/<name>' (see PrintController::getWebUrl()).
+define('PRINT_OUTPUT_PATH', __DIR__ . '/../temp/print');
 
 // Database Configuration - Development
 define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');

@@ -54,22 +54,29 @@ class ParentPortalController extends BaseController
         }
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
+            $db     = Database::getInstance();
+            $parent = $db->query(
                 "SELECT id, first_name, last_name, email, portal_password, portal_status
-                 FROM parents WHERE email = :email AND status = 'active' LIMIT 1"
-            );
-            $stmt->execute([':email' => $email]);
-            $parent = $stmt->fetch(\PDO::FETCH_ASSOC);
+                 FROM parents
+                 WHERE email = :email AND status = 'active' LIMIT 1",
+                [':email' => $email]
+            )->fetch(\PDO::FETCH_ASSOC);
 
-            if (!$parent || !$parent['portal_password']) {
+            if (!$parent) {
                 return $this->unauthorized('Invalid email or password');
             }
-            if ($parent['portal_status'] !== 'active') {
-                return $this->forbidden('Portal access is not active for this account');
+
+            // No portal password set yet → account can't log in via password
+            if (empty($parent['portal_password'])) {
+                return $this->unauthorized('Portal access not yet activated. Use OTP or contact the school.');
             }
+
             if (!password_verify($password, $parent['portal_password'])) {
                 return $this->unauthorized('Invalid email or password');
+            }
+
+            if (!empty($parent['portal_status']) && $parent['portal_status'] !== 'active') {
+                return $this->forbidden('Your portal account is ' . ($parent['portal_status'] ?? 'inactive'));
             }
 
             $token = $this->createSession((int)$parent['id']);
@@ -85,7 +92,7 @@ class ParentPortalController extends BaseController
                 ],
             ]);
         } catch (Exception $e) {
-            return $this->serverError('Login failed: ' . $e->getMessage());
+            return $this->serverError('Login failed');
         }
     }
 
@@ -95,20 +102,18 @@ class ParentPortalController extends BaseController
      */
     public function postLoginOtpRequest($id = null, $data = [], $segments = [])
     {
-        $phone = preg_replace('/\D/', '', $data['phone'] ?? '');
-        if (!$phone) return $this->badRequest('Phone number required');
+        $phone = trim((string)($data['phone'] ?? ''));
 
         // Normalize to 254XXXXXXXXX
         if (strlen($phone) === 9) $phone = '254' . $phone;
         if (strlen($phone) === 10 && $phone[0] === '0') $phone = '254' . substr($phone, 1);
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
-                "SELECT id FROM parents WHERE (phone_1 = :p1 OR phone_2 = :p2) AND status = 'active' LIMIT 1"
-            );
-            $stmt->execute([':p1' => $phone, ':p2' => $phone]);
-            $parent = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $db     = Database::getInstance();
+            $parent = $db->query(
+                "SELECT id FROM parents WHERE (phone_1 = :p1 OR phone_2 = :p2) AND status = 'active' LIMIT 1",
+                [':p1' => $phone, ':p2' => $phone]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             if (!$parent) {
                 // Return success anyway to prevent phone enumeration
@@ -118,16 +123,16 @@ class ParentPortalController extends BaseController
             $otp     = str_pad((string)random_int(100000, 999999), 6, '0', STR_PAD_LEFT);
             $expires = date('Y-m-d H:i:s', strtotime('+10 minutes'));
 
-            $stmt = $db->prepare(
+            $db->query(
                 "INSERT INTO parent_otp_sessions (parent_id, phone, otp_code, otp_expires_at)
-                 VALUES (:pid, :phone, :otp, :exp)"
+                 VALUES (:pid, :phone, :otp, :exp)",
+                [
+                    ':pid'   => $parent['id'],
+                    ':phone' => $phone,
+                    ':otp'   => password_hash($otp, PASSWORD_DEFAULT),
+                    ':exp'   => $expires,
+                ]
             );
-            $stmt->execute([
-                ':pid'   => $parent['id'],
-                ':phone' => $phone,
-                ':otp'   => password_hash($otp, PASSWORD_DEFAULT),
-                ':exp'   => $expires,
-            ]);
             $sessionId = $db->lastInsertId();
 
             // TODO: integrate SMS service here
@@ -158,13 +163,12 @@ class ParentPortalController extends BaseController
         }
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare(
+            $db      = Database::getInstance();
+            $session = $db->query(
                 "SELECT * FROM parent_otp_sessions
-                 WHERE id = :id AND otp_expires_at > NOW() AND verified = 0 LIMIT 1"
-            );
-            $stmt->execute([':id' => $sessionId]);
-            $session = $stmt->fetch(\PDO::FETCH_ASSOC);
+                 WHERE id = :id AND otp_expires_at > NOW() AND verified = 0 LIMIT 1",
+                [':id' => $sessionId]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             if (!$session) {
                 return $this->badRequest('OTP session not found or expired');
@@ -174,21 +178,26 @@ class ParentPortalController extends BaseController
             }
 
             // Increment attempts
-            $db->prepare("UPDATE parent_otp_sessions SET attempts = attempts + 1 WHERE id = :id")
-               ->execute([':id' => $sessionId]);
+            $db->query(
+                "UPDATE parent_otp_sessions SET attempts = attempts + 1 WHERE id = :id",
+                [':id' => $sessionId]
+            );
 
             if (!password_verify($otpCode, $session['otp_code'])) {
                 return $this->badRequest('Invalid OTP code');
             }
 
             // Mark verified
-            $db->prepare("UPDATE parent_otp_sessions SET verified = 1 WHERE id = :id")
-               ->execute([':id' => $sessionId]);
+            $db->query(
+                "UPDATE parent_otp_sessions SET verified = 1 WHERE id = :id",
+                [':id' => $sessionId]
+            );
 
             // Get parent info
-            $stmt = $db->prepare("SELECT id, first_name, last_name, email FROM parents WHERE id = :id");
-            $stmt->execute([':id' => $session['parent_id']]);
-            $parent = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $parent = $db->query(
+                "SELECT id, first_name, last_name, email FROM parents WHERE id = :id",
+                [':id' => $session['parent_id']]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             $token = $this->createSession((int)$session['parent_id']);
 
@@ -210,9 +219,10 @@ class ParentPortalController extends BaseController
         $auth = $_SERVER['parent_auth'] ?? null;
         if ($auth) {
             try {
-                Database::getInstance()
-                    ->prepare("UPDATE parent_portal_sessions SET status = 'revoked' WHERE id = :id")
-                    ->execute([':id' => $auth['session_id']]);
+                Database::getInstance()->query(
+                    "UPDATE parent_portal_sessions SET status = 'revoked' WHERE id = :id",
+                    [':id' => $auth['session_id']]
+                );
             } catch (Exception $e) {}
         }
         return $this->success(['message' => 'Logged out successfully']);
@@ -230,8 +240,8 @@ class ParentPortalController extends BaseController
         if (!$this->parentId) return $this->unauthorized('Not authenticated');
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare("
+            $db       = Database::getInstance();
+            $children = $db->query("
                 SELECT s.id, s.first_name, s.last_name, s.admission_no, s.photo_url,
                        c.name AS class_name, sl.name AS level_name,
                        COALESCE(SUM(sfo.balance), 0) AS current_balance,
@@ -250,14 +260,13 @@ class ParentPortalController extends BaseController
                 AND ce.academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1 LIMIT 1)
                 GROUP BY s.id
                 ORDER BY s.first_name
-            ");
-            $stmt->execute([':pid' => $this->parentId]);
-            $children = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            ", [':pid' => $this->parentId])->fetchAll(\PDO::FETCH_ASSOC);
 
             // Get parent info
-            $pStmt = $db->prepare("SELECT first_name, last_name, email, phone_1 FROM parents WHERE id = :id");
-            $pStmt->execute([':id' => $this->parentId]);
-            $parentInfo = $pStmt->fetch(\PDO::FETCH_ASSOC);
+            $parentInfo = $db->query(
+                "SELECT first_name, last_name, email, phone_1 FROM parents WHERE id = :id",
+                [':id' => $this->parentId]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             return $this->success([
                 'parent'   => $parentInfo,
@@ -278,8 +287,8 @@ class ParentPortalController extends BaseController
         if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare("
+            $db          = Database::getInstance();
+            $obligations = $db->query("
                 SELECT sfo.*, at.name AS term_name, at.term_number,
                        ft.name AS fee_type_name, ft.code AS fee_type_code
                 FROM student_fee_obligations sfo
@@ -288,9 +297,7 @@ class ParentPortalController extends BaseController
                 JOIN academic_terms at ON sfo.term_id = at.id
                 WHERE sfo.student_id = :sid
                 ORDER BY sfo.academic_year DESC, at.term_number ASC
-            ");
-            $stmt->execute([':sid' => $id]);
-            $obligations = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
 
             // Group by year → term
             $grouped = [];
@@ -338,17 +345,17 @@ class ParentPortalController extends BaseController
         if (!$this->verifyAccess((int)$id)) return $this->forbidden('Access denied');
 
         try {
-            $db   = Database::getInstance();
-            $stmt = $db->prepare("
+            $db = Database::getInstance();
+            $rows = $db->query("
                 SELECT pt.*, at.name AS term_name, at.term_number
                 FROM payment_transactions pt
                 LEFT JOIN academic_terms at ON pt.term_id = at.id
                 WHERE pt.student_id = :sid AND pt.status = 'confirmed'
                 ORDER BY pt.payment_date DESC
                 LIMIT 100
-            ");
-            $stmt->execute([':sid' => $id]);
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
+
+            return $this->success($rows);
         } catch (Exception $e) {
             return $this->serverError('Failed to load payment history');
         }
@@ -368,16 +375,15 @@ class ParentPortalController extends BaseController
             $db = Database::getInstance();
 
             // Get student info
-            $stmt = $db->prepare(
+            $student = $db->query(
                 "SELECT s.*, c.name AS class_name
                  FROM students s
                  LEFT JOIN class_enrollments ce ON ce.student_id = s.id
                  LEFT JOIN classes c ON ce.class_id = c.id
                  WHERE s.id = :id
-                 ORDER BY ce.academic_year_id DESC LIMIT 1"
-            );
-            $stmt->execute([':id' => $id]);
-            $student = $stmt->fetch(\PDO::FETCH_ASSOC);
+                 ORDER BY ce.academic_year_id DESC LIMIT 1",
+                [':id' => $id]
+            )->fetch(\PDO::FETCH_ASSOC);
 
             // Reuse getStudentFees — returns a BaseController response array
             $feesResp = $this->getStudentFees($id, $data, $segments);
@@ -385,26 +391,26 @@ class ParentPortalController extends BaseController
             $feesData = $feesResp['data']['academic_years'] ?? [];
 
             // Get payments
-            $stmt = $db->prepare(
+            $payments = $db->query(
                 "SELECT pt.*, at.name AS term_name
                  FROM payment_transactions pt
                  LEFT JOIN academic_terms at ON pt.term_id = at.id
                  WHERE pt.student_id = :sid AND pt.status = 'confirmed'
-                 ORDER BY pt.payment_date DESC"
-            );
-            $stmt->execute([':sid' => $id]);
-            $payments = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                 ORDER BY pt.payment_date DESC",
+                [':sid' => $id]
+            )->fetchAll(\PDO::FETCH_ASSOC);
 
             // Log download (non-fatal if table missing)
             try {
-                $db->prepare(
+                Database::getInstance()->query(
                     "INSERT INTO parent_statement_downloads (parent_id, student_id, downloaded_at, ip_address)
-                     VALUES (:pid, :sid, NOW(), :ip)"
-                )->execute([
-                    ':pid' => $this->parentId,
-                    ':sid' => $id,
-                    ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
-                ]);
+                     VALUES (:pid, :sid, NOW(), :ip)",
+                    [
+                        ':pid' => $this->parentId,
+                        ':sid' => $id,
+                        ':ip'  => $_SERVER['REMOTE_ADDR'] ?? null,
+                    ]
+                );
             } catch (Exception $e) {}
 
             return $this->success([
@@ -429,7 +435,7 @@ class ParentPortalController extends BaseController
 
         try {
             $db   = Database::getInstance();
-            $stmt = $db->prepare("
+            $rows = $db->query("
                 SELECT academic_year, term_id,
                        SUM(amount_due) AS total_due,
                        SUM(amount_paid) AS total_paid,
@@ -439,9 +445,7 @@ class ParentPortalController extends BaseController
                 WHERE student_id = :sid
                 GROUP BY academic_year, term_id
                 ORDER BY academic_year DESC, term_id ASC
-            ");
-            $stmt->execute([':sid' => $id]);
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            ", [':sid' => $id])->fetchAll(\PDO::FETCH_ASSOC);
 
             $totalBalance = array_sum(array_column($rows, 'balance'));
             return $this->success(['per_term' => $rows, 'total_balance' => $totalBalance]);
@@ -458,11 +462,11 @@ class ParentPortalController extends BaseController
     {
         $token   = bin2hex(random_bytes(32));
         $expires = date('Y-m-d H:i:s', strtotime('+7 days'));
-        Database::getInstance()->prepare("
+        Database::getInstance()->query("
             INSERT INTO parent_portal_sessions
                 (parent_id, session_token, issued_at, expires_at, ip_address, user_agent)
             VALUES (:pid, :tok, NOW(), :exp, :ip, :ua)
-        ")->execute([
+        ", [
             ':pid' => $parentId,
             ':tok' => $token,
             ':exp' => $expires,
@@ -475,11 +479,11 @@ class ParentPortalController extends BaseController
     private function verifyAccess(int $studentId): bool
     {
         try {
-            $stmt = Database::getInstance()->prepare(
-                "SELECT id FROM student_parents WHERE parent_id = :pid AND student_id = :sid LIMIT 1"
-            );
-            $stmt->execute([':pid' => $this->parentId, ':sid' => $studentId]);
-            return (bool)$stmt->fetch();
+            $row = Database::getInstance()->query(
+                "SELECT id FROM student_parents WHERE parent_id = :pid AND student_id = :sid LIMIT 1",
+                [':pid' => $this->parentId, ':sid' => $studentId]
+            )->fetch(\PDO::FETCH_ASSOC);
+            return !empty($row);
         } catch (Exception $e) {
             return false;
         }

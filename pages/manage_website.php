@@ -71,6 +71,7 @@ if ($appBase === '.') $appBase = '';
     <button class="ws-tab-btn"        data-tab="applications" data-perm="website_applications_view"><i class="bi bi-inbox-fill me-1"></i>Applications</button>
     <button class="ws-tab-btn"        data-tab="inquiries" data-perm="website_inquiries_view"><i class="bi bi-envelope-open me-1"></i>Inquiries</button>
     <button class="ws-tab-btn"        data-tab="content"  data-perm="website_content_manage"><i class="bi bi-file-richtext me-1"></i>Content</button>
+    <button class="ws-tab-btn"        data-tab="static"   data-perm="website_content_manage"><i class="bi bi-grid-1x2 me-1"></i>Static Content</button>
     <button class="ws-tab-btn"        data-tab="settings" data-perm="website_settings_manage"><i class="bi bi-gear me-1"></i>Settings</button>
   </div>
 
@@ -270,6 +271,21 @@ if ($appBase === '.') $appBase = '';
     </div>
   </div>
 
+  <!-- ── TAB: STATIC CONTENT (9 generic tables) ─────────────────────────── -->
+  <div id="tab-static" class="ws-tab-panel" style="display:none">
+    <p class="text-muted small mt-1 mb-3">School values, history, leadership, programs, facilities, departments, admission steps &amp; benefits. Each row is editable inline; changes appear on the public site immediately.</p>
+    <div class="row g-4" id="staticTablesWrap">
+      <div id="staticCard-values"    class="col-xl-6"></div>
+      <div id="staticCard-history"   class="col-xl-6"></div>
+      <div id="staticCard-leadership" class="col-xl-6"></div>
+      <div id="staticCard-programs"   class="col-xl-6"></div>
+      <div id="staticCard-facilities" class="col-xl-6"></div>
+      <div id="staticCard-departments"class="col-xl-6"></div>
+      <div id="staticCard-steps"      class="col-xl-6"></div>
+      <div id="staticCard-benefits"   class="col-xl-6"></div>
+    </div>
+  </div>
+
 </div>
 
 <!-- ═══ MODALS ════════════════════════════════════════════════════════════════ -->
@@ -415,7 +431,16 @@ if ($appBase === '.') $appBase = '';
         <div class="col-md-6 ws-form-group"><label>File Type</label>
           <select id="dlType"><option value="PDF">PDF</option><option value="DOCX">DOCX</option><option value="XLSX">XLSX</option><option value="PPT">PPT</option></select>
         </div>
-        <div class="col-12 ws-form-group"><label>File URL / Path *</label><input type="text" id="dlUrl" placeholder="downloads/term2_timetable.pdf or https://…"></div>
+        <div class="col-12 ws-form-group">
+          <label>Upload File (stored at uploads/school_assets/documents)</label>
+          <input type="file" class="form-control" id="dlFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
+          <small class="text-muted">Leave empty to keep the existing file. The admin uploads fees structures, admission letters, etc. here.</small>
+        </div>
+        <div class="col-12 ws-form-group">
+          <label>Or File URL / Path (optional fallback)</label>
+          <input type="text" id="dlUrl" placeholder="uploads/school_assets/documents/fee_structure.pdf or https://…">
+        </div>
+        <div class="col-12 ws-form-group"><label>Description</label><textarea id="dlDesc" rows="2" class="form-control" placeholder="Short description of this document"></textarea></div>
         <div class="col-md-6 ws-form-group"><label>File Size (display)</label><input type="text" id="dlSize" placeholder="e.g. 245 KB"></div>
       </div>
     </div>

@@ -2,9 +2,13 @@
  * My Mentor Controller
  * Displays intern's assigned mentor profile and meeting history.
  * API: GET /staff/my-mentor
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const myMentorController = (() => {
+  let currentAcademicYear = null;
+  let currentTerm = null;
+
   function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
   function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
   function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val || '—'; }
@@ -83,7 +87,27 @@ const myMentorController = (() => {
     `).join('');
   }
 
-  function init() {
+  async function init() {
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in my_mentor:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          load();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      currentTerm = window.AcademicContext.getTermId();
+    }
+    
     load();
   }
 

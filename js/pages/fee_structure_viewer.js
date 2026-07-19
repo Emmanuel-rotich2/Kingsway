@@ -639,11 +639,101 @@ class FeeStructureViewerController {
    * Print summary
    */
   printSummary() {
-    window.print();
+    if (!this.currentAggregated || this.currentAggregated.length === 0) {
+      alert("No fee structure data to print");
+      return;
+    }
+
+    const academicYear = document.getElementById("academicYearFilter")?.options[document.getElementById("academicYearFilter").selectedIndex]?.text || 'All';
+    const level = document.getElementById("levelFilter")?.options[document.getElementById("levelFilter").selectedIndex]?.text || 'All';
+    const studentType = document.getElementById("studentTypeFilter")?.options[document.getElementById("studentTypeFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Academic Year': academicYear,
+      'Level': level,
+      'Student Type': studentType
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    const columns = [
+      { key: 'structure_name', label: 'Structure Name' },
+      { key: 'academic_year', label: 'Academic Year' },
+      { key: 'level_name', label: 'Level' },
+      { key: 'student_type', label: 'Student Type' },
+      { key: 'total_amount', label: 'Total Amount' },
+      { key: 'status', label: 'Status' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Fee Structure Summary',
+      subtitle: 'School Fee Structures Overview',
+      columns: columns,
+      rows: this.currentAggregated,
+      summary: {
+        'Total Structures': this.currentAggregated.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'FEE-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Accountant' },
+        { label: 'Principal' }
+      ]
+    });
   }
 
   printStructure() {
-    window.print();
+    if (!this.selectedStructure) {
+      alert("No fee structure selected");
+      return;
+    }
+
+    const structure = this.selectedStructure;
+    const feeItems = structure.fee_items || [];
+
+    const sections = [
+      {
+        title: 'Structure Information',
+        fields: [
+          { label: 'Structure Name', value: structure.structure_name || '—' },
+          { label: 'Academic Year', value: structure.academic_year || '—' },
+          { label: 'Level', value: structure.level_name || '—' },
+          { label: 'Student Type', value: structure.student_type || '—' },
+          { label: 'Total Amount', value: structure.total_amount || '—' },
+          { label: 'Status', value: structure.status || '—' }
+        ]
+      },
+      {
+        title: 'Fee Items',
+        content: feeItems.map(item => `
+          <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee;">
+            <span>${item.fee_item_name || item.name || '—'}</span>
+            <span>${item.amount || '—'}</span>
+          </div>
+        `).join('')
+      }
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Fee Structure Details',
+      subtitle: structure.structure_name || 'Structure',
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'FEE-' + (structure.id || '0'),
+      signatureSection: [
+        { label: 'Accountant' },
+        { label: 'Principal' }
+      ]
+    });
   }
 
   /**

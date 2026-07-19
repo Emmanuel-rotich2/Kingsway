@@ -1,6 +1,7 @@
 /**
  * Student Promotion Controller
  * Manages student promotion between academic years
+ * Integrates with AcademicContext for academic year awareness
  */
 const StudentPromotionController = {
   state: {
@@ -10,6 +11,8 @@ const StudentPromotionController = {
     streams: [],
     selectedStudents: new Set(),
     studentActions: {}, // Maps student_id -> 'promote' or 'retain'
+    currentAcademicYear: null,
+    currentTerm: null,
   },
 
   ui: {},
@@ -24,6 +27,32 @@ const StudentPromotionController = {
 
     this.cacheDom();
     this.attachEvents();
+
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in student_promotion:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload metadata when academic year or term changes
+          this.loadMeta();
+        }
+      });
+
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+
+      // Get current academic context
+      this.state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this.state.currentTerm = window.AcademicContext.getTermId();
+
+      // Update from year to use current context
+      if (this.state.currentAcademicYear && this.ui.fromYear) {
+        this.ui.fromYear.value = this.state.currentAcademicYear;
+      }
+    }
 
     console.log("StudentPromotionController: Loading metadata...");
     await this.loadMeta();
@@ -338,7 +367,7 @@ const StudentPromotionController = {
     this.setHistoryLoading(true);
 
     try {
-      const response = await this.api("/students/promotion-history", "GET");
+      const response = await this.api("/students/promotion-batches", "GET");
       const batches = this.unwrap(response) || [];
 
       this.renderHistory(batches);
@@ -351,13 +380,21 @@ const StudentPromotionController = {
   },
 
   renderHistory(batches) {
+    if (!batches.length) {
+      this.ui.historyTableBody.innerHTML = `
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4">No promotion batches found.</td>
+        </tr>`;
+      return;
+    }
+
     this.ui.historyTableBody.innerHTML = batches.map(b => `
       <tr>
         <td>${b.id || "-"}</td>
         <td>${b.from_academic_year || "-"}</td>
         <td>${b.to_academic_year || "-"}</td>
         <td><span class="badge bg-${b.status === 'completed' ? 'success' : 'secondary'}">${this.escape(b.status || "-")}</span></td>
-        <td>${b.students_count || 0}</td>
+        <td>${b.total_students_processed || b.students_count || 0}</td>
         <td>${b.total_promoted || 0}</td>
         <td>${b.created_at || "-"}</td>
       </tr>

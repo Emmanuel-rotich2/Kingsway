@@ -2,8 +2,6 @@
 
 namespace App\API\Modules\finance;
 
-require_once __DIR__ . '/../../includes/BaseAPI.php';
-
 use App\API\Includes\BaseAPI;
 use PDO;
 use Exception;

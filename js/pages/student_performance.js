@@ -137,7 +137,7 @@ const StudentPerformanceController = {
   attachEvents: function () {
     this.ui.applyFiltersBtn?.addEventListener("click", () => this.loadOverview());
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
-    this.ui.printOverviewBtn?.addEventListener("click", () => this.prepareAndPrint('overview'));
+    this.ui.printOverviewBtn?.addEventListener("click", () => this.printOverviewReport());
     this.ui.exportOverviewBtn?.addEventListener("click", () => this.exportOverview());
 
     this.ui.studentSearch?.addEventListener(
@@ -162,10 +162,7 @@ const StudentPerformanceController = {
       }
     });
 
-    this.ui.printStudentReportBtn?.addEventListener("click", () => this.prepareAndPrint('modal'));
-
-    // Set print date on load
-    this.setPrintDate();
+    this.ui.printStudentReportBtn?.addEventListener("click", () => this.printStudentReport());
   },
 
   loadMeta: async function () {
@@ -520,7 +517,7 @@ const StudentPerformanceController = {
     this.ui.studentPhoto.src =
       profile.photo_url ||
       profile.photo ||
-      `${window.APP_BASE || ""}/images/default-avatar.png`;
+      `${window.APP_BASE || ""}/uploads/students/avatar.jpg`;
     this.ui.studentName.textContent = fullName || "-";
     this.ui.modalStudentSubtitle.textContent = fullName || "Student full school profile";
     this.ui.admNo.textContent = profile.admission_no || "-";
@@ -919,26 +916,57 @@ const StudentPerformanceController = {
       return;
     }
 
-    const rows = this.state.overviewRows;
-    const headers = Object.keys(rows[0]);
+    const viewMode = this.ui.viewMode?.value || "students";
+    let columns = [];
 
-    const csv = [
-      headers,
-      ...rows.map((row) => headers.map((key) => row[key] ?? "")),
-    ]
-      .map((line) =>
-        line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")
-      )
-      .join("\n");
+    if (viewMode === "students") {
+      columns = [
+        { key: 'full_name', label: 'Student Name' },
+        { key: 'admission_no', label: 'Admission No' },
+        { key: 'class_name', label: 'Class' },
+        { key: 'stream_name', label: 'Stream' },
+        { key: 'overall_average', label: 'Overall Average' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'position', label: 'Position' },
+        { key: 'attendance_rate', label: 'Attendance Rate' }
+      ];
+    } else if (viewMode === "class") {
+      columns = [
+        { key: 'class_name', label: 'Class' },
+        { key: 'total_students', label: 'Students' },
+        { key: 'average_score', label: 'Average Score' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'attendance_rate', label: 'Attendance Rate' },
+        { key: 'total_fee_balance', label: 'Total Fee Balance' },
+        { key: 'discipline_cases', label: 'Discipline Cases' },
+        { key: 'activities_count', label: 'Activities' }
+      ];
+    } else if (viewMode === "stream") {
+      columns = [
+        { key: 'stream_name', label: 'Stream' },
+        { key: 'total_students', label: 'Students' },
+        { key: 'average_score', label: 'Average Score' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'attendance_rate', label: 'Attendance Rate' },
+        { key: 'total_fee_balance', label: 'Total Fee Balance' },
+        { key: 'discipline_cases', label: 'Discipline Cases' },
+        { key: 'activities_count', label: 'Activities' }
+      ];
+    } else {
+      columns = [
+        { key: 'full_name', label: 'Student Name' },
+        { key: 'admission_no', label: 'Admission No' },
+        { key: 'class_name', label: 'Class' },
+        { key: 'overall_average', label: 'Overall Average' },
+        { key: 'grade', label: 'Grade' }
+      ];
+    }
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `student_performance_overview_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+    window.PrintManager.exportToCSV({
+      columns: columns,
+      rows: this.state.overviewRows,
+      filename: 'student_performance_overview'
+    });
   },
 
   fillSelect: function (select, items, placeholder) {
@@ -1084,45 +1112,184 @@ const StudentPerformanceController = {
     );
   },
 
-  setPrintDate: function () {
-    const printDateEl = document.getElementById("printDate");
-    if (printDateEl) {
-      const now = new Date();
-      printDateEl.textContent = now.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'long',
-        year: 'numeric'
-      });
+  printOverviewReport: function () {
+    if (!this.state.overviewRows.length) {
+      this.notify("No data to print", "warning");
+      return;
     }
+
+    const viewMode = this.ui.viewMode?.value || "students";
+    const summary = this.calculateOverviewSummary(this.state.overviewRows);
+    const filters = {
+      'View Mode': this.labelForViewMode(viewMode),
+      'Academic Year': this.ui.academicYearFilter?.options[this.ui.academicYearFilter.selectedIndex]?.text || 'All',
+      'Term': this.ui.termFilter?.options[this.ui.termFilter.selectedIndex]?.text || 'All',
+      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
+      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All',
+      'Gender': this.ui.genderFilter?.options[this.ui.genderFilter.selectedIndex]?.text || 'All'
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    // Define columns based on view mode
+    let columns = [];
+    if (viewMode === "students") {
+      columns = [
+        { key: 'full_name', label: 'Student Name' },
+        { key: 'admission_no', label: 'Admission No' },
+        { key: 'class_name', label: 'Class' },
+        { key: 'stream_name', label: 'Stream' },
+        { key: 'overall_average', label: 'Overall Average' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'position', label: 'Position' },
+        { key: 'attendance_rate', label: 'Attendance Rate' }
+      ];
+    } else if (viewMode === "class") {
+      columns = [
+        { key: 'class_name', label: 'Class' },
+        { key: 'total_students', label: 'Students' },
+        { key: 'average_score', label: 'Average Score' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'attendance_rate', label: 'Attendance Rate' },
+        { key: 'total_fee_balance', label: 'Total Fee Balance' },
+        { key: 'discipline_cases', label: 'Discipline Cases' },
+        { key: 'activities_count', label: 'Activities' }
+      ];
+    } else if (viewMode === "stream") {
+      columns = [
+        { key: 'stream_name', label: 'Stream' },
+        { key: 'total_students', label: 'Students' },
+        { key: 'average_score', label: 'Average Score' },
+        { key: 'grade', label: 'Grade' },
+        { key: 'attendance_rate', label: 'Attendance Rate' },
+        { key: 'total_fee_balance', label: 'Total Fee Balance' },
+        { key: 'discipline_cases', label: 'Discipline Cases' },
+        { key: 'activities_count', label: 'Activities' }
+      ];
+    } else {
+      // Default to student columns
+      columns = [
+        { key: 'full_name', label: 'Student Name' },
+        { key: 'admission_no', label: 'Admission No' },
+        { key: 'class_name', label: 'Class' },
+        { key: 'overall_average', label: 'Overall Average' },
+        { key: 'grade', label: 'Grade' }
+      ];
+    }
+
+    window.PrintManager.printTable({
+      title: 'Student Performance Report',
+      subtitle: this.labelForViewMode(viewMode) + ' Overview',
+      columns: columns,
+      rows: this.state.overviewRows,
+      summary: {
+        'Total Students': summary.total_students,
+        'Average Score': summary.average_score + '%',
+        'Top Student': summary.top_student,
+        'Best Group': summary.best_group
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'PERF-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'Academic Dean' },
+        { label: 'Headteacher' }
+      ]
+    });
   },
 
-  prepareAndPrint: function (printType) {
-    // Set print date
-    this.setPrintDate();
-
-    // Remove any existing print classes
-    document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-
-    // Add appropriate print class to body for CSS targeting
-    if (printType === 'modal') {
-      document.body.classList.add('printing-modal');
-      if (this.ui.modal) {
-        this.ui.modal.classList.add('print-mode');
-      }
-    } else {
-      document.body.classList.add('printing-overview');
+  printStudentReport: function () {
+    if (!this.state.selectedStudentId) {
+      this.notify("No student selected", "warning");
+      return;
     }
 
-    // Print
-    window.print();
+    // Extract student data from modal
+    const studentData = {
+      name: this.ui.studentName?.textContent || '-',
+      admissionNo: this.ui.admNo?.textContent || '-',
+      studentClass: this.ui.studentClass?.textContent || '-',
+      stream: this.ui.stream?.textContent || '-',
+      overallAvg: this.ui.overallAvg?.textContent || '-',
+      position: this.ui.position?.textContent || '-',
+      overallGrade: this.ui.overallGrade?.textContent || '-',
+      totalMarks: this.ui.totalMarks?.textContent || '-',
+      meanScore: this.ui.meanScore?.textContent || '-',
+      subjectsCount: this.ui.subjectsCount?.textContent || '-',
+      attendanceRate: this.ui.attendanceRate?.textContent || '-',
+      disciplineCases: this.ui.disciplineCases?.textContent || '-',
+      activitiesCount: this.ui.activitiesCount?.textContent || '-',
+      feeBalance: this.ui.feeBalance?.textContent || '-',
+      healthAlerts: this.ui.healthAlerts?.textContent || '-',
+      teacherComments: this.ui.teacherComments?.textContent || '-',
+      recommendations: this.ui.recommendations?.textContent || '-'
+    };
 
-    // Clean up after print dialog closes
-    setTimeout(() => {
-      document.body.classList.remove('printing', 'printing-modal', 'printing-overview');
-      if (printType === 'modal' && this.ui.modal) {
-        this.ui.modal.classList.remove('print-mode');
+    const sections = [
+      {
+        title: 'Student Information',
+        fields: [
+          { label: 'Student Name', value: studentData.name },
+          { label: 'Admission No', value: studentData.admissionNo },
+          { label: 'Class', value: studentData.studentClass },
+          { label: 'Stream', value: studentData.stream }
+        ]
+      },
+      {
+        title: 'Academic Performance',
+        fields: [
+          { label: 'Overall Average', value: studentData.overallAvg },
+          { label: 'Position', value: studentData.position },
+          { label: 'Overall Grade', value: studentData.overallGrade },
+          { label: 'Total Marks', value: studentData.totalMarks },
+          { label: 'Mean Score', value: studentData.meanScore },
+          { label: 'Subjects Count', value: studentData.subjectsCount }
+        ]
+      },
+      {
+        title: 'Attendance & Discipline',
+        fields: [
+          { label: 'Attendance Rate', value: studentData.attendanceRate },
+          { label: 'Discipline Cases', value: studentData.disciplineCases },
+          { label: 'Activities', value: studentData.activitiesCount }
+        ]
+      },
+      {
+        title: 'Financial & Health',
+        fields: [
+          { label: 'Fee Balance', value: studentData.feeBalance },
+          { label: 'Health Alerts', value: studentData.healthAlerts }
+        ]
+      },
+      {
+        title: 'Teacher Comments',
+        content: studentData.teacherComments
+      },
+      {
+        title: 'Recommendations',
+        content: studentData.recommendations
       }
-    }, 1000);
+    ];
+
+    window.PrintManager.printRecord({
+      title: 'Student Performance Report',
+      subtitle: 'Student: ' + studentData.name,
+      sections: sections,
+      orientation: 'portrait',
+      paperSize: 'A4',
+      reportCode: 'STU-PERF-' + this.state.selectedStudentId,
+      signatureSection: [
+        { label: 'Class Teacher' },
+        { label: 'Academic Dean' },
+        { label: 'Headteacher' }
+      ]
+    });
   },
 
   notify: function (message, type = "info") {

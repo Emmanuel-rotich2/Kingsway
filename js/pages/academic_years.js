@@ -2,6 +2,7 @@
  * Academic Years Controller
  * Page: academic_years.php
  * Manages academic years and terms CRUD
+ * Integrates with AcademicContext for centralized context management
  */
 const AcademicYearsController = {
   state: {
@@ -16,6 +17,23 @@ const AcademicYearsController = {
       window.location.href = (window.APP_BASE || "") + "/index.php";
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed:', event, data);
+        if (event === 'yearChanged' || event === 'initialized' || event === 'refreshed') {
+          this.loadData();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+    }
+    
     this.bindEvents();
     await this.loadData();
   },
@@ -36,21 +54,33 @@ const AcademicYearsController = {
         this.saveTerm();
       });
     }
+
+    const exportBtn = document.getElementById("exportYearsBtn");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => this.exportYears());
+    }
   },
 
   async loadData() {
     try {
-      const [yearsRes, currentRes] = await Promise.all([
-        window.API.academic.listYears(),
-        window.API.academic.getCurrentYear(),
-      ]);
+      // Use AcademicContext if available for current year/term
+      if (window.AcademicContext && window.AcademicContext.isLoaded()) {
+        this.state.currentYear = {
+          id: window.AcademicContext.getAcademicYearId(),
+          name: window.AcademicContext.getCurrentAcademicYear(),
+          status: 'active'
+        };
+        this.state.currentTerm = {
+          id: window.AcademicContext.getTermId(),
+          name: window.AcademicContext.getCurrentTerm(),
+          status: 'active'
+        };
+      }
+      
+      const yearsRes = await window.API.academic.listYears();
 
       if (yearsRes?.success) {
         this.state.years = yearsRes.data || [];
-      }
-      if (currentRes?.success && currentRes.data) {
-        this.state.currentYear = currentRes.data;
-        this.state.currentTerm = currentRes.data.current_term || null;
       }
 
       this.renderCurrentInfo();
@@ -221,12 +251,25 @@ const AcademicYearsController = {
   async setAsCurrent(yearId) {
     if (!confirm("Set this as the current academic year?")) return;
     try {
-      const res = await window.API.academic.setCurrentYear(yearId);
-      if (res?.success) {
-        this.showNotification("Current academic year updated", "success");
-        await this.loadData();
+      // Use AcademicContext if available for centralized management
+      if (window.AcademicContext) {
+        const success = await window.AcademicContext.setCurrentAcademicYear(yearId);
+        if (success) {
+          this.showNotification("Current academic year updated", "success");
+          // AcademicContext automatically refreshes and notifies subscribers
+          // No need to call loadData() here - it will be triggered by context change
+        } else {
+          this.showNotification("Failed to update current year", "error");
+        }
       } else {
-        this.showNotification(res?.message || "Failed to update", "error");
+        // Fallback to direct API call
+        const res = await window.API.academic.setCurrentYear(yearId);
+        if (res?.success) {
+          this.showNotification("Current academic year updated", "success");
+          await this.loadData();
+        } else {
+          this.showNotification(res?.message || "Failed to update", "error");
+        }
       }
     } catch (error) {
       console.error("Error setting current year:", error);
@@ -303,6 +346,37 @@ const AcademicYearsController = {
     } catch (error) {
       console.error("Error saving term:", error);
     }
+  },
+
+  async exportYears() {
+    if (!window.PrintManager) {
+      this.showNotification("PrintManager not available", "error");
+      return;
+    }
+
+    const columns = [
+      { key: "name", label: "Academic Year" },
+      { key: "year_code", label: "Year Code" },
+      { key: "start_date", label: "Start Date" },
+      { key: "end_date", label: "End Date" },
+      { key: "status", label: "Status" },
+      { key: "current", label: "Current" }
+    ];
+
+    const rows = this.state.years.map(year => ({
+      name: year.name || "",
+      year_code: year.year_code || "",
+      start_date: year.start_date || "",
+      end_date: year.end_date || "",
+      status: year.status || "",
+      current: year.is_current ? "Yes" : "No"
+    }));
+
+    window.PrintManager.exportToCSV({
+      filename: `academic_years_${new Date().toISOString().slice(0,10)}.csv`,
+      columns: columns,
+      rows: rows
+    });
   },
 
   // Utility methods

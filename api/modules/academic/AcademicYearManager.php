@@ -68,13 +68,13 @@ class AcademicYearManager
         $required = ['year_code', 'year_name', 'start_date', 'end_date'];
         foreach ($required as $field) {
             if (empty($data[$field])) {
-                throw new Exception("Missing required field: $field");
+                throw new \InvalidArgumentException("Missing required field: $field");
             }
         }
 
         // Check if year code already exists
         if ($this->getAcademicYearByCode($data['year_code'])) {
-            throw new Exception("Academic year {$data['year_code']} already exists");
+            throw new \InvalidArgumentException("Academic year {$data['year_code']} already exists");
         }
 
         $sql = "INSERT INTO academic_years (
@@ -137,12 +137,13 @@ class AcademicYearManager
             ]
         ];
 
-        $sql = "INSERT INTO academic_terms (name, start_date, end_date, year, term_number, status)
-                VALUES (?, ?, ?, ?, ?, 'upcoming')";
+        $sql = "INSERT INTO academic_terms (academic_year_id, name, start_date, end_date, year, term_number, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'upcoming')";
 
         foreach ($terms as $term) {
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
+                $yearId,
                 $term['name'],
                 $term['start'],
                 $term['end'],

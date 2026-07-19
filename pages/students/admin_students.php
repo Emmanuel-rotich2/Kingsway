@@ -389,7 +389,7 @@
             const row = document.createElement('tr');
             row.innerHTML = `
             <td><input type="checkbox" class="student-checkbox" value="${student.id}" onchange="updateBulkActions()"></td>
-            <td><img src="${student.photo || '/images/default-avatar.png'}" alt="" class="student-photo"></td>
+            <td><img src="${student.photo || '/uploads/students/avatar.jpg'}" alt="" class="student-photo"></td>
             <td>${escapeHtml(student.admission_no)}</td>
             <td><strong>${escapeHtml(student.full_name)}</strong></td>
             <td>${escapeHtml(student.class_name || '-')}</td>
@@ -448,7 +448,7 @@
         return `
         <div class="row">
             <div class="col-md-4 text-center">
-                <img src="${student.photo || '/images/default-avatar.png'}" class="rounded-circle mb-3" style="width:150px;height:150px;object-fit:cover;">
+                <img src="${student.photo || '/uploads/students/avatar.jpg'}" class="rounded-circle mb-3" style="width:150px;height:150px;object-fit:cover;">
                 <h4>${escapeHtml(student.full_name)}</h4>
                 <p class="text-muted">${student.admission_no}</p>
             </div>

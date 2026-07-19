@@ -2,15 +2,41 @@
  * Past Papers Controller
  * Library of past exam papers filterable by subject, year, and class level.
  * API base: /api/academic/resources?type=past_paper
+ * Integrates with AcademicContext for academic year awareness
  */
 
 const pastPapersController = {
+  _currentAcademicYear: null,
+  _currentTerm: null,
+  _papers: [],
 
   init: async function () {
     if (!AuthContext.isAuthenticated()) {
       window.location.href = (window.APP_BASE || '') + '/index.php';
       return;
     }
+    
+    // Initialize Academic Context if available
+    if (window.AcademicContext) {
+      // Subscribe to context changes
+      window.AcademicContext.subscribe((context, event, data) => {
+        console.log('AcademicContext changed in past_papers:', event, data);
+        if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+          // Reload papers when academic year or term changes
+          this.loadPapers();
+        }
+      });
+      
+      // Ensure context is loaded
+      if (!window.AcademicContext.isLoaded()) {
+        await window.AcademicContext.init();
+      }
+      
+      // Get current academic context
+      this._currentAcademicYear = window.AcademicContext.getAcademicYearId();
+      this._currentTerm = window.AcademicContext.getTermId();
+    }
+    
     await Promise.all([
       this._loadSubjectDropdown(),
       this._loadYearDropdown(),
@@ -18,7 +44,7 @@ const pastPapersController = {
     this.loadPapers();
   },
 
-  // ── DROPDOWNS ──────────────────────────────────────────────────────
+  // ── LOAD SUBJECTS ──────────────────────────────────────────────────
 
   _loadSubjectDropdown: async function () {
     try {
@@ -35,19 +61,24 @@ const pastPapersController = {
     } catch (e) { console.warn('Could not load subjects:', e); }
   },
 
-  _loadYearDropdown: function () {
-    const sel = document.getElementById('ppYear');
-    if (!sel) return;
-    const current = new Date().getFullYear();
-    for (let y = current; y >= current - 7; y--) {
-      const o = document.createElement('option');
-      o.value = y;
-      o.textContent = y;
-      sel.appendChild(o);
-    }
+  // ── LOAD YEARS ─────────────────────────────────────────────────────
+
+  _loadYearDropdown: async function () {
+    try {
+      const r = await callAPI('/academic/years', 'GET');
+      const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
+      const sel = document.getElementById('ppYear');
+      if (!sel) return;
+      items.forEach(y => {
+        const o = document.createElement('option');
+        o.value = y.id || y.year_code || y.year_name;
+        o.textContent = this._esc(y.year_code || y.year_name || y.name || '');
+        sel.appendChild(o);
+      });
+    } catch (e) { console.warn('Could not load years:', e); }
   },
 
-  // ── LOAD PAPERS ────────────────────────────────────────────────────
+  // ── LOAD PAPERS ───────────────────────────────────────────────────
 
   loadPapers: async function () {
     const container = document.getElementById('ppTableContainer');
@@ -57,10 +88,10 @@ const pastPapersController = {
       const params = this._buildParams();
       const r = await callAPI('/academic/resources?type=past_paper' + params, 'GET');
       const items = Array.isArray(r?.data) ? r.data : (Array.isArray(r) ? r : []);
-
-      // Update count badge
-      this._set('ppTotalCount', items.length + ' paper' + (items.length !== 1 ? 's' : ''));
-
+      this._papers = items;
+      
+      document.getElementById('ppTotalCount').textContent = items.length + ' papers';
+      
       if (!items.length) {
         container.innerHTML = `
           <div class="text-center py-5">
@@ -69,50 +100,9 @@ const pastPapersController = {
           </div>`;
         return;
       }
-
-      const rows = items.map((p, i) => {
-        const date = p.created_at ? new Date(p.created_at).getFullYear() : (p.year || '—');
-        return `<tr>
-          <td class="text-muted">${i + 1}</td>
-          <td class="fw-semibold">${this._esc(p.subject_name || p.learning_area || '—')}</td>
-          <td><span class="badge ${this._typeBadge(p.exam_type || p.resource_type || p.type)}">${this._esc(p.exam_type || p.resource_type || p.type || '—')}</span></td>
-          <td>${this._esc(String(p.year || date))}</td>
-          <td>${this._esc(p.term ? 'Term ' + p.term : '—')}</td>
-          <td>${this._esc(p.class_level || p.class_name || '—')}</td>
-          <td>${this._esc(p.pages ? p.pages + ' pg' : '—')}</td>
-          <td>
-            <button class="btn btn-sm btn-outline-primary me-1"
-                    onclick="pastPapersController.download(${p.id})">
-              <i class="bi bi-download"></i> Download
-            </button>
-            <button class="btn btn-sm btn-outline-secondary"
-                    onclick="pastPapersController.preview(${p.id})">
-              <i class="bi bi-eye"></i> Preview
-            </button>
-          </td>
-        </tr>`;
-      }).join('');
-
-      container.innerHTML = `
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width:40px">#</th>
-                <th>Subject</th>
-                <th>Exam Type</th>
-                <th>Year</th>
-                <th>Term</th>
-                <th>Class Level</th>
-                <th>Pages</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>`;
+      container.innerHTML = `<div class="table-responsive"><table class="table table-hover align-middle mb-0">${this._renderTable(items)}</table></div>`;
     } catch (e) {
-      container.innerHTML = `<div class="alert alert-danger m-3">Failed to load papers: ${this._esc(e.message)}</div>`;
+      container.innerHTML = `<div class="alert alert-danger">Failed to load past papers: ${this._esc(e.message)}</div>`;
     }
   },
 
@@ -120,44 +110,71 @@ const pastPapersController = {
     this.loadPapers();
   },
 
-  // ── ACTIONS ────────────────────────────────────────────────────────
+  // ── RENDER TABLE ────────────────────────────────────────────────────
 
-  download: function (id) {
-    window.location.href = (window.APP_BASE || '') + '/api/academic/resources/' + id + '/download';
+  _renderTable: function (items) {
+    return `
+      <thead class="table-light">
+        <tr>
+          <th>Title</th>
+          <th>Subject</th>
+          <th>Year</th>
+          <th>Class Level</th>
+          <th>Type</th>
+          <th>Uploaded By</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map(p => this._renderRow(p)).join('')}
+      </tbody>
+    `;
   },
 
-  preview: function (id) {
-    window.open((window.APP_BASE || '') + '/api/academic/resources/' + id + '/download', '_blank');
+  _renderRow: function (p) {
+    const date = p.created_at ? new Date(p.created_at).toLocaleDateString() : '—';
+    return `
+      <tr>
+        <td><strong>${this._esc(p.title || 'Untitled')}</strong></td>
+        <td>${this._esc(p.subject_name || p.learning_area || '—')}</td>
+        <td>${this._esc(p.exam_year || p.year || '—')}</td>
+        <td>${this._esc(p.class_level || '—')}</td>
+        <td><span class="badge bg-info">${this._esc(p.exam_type || p.type || '—')}</span></td>
+        <td>${this._esc(p.uploaded_by_name || p.uploaded_by || '—')}</td>
+        <td>${date}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-success" onclick="pastPapersController.download(${p.id})">
+            <i class="bi bi-download"></i> Download
+          </button>
+        </td>
+      </tr>
+    `;
+  },
+
+  // ── DOWNLOAD ───────────────────────────────────────────────────────
+
+  download: function (id) {
+    window.location.href = (window.APP_BASE || '') + '/api/academic/resources/download/' + id;
   },
 
   // ── HELPERS ────────────────────────────────────────────────────────
 
   _buildParams: function () {
-    const q     = document.getElementById('ppSearch')?.value.trim()    || '';
-    const subj  = document.getElementById('ppSubject')?.value           || '';
-    const year  = document.getElementById('ppYear')?.value              || '';
-    const level = document.getElementById('ppClassLevel')?.value        || '';
-    const type  = document.getElementById('ppType')?.value              || '';
+    const q     = document.getElementById('ppSearch')?.value.trim()  || '';
+    const subj  = document.getElementById('ppSubject')?.value         || '';
+    const year  = document.getElementById('ppYear')?.value            || '';
+    const level = document.getElementById('ppClassLevel')?.value       || '';
+    const type  = document.getElementById('ppType')?.value            || '';
     const parts = [];
-    if (q)     parts.push('search='      + encodeURIComponent(q));
-    if (subj)  parts.push('subject='     + encodeURIComponent(subj));
-    if (year)  parts.push('year='        + encodeURIComponent(year));
+    if (q)     parts.push('search='  + encodeURIComponent(q));
+    if (subj)  parts.push('subject=' + encodeURIComponent(subj));
+    if (year)  parts.push('year='    + encodeURIComponent(year));
     if (level) parts.push('class_level=' + encodeURIComponent(level));
-    if (type)  parts.push('exam_type='   + encodeURIComponent(type));
+    if (type)  parts.push('exam_type=' + encodeURIComponent(type));
     return parts.length ? '&' + parts.join('&') : '';
   },
 
-  _typeBadge: function (type) {
-    const map = {
-      'Mid-Term':  'bg-primary',
-      'End-Term':  'bg-success',
-      'Mock':      'bg-warning text-dark',
-      'KNEC':      'bg-danger',
-    };
-    return map[type] || 'bg-secondary';
-  },
-
-  _set: function (id, val) { const el = document.getElementById(id); if (el) el.textContent = val; },
   _esc: function (s) {
     return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   },

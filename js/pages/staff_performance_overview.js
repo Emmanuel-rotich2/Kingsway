@@ -272,6 +272,74 @@ const StaffPerformanceController = (() => {
     else alert((type === "error" ? "Error: " : "") + message);
   }
 
+  function printPerformance() {
+    const table = document.getElementById("performanceTableBody");
+    if (!table || table.rows.length === 0) {
+      showNotification("No performance data to print", "warning");
+      return;
+    }
+
+    const department = document.getElementById("departmentFilterPerf")?.options[document.getElementById("departmentFilterPerf").selectedIndex]?.text || 'All';
+    const rating = document.getElementById("ratingFilter")?.options[document.getElementById("ratingFilter").selectedIndex]?.text || 'All';
+    const period = document.getElementById("periodFilter")?.options[document.getElementById("periodFilter").selectedIndex]?.text || 'All';
+
+    const filters = {
+      'Department': department,
+      'Rating': rating,
+      'Period': period
+    };
+
+    // Remove empty filters
+    Object.keys(filters).forEach(key => {
+      if (filters[key] === 'All' || !filters[key]) {
+        delete filters[key];
+      }
+    });
+
+    // Extract data from table
+    const rows = Array.from(table.rows).map(row => {
+      const cells = row.cells;
+      return {
+        staff_name: cells[0]?.textContent || '',
+        staff_no: cells[1]?.textContent || '',
+        department: cells[2]?.textContent || '',
+        position: cells[3]?.textContent || '',
+        rating: cells[4]?.textContent || '',
+        appraisal_date: cells[5]?.textContent || '',
+        remarks: cells[6]?.textContent || ''
+      };
+    });
+
+    const columns = [
+      { key: 'staff_name', label: 'Staff Name' },
+      { key: 'staff_no', label: 'Staff No' },
+      { key: 'department', label: 'Department' },
+      { key: 'position', label: 'Position' },
+      { key: 'rating', label: 'Rating' },
+      { key: 'appraisal_date', label: 'Appraisal Date' },
+      { key: 'remarks', label: 'Remarks' }
+    ];
+
+    window.PrintManager.printTable({
+      title: 'Staff Performance Report',
+      subtitle: 'Performance Overview',
+      columns: columns,
+      rows: rows,
+      summary: {
+        'Total Staff': rows.length,
+        'Generated Date': new Date().toLocaleDateString()
+      },
+      filters: filters,
+      orientation: 'landscape',
+      paperSize: 'A4',
+      reportCode: 'STP-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      signatureSection: [
+        { label: 'HR Manager' },
+        { label: 'Principal' }
+      ]
+    });
+  }
+
   function attachListeners() {
     document
       .getElementById("departmentFilterPerf")
@@ -298,7 +366,7 @@ const StaffPerformanceController = (() => {
       });
     document
       .getElementById("printPerformanceBtn")
-      ?.addEventListener("click", () => window.print());
+      ?.addEventListener("click", () => printPerformance());
   }
 
   async function init() {

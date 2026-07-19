@@ -1,6 +1,7 @@
 /**
  * report_cards.js — Report Cards Controller
  * Kingsway Academy Management System
+ * Integrates with AcademicContext for academic year awareness
  *
  * API Endpoints:
  *   GET  /academic/years-list         → data[]  {id, year_name, is_current}
@@ -19,7 +20,9 @@ const reportCardsCtrl = (() => {
         years: [], terms: [], classes: [], students: [],
         currentYear: null, currentTerm: null,
         pagination: { page: 1, limit: 15, total: 0, total_pages: 1 },
-        summary: { total: 0, generated: 0, pending: 0, downloaded: 0 }
+        summary: { total: 0, generated: 0, pending: 0, downloaded: 0 },
+        currentAcademicYear: null,
+        currentTermFromContext: null
     };
     const filters = { year_id: '', term_id: '', class_id: '', search: '' };
     let searchTimeout = null;
@@ -47,6 +50,30 @@ const reportCardsCtrl = (() => {
             if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
                 window.location.href = (window.APP_BASE || '') + '/index.php';
                 return;
+            }
+            
+            // Initialize Academic Context if available
+            if (window.AcademicContext) {
+                // Subscribe to context changes
+                window.AcademicContext.subscribe((context, event, data) => {
+                    console.log('AcademicContext changed in report_cards:', event, data);
+                    if (event === 'yearChanged' || event === 'termChanged' || event === 'initialized' || event === 'refreshed') {
+                        // Reload years, terms, and data when academic year or term changes
+                        loadYears();
+                        loadTerms();
+                        updateContextSelects();
+                        loadData();
+                    }
+                });
+                
+                // Ensure context is loaded
+                if (!window.AcademicContext.isLoaded()) {
+                    await window.AcademicContext.init();
+                }
+                
+                // Get current academic context
+                state.currentAcademicYear = window.AcademicContext.getAcademicYearId();
+                state.currentTermFromContext = window.AcademicContext.getTermId();
             }
 
             await Promise.all([loadYears(), loadTerms(), loadClasses()]);
@@ -393,45 +420,41 @@ const reportCardsCtrl = (() => {
             return;
         }
 
-        const popup = window.open('', '_blank', 'width=900,height=700');
-        if (!popup) {
-            toast('Could not open print window', 'error');
-            return;
-        }
-
         const studentName = [student.first_name, student.middle_name, student.last_name].filter(Boolean).join(' ');
         const grade = student.cbc_grade || deriveCBCGrade(student.overall_pct);
 
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Report Card - ${esc(studentName)}</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 24px; }
-                        h2 { margin-bottom: 8px; }
-                        table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-                        th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
-                        th { background: #f5f5f5; }
-                    </style>
-                </head>
-                <body>
-                    <h2>Kingsway Academy - Student Report Card</h2>
-                    <table>
-                        <tr><th>Student</th><td>${esc(studentName)}</td></tr>
-                        <tr><th>Admission No</th><td>${esc(student.admission_no || '—')}</td></tr>
-                        <tr><th>Class</th><td>${esc(student.class_name || '—')} ${student.stream_name ? `(${esc(student.stream_name)})` : ''}</td></tr>
-                        <tr><th>CBC Grade</th><td>${esc(grade)}</td></tr>
-                        <tr><th>Overall %</th><td>${student.overall_pct != null ? `${student.overall_pct}%` : '—'}</td></tr>
-                        <tr><th>Position</th><td>${esc(student.rank || student.position || '—')}</td></tr>
-                        <tr><th>Status</th><td>${esc(student.card_status || 'pending')}</td></tr>
-                    </table>
-                </body>
-            </html>
-        `);
+        // Use PrintManager for consistent printing
+        if (window.PrintManager) {
+            const sections = [
+                {
+                    title: 'Student Information',
+                    fields: [
+                        { label: 'Student', value: studentName },
+                        { label: 'Admission No', value: student.admission_no || '—' },
+                        { label: 'Class', value: `${student.class_name || '—'} ${student.stream_name ? `(${student.stream_name})` : ''}` },
+                        { label: 'CBC Grade', value: grade },
+                        { label: 'Overall %', value: student.overall_pct != null ? `${student.overall_pct}%` : '—' },
+                        { label: 'Position', value: student.rank || student.position || '—' },
+                        { label: 'Status', value: student.card_status || 'pending' }
+                    ]
+                }
+            ];
 
-        popup.document.close();
-        popup.focus();
-        popup.print();
+            window.PrintManager.printRecord({
+                title: 'Student Report Card',
+                subtitle: `Kingsway Academy - ${studentName}`,
+                sections: sections,
+                orientation: 'portrait',
+                paperSize: 'A4',
+                reportCode: 'RC-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+                signatureSection: [
+                    { label: 'Class Teacher' },
+                    { label: 'Principal' }
+                ]
+            });
+        } else {
+            toast('PrintManager not available', 'error');
+        }
     }
 
     async function downloadAll() {
@@ -443,30 +466,39 @@ const reportCardsCtrl = (() => {
             return;
         }
 
-        const rows = [
-            ['Name', 'Admission No', 'Class', 'Stream', 'CBC Grade', 'Overall %', 'Rank', 'Card Status'],
-            ...state.students.map((s) => [
-                [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' '),
-                s.admission_no || '',
-                s.class_name || '',
-                s.stream_name || '',
-                s.cbc_grade || deriveCBCGrade(s.overall_pct),
-                s.overall_pct != null ? `${s.overall_pct}%` : '',
-                s.rank || s.position || '',
-                s.card_status || ''
-            ])
-        ];
+        // Use PrintManager for CSV export if available
+        if (window.PrintManager) {
+            const columns = [
+                { key: 'name', label: 'Name' },
+                { key: 'admission_no', label: 'Admission No' },
+                { key: 'class_name', label: 'Class' },
+                { key: 'stream_name', label: 'Stream' },
+                { key: 'cbc_grade', label: 'CBC Grade' },
+                { key: 'overall_pct', label: 'Overall %' },
+                { key: 'rank', label: 'Rank' },
+                { key: 'card_status', label: 'Card Status' }
+            ];
 
-        const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `report_cards_${new Date().toISOString().slice(0,10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+            const rows = state.students.map((s) => ({
+                name: [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' '),
+                admission_no: s.admission_no || '',
+                class_name: s.class_name || '',
+                stream_name: s.stream_name || '',
+                cbc_grade: s.cbc_grade || deriveCBCGrade(s.overall_pct),
+                overall_pct: s.overall_pct != null ? `${s.overall_pct}%` : '',
+                rank: s.rank || s.position || '',
+                card_status: s.card_status || ''
+            }));
+
+            window.PrintManager.exportToCSV({
+                filename: `report_cards_${new Date().toISOString().slice(0,10)}.csv`,
+                columns: columns,
+                rows: rows
+            });
+        } else {
+            toast('PrintManager not available', 'error');
+            return;
+        }
         toast('Bulk report card export completed', 'success');
     }
 
@@ -479,55 +511,18 @@ const reportCardsCtrl = (() => {
             return;
         }
 
-        const popup = window.open('', '_blank', 'width=1100,height=760');
-        if (!popup) {
-            toast('Could not open print window', 'error');
+        if (!window.PrintManager) {
+            toast('PrintManager not available', 'error');
             return;
         }
 
-        const rows = state.students.map((s) => `
-            <tr>
-                <td>${esc([s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' '))}</td>
-                <td>${esc(s.admission_no || '—')}</td>
-                <td>${esc(s.class_name || '—')}</td>
-                <td>${esc(s.stream_name || '—')}</td>
-                <td>${esc(s.cbc_grade || deriveCBCGrade(s.overall_pct))}</td>
-                <td>${s.overall_pct != null ? `${s.overall_pct}%` : '—'}</td>
-                <td>${esc(s.rank || s.position || '—')}</td>
-                <td>${esc(s.card_status || 'pending')}</td>
-            </tr>
-        `).join('');
-
-        popup.document.write(`
-            <html>
-                <head>
-                    <title>Bulk Report Cards</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 24px; }
-                        h2 { margin-bottom: 10px; }
-                        table { width: 100%; border-collapse: collapse; }
-                        th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
-                        th { background: #f5f5f5; }
-                    </style>
-                </head>
-                <body>
-                    <h2>Kingsway Academy - Bulk Report Card Summary</h2>
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Name</th><th>Admission No</th><th>Class</th><th>Stream</th>
-                                <th>CBC Grade</th><th>Overall %</th><th>Rank</th><th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </body>
-            </html>
-        `);
-
-        popup.document.close();
-        popup.focus();
-        popup.print();
+        window.PrintManager.printTable({
+            title: 'Bulk Report Card Summary',
+            columns: reportCardColumns(),
+            rows: reportCardRows(),
+            orientation: 'landscape',
+            paperSize: 'A4'
+        });
     }
 
     async function startWorkflow(e) {
@@ -555,25 +550,39 @@ const reportCardsCtrl = (() => {
 
     function exportCSV() {
         if (!state.students.length) { toast('No data to export', 'error'); return; }
-        const rows = [
-            ['Name','Admission No','Class','Stream','CBC Grade','Overall %','Rank','Card Status'],
-            ...state.students.map(s => [
-                [s.first_name, s.last_name].filter(Boolean).join(' '),
-                s.admission_no || '',
-                s.class_name || '',
-                s.stream_name || '',
-                s.cbc_grade || deriveCBCGrade(s.overall_pct),
-                s.overall_pct != null ? s.overall_pct + '%' : '',
-                s.rank || '',
-                s.card_status || ''
-            ])
-        ];
-        const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
-        const link = document.createElement('a');
-        link.href  = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
-        link.download = `report_cards_${new Date().toISOString().slice(0,10)}.csv`;
-        link.click();
+        if (!window.PrintManager) { toast('PrintManager not available', 'error'); return; }
+        window.PrintManager.exportToCSV({
+            filename: `report_cards_${new Date().toISOString().slice(0,10)}.csv`,
+            columns: reportCardColumns(),
+            rows: reportCardRows()
+        });
         toast('CSV exported', 'success');
+    }
+
+    function reportCardColumns() {
+        return [
+            { key: 'name', label: 'Name' },
+            { key: 'admission_no', label: 'Admission No' },
+            { key: 'class_name', label: 'Class' },
+            { key: 'stream_name', label: 'Stream' },
+            { key: 'cbc_grade', label: 'CBC Grade' },
+            { key: 'overall_pct', label: 'Overall %' },
+            { key: 'rank', label: 'Rank' },
+            { key: 'card_status', label: 'Card Status' }
+        ];
+    }
+
+    function reportCardRows() {
+        return state.students.map((s) => ({
+            name: [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' '),
+            admission_no: s.admission_no || '',
+            class_name: s.class_name || '',
+            stream_name: s.stream_name || '',
+            cbc_grade: s.cbc_grade || deriveCBCGrade(s.overall_pct),
+            overall_pct: s.overall_pct != null ? `${s.overall_pct}%` : '',
+            rank: s.rank || s.position || '',
+            card_status: s.card_status || ''
+        }));
     }
 
     /* ─── Events ─────────────────────────────────────────────── */

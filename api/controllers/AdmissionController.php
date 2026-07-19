@@ -6,6 +6,8 @@ use App\API\Modules\admission\AdmissionPolicy;
 use App\API\Modules\admission\AdmissionPaymentService;
 use App\API\Modules\admission\AdmissionStageAuthorization;
 use Exception;
+use function App\API\Includes\errorResponse;
+use function App\API\Includes\successResponse;
 
 class AdmissionController extends BaseController
 {
@@ -795,6 +797,26 @@ class AdmissionController extends BaseController
 
             $db = $this->db;
             $scopeFilter = $this->buildScopeFilter('aa', 'wi');
+            $stageMatrix = $this->getStageAuthorization()->getStageMatrix(
+                $this->getCurrentUserRoleIds(),
+                $this->getCurrentUserPermissionCodes()
+            );
+            $hasAdmissionOversight = $this->hasAdmissionRouteAccess()
+                && $this->userHasAny([], [3, 5, 6], ['Director', 'Headteacher', 'Deputy Head - Academic']);
+            $canViewStage = static fn (array $stages): bool => array_reduce(
+                $stages,
+                static fn (bool $carry, string $stage): bool => $carry || !empty($stageMatrix[$stage]['can_view']) || $hasAdmissionOversight,
+                false
+            );
+            $canViewReview = $canViewStage(['application_received', 'application_review']);
+            $canViewDocuments = $canViewStage(['documents_upload', 'documents_verification']);
+            $canViewSpace = $canViewStage(['class_space_check']);
+            $canViewInterview = $canViewStage(['interview_scheduling', 'interview_results']);
+            $canViewDecision = $canViewStage(['admission_decision', 'provisional_student_creation']);
+            $canViewPayment = $canViewStage(['fees_payment']);
+            $canViewId = $canViewStage(['student_id_generation']);
+            $canViewFinalApproval = $canViewStage(['final_approval']);
+            $canViewEnrollment = $canViewStage(['enrollment']);
             $canReview = $this->canProcessAdmissionActionForStage('review_application', 'application_review')
                 || $this->canProcessAdmissionActionForStage('review_application', 'application_received');
             $canUploadDocuments = $this->canProcessAdmissionActionForStage('upload_document', 'application_review')
@@ -846,7 +868,7 @@ class AdmissionController extends BaseController
                     LEFT JOIN workflow_instances wi ON wi.reference_type = 'admission_application' AND wi.reference_id = aa.id";
 
             // Review pending (application_received / application_review)
-            if ($canReview) {
+            if ($canViewReview || $canReview) {
                 $sql = "$baseSelect
                     WHERE wi.current_stage IN ('application_received', 'application_review')
                       AND aa.status NOT IN ('cancelled', 'enrolled')
@@ -857,7 +879,7 @@ class AdmissionController extends BaseController
             }
 
             // Documents Pending (documents_upload / documents_verification)
-            if ($canUploadDocuments || $canVerifyDocuments) {
+            if ($canViewDocuments || $canUploadDocuments || $canVerifyDocuments) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -878,7 +900,7 @@ class AdmissionController extends BaseController
             }
 
             // Class space check pending (class_space_check)
-            if ($canCheckSpace) {
+            if ($canViewSpace || $canCheckSpace) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at, aa.application_source, aa.updated_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -899,13 +921,17 @@ class AdmissionController extends BaseController
             }
 
             // Interview Pending (interview_scheduling / interview_results)
-            if ($canScheduleInterview || $canRecordInterview) {
+            if ($canViewInterview || $canScheduleInterview || $canRecordInterview) {
                 $interviewStageFilters = [];
-                if ($canScheduleInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
-                }
-                if ($canRecordInterview) {
-                    $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
+                if ($canViewInterview) {
+                    $interviewStageFilters[] = "wi.current_stage IN ('interview_scheduling', 'interview_results')";
+                } else {
+                    if ($canScheduleInterview) {
+                        $interviewStageFilters[] = "wi.current_stage = 'interview_scheduling'";
+                    }
+                    if ($canRecordInterview) {
+                        $interviewStageFilters[] = "wi.current_stage = 'interview_results'";
+                    }
                 }
 
                 $interviewStageSql = empty($interviewStageFilters)
@@ -928,7 +954,7 @@ class AdmissionController extends BaseController
             }
 
             // Admission decision pending (admission_decision / provisional_student_creation)
-            if ($canAdmit || $canCreateProvisional) {
+            if ($canViewDecision || $canAdmit || $canCreateProvisional) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -944,8 +970,7 @@ class AdmissionController extends BaseController
                 $queues['decision_pending'] = $this->attachQueueActions($stmt->fetchAll(\PDO::FETCH_ASSOC));
             }
 
-            // Payment Pending (fees_payment)
-            if ($canRecordPayment) {
+            if ($canViewPayment || $canRecordPayment) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -964,7 +989,7 @@ class AdmissionController extends BaseController
             }
 
             // Student ID generation pending (student_id_generation)
-            if ($canGenerateId) {
+            if ($canViewId || $canGenerateId) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -981,7 +1006,7 @@ class AdmissionController extends BaseController
             }
 
             // Final approval pending (final_approval)
-            if ($canFinalApproval) {
+            if ($canViewFinalApproval || $canFinalApproval) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -998,7 +1023,7 @@ class AdmissionController extends BaseController
             }
 
             // Enrollment Pending (enrollment)
-            if ($canCompleteEnrollment) {
+            if ($canViewEnrollment || $canCompleteEnrollment) {
                 $sql = "SELECT aa.id, aa.application_no, aa.applicant_name, aa.grade_applying_for,
                            aa.status, aa.created_at,
                            p.first_name as parent_first_name, p.last_name as parent_last_name, p.phone_1,
@@ -1458,7 +1483,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-file-earmark-text',
                         'color' => 'warning',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=documents_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=documents_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1491,7 +1516,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-calendar-event',
                         'color' => 'info',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=interview_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=interview_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1513,7 +1538,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-check-circle',
                         'color' => 'primary',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=placement_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=placement_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1533,7 +1558,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-cash-stack',
                         'color' => 'success',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=payment_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=payment_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1552,7 +1577,7 @@ class AdmissionController extends BaseController
                         'count' => $count,
                         'icon' => 'bi-person-check',
                         'color' => 'dark',
-                        'link' => '/Kingsway/home.php?route=manage_students_admissions&tab=enrollment_pending'
+                        'link' => $this->buildAppUrl('/home.php?route=manage_students_admissions&tab=enrollment_pending')
                     ];
                     $notifications['total_count'] += $count;
                 }
@@ -1589,6 +1614,29 @@ class AdmissionController extends BaseController
             $response = $this->success($result);
         }
         return $response;
+    }
+
+    /**
+     * Build a fully-qualified (absolute) in-app URL usable in any deployment.
+     *
+     * Derived from the live request (scheme + HTTP_HOST + mount prefix from
+     * SCRIPT_NAME), never from a hardcoded '/Kingsway'. Produces a portable
+     * absolute URL (e.g. https://kingsway.ac.ke/home.php?route=...) so links
+     * work even outside the app shell (email, cross-origin, deep links).
+     * Mirrors AuthAPI::generateResetLink().
+     *
+     * @param string $path Path starting with '/' (e.g. '/home.php?route=...')
+     * @return string Absolute URL (scheme://host[/base]/path)
+     */
+    private function buildAppUrl(string $path): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+
+        return $scheme . '://' . $host . rtrim($appBase, '/') . '/' . ltrim($path, '/');
     }
 
     private function hasAnyAdmissionPermission(string $group): bool

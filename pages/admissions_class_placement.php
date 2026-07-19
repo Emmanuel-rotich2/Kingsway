@@ -216,6 +216,50 @@ if ($appBase === '.')
 
         <!-- Capacity Tab Content -->
         <div id="capacityTab" class="tab-content" style="display:none;">
+            <!-- Admission Stage 5: period-aware, cohort-aware capacity projection -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-light d-flex align-items-center justify-content-between">
+                    <h6 class="mb-0">
+                        <i class="bi bi-graph-up-arrow me-2"></i>Future Cohort Projection
+                    </h6>
+                    <span class="badge bg-info" id="projectionResolutionBadge" style="display:none;"></span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-12 col-md-3">
+                            <label class="form-label fw-semibold small">Academic Year <span class="text-danger">*</span></label>
+                            <select id="projectionYear" class="form-select">
+                                <option value="">Select Year</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-3">
+                            <label class="form-label fw-semibold small">Target Class <span class="text-danger">*</span></label>
+                            <select id="projectionClass" class="form-select">
+                                <option value="">Select Class</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <label class="form-label fw-semibold small">Term</label>
+                            <select id="projectionTerm" class="form-select">
+                                <option value="">Any</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <label class="form-label fw-semibold small">Stream</label>
+                            <select id="projectionStream" class="form-select">
+                                <option value="">Auto</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button class="btn btn-info w-100" id="btnProjectCapacity" onclick="classPlacementController.projectCapacity()">
+                                <i class="bi bi-lightbulb me-1"></i>Project
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-3" id="projectionResult"></div>
+                </div>
+            </div>
+
             <div class="row g-3" id="capacityGrid">
                 <div class="col-12 text-center py-4">
                     <div class="spinner-border text-info" role="status"></div>

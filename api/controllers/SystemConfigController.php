@@ -29,8 +29,12 @@
 
 namespace App\API\Controllers;
 
+// NOTE: SystemConfigAPI lives at api/modules/system/ (lowercase dir) but is
+// declared in namespace App\API\Modules\System (capital S). PSR-4 file mapping
+// is case-sensitive, so the autoloader cannot resolve it on Linux; this explicit
+// require points at the real (lowercase) path. Renaming the dir to match the
+// namespace would let this be removed in favour of autoloading.
 require_once dirname(__DIR__) . '/modules/system/SystemConfigAPI.php';
-require_once dirname(__DIR__) . '/services/PolicyEngine.php';
 
 use App\API\Modules\System\SystemConfigAPI;
 use Exception;

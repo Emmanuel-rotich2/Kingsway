@@ -338,24 +338,38 @@ const termReportsCtrl = (() => {
         }
         const pct = resolvePercentage(student);
         const status = resolveStatus(student, pct);
-        const popup = window.open('', '_blank', 'width=820,height=620');
-        if (!popup) {
-            toast('Could not open print window', 'warning');
-            return;
-        }
-        popup.document.write(`
-            <html><head><title>Term Report</title></head><body>
-            <h2>Term Report Summary</h2>
-            <p><strong>Name:</strong> ${student.first_name || ''} ${student.last_name || ''}</p>
-            <p><strong>Admission No:</strong> ${student.admission_no || '—'}</p>
-            <p><strong>Class:</strong> ${student.class_name || '—'} / ${student.stream_name || '—'}</p>
-            <p><strong>Score:</strong> ${pct !== null ? `${pct.toFixed(1)}%` : 'No score recorded'}</p>
-            <p><strong>Status:</strong> ${status}</p>
-            </body></html>
-        `);
-        popup.document.close();
-        popup.focus();
-        popup.print();
+
+        const sections = [
+            {
+                title: 'Student Information',
+                fields: [
+                    { label: 'Student Name', value: `${student.first_name || ''} ${student.last_name || ''}`.trim() },
+                    { label: 'Admission No', value: student.admission_no || '—' },
+                    { label: 'Class', value: student.class_name || '—' },
+                    { label: 'Stream', value: student.stream_name || '—' }
+                ]
+            },
+            {
+                title: 'Academic Performance',
+                fields: [
+                    { label: 'Score', value: pct !== null ? `${pct.toFixed(1)}%` : 'No score recorded' },
+                    { label: 'Status', value: status }
+                ]
+            }
+        ];
+
+        window.PrintManager.printRecord({
+            title: 'Term Report Summary',
+            subtitle: `Student #${student.id}`,
+            sections: sections,
+            orientation: 'portrait',
+            paperSize: 'A4',
+            reportCode: 'TR-' + student.id,
+            signatureSection: [
+                { label: 'Class Teacher' },
+                { label: 'Principal' }
+            ]
+        });
     }
 
     function downloadReport(studentId) {
@@ -396,32 +410,46 @@ const termReportsCtrl = (() => {
             toast('No students selected', 'warning');
             return;
         }
-        const printableRows = ids
-            .map((id) => findStudent(id))
-            .filter(Boolean)
-            .map((student) => {
-                const pct = resolvePercentage(student);
-                return `<tr><td>${student.first_name || ''} ${student.last_name || ''}</td><td>${student.admission_no || '—'}</td><td>${student.class_name || '—'}</td><td>${pct !== null ? `${pct.toFixed(1)}%` : '—'}</td></tr>`;
-            })
-            .join('');
 
-        const popup = window.open('', '_blank', 'width=900,height=650');
-        if (!popup) {
-            toast('Could not open print window', 'warning');
-            return;
-        }
-        popup.document.write(`
-            <html><head><title>Bulk Term Reports</title></head><body>
-            <h2>Bulk Term Report Summary</h2>
-            <table border="1" cellspacing="0" cellpadding="6">
-                <thead><tr><th>Student</th><th>Admission</th><th>Class</th><th>Score</th></tr></thead>
-                <tbody>${printableRows}</tbody>
-            </table>
-            </body></html>
-        `);
-        popup.document.close();
-        popup.focus();
-        popup.print();
+        const students = ids.map((id) => findStudent(id)).filter(Boolean);
+        const printableRows = students.map((student) => {
+            const pct = resolvePercentage(student);
+            return {
+                studentName: `${student.first_name || ''} ${student.last_name || ''}`.trim(),
+                admissionNo: student.admission_no || '—',
+                className: student.class_name || '—',
+                streamName: student.stream_name || '—',
+                score: pct !== null ? `${pct.toFixed(1)}%` : '—',
+                status: resolveStatus(student, pct)
+            };
+        });
+
+        const columns = [
+            { key: 'studentName', label: 'Student' },
+            { key: 'admissionNo', label: 'Admission No' },
+            { key: 'className', label: 'Class' },
+            { key: 'streamName', label: 'Stream' },
+            { key: 'score', label: 'Score' },
+            { key: 'status', label: 'Status' }
+        ];
+
+        window.PrintManager.printTable({
+            title: 'Bulk Term Report Summary',
+            subtitle: `${students.length} Students Selected`,
+            columns: columns,
+            rows: printableRows,
+            summary: {
+                'Total Students': students.length,
+                'Printed Date': new Date().toLocaleDateString()
+            },
+            orientation: 'landscape',
+            paperSize: 'A4',
+            reportCode: 'BTR-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+            signatureSection: [
+                { label: 'Class Teacher' },
+                { label: 'Principal' }
+            ]
+        });
     }
 
     function exportCSV() {

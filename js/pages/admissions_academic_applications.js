@@ -6,25 +6,45 @@ const academicApplicationsController = {
     applications: [],
     filteredApplications: [],
     classes: [],
-    
-    init: function() {
-        console.log('Initializing Academic Applications Controller');
-        this.loadClasses();
-        this.loadApplications();
-        this.setupEventListeners();
-    },
-    
-    loadClasses: function() {
-        API.callAPI('/admission/placement-classes', 'GET')
-            .then(response => {
-                if (response.success && response.data) {
-                    this.classes = response.data.classes || [];
-                    this.populateClassDropdown();
+    initialized: false,
+
+    init: async function() {
+        if (this.initialized) return;
+        this.initialized = true;
+
+        console.log("academicApplicationsController: Initializing...");
+
+        try {
+            if (window.AuthContext && typeof window.AuthContext.isAuthenticated === "function") {
+                if (!window.AuthContext.isAuthenticated()) {
+                    console.warn("academicApplicationsController: Not authenticated, redirecting to login");
+                    window.location.href = `${window.APP_BASE || ""}/index.php`;
+                    return;
                 }
-            })
-            .catch(error => {
-                console.error('Failed to load classes:', error);
-            });
+            } else {
+                console.warn("academicApplicationsController: AuthContext not available");
+            }
+
+            this.setupEventListeners();
+            await this.loadClasses();
+            await this.loadApplications();
+
+            console.log("academicApplicationsController: Initialization complete");
+        } catch (error) {
+            console.error("Failed to initialize Academic Applications Controller:", error);
+            this.showError(error.message || "Failed to initialize academic applications page.");
+        }
+    },
+
+    loadClasses: async function() {
+        try {
+            const response = await API.callAPI('/admission/placement-classes', 'GET');
+            const payload = response?.data || response || {};
+            this.classes = payload.classes || [];
+            this.populateClassDropdown();
+        } catch (error) {
+            console.error('Failed to load classes:', error);
+        }
     },
     
     populateClassDropdown: function() {
@@ -42,7 +62,7 @@ const academicApplicationsController = {
         });
     },
     
-    loadApplications: function() {
+    loadApplications: async function() {
         document.getElementById('applicationsTableBody').innerHTML = `
             <tr>
                 <td colspan="7" class="text-center py-4">
@@ -51,32 +71,30 @@ const academicApplicationsController = {
                 </td>
             </tr>
         `;
-        
-        API.callAPI('/admission/queues', 'GET')
-            .then(response => {
-                if (response.success && response.data) {
-                    // Focus on placement queue
-                    const placementApplications = [];
-                    const queues = response.data.queues || {};
-                    
-                    if (queues.placement_pending && Array.isArray(queues.placement_pending)) {
-                        queues.placement_pending.forEach(app => {
-                            placementApplications.push({
-                                ...app,
-                                placement_status: 'pending'
-                            });
-                        });
-                    }
-                    
-                    this.applications = placementApplications;
-                    this.applyFilters();
-                    this.updateSummaryCards(response.data.summary || {});
-                }
-            })
-            .catch(error => {
-                console.error('Failed to load applications:', error);
-                this.showError('Failed to load applications');
-            });
+
+        try {
+            const response = await API.callAPI('/admission/queues', 'GET');
+            const payload = response?.data || response || {};
+            const placementApplications = [];
+            const queues = payload.queues || {};
+
+            if (Array.isArray(queues.space_check_pending)) {
+                queues.space_check_pending.forEach(app => {
+                    placementApplications.push({
+                        ...app,
+                        queue_name: 'space_check_pending',
+                        placement_status: 'pending'
+                    });
+                });
+            }
+
+            this.applications = placementApplications;
+            this.applyFilters();
+            this.updateSummaryCards(payload.summary || {});
+        } catch (error) {
+            console.error('Failed to load applications:', error);
+            this.showError('Failed to load applications');
+        }
     },
     
     updateSummaryCards: function(summary) {
@@ -87,9 +105,9 @@ const academicApplicationsController = {
     },
     
     applyFilters: function() {
-        const placementStatus = document.getElementById('filterPlacementStatus').value;
-        const classFilter = document.getElementById('filterClass').value;
-        const searchTerm = document.getElementById('searchApplications').value.toLowerCase();
+        const placementStatus = document.getElementById('filterPlacementStatus')?.value || '';
+        const classFilter = document.getElementById('filterClass')?.value || '';
+        const searchTerm = (document.getElementById('searchApplications')?.value || '').toLowerCase();
         
         this.filteredApplications = this.applications.filter(app => {
             if (placementStatus && app.placement_status !== placementStatus) return false;
@@ -190,14 +208,15 @@ const academicApplicationsController = {
     
     setupEventListeners: function() {
         // Filter changes
-        document.getElementById('filterPlacementStatus').addEventListener('change', () => this.applyFilters());
-        document.getElementById('filterClass').addEventListener('change', () => this.applyFilters());
-        document.getElementById('searchApplications').addEventListener('input', this.debounce(() => this.applyFilters(), 300));
-        
+        document.getElementById('filterPlacementStatus')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('filterClass')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('searchApplications')?.addEventListener('input', this.debounce(() => this.applyFilters(), 300));
+
         // Class selection change - show capacity
-        document.getElementById('recommendedClass').addEventListener('change', function() {
+        document.getElementById('recommendedClass')?.addEventListener('change', function() {
             const selectedOption = this.options[this.selectedIndex];
             const capacityCard = document.getElementById('classCapacityCard');
+            if (!capacityCard) return;
             
             if (selectedOption.value && selectedOption.dataset.capacity) {
                 const capacity = parseInt(selectedOption.dataset.capacity);
@@ -236,8 +255,9 @@ const academicApplicationsController = {
     viewApplication: function(applicationId) {
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    this.renderApplicationDetails(response.data);
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    this.renderApplicationDetails(payload);
                     const modal = new bootstrap.Modal(document.getElementById('viewApplicationModal'));
                     modal.show();
                     
@@ -301,9 +321,10 @@ const academicApplicationsController = {
         // Load applicant details for the modal
         API.callAPI(`/admission/application/${applicationId}`, 'GET')
             .then(response => {
-                if (response.success && response.data) {
-                    const app = response.data.application;
-                    const workflowData = response.data.workflow_data || {};
+                const payload = response?.data || response || {};
+                if (payload.application) {
+                    const app = payload.application;
+                    const workflowData = payload.workflow_data || {};
                     
                     const summary = `
                         <strong>Applicant:</strong> ${app.applicant_name}<br>
@@ -436,3 +457,23 @@ const academicApplicationsController = {
         };
     }
 };
+
+window.academicApplicationsController = academicApplicationsController;
+
+function initAcademicApplicationsWhenAPIReady() {
+    const hasApi = window.API && typeof window.API.callAPI === "function";
+
+    if (hasApi) {
+        console.log("API is ready, initializing academic applications controller");
+        window.academicApplicationsController.init();
+        return;
+    }
+
+    setTimeout(initAcademicApplicationsWhenAPIReady, 100);
+}
+
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initAcademicApplicationsWhenAPIReady);
+} else {
+    initAcademicApplicationsWhenAPIReady();
+}

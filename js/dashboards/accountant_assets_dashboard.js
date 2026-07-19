@@ -136,7 +136,15 @@ const accountantAssetsDashboardController = Object.assign(
       var printBtn = document.getElementById("printDashboard");
       if (printBtn) {
         printBtn.addEventListener("click", function () {
-          window.print();
+          if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
+            window.PrintManager.printElement({
+              elementId: 'dashboardContent',
+              title: 'Assets Management Dashboard',
+              subtitle: 'Asset Tracking & Depreciation'
+            });
+          } else {
+            window.print();
+          }
         });
       }
 
