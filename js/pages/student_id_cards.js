@@ -913,68 +913,6 @@ const StudentIdCardsController = {
         );
     },
 
-    generatePrintCardHTML: function(data) {
-        const student = data.student || {};
-        const school = data.school_settings || data.school_profile || {};
-        const appBase = window.APP_BASE || "";
-        const photo = this.resolveAssetUrl(student.photo_url, `${appBase}/uploads/students/avatar.jpg`);
-        const logo = this.resolveAssetUrl(school.school_logo || school.logo_url, `${appBase}/uploads/school_assets/official_school_logo.png`);
-        const fullName = this.getFullName(student);
-        const qrCodePath = this.resolveAssetUrl(student.qr_code_path || data.qr_code_path, "");
-        const cardNumber = student.card_number || "Not generated";
-        const issueDate = this.formatDisplayDate(student.issue_date || student.generated_at);
-        const expiryYear = student.expiry_year || "—";
-        const schoolName = school.school_name || "Kingsway Preparatory Academy";
-        const schoolAddress = school.school_address || "Londiani, Kenya";
-        const schoolPhone = school.school_phone || "";
-        const schoolEmail = school.school_email || "";
-        const schoolMotto = school.school_motto || "Education for Excellence";
-
-        const frontHTML = `
-            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; padding: 0; overflow: hidden; position: relative; font-family: Arial, sans-serif;">
-                <div style="background: rgba(255,255,255,0.95); padding: 8px; text-align: center; border-bottom: 3px solid #667eea;">
-                    <img src="${logo}" style="width: 40px; height: 40px; border-radius: 50%; margin-bottom: 5px;" alt="Logo">
-                    <div style="font-size: 11px; font-weight: bold; color: #333; margin: 0;">${schoolName}</div>
-                    <div style="font-size: 7px; color: #666; font-style: italic; margin: 0;">${schoolMotto}</div>
-                </div>
-                <div style="display: flex; padding: 10px; background: white; height: calc(100% - 70px);">
-                    <div style="width: 35%; padding-right: 10px;">
-                        <img src="${photo}" style="width: 100%; height: 110px; object-fit: cover; border: 2px solid #667eea; border-radius: 8px;" alt="Student Photo">
-                    </div>
-                    <div style="width: 65%; padding-left: 10px;">
-                        <div style="font-size: 14px; font-weight: bold; color: #333; margin: 0 0 5px 0;">${fullName}</div>
-                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.admission_no || 'N/A'}</div>
-                        <div style="font-size: 10px; color: #666; margin: 2px 0;">${student.class_name || 'N/A'} ${student.stream_name || ''}</div>
-                        <div style="font-size: 9px; color: #999; margin: 5px 0 0 0;">Card: ${cardNumber}</div>
-                        <div style="font-size: 9px; color: #999; margin: 2px 0;">Valid: ${issueDate} - ${expiryYear}</div>
-                    </div>
-                </div>
-                <div style="position: absolute; bottom: 8px; right: 8px;">
-                    <img src="${qrCodePath}" style="width: 40px; height: 40px;" alt="QR Code">
-                </div>
-            </div>
-        `;
-
-        const backHTML = `
-            <div style="width: 3.375in; height: 2.125in; background: linear-gradient(135deg, #764ba2 0%, #667eea 100%); border-radius: 15px; padding: 15px; overflow: hidden; font-family: Arial, sans-serif; color: white;">
-                <div style="text-align: center; margin-bottom: 15px;">
-                    <div style="font-size: 12px; font-weight: bold; margin: 0 0 5px 0;">${schoolName}</div>
-                    <div style="font-size: 8px; opacity: 0.9; margin: 0;">${schoolAddress}</div>
-                </div>
-                <div style="font-size: 9px; line-height: 1.4;">
-                    <div style="margin-bottom: 8px;"><strong>Terms & Conditions:</strong></div>
-                    <div style="font-size: 8px;">This card is property of ${schoolName}. It must be carried at all times while on school premises.</div>
-                    <div style="margin-top: 15px; font-size: 8px; opacity: 0.8;">Lost cards should be reported immediately to the administration office.</div>
-                </div>
-                <div style="position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; font-size: 8px; opacity: 0.7;">
-                    ${schoolPhone} | ${schoolEmail}
-                </div>
-            </div>
-        `;
-
-        return { front: frontHTML, back: backHTML };
-    },
-
     renderCardPreview: function(data) {
         const student = data.student || {};
         const school = data.school_settings || data.school_profile || {};
@@ -1089,7 +1027,8 @@ const StudentIdCardsController = {
     },
 
     downloadSingleCard: async function() {
-        // Generate a single-card PDF via the bulk endpoint (single ID) and open it.
+        // Generate a true CR80-sized (85.60 x 53.98 mm) PDF for a single card so a
+        // direct PVC/CR80 printer is fed one side per physical page (no A4 stretch).
         if (!this.currentPreviewStudentId) {
             this.notify("warning", "No card preview available");
             return;
@@ -1097,16 +1036,14 @@ const StudentIdCardsController = {
 
         const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
         const side = document.getElementById('printSideSelect')?.value || 'both';
-        const includeFront = side === 'both' || side === 'front';
-        const includeBack = side === 'both' || side === 'back';
 
         try {
             this.notify("info", "Generating single card PDF...");
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
-                student_ids: [this.currentPreviewStudentId],
+            const response = await this.apiCall('/students/id-card/print-single', 'POST', {
+                student_id: this.currentPreviewStudentId,
+                side: side,
                 print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
+                format: 'pdf'
             });
             const data = this.unwrapPayload(response);
             if (data && data.pdf_url) {

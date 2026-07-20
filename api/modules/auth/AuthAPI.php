@@ -9,7 +9,6 @@ use App\API\Modules\users\PermissionManager;
 use App\API\Modules\users\UserRoleManager;
 use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
-use App\API\Services\MenuBuilderService;
 use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
 use App\Services\PolicyEngine;
@@ -28,7 +27,6 @@ class AuthAPI extends BaseAPI
     private $communicationsApi;
 
     // New database-driven services
-    private ?MenuBuilderService $menuBuilder = null;
     private ?SystemConfigService $configService = null;
 
     // Feature flag: use database-driven config (set to true when migration is complete)
@@ -75,17 +73,6 @@ class AuthAPI extends BaseAPI
         } catch (\Exception $e) {
             return false;
         }
-    }
-
-    /**
-     * Get MenuBuilderService (lazy load)
-     */
-    private function getMenuBuilder(): MenuBuilderService
-    {
-        if ($this->menuBuilder === null) {
-            $this->menuBuilder = MenuBuilderService::getInstance();
-        }
-        return $this->menuBuilder;
     }
 
     /**
@@ -462,75 +449,24 @@ class AuthAPI extends BaseAPI
         $userPermissions = array_values(array_filter(array_unique($userPermissions)));
         error_log("DEBUG: userPermissions extracted: " . count($userPermissions) . " items");
 
-        // NOTE: We no longer add Headteacher (role 5) wholesale to a Deputy's
-        // effective roles when delegation exists. Delegation is performed at
-        // the per-menu-item level (see `role_delegations_items`). MenuBuilderService
-        // will include only explicitly delegated items for a role. This prevents
-        // accidental sharing of the entire sidebar and avoids duplicate dashboard
-        // entries between Headteacher and Deputy roles.
-
-        // Merge delegated permissions (per-item) into effective permissions so
-        // that delegated menu items that require permissions are accessible.
-        $delegatedPermissions = [];
-        // If roleIds wasn't provided (some callers), derive from userData
-        if (empty($roleIds)) {
-            $roleIds = [];
-            foreach ($userData['roles'] as $r) {
-                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
-            }
-            $roleIds = array_values(array_filter(array_unique($roleIds)));
-        }
-        try {
-            // Role-level per-item delegations (backwards compatible)
-            foreach ($roleIds as $rid) {
-                $delegatedItems = $this->getMenuBuilder()->getDelegatedMenuItemsForRole($rid);
-                foreach ($delegatedItems as $dItem) {
-                    if (!empty($dItem['route_name'])) {
-                        $reqPerms = $this->getConfigService()->getPermissionsForRouteName($dItem['route_name']);
-                        foreach ($reqPerms as $rp) {
-                            $delegatedPermissions[] = $rp['name'];
-                        }
-                    }
-                }
-            }
-
-            // User-level per-item delegations (preferred)
-            $userDelegatedItems = $this->getMenuBuilder()->getDelegatedMenuItemsForUser($userId);
-            foreach ($userDelegatedItems as $dItem) {
-                if (!empty($dItem['route_name'])) {
-                    $reqPerms = $this->getConfigService()->getPermissionsForRouteName($dItem['route_name']);
-                    foreach ($reqPerms as $rp) {
-                        $delegatedPermissions[] = $rp['name'];
-                    }
-                }
-            }
-        } catch (\Exception $e) {
-            // If config service or delegations table not present, skip silently
-        }
+        // NOTE: Per-item menu delegation (the legacy `role_delegations_items` /
+        // `user_delegations_items` tables) has been retired. Those tables no
+        // longer exist in the schema, so role-level menu visibility is driven
+        // solely by config/role_sidebars.php (the single source of truth).
+        // Effective permissions below are the base user/role grants only.
 
         // Effective permissions for filtering the sidebar
-        $effectivePermissions = array_values(array_unique(array_merge($userPermissions, $delegatedPermissions)));
+        $effectivePermissions = array_values(array_unique($userPermissions));
 
-        // Fast path: use hardcoded sidebar if defined for this role
-        $hardcodedSidebar = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
-
+        // Single source of truth: sidebar items come from config/role_sidebars.php.
+        // (Legacy DB-menu path via MenuBuilderService was retired: it queried the
+        // deprecated sidebar_menu_configs / role_delegations_items tables which are
+        // no longer part of the schema, and duplicated role_sidebars.php coverage.)
         try {
-            if ($hardcodedSidebar !== null) {
-                $sidebarItems = $hardcodedSidebar;
-            } elseif (count($roleIds) > 1) {
-                // Multi-role: combine menus from all roles
-                $sidebarItems = $this->getMenuBuilder()->buildSidebarForMultipleRoles(
-                    $userId,
-                    $roleIds,
-                    $effectivePermissions
-                );
-            } else {
-                // Single role: get menu for that role
-                $sidebarItems = $this->getMenuBuilder()->buildSidebarForUser(
-                    $userId,
-                    $primaryRoleId ?? 0,
-                    $effectivePermissions
-                );
+            $sidebarItems = $this->getHardcodedSidebarItems($primaryRoleId ?? 0);
+            if ($sidebarItems === null) {
+                // Fallback only if a role has no entry in role_sidebars.php
+                $sidebarItems = [];
             }
 
             // Resolve dashboard strictly by the user's primary role to avoid cross-role defaults
@@ -834,42 +770,6 @@ class AuthAPI extends BaseAPI
                 $defaultDashboard = $dashboardManager->getDashboard($primaryRoleId);
             }
         }
-
-            // If no items for primary role, combine from all roles
-            if ($hardcodedSidebar === null && empty($sidebarItems) && !empty($roleIds)) {
-                // Union menus from dashboards config
-                $dashConfig = include __DIR__ . '/../../includes/dashboards.php';
-                $menusUnion = [];
-                $seen = [];
-
-                foreach ($roleIds as $rid) {
-                    $menus = $dashConfig[$rid]['menus'] ?? [];
-                    foreach ($menus as $menu) {
-                        $key = ($menu['label'] ?? '') . '|' . ($menu['url'] ?? '') . '|' . ($menu['icon'] ?? '');
-                        if (!isset($seen[$key])) {
-                            $menusUnion[] = $menu;
-                            $seen[$key] = true;
-                        }
-                    }
-                }
-
-                if (empty($menusUnion)) {
-                    $menusUnion = $dashConfig[2]['menus'] ?? [];
-                }
-
-                // Filter by permissions via DashboardManager
-                $sidebarItems = $dashboardManager->filterMenuItems($menusUnion);
-
-                // Choose default dashboard
-                if (!empty($sidebarItems)) {
-                    $first = $sidebarItems[0];
-                    $defaultDashboard = [
-                        'label' => $first['label'] ?? 'Dashboard',
-                        'route' => $first['url'] ?? 'home',
-                    ];
-                    $dashboardKey = $first['url'] ?? 'home';
-                }
-            }
 
         error_log("Login (file-based): Role=$primaryRole (ID: $primaryRoleId), DashboardKey=$dashboardKey, MenuItems=" . count($sidebarItems));
 
@@ -1208,74 +1108,19 @@ class AuthAPI extends BaseAPI
     }
 
     /**
-     * Return a hardcoded sidebar for the given role, or null if not defined.
-     * Hardcoded sidebars bypass all DB authorization queries (900+ queries saved).
-     * Add roles to config/role_sidebars.php to opt them into the fast path.
+     * Return the file-driven sidebar for the given role.
+     *
+     * Delegates to SidebarConfigReader (the single source of truth), which
+     * reads config/role_sidebars.php and normalises the shape used everywhere.
+     * Returns [] when the role has no entry, so callers can treat a missing
+     * config as "no menu" rather than a hard failure.
      */
     private function getHardcodedSidebarItems(int $roleId): ?array
     {
         if ($roleId <= 0) {
-            return null;
+            return [];
         }
-        static $config = null;
-        if ($config === null) {
-            $path = dirname(__DIR__, 3) . '/config/role_sidebars.php';
-            $config = file_exists($path) ? (include $path) : [];
-        }
-        if (!isset($config[$roleId])) {
-            return null;
-        }
-        // Normalise to the same shape as MenuBuilderService output.
-        // IDs: parent = roleId*10000 + groupIndex*100; child = parentId + childIndex + 1
-        $items      = [];
-        $groupIndex = 0;
-        foreach ($config[$roleId] as $item) {
-            $parentId = $roleId * 10000 + $groupIndex * 100;
-            $subitems  = [];
-            $subIndex  = 1;
-            foreach ($item['subitems'] ?? [] as $sub) {
-                $subitems[] = [
-                    'id'                   => $parentId + $subIndex,
-                    'parent_id'            => $parentId,
-                    'label'                => $sub['label'],
-                    'icon'                 => $sub['icon'] ?? null,
-                    'url'                  => $sub['url'] ?? null,
-                    'route_url'            => $sub['url'] ?? null,
-                    'domain'               => 'SCHOOL',
-                    'display_order'        => $subIndex,
-                    'subitems'             => [],
-                    'show_badge'           => false,
-                    'badge_source'         => null,
-                    'badge_color'          => 'danger',
-                    'open_in_new_tab'      => false,
-                    'requires_confirmation'=> false,
-                    'confirmation_message' => null,
-                    'css_class'            => null,
-                    'tooltip'              => null,
-                ];
-                $subIndex++;
-            }
-            $items[] = [
-                'id'                   => $parentId,
-                'parent_id'            => null,
-                'label'                => $item['label'],
-                'icon'                 => $item['icon'] ?? null,
-                'url'                  => $item['url'] ?? null,
-                'route_url'            => $item['url'] ?? null,
-                'domain'               => 'SCHOOL',
-                'display_order'        => $groupIndex,
-                'subitems'             => $subitems,
-                'show_badge'           => false,
-                'badge_source'         => null,
-                'badge_color'          => 'danger',
-                'open_in_new_tab'      => false,
-                'requires_confirmation'=> false,
-                'confirmation_message' => null,
-                'css_class'            => null,
-                'tooltip'              => null,
-            ];
-            $groupIndex++;
-        }
+        $items = \App\API\Services\SidebarConfigReader::forRole($roleId);
         return $items;
     }
 

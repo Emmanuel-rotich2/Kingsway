@@ -706,8 +706,9 @@ class StudentsController extends BaseController
 
         $side = $data['side'] ?? 'both';
         $printMode = $data['print_mode'] ?? 'direct_card';
+        $format = $data['format'] ?? 'html';
 
-        $result = $this->api->generatePrintableSingle((int) $studentId, $side, $printMode);
+        $result = $this->api->generatePrintableSingle((int) $studentId, $side, $printMode, $format);
         return $this->handleResponse($result);
     }
 

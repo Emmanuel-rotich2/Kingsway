@@ -228,6 +228,7 @@ class PrintService
             'paperSize' => 'A4',
             'custom_width' => null,
             'custom_height' => null,
+            'cr80' => false,
             'filename' => 'document_' . time()
         ], $options);
         
@@ -241,8 +242,22 @@ class PrintService
         $dompdf = new Dompdf($dompdfOptions);
         $dompdf->loadHtml($html);
         
-        // Set paper size - support custom dimensions
-        if ($options['custom_width'] && $options['custom_height']) {
+        // Set paper size - support custom dimensions / CR80 ID card (85.60 x 53.98 mm)
+        if ($options['cr80']) {
+            // Dompdf getPaperSize() requires a 4-element array and reads the
+            // width/height floats from indices [2] and [3]. Array sizes are
+            // interpreted as POINTS (1pt = 1/72in), so convert mm -> pt here.
+            // Dompdf's 4-element paper array is [x0, y0, X1, Y1] (two corner
+            // points); CPDF computes width = X1 - x0 and height = Y1 - y0.
+            // So the correct form is [0, 0, W, H] — NOT a [w, h, w, h] form,
+            // which would yield a 0 x 0 media box. The CR80 card is wider than
+            // tall, so we pass 'portrait' (no landscape swap) and let the
+            // width/height stand as authored.
+            $mmToPt = 2.834645669;
+            $w = 85.60 * $mmToPt;
+            $h = 53.98 * $mmToPt;
+            $dompdf->setPaper([0, 0, $w, $h], 'portrait');
+        } elseif ($options['custom_width'] && $options['custom_height']) {
             $dompdf->setPaper([$options['custom_width'], $options['custom_height']], $options['orientation']);
         } else {
             $dompdf->setPaper($options['paperSize'], $options['orientation']);
