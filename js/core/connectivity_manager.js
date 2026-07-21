@@ -8,18 +8,26 @@
 const ConnectivityManager = (function() {
   'use strict';
 
-  let isOnline = navigator.onLine;
+  let isOnline = true;
   let subscribers = new Set();
   let retryInterval = null;
+  // Suspicious-or-failed probe counter; only declare OFFLINE after the remote
+  // probe fails repeatedly, so a single transient error (e.g. a stale SW-
+  // intercepted HEAD) can't flip the app to "offline" at boot.
+  const OFFLINE_CONFIRM_TRIES = 2;
+  let consecutiveFailures = 0;
 
   /**
    * Initialize connectivity monitoring
    */
   function initialize() {
     console.log('[ConnectivityManager] Initializing...');
-    
-    // Set initial state
-    isOnline = navigator.onLine;
+
+    // navigator.onLine is treated as a HINT, not truth. Embedded/headless/iframe
+    // contexts routinely report false at startup, and a browser can report
+    // "online" while the actual server is unreachable. We always confirm with a
+    // real probe (see checkConnectivity) before showing any offline UI.
+    isOnline = true;
     
     // Listen for online/offline events
     window.addEventListener('online', handleOnline);
@@ -79,29 +87,36 @@ const ConnectivityManager = (function() {
   }
 
   /**
-   * Check actual connectivity (not just browser state)
+   * Check actual connectivity (not just browser state).
+   *
+   * Probes /api/session, which is PUBLIC and returns 200 JSON even when the
+   * user is logged out. We route the request through API.callAPI so it gets the
+   * same token/credentials handling as every other request and is NEVER served
+   * a stale cached page (e.g. home.php) by the service worker. A single failed
+   * probe does not flip us to offline; we require OFFLINE_CONFIRM_TRIES
+   * consecutive failures before declaring the connection lost.
    */
   async function checkConnectivity() {
     try {
-      // Try to fetch a small resource
-      const response = await fetch('./home.php', {
-        method: 'HEAD',
-        cache: 'no-cache',
-        signal: AbortSignal.timeout(5000)
-      });
-      
+      await API.callAPI('/session', 'GET', null, {}, { checkPermission: false });
+      consecutiveFailures = 0;
+
       const wasOnline = isOnline;
-      isOnline = response.ok;
-      
-      if (isOnline && !wasOnline) {
+      isOnline = true;
+
+      if (!wasOnline) {
         handleOnline();
-      } else if (!isOnline && wasOnline) {
-        handleOffline();
       }
-      
       return isOnline;
     } catch (error) {
-      if (isOnline) {
+      consecutiveFailures += 1;
+      console.warn(
+        '[ConnectivityManager] Probe failed (' + consecutiveFailures + '/' + OFFLINE_CONFIRM_TRIES + '):',
+        error && error.message
+      );
+
+      // Only declare offline after repeated, confirmed failures.
+      if (consecutiveFailures >= OFFLINE_CONFIRM_TRIES && isOnline) {
         handleOffline();
       }
       return false;
@@ -151,10 +166,14 @@ const ConnectivityManager = (function() {
    * Subscribe to connectivity events
    */
   function subscribe(event, callback) {
-    subscribers.add({ event, callback });
-    
+    const entry = { event, callback };
+    subscribers.add(entry);
+
+    // Return an unsubscribe that removes the SAME object reference, so it
+    // actually matches the stored entry (creating a fresh object here would
+    // never equal the stored one and silently leak the listener).
     return () => {
-      subscribers.delete({ event, callback });
+      subscribers.delete(entry);
     };
   }
 

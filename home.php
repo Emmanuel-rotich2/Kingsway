@@ -248,6 +248,10 @@ $roles = [$main_role];
         if (typeof StorageMonitor !== 'undefined') {
             StorageMonitor.initialize();
         }
+
+        // Mark the app fully booted so the API's session-expired fallback
+        // (last-resort redirect to login) is restrained during initial load.
+        window.__APP_BOOTED__ = true;
     </script>
 </body>
 

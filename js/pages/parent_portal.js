@@ -7,7 +7,6 @@
   'use strict';
 
   var BASE = window.APP_BASE || '';
-  var API_BASE = BASE + '/api/parent-portal';
 
   var state = {
     token: null,
@@ -49,15 +48,13 @@
   // ============================================================
 
   function apiFetch(path, method, body) {
-    var opts = { method: method || 'GET', headers: { 'Content-Type': 'application/json' } };
-    if (state.token) opts.headers['Authorization'] = 'Bearer ' + state.token;
-    if (body) opts.body = JSON.stringify(body);
-    return fetch(API_BASE + path, opts)
-      .then(function (r) { return r.json(); })
-      .then(function (r) {
-        if (r.status === 'error') throw new Error(r.message || 'Request failed');
-        return r;
-      });
+    // Route through API.callAPI (aliased apiCall). The parent-portal authenticates
+    // with its own JWT in state.token (pp_token), so inject it via options.headers;
+    // suppress the staff auto-login redirect since this SPA handles its own auth.
+    var opts = { noRedirect: true };
+    if (state.token) opts.headers = { Authorization: 'Bearer ' + state.token };
+    return Promise.resolve(apiCall('/parent-portal' + path, method || 'GET', body, null, opts))
+      .then(function (data) { return data; });
   }
 
   // ============================================================

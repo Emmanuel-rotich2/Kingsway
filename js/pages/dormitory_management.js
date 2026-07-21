@@ -32,13 +32,9 @@ const DormitoryManagementController = {
     try {
       this.showGridLoading();
       // Use a generic approach since boarding API may not exist
-      const res =
-        (await window.API.academic
-          ?.getCustom({ action: "dormitories" })
-          .catch(() => null)) ||
-        (await fetch((window.APP_BASE || '') + '/api/?route=boarding&action=dormitories')
-          .then((r) => r.json())
-          .catch(() => null));
+      const res = await API.callAPI('/?route=boarding&action=dormitories')
+        .then((data) => ({ success: true, data }))
+        .catch(() => null);
 
       if (res?.success) {
         this.state.dorms = res.data || [];
@@ -160,15 +156,9 @@ const DormitoryManagementController = {
 
   async viewOccupants(dormId) {
     try {
-      const res =
-        (await window.API.academic
-          ?.getCustom({ action: "dorm-occupants", dorm_id: dormId })
-          .catch(() => null)) ||
-        (await fetch(
-          (window.APP_BASE || "") + `/api/?route=boarding&action=occupants&dorm_id=${dormId}`,
-        )
-          .then((r) => r.json())
-          .catch(() => null));
+      const res = await API.callAPI(`/?route=boarding&action=occupants&dorm_id=${dormId}`)
+        .then((data) => ({ success: true, data }))
+        .catch(() => null);
 
       const occupants = res?.success ? res.data || [] : [];
       let html =
@@ -189,17 +179,9 @@ const DormitoryManagementController = {
     const data = Object.fromEntries(new FormData(form).entries());
 
     try {
-      const res =
-        (await window.API.academic
-          ?.postCustom({ action: "create-dormitory", ...data })
-          .catch(() => null)) ||
-        (await fetch((window.APP_BASE || '') + '/api/?route=boarding&action=create-dormitory', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        })
-          .then((r) => r.json())
-          .catch(() => null));
+      const res = await API.callAPI('/?route=boarding&action=create-dormitory', 'POST', data)
+        .then((response) => ({ success: true, data: response }))
+        .catch(() => null);
 
       if (res?.success) {
         this.showNotification("Dormitory saved", "success");

@@ -553,17 +553,14 @@ const DataStore = (function() {
    */
   function getEndpointForKey(key) {
     const endpointMapping = {
-      'classes': '/classes',
-      'streams': '/streams',
-      'subjects': '/subjects',
-      'terms': '/terms',
-      'academic_years': '/academic-years',
-      'departments': '/departments',
+      'classes': '/attendance/classes',
+      'subjects': '/academic/subjects',
+      'terms': '/academic/terms',
+      'departments': '/website/departments',
       'students': '/students',
       'staff': '/staff',
       'attendance': '/attendance',
-      'admissions': '/admission/queues',
-      'school_profile': '/school/profile'
+      'admissions': '/admission/queues'
     };
 
     return endpointMapping[key] || `/${key}`;

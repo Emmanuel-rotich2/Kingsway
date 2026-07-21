@@ -174,10 +174,9 @@ const manageStaffController = {
 
   loadRoles: async function () {
     try {
-      // Load roles for staff assignment
-      const response = await fetch((window.APP_BASE || '') + '/api/?route=roles&action=list');
-      const data = await response.json();
-      this.roles = Array.isArray(data.data) ? data.data : [];
+      // Load roles for staff assignment (RESTful sibling: GET /api/system/roles)
+      const data = await API.system.getRoles();
+      this.roles = Array.isArray(data) ? data : [];
     } catch (error) {
       console.error("Error loading roles:", error);
     }

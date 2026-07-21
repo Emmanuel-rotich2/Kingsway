@@ -11,7 +11,7 @@
  * - Old cache cleanup
  */
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const STATIC_CACHE_NAME = `kingsway-static-${CACHE_VERSION}`;
 const API_CACHE_NAME = `kingsway-api-${CACHE_VERSION}`;
 
@@ -72,9 +72,19 @@ const CACHEABLE_API_PATTERNS = [
   /\/api\/academic\/years-list$/,
   /\/api\/academic\/assessments-list$/,
   /\/api\/academic\/performance-overview$/,
-  /\/api\/academic\/context$/,          // eager bootstrap call — must not be Network-Only
   /\/api\/staff\/departments\/get$/,
   /\/api\/school-config\/profile$/
+];
+
+// Per-user / authenticated API responses. These MUST NOT be cached by the SW
+// (never shared across users, and a stale 401 response would poison the cache
+// for every visitor). The `/api/academic/context` call is authenticated and was
+// previously in CACHEABLE_API_PATTERNS — it produced the "ServiceWorker
+// intercepted the request and encountered an unexpected error" + 401 because the
+// SW re-fetched it WITHOUT the auth cookie. Keep it (and any future per-user
+// endpoint) here so it stays Network-Only.
+const AUTHENTICATED_API_PATTERNS = [
+  /\/api\/academic\/context$/
 ];
 
 // API endpoints that should never be cached
@@ -149,17 +159,26 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
-  
+
+  // Never intercept API traffic. Auth/session/connectivity calls (including the
+  // /api/session connectivity probe) MUST hit the network live — serving a
+  // cached/stale API response here previously caused false "offline" detection
+  // and broke session checks. Bypassing /api/* guarantees the network is the
+  // source of truth for all data, exactly as if there were no service worker.
+  if (url.pathname.includes('/api/')) {
+    return;
+  }
+
   // Skip non-GET requests
   if (request.method !== 'GET') {
     return;
   }
-  
+
   // Skip cross-origin requests (except our whitelisted CDNs)
   if (url.origin !== self.location.origin && !isWhitelistedOrigin(url.origin)) {
     return;
   }
-  
+
   // JS/CSS must be network-first. A cache-first app shell is fine for images,
   // but stale page controllers break PHP-rendered screens after deployments.
   if (isScriptOrStyle(request.url)) {
@@ -207,11 +226,15 @@ function isScriptOrStyle(url) {
  * Check if request is for a cacheable API endpoint
  */
 function isCacheableAPI(url) {
+  // Never cache per-user / authenticated responses.
+  if (AUTHENTICATED_API_PATTERNS.some(pattern => pattern.test(url))) {
+    return false;
+  }
   // Check if it's an API request
   if (!url.includes('/api/')) {
     return false;
   }
-  
+
   // Check if it matches cacheable patterns
   if (CACHEABLE_API_PATTERNS.some(pattern => pattern.test(url))) {
     // Make sure it doesn't match never-cache patterns
@@ -283,8 +306,10 @@ async function handleStaleWhileRevalidate(request) {
   const cache = await caches.open(API_CACHE_NAME);
   const cachedResponse = await cache.match(request);
   
-  // Always fetch from network to update cache
-  const networkPromise = fetch(request)
+  // Always fetch from network to update cache. Send credentials so authenticated
+  // endpoints (e.g. routes that weren't filtered by isCacheableAPI) re-fetch with
+  // the auth cookie instead of as an anonymous guest (which produced 401s).
+  const networkPromise = fetch(request, { credentials: 'include' })
     .then((networkResponse) => {
       if (networkResponse.ok) {
         cache.put(request, networkResponse.clone());

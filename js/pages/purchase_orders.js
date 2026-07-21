@@ -36,16 +36,8 @@
          */
         loadData: async function () {
             try {
-                const response = await fetch(API_BASE_URL + "/finance/purchase-orders", {
-                    headers: this.getHeaders()
-                });
-                const result = await response.json();
-
-                if (result.status === "success" || result.success) {
-                    this.data = result.data || result.purchase_orders || [];
-                } else {
-                    this.data = [];
-                }
+                this.data = await API.callAPI("/finance/purchase-orders", "GET");
+                if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading purchase orders:", error);
                 this.data = [];
@@ -328,24 +320,15 @@
             };
 
             try {
-                var url = API_BASE_URL + "/finance/purchase-orders";
+                var endpoint = "/finance/purchase-orders";
                 var method = payload.id ? "PUT" : "POST";
-                if (payload.id) url += "/" + payload.id;
+                if (payload.id) endpoint += "/" + payload.id;
 
-                var response = await fetch(url, {
-                    method: method,
-                    headers: this.getHeaders(),
-                    body: JSON.stringify(payload)
-                });
-                var result = await response.json();
+                await API.callAPI(endpoint, method, payload);
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Purchase order saved successfully", "success");
-                    bootstrap.Modal.getInstance(document.getElementById("purchaseOrderModal")).hide();
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to save purchase order", "error");
-                }
+                this.showNotification("Purchase order saved successfully", "success");
+                bootstrap.Modal.getInstance(document.getElementById("purchaseOrderModal")).hide();
+                await this.loadData();
             } catch (error) {
                 console.error("Error saving PO:", error);
                 this.showNotification("Failed to save purchase order", "error");
@@ -414,18 +397,10 @@
             if (!confirm("Are you sure you want to delete this purchase order?")) return;
 
             try {
-                var response = await fetch(API_BASE_URL + "/finance/purchase-orders/" + id, {
-                    method: "DELETE",
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
+                await API.callAPI("/finance/purchase-orders/" + id, "DELETE");
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Purchase order deleted", "success");
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to delete", "error");
-                }
+                this.showNotification("Purchase order deleted", "success");
+                await this.loadData();
             } catch (error) {
                 console.error("Error deleting PO:", error);
                 this.showNotification("Failed to delete purchase order", "error");

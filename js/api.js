@@ -198,7 +198,7 @@ async function readJsonSafely(response, context = "API") {
 
 /**
  * User context manager - handles authentication state, permissions, and access control
- * Stores user info, token, roles, and permissions in localStorage or sessionStorage depending on "Remember me"
+ * Stores user info, token, roles, and permissions in localStorage (single global store) so every page, tab and window shares the same auth state (username, user_id, role, tokens, permissions, sidebar, dashboard).
  * Provides permission checking before API calls
  */
 const AuthContext = (() => {
@@ -215,26 +215,37 @@ const AuthContext = (() => {
   let currentUser = null;
   let permissions = new Set();
   let roles = [];
-  let activeStorage = localStorage.getItem("auth_storage_mode") === "local" ? localStorage : sessionStorage;
+
+  // SINGLE SOURCE OF TRUTH for all auth state. Every key in AUTH_KEYS
+  // (token, refresh_token, user_data, user_permissions, user_roles,
+  // sidebar_items, dashboard_info) is read from and written to ONE store:
+  // localStorage. This guarantees that username, user_id, role, tokens and
+  // permissions are available GLOBALLY across every page, tab and window of the
+  // same browser — any new window opens with the full login response already
+  // present, so a user never has to "log in twice". sessionStorage is no longer
+  // used as a target; we only clear any stale sessionStorage keys left over from
+  // older builds. The HttpOnly refresh_token cookie remains the server-side
+  // anchor for device-level session lifetime.
+  let activeStorage = localStorage;
 
   function getStorageName(storage) {
     return storage === localStorage ? "local" : "session";
   }
 
   function getStorageByName(name) {
-    return name === "local" ? localStorage : sessionStorage;
+    // There is only one canonical store now. Keeping this indirection for any
+    // external callers, but it always resolves to localStorage.
+    return name === "local" ? localStorage : localStorage;
   }
 
+  // Detects whether an existing session is present. With a single store this is
+  // trivial, but it still short-circuits when a token is already in localStorage
+  // so callers (initialize) know there is nothing to restore from the cookie.
   function detectAuthStorage() {
-    if (sessionStorage.getItem("token")) {
-      activeStorage = sessionStorage;
-      return activeStorage;
-    }
-    if (localStorage.getItem("token")) {
-      activeStorage = localStorage;
-      return activeStorage;
-    }
-    activeStorage = getStorageByName(localStorage.getItem("auth_storage_mode"));
+    // Single store: nothing to switch. Clear any legacy sessionStorage leftovers
+    // so they can't shadow or confuse future logic.
+    removeAuthKeys(sessionStorage);
+    activeStorage = localStorage;
     return activeStorage;
   }
 
@@ -243,9 +254,14 @@ const AuthContext = (() => {
   }
 
   function setPersistence(rememberMe = false) {
-    activeStorage = rememberMe ? localStorage : sessionStorage;
-    localStorage.setItem("auth_storage_mode", rememberMe ? "local" : "session");
-    removeAuthKeys(rememberMe ? sessionStorage : localStorage);
+    // Always persist auth state in localStorage (the single source of truth).
+    // 'rememberMe' is recorded for telemetry/UX only; the storage target is
+    // fixed so the full login response is always globally available. Session
+    // lifetime is governed by the server-side HttpOnly refresh cookie, not by
+    // client storage choice.
+    activeStorage = localStorage;
+    localStorage.setItem("auth_storage_mode", "local");
+    removeAuthKeys(sessionStorage);
   }
 
   function getItem(key) {
@@ -319,10 +335,10 @@ const AuthContext = (() => {
         const full = result.data;
         setTokens(full.token, full.refresh_token || null);
         if (full.user) {
-          // Preserve the user's original remember-me choice so the refreshed
-          // access token lands in the same storage (local vs session).
-          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
-          setUser(full.user, full, rememberMe);
+          // Rehydrate into the single auth store (localStorage). The refreshed
+          // access token and full user envelope land in the same global store
+          // every window reads from.
+          setUser(full.user, full, true);
         }
         console.log("[AuthContext] Session restored from refresh cookie on boot");
         _bootRefreshResult = true;
@@ -335,7 +351,17 @@ const AuthContext = (() => {
     return false;
   }
 
-  async function initialize() {
+  // SINGLETON BOOT PROMISE.
+  // The old bug: initialize() was async but callers never awaited it in a way that
+  // gated their own logic, so the dashboard's synchronous auth check ran FIRST
+  // (saw no token) and bounced the user, while the refresh-cookie restore resolved
+  // LAST, seconds too late. Wrapping the boot in one shared promise means every
+  // caller (home.php, every dashboard gate, SessionManager) awaits the SAME
+  // in-flight resolution — so authentication always completes BEFORE any redirect
+  // or data load, regardless of DOMContentLoaded listener registration order.
+  let _bootPromise = null;
+
+  function doInitialize() {
     // Set activeStorage once based on what actually has data
     detectAuthStorage();
     let token = activeStorage.getItem("token");
@@ -362,12 +388,23 @@ const AuthContext = (() => {
     // server-side refresh cookie exactly once. Resolve rather than throw so the
     // caller can decide whether to redirect.
     if (!token) {
-      try {
-        await bootstrapFromRefreshCookie();
-      } catch (e) {
+      return bootstrapFromRefreshCookie().catch((e) => {
         console.warn("AuthContext initialize refresh skipped:", e);
-      }
+      });
     }
+  }
+
+  async function initialize() {
+    if (!_bootPromise) {
+      _bootPromise = Promise.resolve(doInitialize());
+    }
+    return _bootPromise;
+  }
+
+  // Await-able alias: "finish authentication, THEN let me proceed." This is the
+  // primitive every page gate should await so auth is settled before the gate.
+  function ready() {
+    return initialize();
   }
 
   /**
@@ -696,6 +733,15 @@ const AuthContext = (() => {
     getPersistenceMode,
     clearUser,
     initialize,
+    // Await-able "auth settled" primitive — every page gate should await this
+    // (directly or via AuthContext.whenReady()) so authentication completes
+    // BEFORE the gate decides to redirect or load data.
+    ready,
+    // Canonical token re-issuer. SessionManager delegates here so the access
+    // JWT has a SINGLE owner instead of two systems forking their own refresh
+    // flows. Re-issues the access token via /api/auth/refresh-token and writes
+    // it into the shared localStorage source.
+    refreshToken: refreshAccessToken,
     hasPermission,
     hasAnyPermission,
     hasAllPermissions,
@@ -1309,21 +1355,45 @@ if (document.readyState === "loading") {
   applyPermissionContract(document);
 }
 
-function _showSessionExpiredAndRedirect() {
-  // Guard against multiple calls within the same tab (e.g. concurrent 401 responses)
-  if (sessionStorage.getItem('_session_expired_redirect')) return;
-  sessionStorage.setItem('_session_expired_redirect', '1');
+/**
+ * A 401 refresh attempt failed. Rather than immediately clearing auth state
+ * and hard-redirecting to index.php (which would bounce the whole app before
+ * telemetry/data runs on initial load), we emit a SESSION_EXPIRED event and let
+ * the app decide. A registered handler can show a login modal; only if nothing
+ * handles it do we fall back to a redirect. The user is never silently logged
+ * out in the middle of boot for a single transient failure.
+ */
+let _sessionExpiredEmitted = false;
+function handleSessionExpired() {
+  // Clear cached tokens so subsequent requests don't keep using a dead token,
+  // but do NOT blow away the rest of the app state.
+  if (typeof AuthContext !== 'undefined' && AuthContext.clearUser) {
+    AuthContext.clearUser();
+  }
+  console.warn('[API] Session expired — emitting SESSION_EXPIRED');
 
-  if (typeof showNotification === 'function') {
-    showNotification('Your session has expired. Redirecting to login...', NOTIFICATION_TYPES.WARNING);
-  } else {
-    console.warn('Session expired — redirecting to login');
+  // Prefer an event-driven UI (login modal) over a hard redirect.
+  if (typeof SessionManager !== 'undefined' && typeof SessionManager.onSessionExpired === 'function') {
+    try { SessionManager.onSessionExpired(); } catch (e) { console.error(e); }
+    return;
   }
 
-  setTimeout(function () {
-    sessionStorage.removeItem('_session_expired_redirect');
-    window.location.href = (window.APP_BASE || '') + "/index.php";
-  }, 2000);
+  // Fallback: emit a global event other code can hook.
+  window.dispatchEvent(new CustomEvent('SESSION_EXPIRED'));
+
+  // Last-resort redirect only if nothing handled it and we're not mid-boot.
+  if (!_sessionExpiredEmitted) {
+    _sessionExpiredEmitted = true;
+    if (window.__APP_BOOTED__) {
+      // Avoid double redirects within the same tab.
+      if (sessionStorage.getItem('_session_expired_redirect')) return;
+      sessionStorage.setItem('_session_expired_redirect', '1');
+      setTimeout(function () {
+        sessionStorage.removeItem('_session_expired_redirect');
+        window.location.href = (window.APP_BASE || '') + "/index.php";
+      }, 2000);
+    }
+  }
 }
 
 /**
@@ -1373,8 +1443,7 @@ async function refreshAccessToken() {
 
       if (!response.ok) {
         console.error("Token refresh failed:", response.status);
-        AuthContext.clearUser();
-        _showSessionExpiredAndRedirect();
+        handleSessionExpired();
         return false;
       }
 
@@ -1394,14 +1463,12 @@ async function refreshAccessToken() {
         return true;
       } else {
         console.error("Token refresh returned error:", result.message);
-        AuthContext.clearUser();
-        _showSessionExpiredAndRedirect();
+        handleSessionExpired();
         return false;
       }
     } catch (error) {
       console.error("Error refreshing token:", error);
-      AuthContext.clearUser();
-      _showSessionExpiredAndRedirect();
+      handleSessionExpired();
       return false;
     } finally {
       isRefreshingToken = false;
@@ -1448,12 +1515,16 @@ async function apiCall(
     const queryParams =
       params && typeof params === "object" && !Array.isArray(params) ? params : {};
 
-    // Check if token is about to expire and refresh if needed
+    // If the token is about to expire, try a proactive refresh. This is
+    // best-effort: a failed refresh must NOT abort the call. We let the request
+    // proceed and rely on the 401 path (now recoverable via SESSION_EXPIRED)
+    // instead of throwing and killing the whole load sequence.
     if (AuthContext.isAuthenticated() && isTokenExpired()) {
       console.log("Token expiring soon, refreshing...");
-      const refreshed = await refreshAccessToken();
-      if (!refreshed) {
-        throw new Error("Token refresh failed, please log in again");
+      try {
+        await refreshAccessToken();
+      } catch (refreshError) {
+        console.warn("Proactive token refresh failed; continuing with current token:", refreshError && refreshError.message);
       }
     }
 

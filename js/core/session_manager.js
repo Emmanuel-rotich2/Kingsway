@@ -83,7 +83,18 @@ const SessionManager = (function() {
     
     // Check for migration
     await checkMigration();
-    
+
+    // Settle authentication FIRST (AuthContext's singleton boot performs the
+    // silent refresh-cookie restore). Without this, restoreSession() below would
+    // read isAuthenticated()==false and miss the just-restored token.
+    if (typeof AuthContext !== 'undefined' && typeof AuthContext.ready === 'function') {
+      try {
+        await AuthContext.ready();
+      } catch (e) {
+        console.warn('[SessionManager] AuthContext.ready() failed:', e);
+      }
+    }
+
     // Try to restore session from storage
     await restoreSession();
     
@@ -367,36 +378,31 @@ const SessionManager = (function() {
     
     if (foundToken) {
       console.log('[SessionManager] Migrated token from', storageSource);
-      // Validate token with backend
+      // Validate token with backend — always route through API.callAPI so the
+      // Bearer token, credentials and CSRF handling are applied consistently and
+      // no raw fetch can bypass the shared request/cache layer.
       try {
-        const response = await fetch(apiPath('/api/session/validate-token'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${foundToken}`
-          },
-          credentials: 'include'
+        const data = await API.callAPI('/session/validate-token', 'POST', null, {}, {
+          checkPermission: false,
+          headers: { 'Authorization': `Bearer ${foundToken}` }
         });
-        
-        if (response.ok) {
-          const result = await response.json();
-          if (result.success) {
-            // Token is valid, store in session state
-            sessionState.authenticated = true;
-            sessionState.user = result.data.user;
-            sessionState.roles = result.data.roles || [];
-            sessionState.permissions = new Set(result.data.permissions || []);
-            sessionState.csrfToken = result.data.csrf_token;
-            sessionState.expiresAt = result.data.expires_at;
-            sessionState.lastRefreshed = Date.now();
-            
-            // Store in active storage (using existing AuthContext pattern for now)
-            if (typeof AuthContext !== 'undefined') {
-              AuthContext.setTokens(foundToken, result.data.refresh_token);
-            }
-            
-            console.log('[SessionManager] Legacy token validated and migrated');
+
+        if (data) {
+          // Token is valid, store in session state
+          sessionState.authenticated = true;
+          sessionState.user = data.user;
+          sessionState.roles = data.roles || [];
+          sessionState.permissions = new Set(data.permissions || []);
+          sessionState.csrfToken = data.csrf_token;
+          sessionState.expiresAt = data.expires_at;
+          sessionState.lastRefreshed = Date.now();
+
+          // Store in active storage (using existing AuthContext pattern for now)
+          if (typeof AuthContext !== 'undefined') {
+            AuthContext.setTokens(foundToken, data.refresh_token);
           }
+
+          console.log('[SessionManager] Legacy token validated and migrated');
         }
       } catch (e) {
         console.warn('[SessionManager] Legacy token validation failed', e);
@@ -408,23 +414,16 @@ const SessionManager = (function() {
    * Restore session from storage or backend
    */
   async function restoreSession() {
-    // Try to get session from backend first (most authoritative)
+    // Try to get session from backend first (most authoritative).
+    // Routed through API.callAPI: /api/session is PUBLIC and returns 200 JSON
+    // even when logged out, so it won't throw for an unauthenticated user.
     try {
-      const response = await fetch(apiPath('/api/session'), {
-        method: 'GET',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.data.authenticated) {
-          setSessionState(result.data);
-          console.log('[SessionManager] Session restored from backend');
-          return;
-        }
+      const data = await API.callAPI('/session', 'GET', null, {}, { checkPermission: false });
+
+      if (data && data.authenticated) {
+        setSessionState(data);
+        console.log('[SessionManager] Session restored from backend');
+        return;
       }
     } catch (e) {
       console.warn('[SessionManager] Backend session check failed', e);
@@ -501,34 +500,43 @@ const SessionManager = (function() {
    */
   async function refreshSession() {
     console.log('[SessionManager] Refreshing session...');
-    
+
+    // SINGLE SOURCE OF TRUTH for the access JWT: delegate to AuthContext, which
+    // is the ONLY module that re-issues the token via /api/auth/refresh-token.
+    // Do NOT fork a second "refresh" here — /api/session/refresh only returns a
+    // permission snapshot (it never mints a new access JWT), so calling it alone
+    // leaves an expired token in place. AuthContext.refreshToken() writes the new
+    // token straight into the shared localStorage source every window reads from.
     try {
-      const response = await fetch(apiPath('/api/session/refresh'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': sessionState.csrfToken
-        }
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          setSessionState(result.data);
-          emit('SESSION_REFRESHED', result.data);
-          broadcast('SESSION_CHANGED', { authenticated: true });
-          console.log('[SessionManager] Session refreshed');
-          return true;
+      if (typeof AuthContext !== 'undefined' && typeof AuthContext.refreshToken === 'function') {
+        const refreshed = await AuthContext.refreshToken();
+        if (!refreshed) {
+          console.warn('[SessionManager] Token refresh via AuthContext failed');
+          return false;
         }
       }
-      
-      console.warn('[SessionManager] Session refresh failed');
-      return false;
     } catch (e) {
-      console.error('[SessionManager] Session refresh error', e);
+      console.error('[SessionManager] Token refresh error', e);
       return false;
     }
+
+    // Complement: pull the latest permission snapshot from the session endpoint
+    // and mirror it into this manager's session state. This is informational only;
+    // the token itself was handled above. Routed through API.callAPI.
+    try {
+      const data = await API.callAPI('/session/refresh', 'POST', null, {}, { checkPermission: false });
+
+      if (data) {
+        setSessionState(data);
+        emit('SESSION_REFRESHED', data);
+        console.log('[SessionManager] Session permissions refreshed');
+      }
+    } catch (e) {
+      console.warn('[SessionManager] Permission snapshot refresh failed (token still valid):', e);
+    }
+
+    broadcast('SESSION_CHANGED', { authenticated: true });
+    return true;
   }
 
   /**
@@ -601,45 +609,36 @@ const SessionManager = (function() {
     console.log('[SessionManager] Logging in...');
     
     try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(credentials)
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
+      // Route through API.callAPI so token/credentials/CSRF handling is unified
+      // with every other request. callAPI returns response.data directly and
+      // throws {message} on a failed login — handled in the catch below.
+      const data = await API.callAPI('/auth/login', 'POST', credentials, {}, { checkPermission: false });
+
+      if (data) {
         setSessionState({
           authenticated: true,
-          user: result.data.user,
-          roles: result.data.user?.roles || [],
-          permissions: result.data.delegated_permissions || [],
-          csrf_token: result.data.csrf_token,
-          expires_at: Date.now() + (result.data.token_expires_in * 1000)
+          user: data.user,
+          roles: data.user?.roles || [],
+          permissions: data.delegated_permissions || [],
+          csrf_token: data.csrf_token,
+          expires_at: Date.now() + (data.token_expires_in * 1000)
         });
-        
+
         // Store tokens using AuthContext for compatibility
         if (typeof AuthContext !== 'undefined') {
-          AuthContext.setTokens(result.data.token, result.data.refresh_token);
-          AuthContext.setUser(result.data.user, result.data, credentials.remember_me);
+          AuthContext.setTokens(data.token, data.refresh_token);
+          AuthContext.setUser(data.user, data, credentials.remember_me);
         }
-        
-        emit('SESSION_LOGIN', result.data);
+
+        emit('SESSION_LOGIN', data);
         broadcast('SESSION_CHANGED', { authenticated: true });
-        
+
         console.log('[SessionManager] Login successful');
-        return { success: true, data: result.data };
-      } else {
-        console.error('[SessionManager] Login failed:', result.message);
-        return { success: false, message: result.message };
+        return { success: true, data: data };
       }
     } catch (e) {
-      console.error('[SessionManager] Login error:', e);
-      return { success: false, message: 'Login failed: ' + e.message };
+      console.error('[SessionManager] Login failed:', e && e.message);
+      return { success: false, message: (e && e.message) || 'Login failed' };
     }
   }
 
@@ -650,15 +649,8 @@ const SessionManager = (function() {
     console.log('[SessionManager] Logging out...');
     
     try {
-      // Call backend logout
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': sessionState.csrfToken
-        }
-      });
+      // Call backend logout — routed through API.callAPI for unified handling.
+      await API.callAPI('/auth/logout', 'POST', null, {}, { checkPermission: false });
     } catch (e) {
       console.warn('[SessionManager] Backend logout failed', e);
     }
@@ -713,7 +705,7 @@ const SessionManager = (function() {
     emit('SESSION_LOGOUT');
     
     // Redirect to login
-    window.location.href = '/index.php';
+    window.location.href = (window.APP_BASE || '') + '/index.php';
   }
 
   /**
@@ -760,20 +752,13 @@ const SessionManager = (function() {
     }
 
     try {
-      const response = await fetch(apiPath('/api/session/validate-token'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': sessionState.csrfToken
-        }
-      });
+      // Routed through API.callAPI — returns the data payload on success
+      // (truthy => token valid). On an invalid token the backend returns
+      // success:false and callAPI throws, so we treat that as invalid below.
+      const data = await API.callAPI('/session/validate-token', 'POST', null, {}, { checkPermission: false });
 
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          return true;
-        }
+      if (data && data.valid !== false) {
+        return true;
       }
 
       // Session invalid, clear it
@@ -781,7 +766,9 @@ const SessionManager = (function() {
       await logout();
       return false;
     } catch (error) {
-      console.error('[SessionManager] Session check failed:', error);
+      // A thrown error from callAPI means the token is no longer valid.
+      console.warn('[SessionManager] Session invalid, clearing:', error && error.message);
+      await logout();
       return false;
     }
   }
@@ -861,7 +848,36 @@ const SessionManager = (function() {
     refreshSession,
     subscribe,
     broadcast,
-    broadcastCacheInvalidation: (keys) => broadcast('CACHE_INVALIDATED', { keys: Array.isArray(keys) ? keys : [keys] })
+    broadcastCacheInvalidation: (keys) => broadcast('CACHE_INVALIDATED', { keys: Array.isArray(keys) ? keys : [keys] }),
+
+    /**
+     * Called by api.js (handleSessionExpired) when a 401 refresh can't be
+     * recovered. Instead of a hard redirect mid-session, we clear local auth
+     * state and surface a non-destructive notice so the UI can show a login
+     * modal. The app keeps running; only the auth context is dropped.
+     */
+    onSessionExpired: function () {
+      console.warn('[SessionManager] onSessionExpired — clearing local auth state');
+      try {
+        if (typeof AuthContext !== 'undefined' && AuthContext.clearUser) {
+          AuthContext.clearUser();
+        }
+      } catch (_) { /* ignore */ }
+      sessionState = {
+        authenticated: false,
+        user: null,
+        roles: [],
+        permissions: new Set(),
+        sessionId: null,
+        csrfToken: null,
+        expiresAt: null,
+        lastRefreshed: null
+      };
+      broadcast('SESSION_EXPIRED', {});
+      if (typeof showNotification === 'function') {
+        showNotification('Your session has expired. Please log in again.', NOTIFICATION_TYPES.WARNING);
+      }
+    }
   };
 
 })();

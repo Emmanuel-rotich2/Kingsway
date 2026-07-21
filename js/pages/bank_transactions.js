@@ -39,16 +39,8 @@
          */
         loadData: async function () {
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-transactions", {
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
-
-                if (result.status === "success" || result.success) {
-                    this.data = result.data || result.transactions || [];
-                } else {
-                    this.data = [];
-                }
+                this.data = await API.callAPI("/accounts/bank-transactions", "GET");
+                if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading bank transactions:", error);
                 this.data = [];
@@ -64,16 +56,8 @@
          */
         loadAccounts: async function () {
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-accounts", {
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
-
-                if (result.status === "success" || result.success) {
-                    this.accounts = result.data || result.accounts || [];
-                } else {
-                    this.accounts = [];
-                }
+                this.accounts = await API.callAPI("/accounts/bank-accounts", "GET");
+                if (!Array.isArray(this.accounts)) this.accounts = [];
             } catch (error) {
                 console.error("Error loading accounts:", error);
                 this.accounts = [];
@@ -297,24 +281,15 @@
             };
 
             try {
-                var url = API_BASE_URL + "/finance/bank-transactions";
+                var endpoint = "/accounts/bank-transactions";
                 var method = payload.id ? "PUT" : "POST";
-                if (payload.id) url += "/" + payload.id;
+                if (payload.id) endpoint += "/" + payload.id;
 
-                var response = await fetch(url, {
-                    method: method,
-                    headers: this.getHeaders(),
-                    body: JSON.stringify(payload)
-                });
-                var result = await response.json();
+                await API.callAPI(endpoint, method, payload);
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Transaction saved successfully", "success");
-                    bootstrap.Modal.getInstance(document.getElementById("bankTransactionModal")).hide();
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to save transaction", "error");
-                }
+                this.showNotification("Transaction saved successfully", "success");
+                bootstrap.Modal.getInstance(document.getElementById("bankTransactionModal")).hide();
+                await this.loadData();
             } catch (error) {
                 console.error("Error saving transaction:", error);
                 this.showNotification("Failed to save transaction", "error");
@@ -346,19 +321,10 @@
             if (!confirm("Mark this transaction as reconciled?")) return;
 
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-transactions/" + id + "/reconcile", {
-                    method: "PUT",
-                    headers: this.getHeaders(),
-                    body: JSON.stringify({ reconciled: true })
-                });
-                var result = await response.json();
+                await API.callAPI("/accounts/bank-transactions/" + id + "/reconcile", "PUT", { reconciled: true });
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Transaction reconciled", "success");
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to reconcile", "error");
-                }
+                this.showNotification("Transaction reconciled", "success");
+                await this.loadData();
             } catch (error) {
                 console.error("Error reconciling transaction:", error);
                 this.showNotification("Failed to reconcile transaction", "error");
@@ -372,18 +338,10 @@
             if (!confirm("Are you sure you want to delete this transaction?")) return;
 
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-transactions/" + id, {
-                    method: "DELETE",
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
+                await API.callAPI("/accounts/bank-transactions/" + id, "DELETE");
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Transaction deleted", "success");
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to delete transaction", "error");
-                }
+                this.showNotification("Transaction deleted", "success");
+                await this.loadData();
             } catch (error) {
                 console.error("Error deleting transaction:", error);
                 this.showNotification("Failed to delete transaction", "error");

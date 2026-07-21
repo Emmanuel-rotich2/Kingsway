@@ -76,8 +76,18 @@ const schoolAdminDashboardController = {
   // =========================================================================
   // INITIALIZATION
   // =========================================================================
-  init: function () {
+  init: async function () {
     this.log("🚀 School Administrator Dashboard initializing...");
+
+    // Settle authentication FIRST, so the gate sees settled state instead of a
+    // transient "no token" before the silent refresh-cookie restore resolves.
+    if (typeof AuthContext !== "undefined" && typeof AuthContext.ready === "function") {
+      try {
+        await AuthContext.ready();
+      } catch (e) {
+        this.log("auth ready() failed:", e);
+      }
+    }
 
     // Check authentication
     if (typeof AuthContext !== "undefined" && !AuthContext.isAuthenticated()) {
@@ -462,22 +472,15 @@ const schoolAdminDashboardController = {
 
   fetchAPI: async function (route, action) {
     try {
-      const response = await fetch(
-        `${this.config.apiBase}?route=${route}&action=${action}`,
-        {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${AuthContext.getToken() || ""}`,
-          },
-        }
+      // Legacy ?route=&action= dispatch preserved, routed via API.callAPI.
+      const data = await API.callAPI(
+        "/",
+        "GET",
+        null,
+        { route, action },
+        { checkPermission: false }
       );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-
-      return await response.json();
+      return data?.data || data;
     } catch (error) {
       this.log(`API Error (${route}/${action}): ${error.message}`, "warn");
       return null;

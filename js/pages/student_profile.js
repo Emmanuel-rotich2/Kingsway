@@ -662,23 +662,16 @@ async function printIdCard(studentId) {
     // Use the server-rendered, correct ID card (front|back per row / CR80 direct-card).
     // POST to the same bulk endpoint with a single student, open the returned PDF.
     try {
-        const base = (window.APP_BASE || "");
-        const res = await fetch(base + '/api/students/id-card/generate-bulk-pdf', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                student_ids: [studentId],
-                print_mode: 'direct_card',
-                include_front: true,
-                include_back: true
-            })
+        const payload = await API.callAPI('/students/id-card/generate-bulk-pdf', 'POST', {
+            student_ids: [studentId],
+            print_mode: 'direct_card',
+            include_front: true,
+            include_back: true
         });
-        const json = await res.json();
-        const payload = json && json.data ? json.data : json;
         if (payload && payload.pdf_url) {
             window.open(payload.pdf_url, '_blank');
         } else {
-            console.error('Failed to generate ID card', json);
+            console.error('Failed to generate ID card', payload);
             alert('Unable to generate ID card');
         }
     } catch (err) {

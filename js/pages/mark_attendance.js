@@ -457,28 +457,7 @@ const MarkAttendanceController = {
   },
 
   api: async function (endpoint, method = "GET", data = null) {
-    if (window.API && typeof window.API.apiCall === "function") {
-      return window.API.apiCall(endpoint, method, data);
-    }
-
-    const base = window.APP_BASE || "";
-    const url = `${base}/api${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
-
-    const options = { method, headers: {} };
-
-    if (data) {
-      options.headers["Content-Type"] = "application/json";
-      options.body = JSON.stringify(data);
-    }
-
-    const response = await fetch(url, options);
-    const json = await response.json().catch(() => ({}));
-
-    if (!response.ok || json.success === false) {
-      throw new Error(json.message || json.error || "Request failed.");
-    }
-
-    return json;
+    return API.callAPI(endpoint, method, data);
   },
 
   unwrap(response) {

@@ -155,17 +155,8 @@ const StaffAppointmentsPage = {
   },
 
   async request(path, options = {}) {
-    const response = await fetch(`${API_BASE_URL}${path}`, {
-      method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${localStorage.getItem("token") || sessionStorage.getItem("token") || ""}`,
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.status === "error") throw new Error(payload.message || `Request failed with status ${response.status}`);
-    return payload;
+    const result = await API.callAPI(path, options.method || "GET", options.body);
+    return { data: result };
   },
 
   appendStaffCell(row, title, subtitle) {
