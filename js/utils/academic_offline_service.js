@@ -6,7 +6,7 @@
 
 const AcademicOfflineService = (() => {
     const DB_NAME = 'KingswayAcademyOffline';
-    const DB_VERSION = 1;
+    const DB_VERSION = 3;
     const STORES = {
         academicContext: 'academic_context',
         academicYears: 'academic_years',

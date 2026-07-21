@@ -1364,13 +1364,15 @@ if (document.readyState === "loading") {
  * out in the middle of boot for a single transient failure.
  */
 let _sessionExpiredEmitted = false;
-function handleSessionExpired() {
-  // Clear cached tokens so subsequent requests don't keep using a dead token,
-  // but do NOT blow away the rest of the app state.
+function handleSessionExpired(reason = 'refresh_rejected') {
+  // This function is called only after the refresh endpoint has explicitly
+  // rejected the session with 401/403. Network failures, timeouts, 429 and 5xx
+  // responses must never erase a valid local session.
+  console.warn('[API] Session expired — emitting SESSION_EXPIRED', reason);
+
   if (typeof AuthContext !== 'undefined' && AuthContext.clearUser) {
     AuthContext.clearUser();
   }
-  console.warn('[API] Session expired — emitting SESSION_EXPIRED');
 
   // Prefer an event-driven UI (login modal) over a hard redirect.
   if (typeof SessionManager !== 'undefined' && typeof SessionManager.onSessionExpired === 'function') {
@@ -1402,76 +1404,70 @@ function handleSessionExpired() {
  * @returns {Promise<boolean>} True if token was refreshed successfully
  */
 async function refreshAccessToken() {
-  // Prevent simultaneous refresh requests
-  if (isRefreshingToken) {
+  if (isRefreshingToken && refreshTokenPromise) {
     return refreshTokenPromise;
   }
 
   isRefreshingToken = true;
+
   refreshTokenPromise = (async () => {
     try {
       const refreshToken = AuthContext.getRefreshToken();
-      // NOTE: Do NOT early-exit here when refreshToken is null.
-      // The server sets the refresh token as an HttpOnly cookie at login.
-      // When credentials:"include" is sent, the browser sends that cookie
-      // automatically and the server reads it from $_COOKIE['refresh_token'].
-      // Only log out if the server itself rejects the refresh attempt.
-
-      console.log("Attempting to refresh access token...");
-      // [DIAG] report refresh inputs
-      console.warn('[DIAG-REFRESH] jsRefreshToken?=', !!refreshToken,
-        '| accessToken?=', !!AuthContext.getToken(),
-        '| cookie=include will send HttpOnly refresh_token if present');
-
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin
       );
+
       const response = await fetch(url, {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          ...(AuthContext.getToken()
-            ? { Authorization: "Bearer " + AuthContext.getToken() }
-            : {}),
+          "Accept": "application/json",
+          "Cache-Control": "no-store",
         },
         body: JSON.stringify(
           refreshToken ? { refresh_token: refreshToken } : {}
         ),
       });
 
+      // Only an explicit authentication rejection proves the refresh session
+      // is dead. Do not log users out for rate limits, backend errors or an
+      // interrupted network connection.
+      if (response.status === 401 || response.status === 403) {
+        handleSessionExpired('refresh_rejected_' + response.status);
+        return false;
+      }
+
       if (!response.ok) {
-        console.error("Token refresh failed:", response.status);
-        handleSessionExpired();
+        console.warn('[API] Temporary token refresh failure:', response.status);
         return false;
       }
 
       const result = await readJsonSafely(response, "Token refresh");
+      const payload = result && result.data ? result.data : result;
+      const token = payload && (payload.token || payload.access_token);
 
-      if ((result.status === "success" || result.success === true) && result.data.token) {
-        // Store new tokens in selected auth storage
-        AuthContext.setTokens(result.data.token, result.data.refresh_token || null);
-        // On a refresh, rehydrate the full session if the server returned the
-        // user envelope (it does for our refresh endpoint), so a fresh window
-        // that cleared web-storage stays logged in via the HttpOnly cookie.
-        if (result.data.user) {
-          const rememberMe = localStorage.getItem("auth_storage_mode") === "local";
-          AuthContext.setUser(result.data.user, result.data, rememberMe);
-        }
-        console.log("Token refreshed successfully");
-        return true;
-      } else {
-        console.error("Token refresh returned error:", result.message);
-        handleSessionExpired();
+      if (!token) {
+        console.warn('[API] Refresh response did not contain an access token.');
         return false;
       }
+
+      AuthContext.setTokens(token, payload.refresh_token || null);
+
+      if (payload.user) {
+        AuthContext.setUser(payload.user, payload, true);
+      }
+
+      window.dispatchEvent(new CustomEvent('AUTH_TOKEN_REFRESHED'));
+      return true;
     } catch (error) {
-      console.error("Error refreshing token:", error);
-      handleSessionExpired();
+      console.warn('[API] Token refresh temporarily unavailable:', error);
       return false;
     } finally {
       isRefreshingToken = false;
+      refreshTokenPromise = null;
     }
   })();
 
@@ -1534,8 +1530,19 @@ async function apiCall(
       validatePermission(endpoint, method);
     }
 
-    // Construct URL with query parameters
-    const url = new URL(API_BASE_URL + endpoint, window.location.origin);
+    // Normalize endpoint once. Cache keys must never be passed here as paths,
+    // and callers that still include /api are tolerated without producing /api/api.
+    const normalizedEndpoint = (() => {
+      let value = String(endpoint || "").trim();
+      if (/^https?:\/\//i.test(value)) return value;
+      const basePath = String(API_BASE_URL || "").replace(/^https?:\/\/[^/]+/i, "").replace(/\/+$/, "");
+      if (basePath.endsWith("/api") && value.startsWith("/api/")) value = value.slice(4);
+      if (!value.startsWith("/")) value = "/" + value;
+      return value;
+    })();
+    const url = /^https?:\/\//i.test(normalizedEndpoint)
+      ? new URL(normalizedEndpoint)
+      : new URL(API_BASE_URL + normalizedEndpoint, window.location.origin);
     Object.keys(queryParams).forEach((key) => {
       const value = queryParams[key];
       if (value !== null && value !== undefined) {
@@ -4851,16 +4858,23 @@ window.API = {
      * Returns: cards, charts, tables, timestamp
      */
     getSchoolAdminFull: async () => {
-      // Dashboard metrics: warm an IndexedDB cache so navigating back to the
-      // dashboard paints instantly (cache-first) while revalidating in background.
-      const data = await apiCall("/dashboard/school-admin/full", "GET");
-      if (typeof DataStore !== "undefined" && data != null) {
-        DataStore.set("dashboard_school_admin", data, {
-          ttl: DataStore.DEFAULT_TTL.DIRECTORY,
-          storeName: "dashboard_cache",
-        });
+      // Some deployments do not expose the aggregate endpoint. Once a 404 is
+      // confirmed, stop retrying it for this page session and let the dashboard
+      // use its individual, real endpoints instead.
+      if (sessionStorage.getItem("school_admin_full_endpoint_missing") === "1") {
+        const error = new Error("School admin aggregate endpoint is unavailable.");
+        error.code = "ENDPOINT_UNAVAILABLE";
+        throw error;
       }
-      return data;
+      try {
+        return await apiCall("/dashboard/school-admin/full", "GET");
+      } catch (error) {
+        if (Number(error?.status || error?.code) === 404 || /404/.test(String(error?.message || ""))) {
+          sessionStorage.setItem("school_admin_full_endpoint_missing", "1");
+          error.code = "ENDPOINT_UNAVAILABLE";
+        }
+        throw error;
+      }
     },
 
     /**

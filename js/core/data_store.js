@@ -1,616 +1,341 @@
 /**
- * Smart Data Store
- * 
- * Unified caching layer combining memory cache, IndexedDB, and network fetching.
- * Implements stale-while-revalidate strategy with subscriptions and invalidation.
- * 
- * Data Flow:
- * Read: Page → DataStore → memory cache → IndexedDB → network → update cache → notify subscribers
- * Write: Page → ApiClient → backend → invalidate cache → update local → broadcast
- * Offline: outbox → IndexedDB → Background Sync → backend → invalidate cache → notify
+ * DataStore
+ *
+ * Coordinates memory cache, IndexedDB and authoritative backend fetches.
+ * Cache keys are identifiers only; they are never converted into API paths.
  */
-
-const DataStore = (function() {
+const DataStore = (() => {
   'use strict';
 
-  // Memory cache (fastest, limited size)
   const memoryCache = new Map();
-  const MEMORY_CACHE_SIZE_LIMIT = 100; // Max entries
-  const MEMORY_CACHE_TTL = 60000; // 1 minute default
-
-  // Subscribers for data changes
   const subscribers = new Map();
+  const inFlight = new Map();
+  const MEMORY_LIMIT = 100;
+  const MEMORY_TTL = 60000;
 
-  // Invalidation listeners
-  const invalidationListeners = new Map();
+  const DEFAULT_TTL = Object.freeze({
+    REFERENCE: 86400000,
+    LONG: 604800000,
+    DIRECTORY: 300000,
+  });
 
-  // Default cache policies
-  const DEFAULT_TTL = {
-    REFERENCE: 86400000,   // 24 hours — classes, streams, subjects, terms
-    LONG: 604800000,       // 7 days   — academic years, departments, profiles
-    DIRECTORY: 300000      // 5 minutes — students, staff
-  };
-  const defaultPolicies = {
-    'classes': { ttl: 86400000, strategy: 'stale-while-revalidate' },        // 24 hours
-    'streams': { ttl: 86400000, strategy: 'stale-while-revalidate' },       // 24 hours
-    'subjects': { ttl: 86400000, strategy: 'stale-while-revalidate' },      // 24 hours
-    'terms': { ttl: 86400000, strategy: 'stale-while-revalidate' },         // 24 hours
-    'academic_years': { ttl: 604800000, strategy: 'stale-while-revalidate' }, // 7 days
-    'departments': { ttl: 604800000, strategy: 'stale-while-revalidate' },   // 7 days
-    'students': { ttl: 300000, strategy: 'network-first' },               // 5 minutes
-    'staff': { ttl: 1800000, strategy: 'network-first' },                   // 30 minutes
-    'attendance': { ttl: 60000, strategy: 'network-first' },                // 1 minute
-    'admissions': { ttl: 60000, strategy: 'network-first' },                // 1 minute
-    'school_profile': { ttl: 3600000, strategy: 'stale-while-revalidate' }   // 1 hour
-  };
+  const policies = Object.freeze({
+    classes: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
+    streams: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
+    subjects: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
+    terms: { ttl: DEFAULT_TTL.REFERENCE, strategy: 'stale-while-revalidate' },
+    academic_years: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
+    departments: { ttl: DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate' },
+    students: { ttl: DEFAULT_TTL.DIRECTORY, strategy: 'network-first' },
+    staff: { ttl: 1800000, strategy: 'network-first' },
+    attendance: { ttl: 60000, strategy: 'network-first' },
+    admissions: { ttl: 60000, strategy: 'network-first' },
+    school_profile: { ttl: 3600000, strategy: 'stale-while-revalidate' },
+  });
 
-  /**
-   * Get data with caching strategy
-   */
-  async function get(key, options = {}) {
-    const {
-      strategy = 'stale-while-revalidate',
-      ttl = defaultPolicies[key]?.ttl || MEMORY_CACHE_TTL,
-      forceRefresh = false,
-      storeName = null,
-      endpoint = null,
-      params = {},
-      useMemory = true,
-      useIndexedDB = true,
-      bypassCache = false
-    } = options;
-
-    // Determine cache key
-    const cacheKey = generateCacheKey(key, params);
-
-    console.log('[DataStore] Getting data:', key, { strategy, ttl, forceRefresh });
-
-    // Bypass cache if requested
-    if (bypassCache) {
-      return await fetchFromNetwork(key, endpoint, params);
+  function normalizeOptions(key, options) {
+    if (typeof options === 'string') {
+      console.warn('[DataStore] A string storeName is deprecated; pass an options object.');
+      options = { storeName: options };
     }
-
-    // Try memory cache first
-    if (useMemory && !forceRefresh) {
-      const memoryData = getFromMemory(cacheKey);
-      if (memoryData && !isExpired(memoryData)) {
-        console.log('[DataStore] Memory cache hit:', key);
-        
-        // For stale-while-revalidate, refresh in background
-        if (strategy === 'stale-while-revalidate') {
-          refreshInBackground(key, cacheKey, endpoint, params, ttl, storeName);
-        }
-        
-        return memoryData.data;
-      }
-    }
-
-    // Try IndexedDB cache
-    if (useIndexedDB && !forceRefresh) {
-      try {
-        const indexedDBData = await KingswayDB.getCached(
-          storeName || getStoreNameForKey(key),
-          cacheKey,
-          getCurrentUserId()
-        );
-        if (indexedDBData && !isExpired(indexedDBData)) {
-          console.log('[DataStore] IndexedDB cache hit:', key);
-          
-          // Update memory cache
-          if (useMemory) {
-            setInMemory(cacheKey, indexedDBData, ttl);
-          }
-          
-          // For stale-while-revalidate, refresh in background
-          if (strategy === 'stale-while-revalidate') {
-            refreshInBackground(key, cacheKey, endpoint, params, ttl, storeName);
-          }
-
-          // Cache wrapper stores { id, data, ... }; tolerate stale writes that
-          // stored the raw payload directly (no wrapper).
-          return indexedDBData.data !== undefined ? indexedDBData.data : indexedDBData;
-        }
-      } catch (error) {
-        console.warn('[DataStore] IndexedDB access failed:', error);
-      }
-    }
-
-    // Fetch from network
-    console.log('[DataStore] Cache miss, fetching from network:', key);
-    return await fetchFromNetwork(key, endpoint, params, ttl, storeName, useMemory);
+    options = options || {};
+    return {
+      strategy: options.strategy || policies[key]?.strategy || 'stale-while-revalidate',
+      ttl: Number(options.ttl || policies[key]?.ttl || MEMORY_TTL),
+      forceRefresh: options.forceRefresh === true,
+      storeName: options.storeName || getStoreNameForKey(key),
+      endpoint: options.endpoint || null,
+      fetcher: typeof options.fetcher === 'function' ? options.fetcher : null,
+      params: options.params && typeof options.params === 'object' ? options.params : {},
+      useMemory: options.useMemory !== false,
+      useIndexedDB: options.useIndexedDB !== false,
+      bypassCache: options.bypassCache === true,
+      allowStaleOnError: options.allowStaleOnError !== false,
+    };
   }
 
-  /**
-   * Fetch a page's primary dataset with caching.
-   *
-   * Thin wrapper around get() that follows the proven pattern of the three
-   * already-cached pages (admissions_workspace, students, mark_attendance):
-   * try cache -> (fallback) direct API -> cache, with stale-while-revalidate
-   * refreshing in the background. Differs from raw get() in three ways:
-   *   1. The endpoint is REQUIRED and explicit (the default getEndpointForKey
-   *      map is aspirational and does NOT match this app's real /academic/*
-   *      routing), so callers must pass the exact path.
-   *   2. If DataStore is unavailable, it transparently falls back to a direct
-   *      API.GET so callers never need a local try/catch.
-   *   3. Returns the raw payload (response.data) for drop-in replacement of
-   *      existing `const r = await API.GET(path); this.data = r.data;` calls.
-   *
-   * Usage:
-   *   const classes = await DataStore.fetchPage('classes', {
-   *     endpoint: '/academic/classes',
-   *     storeName: 'reference_classes',
-   *     ttl: DEFAULT_TTL.REFERENCE,           // 24h
-   *     strategy: 'stale-while-revalidate'
-   *   });
-   */
-  async function fetchPage(key, options = {}) {
-    const {
-      endpoint,
-      storeName = null,
-      ttl = defaultPolicies[key]?.ttl || MEMORY_CACHE_TTL,
-      strategy = 'network-first',
-      params = {},
-      forceRefresh = false
-    } = options;
-
-    if (!endpoint) {
-      console.error('[DataStore] fetchPage requires an explicit endpoint for key:', key);
-      throw new Error('DataStore.fetchPage: endpoint is required');
-    }
-
-    // Fast path: DataStore present (memory + IndexedDB + SWR).
-    if (typeof window.API !== 'undefined' && typeof window.API.apiCall === 'function') {
-      try {
-        return await get(key, { endpoint, storeName, ttl, strategy, params, forceRefresh });
-      } catch (dsError) {
-        console.warn('[DataStore] fetchPage fell back to direct API for', key, dsError);
-      }
-    }
-
-    // Fallback: direct network call, no caching layer.
-    // apiCall() returns the unwrapped payload, so return it as-is.
-    const response = await window.API.apiCall(endpoint, 'GET', null, params);
-    if (response !== undefined && response !== null) {
-      return response;
-    }
-    throw new Error('Failed to fetch ' + key);
+  function generateCacheKey(key, params = {}) {
+    return Object.keys(params).length ? `${key}:${JSON.stringify(params)}` : key;
   }
 
-  /**
-   * Write a payload to IndexedDB using KingswayDB.setCached().
-   *
-   * setCached spreads the payload and put()s it into an id-keyed store
-   * (keyPath: 'id'). Arrays have no 'id' field, so a bare array write throws
-   * DataError and was previously swallowed silently — meaning data never
-   * persisted across loads. We wrap in an envelope {id, data, ...} so the
-   * single-record put always has a key. Read paths unwrap via unwrapCached().
-   */
-  async function persist(storeName, key, payload, ttl) {
-    if (!storeName) return;
-    try {
-      await KingswayDB.setCached(
-        storeName,
-        { id: generateCacheKey(key, {}), data: payload },
-        ttl,
-        getCurrentUserId(),
-        getCurrentRoleId()
-      );
-    } catch (error) {
-      console.warn('[DataStore] Failed to cache in IndexedDB:', error);
-    }
+  function getStoreNameForKey(key) {
+    const map = {
+      classes: 'reference_classes', streams: 'reference_streams',
+      subjects: 'reference_subjects', terms: 'reference_terms',
+      academic_years: 'reference_academic_years', departments: 'reference_departments',
+      students: 'student_directory_cache', staff: 'staff_directory_cache',
+      attendance: 'attendance_roster_cache', attendance_roster: 'attendance_roster_cache',
+      admissions: 'admission_queue_cache', dashboard_school_admin: 'dashboard_cache',
+    };
+    return map[key] || 'dashboard_cache';
   }
 
-  /**
-   * Unwrap a KingswayDB record into the original payload.
-   * Envelope {id, data} -> data; bare records pass through.
-   */
-  function unwrapCached(record) {
-    if (record && typeof record === 'object' && 'data' in record && record.data !== undefined) {
-      return record.data;
-    }
+  function currentUserId() {
+    const auth = window.AuthContext;
+    return auth?.isAuthenticated?.() ? auth.getUser?.()?.id ?? null : null;
+  }
+
+  function currentRoleId() {
+    const auth = window.AuthContext;
+    const roles = auth?.getRoles?.() || [];
+    const first = roles[0];
+    return typeof first === 'object' ? first?.id ?? null : first ?? null;
+  }
+
+  function isExpired(entry) {
+    return Boolean(entry?.expires_at && Date.now() > entry.expires_at);
+  }
+
+  function unwrap(record) {
+    if (record && typeof record === 'object' && record.data !== undefined) return record.data;
     return record;
   }
 
-  /**
-   * Fetch data from network
-   */
-  async function fetchFromNetwork(key, endpoint, params, ttl, storeName, useMemory = true) {
+  function setMemory(cacheKey, payload, ttl) {
+    if (memoryCache.size >= MEMORY_LIMIT && !memoryCache.has(cacheKey)) {
+      memoryCache.delete(memoryCache.keys().next().value);
+    }
+    memoryCache.set(cacheKey, {
+      data: payload,
+      cached_at: Date.now(),
+      expires_at: Date.now() + ttl,
+    });
+  }
+
+  async function readIndexed(storeName, cacheKey) {
+    if (!window.KingswayDB || !storeName) return null;
     try {
-      const apiEndpoint = endpoint || getEndpointForKey(key);
-
-      // Use centralized API from /js/api.js
-      let response;
-      if (typeof window.API !== 'undefined' && typeof window.API.apiCall === 'function') {
-        response = await window.API.apiCall(apiEndpoint, 'GET', null, params);
-      } else {
-        throw new Error('Centralized API (window.API.apiCall) not available');
+      if (typeof KingswayDB.getCached === 'function') {
+        return await KingswayDB.getCached(storeName, cacheKey, currentUserId());
       }
+      if (typeof KingswayDB.get === 'function') return await KingswayDB.get(storeName, cacheKey);
+    } catch (error) {
+      console.warn('[DataStore] IndexedDB read failed:', storeName, cacheKey, error);
+    }
+    return null;
+  }
 
-      // apiCall() unwraps the envelope via handleApiResponse() and returns the
-      // raw payload (response.data), NOT the {success,data} envelope. So `response`
-      // is already the dataset (array, {items}, settings object, etc.). Handle
-      // both shapes: if the envelope somehow arrives, unwrap it.
-      const payload = (response && response.data !== undefined && response.success !== undefined)
-        ? response.data
-        : response;
-
-      if (payload !== undefined && payload !== null) {
-        const cacheKey = generateCacheKey(key, params);
-        const cacheData = {
-          key: cacheKey,
-          data: payload,
-          cached_at: Date.now(),
-          expires_at: Date.now() + (ttl || defaultPolicies[key]?.ttl || MEMORY_CACHE_TTL),
-          etag: response && response.etag,
-          version: response && response.version
-        };
-
-        // Store in memory cache
-        if (useMemory) {
-          setInMemory(cacheKey, cacheData, ttl);
-        }
-
-        // Store in IndexedDB (envelope so arrays persist)
-        await persist(storeName, cacheKey, payload, ttl);
-
-        console.log('[DataStore] Fetched from network:', key);
-        return payload;
-      } else {
-        throw new Error((response && response.message) || 'Failed to fetch data');
+  async function persist(storeName, cacheKey, payload, ttl) {
+    if (!window.KingswayDB || !storeName) return;
+    try {
+      if (typeof KingswayDB.setCached === 'function') {
+        await KingswayDB.setCached(
+          storeName,
+          { id: cacheKey, data: payload },
+          ttl,
+          currentUserId(),
+          currentRoleId(),
+        );
       }
     } catch (error) {
-      console.error('[DataStore] Network fetch failed:', key, error);
+      console.warn('[DataStore] IndexedDB write failed:', storeName, cacheKey, error);
+    }
+  }
 
-      // Try to return stale data from IndexedDB as fallback
-      if (storeName) {
-        try {
-          const staleData = await KingswayDB.get(storeName, generateCacheKey(key, params));
-          if (staleData) {
-            console.log('[DataStore] Returning stale data from IndexedDB:', key);
-            return unwrapCached(staleData);
-          }
-        } catch (e) {
-          console.warn('[DataStore] Stale data fallback failed:', e);
-        }
+  async function peek(key, options = {}) {
+    const config = normalizeOptions(key, options);
+    const cacheKey = generateCacheKey(key, config.params);
+
+    if (config.useMemory) {
+      const entry = memoryCache.get(cacheKey);
+      if (entry) return entry.data;
+    }
+
+    if (config.useIndexedDB) {
+      const record = await readIndexed(config.storeName, cacheKey);
+      const payload = unwrap(record);
+      if (payload !== null && payload !== undefined) {
+        if (config.useMemory) setMemory(cacheKey, payload, config.ttl);
+        return payload;
       }
+    }
+    return null;
+  }
 
+  async function performFetch(key, config) {
+    if (config.fetcher) return config.fetcher();
+    if (!config.endpoint) {
+      const error = new Error(`DataStore cache miss for "${key}" and no endpoint/fetcher was supplied.`);
+      error.code = 'DATASTORE_NO_SOURCE';
+      throw error;
+    }
+    if (!window.API?.apiCall) throw new Error('Centralized API is unavailable.');
+    return window.API.apiCall(config.endpoint, 'GET', null, config.params);
+  }
+
+  async function fetchAndCache(key, config) {
+    const cacheKey = generateCacheKey(key, config.params);
+    if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
+
+    const task = (async () => {
+      const response = await performFetch(key, config);
+      const payload = response?.success !== undefined && response?.data !== undefined
+        ? response.data
+        : response;
+      if (payload === null || payload === undefined) {
+        throw new Error(`The backend returned no data for ${key}.`);
+      }
+      if (config.useMemory) setMemory(cacheKey, payload, config.ttl);
+      if (config.useIndexedDB) await persist(config.storeName, cacheKey, payload, config.ttl);
+      emit(key, { key: cacheKey, data: payload, source: 'network' });
+      return payload;
+    })();
+
+    inFlight.set(cacheKey, task);
+    try { return await task; }
+    finally { inFlight.delete(cacheKey); }
+  }
+
+  async function revalidate(key, config) {
+    if (!config.endpoint && !config.fetcher) return null;
+    try { return await fetchAndCache(key, config); }
+    catch (error) {
+      console.warn('[DataStore] Background revalidation failed:', key, error.message || error);
+      return null;
+    }
+  }
+
+  async function get(key, options = {}) {
+    const config = normalizeOptions(key, options);
+    const cacheKey = generateCacheKey(key, config.params);
+
+    if (config.bypassCache || config.forceRefresh) {
+      return fetchAndCache(key, config);
+    }
+
+    const memoryEntry = config.useMemory ? memoryCache.get(cacheKey) : null;
+    const memoryValue = memoryEntry?.data;
+    const memoryFresh = memoryEntry && !isExpired(memoryEntry);
+
+    let indexedRecord = null;
+    let indexedValue = null;
+    let indexedFresh = false;
+    if (!memoryEntry && config.useIndexedDB) {
+      indexedRecord = await readIndexed(config.storeName, cacheKey);
+      indexedValue = unwrap(indexedRecord);
+      indexedFresh = indexedRecord && !isExpired(indexedRecord);
+      if (indexedValue !== null && indexedValue !== undefined && config.useMemory) {
+        setMemory(cacheKey, indexedValue, config.ttl);
+      }
+    }
+
+    const cachedValue = memoryValue ?? indexedValue;
+    const cacheFresh = Boolean(memoryFresh || indexedFresh);
+
+    if (config.strategy === 'cache-only') return cachedValue ?? null;
+
+    if (config.strategy === 'stale-while-revalidate' && cachedValue !== null && cachedValue !== undefined) {
+      revalidate(key, config);
+      return cachedValue;
+    }
+
+    if (config.strategy === 'cache-first' && cacheFresh) return cachedValue;
+
+    try {
+      return await fetchAndCache(key, config);
+    } catch (error) {
+      if (config.allowStaleOnError && cachedValue !== null && cachedValue !== undefined) {
+        console.warn('[DataStore] Network failed; returning cached data:', key, error.message || error);
+        return cachedValue;
+      }
       throw error;
     }
   }
 
-  /**
-   * Refresh data in background
-   */
-  async function refreshInBackground(key, cacheKey, endpoint, params, ttl, storeName) {
+  async function getOrFetch(key, options = {}) {
+    const config = normalizeOptions(key, options);
+    if (!config.endpoint && !config.fetcher) {
+      throw new TypeError(`DataStore.getOrFetch("${key}") requires endpoint or fetcher.`);
+    }
+    const cached = await peek(key, config);
+    if (cached !== null && cached !== undefined && config.strategy === 'stale-while-revalidate' && !config.forceRefresh) {
+      revalidate(key, config);
+      return { data: cached, source: 'cache', stale: true };
+    }
     try {
-      console.log('[DataStore] Refreshing in background:', key);
-      
-      const apiEndpoint = endpoint || getEndpointForKey(key);
-      
-      // Use centralized API from /js/api.js
-      let response;
-      if (typeof window.API !== 'undefined' && typeof window.API.apiCall === 'function') {
-        response = await window.API.apiCall(apiEndpoint, 'GET', null, params);
-      } else {
-        console.warn('[DataStore] Centralized API not available, skipping refresh');
-        return;
+      const data = await fetchAndCache(key, config);
+      return { data, source: 'network', stale: false };
+    } catch (networkError) {
+      if (cached !== null && cached !== undefined && config.allowStaleOnError) {
+        return { data: cached, source: 'cache', stale: true, networkError };
       }
-      
-      // apiCall() returns the unwrapped payload (see fetchFromNetwork): treat a
-      // truthy result as success and persist either shape.
-      const payload = (response && response.data !== undefined && response.success !== undefined)
-        ? response.data
-        : response;
-      if (payload !== undefined && payload !== null) {
-        const cacheData = {
-          key: cacheKey,
-          data: payload,
-          cached_at: Date.now(),
-          expires_at: Date.now() + (ttl || defaultPolicies[key]?.ttl || MEMORY_CACHE_TTL),
-          etag: response && response.etag,
-          version: response && response.version
-        };
-
-        // Update memory cache
-        setInMemory(cacheKey, cacheData, ttl);
-
-        // Update IndexedDB (envelope so arrays persist)
-        await persist(storeName, cacheKey, payload, ttl);
-
-        // Notify subscribers
-        emit(key, cacheData);
-      }
-    } catch (error) {
-      console.warn('[DataStore] Background refresh failed:', key, error);
+      throw networkError;
     }
   }
 
-  /**
-   * Set data in cache
-   */
+  async function fetchPage(key, options = {}) {
+    const result = await getOrFetch(key, options);
+    return result.data;
+  }
+
   async function set(key, data, options = {}) {
-    const {
-      ttl = defaultPolicies[key]?.ttl || MEMORY_CACHE_TTL,
-      storeName = null,
-      invalidate = true
-    } = options;
-
-    const cacheKey = generateCacheKey(key, {});
-    const cacheData = {
-      key: cacheKey,
-      data: data,
-      cached_at: Date.now(),
-      expires_at: Date.now() + ttl,
-      etag: null,
-      version: null
-    };
-
-    // Store in memory
-    setInMemory(cacheKey, cacheData, ttl);
-
-    // Store in IndexedDB as an {id, data} envelope so arrays persist.
-    await persist(storeName, cacheKey, data, ttl);
-
-    // Invalidate related caches
-    if (invalidate) {
-      await invalidateRelated(key);
-    }
-
-    // Notify subscribers
-    emit(key, cacheData);
+    const config = normalizeOptions(key, options);
+    const cacheKey = generateCacheKey(key, config.params);
+    if (config.useMemory) setMemory(cacheKey, data, config.ttl);
+    if (config.useIndexedDB) await persist(config.storeName, cacheKey, data, config.ttl);
+    emit(key, { key: cacheKey, data, source: 'local' });
+    return data;
   }
 
-  /**
-   * Invalidate cached data
-   */
   async function invalidate(key, options = {}) {
-    const {
-      storeName = null,
-      params = {}
-    } = options;
-
-    const cacheKey = generateCacheKey(key, params);
-
-    // Remove from memory cache
+    const config = normalizeOptions(key, options);
+    const cacheKey = generateCacheKey(key, config.params);
     memoryCache.delete(cacheKey);
-
-    // Remove from IndexedDB
-    if (storeName) {
-      try {
-        await KingswayDB.remove(storeName, cacheKey);
-      } catch (error) {
-        console.warn('[DataStore] Failed to invalidate in IndexedDB:', error);
-      }
+    if (window.KingswayDB && config.storeName) {
+      try { await KingswayDB.remove?.(config.storeName, cacheKey); }
+      catch (error) { console.warn('[DataStore] IndexedDB invalidation failed:', error); }
     }
-
-    console.log('[DataStore] Invalidated:', key);
     emit('INVALIDATED', { key, cacheKey });
   }
 
-  /**
-   * Invalidate multiple keys
-   */
-  async function invalidateMany(keys) {
-    for (const key of keys) {
-      await invalidate(key);
-    }
+  async function invalidateMany(keys = []) {
+    for (const key of keys.filter(Boolean)) await invalidate(key);
   }
 
-  /**
-   * Invalidate related caches based on data relationships
-   */
   async function invalidateRelated(key) {
-    const invalidationRules = {
-      'students': ['students', 'student_directory_cache', 'class_list_cache'],
-      'classes': ['classes', 'student_directory_cache', 'class_list_cache'],
-      'attendance': ['attendance', 'attendance_roster_cache'],
-      'admissions': ['admissions', 'admission_queue_cache'],
-      'staff': ['staff', 'staff_directory_cache']
+    const rules = {
+      students: ['students', 'student_directory_cache', 'class_list_cache'],
+      classes: ['classes', 'student_directory_cache', 'class_list_cache'],
+      attendance: ['attendance', 'attendance_roster'],
+      admissions: ['admissions', 'admission_queue_cache'],
+      staff: ['staff', 'staff_directory_cache'],
     };
-
-    const relatedKeys = invalidationRules[key] || [];
-    for (const relatedKey of relatedKeys) {
-      await invalidate(relatedKey);
-    }
+    await invalidateMany(rules[key] || []);
   }
 
-  /**
-   * Subscribe to data changes
-   */
   function subscribe(key, callback) {
-    if (!subscribers.has(key)) {
-      subscribers.set(key, new Set());
-    }
+    if (!subscribers.has(key)) subscribers.set(key, new Set());
     subscribers.get(key).add(callback);
-
-    // Return unsubscribe function
-    return () => {
-      const callbacks = subscribers.get(key);
-      if (callbacks) {
-        callbacks.delete(callback);
-      }
-    };
+    return () => subscribers.get(key)?.delete(callback);
   }
 
-  /**
-   * Emit event to subscribers
-   */
   function emit(key, data) {
-    const callbacks = subscribers.get(key);
-    if (callbacks) {
-      callbacks.forEach(callback => {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error('[DataStore] Subscriber callback error:', error);
-        }
-      });
-    }
+    subscribers.get(key)?.forEach((callback) => {
+      try { callback(data); }
+      catch (error) { console.error('[DataStore] Subscriber failed:', error); }
+    });
   }
 
-  /**
-   * Clear all caches
-   */
   async function clearAll() {
-    // Clear memory cache
     memoryCache.clear();
-
-    // Clear IndexedDB caches
-    const storesToClear = [
-      'student_directory_cache',
-      'staff_directory_cache',
-      'class_list_cache',
-      'admission_queue_cache',
-      'attendance_roster_cache',
-      'dashboard_cache'
+    const stores = [
+      'student_directory_cache', 'staff_directory_cache', 'class_list_cache',
+      'admission_queue_cache', 'attendance_roster_cache', 'dashboard_cache',
     ];
-
-    for (const storeName of storesToClear) {
-      try {
-        await KingswayDB.clear(storeName);
-      } catch (error) {
-        console.warn('[DataStore] Failed to clear store:', storeName, error);
-      }
+    for (const store of stores) {
+      try { await window.KingswayDB?.clear?.(store); }
+      catch (error) { console.warn('[DataStore] Failed to clear store:', store, error); }
     }
-
-    console.log('[DataStore] All caches cleared');
     emit('CLEARED', {});
   }
 
-  /**
-   * Get cache statistics
-   */
-  function getStats() {
-    return {
-      memory: {
-        size: memoryCache.size,
-        limit: MEMORY_CACHE_SIZE_LIMIT,
-        usage: memoryCache.size / MEMORY_CACHE_SIZE_LIMIT
-      },
-      indexedDB: 'Use KingswayDB.getStats() for IndexedDB stats'
-    };
-  }
-
-  /**
-   * Memory cache operations
-   */
-  function getFromMemory(key) {
-    return memoryCache.get(key);
-  }
-
-  function setInMemory(key, data, ttl) {
-    // Enforce size limit
-    if (memoryCache.size >= MEMORY_CACHE_SIZE_LIMIT) {
-      // Remove oldest entry
-      const firstKey = memoryCache.keys().next().value;
-      memoryCache.delete(firstKey);
-    }
-
-    memoryCache.set(key, data);
-  }
-
-  function isExpired(cacheData) {
-    if (!cacheData.expires_at) {
-      return false;
-    }
-    return Date.now() > cacheData.expires_at;
-  }
-
-  /**
-   * Generate cache key
-   */
-  function generateCacheKey(key, params) {
-    if (Object.keys(params).length === 0) {
-      return key;
-    }
-    return `${key}:${JSON.stringify(params)}`;
-  }
-
-  /**
-   * Get IndexedDB store name for key
-   */
-  function getStoreNameForKey(key) {
-    const storeMapping = {
-      'classes': 'reference_classes',
-      'streams': 'reference_streams',
-      'subjects': 'reference_subjects',
-      'terms': 'reference_terms',
-      'academic_years': 'reference_academic_years',
-      'departments': 'reference_departments',
-      'students': 'student_directory_cache',
-      'staff': 'staff_directory_cache',
-      'attendance': 'attendance_roster_cache',
-      'admissions': 'admission_queue_cache'
-    };
-
-    return storeMapping[key] || 'dashboard_cache';
-  }
-
-  /**
-   * Get API endpoint for key.
-   * Endpoints are RELATIVE — apiCall() prepends API_BASE_URL (/Kingsway/api),
-   * so including '/api' here would double it to '/Kingsway/api/api/...'.
-   */
-  function getEndpointForKey(key) {
-    const endpointMapping = {
-      'classes': '/attendance/classes',
-      'subjects': '/academic/subjects',
-      'terms': '/academic/terms',
-      'departments': '/website/departments',
-      'students': '/students',
-      'staff': '/staff',
-      'attendance': '/attendance',
-      'admissions': '/admission/queues'
-    };
-
-    return endpointMapping[key] || `/${key}`;
-  }
-
-  /**
-   * Get current user ID
-   */
-  function getCurrentUserId() {
-    if (typeof SessionManager !== 'undefined' && SessionManager.isAuthenticated()) {
-      const user = SessionManager.getCurrentUser();
-      return user ? user.id : null;
-    }
-    return null;
-  }
-
-  /**
-   * Get current role ID
-   */
-  function getCurrentRoleId() {
-    if (typeof SessionManager !== 'undefined' && SessionManager.isAuthenticated()) {
-      const roles = SessionManager.getRoles();
-      if (roles && roles.length > 0) {
-        return typeof roles[0] === 'object' ? roles[0].id : roles[0];
-      }
-    }
-    return null;
-  }
-
-  // Public API
   return {
-    get,
-    fetchPage,
-    set,
-    DEFAULT_TTL,
-    invalidate,
-    invalidateMany,
-    subscribe,
-    unsubscribeAll: () => {
-      subscribers.clear();
-      invalidationListeners.clear();
-    },
+    get, getOrFetch, fetchPage, peek, set, invalidate, invalidateMany,
+    invalidateRelated, subscribe,
+    unsubscribeAll: () => subscribers.clear(),
     clearAll,
-    getStats,
-    invalidateRelated
+    getStats: () => ({ memory: { size: memoryCache.size, limit: MEMORY_LIMIT }, inFlight: inFlight.size }),
+    DEFAULT_TTL,
   };
-
 })();
-
-// Export for use in other modules
-if (typeof window !== 'undefined') {
-  window.DataStore = DataStore;
-}
+window.DataStore = DataStore;

@@ -152,124 +152,109 @@ const schoolAdminDashboardController = {
   // =========================================================================
   // DATA LOADING
   // =========================================================================
-  loadDashboardData: async function () {
+  loadDashboardData: async function (options = {}) {
     if (this.state.isLoading) return;
 
     this.state.isLoading = true;
     this.state.error = null;
     const startTime = performance.now();
+    const cacheKey = "dashboard_school_admin";
+    let renderedCachedData = false;
 
-    try {
-      // Paint instantly from the IndexedDB cache (cache-first) while the
-      // network revalidation below refreshes the data in the background.
-      if (typeof DataStore !== "undefined") {
-        // Cache-first instant paint. DataStore.get(key, options) — the 2nd arg
-        // MUST be an options object (not a bare storeName string), and we must
-        // pass the real endpoint so a cache-miss revalidates /dashboard/school-admin/full
-        // instead of the non-existent /api/dashboard_school_admin.
-        const cached = await DataStore.get("dashboard_school_admin", {
-          endpoint: "/dashboard/school-admin/full",
-          storeName: "dashboard_cache",
-          strategy: "stale-while-revalidate"
-        }).catch(() => null);
-        if (cached && cached.cards) {
-          this.log("⚡ Rendering dashboard from cache (instant paint)");
-          this.processCardsData(cached.cards);
-          this.processChartsData(cached.charts);
-          this.processTablesData(cached.tables);
-          this.renderCards();
-          this.renderCharts();
-          this.renderTables();
-          this.updateLastRefreshTime();
-        }
-      }
-
-      this.log("📡 Fetching operational metrics from API...");
-
-      // Use the optimized full dashboard endpoint for initial load
-      const response = await API.dashboard.getSchoolAdminFull();
-
-      // DEBUG: Log the full response
-      console.log("[SchoolAdminDashboard] API Response:", response);
-      console.log("[SchoolAdminDashboard] Response type:", typeof response);
-      console.log("[SchoolAdminDashboard] Has cards?:", !!response?.cards);
-      console.log(
-        "[SchoolAdminDashboard] Has data.cards?:",
-        !!response?.data?.cards
-      );
-
-      // api.js handleApiResponse() unwraps successful responses
-      // So response IS the data directly (not wrapped in {status, data})
-      // Check if we have the data directly or wrapped
-      let data;
-      if (response && response.cards) {
-        // Response is the data directly (unwrapped by handleApiResponse)
-        data = response;
-        console.log("[SchoolAdminDashboard] Using direct response (unwrapped)");
-      } else if (response && response.data && response.data.cards) {
-        // Response is wrapped {status, data}
-        data = response.data;
-        console.log("[SchoolAdminDashboard] Using response.data (wrapped)");
-      } else if (
-        response &&
-        (response.success || response.status === "success")
-      ) {
-        // Old format check
-        data = response.data || response;
-        console.log("[SchoolAdminDashboard] Using old format check");
-      } else {
-        data = null;
-        console.log("[SchoolAdminDashboard] No valid data found");
-      }
-
-      if (data && data.cards) {
-        console.log(
-          "[SchoolAdminDashboard] Data extracted successfully:",
-          data
-        );
-        console.log("[SchoolAdminDashboard] Cards:", data.cards);
-
-        // Process cards data
-        this.processCardsData(data.cards);
-
-        console.log(
-          "[SchoolAdminDashboard] State after processCardsData:",
-          this.state.cards
-        );
-
-        // Process charts data
-        this.processChartsData(data.charts);
-
-        // Process tables data
-        this.processTablesData(data.tables);
-      } else {
-        console.log("[SchoolAdminDashboard] Response check FAILED:", {
-          response: response,
-          hasCards: !!response?.cards,
-          hasDataCards: !!response?.data?.cards,
-        });
-        // Fallback: Fetch individual endpoints if full endpoint fails
-        this.log("⚠️ Full endpoint failed, fetching individually...", "warn");
-        await this.loadDataIndividually();
-      }
-
-      // Update UI
+    const renderPayload = (data) => {
+      if (!data || !data.cards) return false;
+      this.processCardsData(data.cards || {});
+      this.processChartsData(data.charts || {});
+      this.processTablesData(data.tables || {});
       this.renderCards();
       this.renderCharts();
       this.renderTables();
       this.updateLastRefreshTime();
+      return true;
+    };
+
+    try {
+      if (!options.forceRefresh && window.DataStore?.peek) {
+        const cached = await DataStore.peek(cacheKey, {
+          storeName: "dashboard_cache",
+          ttl: 60000,
+        });
+        if (renderPayload(cached)) {
+          renderedCachedData = true;
+          this.log("⚡ Dashboard rendered from IndexedDB cache");
+        }
+      }
+
+      this.log("📡 Revalidating dashboard from backend...");
+      let freshData = null;
+
+      try {
+        const response = await API.dashboard.getSchoolAdminFull();
+        freshData = this.extractData(response);
+      } catch (aggregateError) {
+        this.log(
+          `⚠️ Aggregate dashboard endpoint unavailable: ${aggregateError.message}. Using individual endpoints.`,
+          "warn"
+        );
+        await this.loadDataIndividually();
+        freshData = {
+          cards: {
+            active_students: this.state.cards.activeStudents,
+            teaching_staff: this.state.cards.teachingStaff,
+            staff_activities: this.state.cards.staffActivities,
+            class_timetables: this.state.cards.classTimetables,
+            daily_attendance: this.state.cards.dailyAttendance,
+            announcements: this.state.cards.announcements,
+            student_admissions: this.state.cards.studentAdmissions,
+            staff_leaves: this.state.cards.staffLeaves,
+            class_distribution: this.state.cards.classDistribution,
+            system_status: this.state.cards.systemStatus,
+          },
+          charts: {
+            attendance_trend: this.state.charts.attendanceTrend,
+            class_distribution: this.state.charts.classDistribution,
+          },
+          tables: {
+            pending_items: this.state.tables.pendingItems,
+            today_schedule: this.state.tables.todaySchedule,
+            staff_directory: this.state.tables.staffDirectory,
+          },
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (!freshData || !freshData.cards) {
+        throw new Error("The dashboard backend returned no usable data.");
+      }
+
+      renderPayload(freshData);
+      await window.DataStore?.set?.(cacheKey, freshData, {
+        storeName: "dashboard_cache",
+        ttl: 60000,
+        invalidate: false,
+      });
 
       const duration = (performance.now() - startTime).toFixed(2);
       this.log(`✓ Dashboard loaded in ${duration}ms`);
     } catch (error) {
-      this.log(`❌ Error loading dashboard: ${error.message}`, "error");
       this.state.error = error.message;
-      this.showError(error.message);
-      // Load placeholder data on error
-      this.loadFallbackData();
-      this.renderCards();
-      this.renderCharts();
-      this.renderTables();
+      this.log(`❌ Dashboard refresh failed: ${error.message}`, "error");
+
+      if (renderedCachedData) {
+        this.log("Keeping the last successful cached dashboard visible.", "warn");
+        if (typeof window.showNotification === "function") {
+          window.showNotification(
+            "Live dashboard data is temporarily unavailable. Showing cached data.",
+            "warning"
+          );
+        }
+      } else {
+        this.showError(error.message);
+        this.loadFallbackData();
+        this.renderCards();
+        this.renderCharts();
+        this.renderTables();
+      }
     } finally {
       this.state.isLoading = false;
     }

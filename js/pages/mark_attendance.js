@@ -152,7 +152,7 @@ const MarkAttendanceController = {
             strategy: 'network-first',
             ttl: 300000, // 5 minutes
             storeName: 'attendance_roster_cache',
-            endpoint: `/students/transport-passengers?${params.toString()}`,
+            endpoint: '/students/transport-passengers',
             params: Object.fromEntries(params)
           });
           console.log("[Attendance] Data from DataStore:", passengers);

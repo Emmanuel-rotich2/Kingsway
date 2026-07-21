@@ -223,11 +223,4 @@ const BFCacheHandler = {
   }
 };
 
-// Auto-initialize when DOM is ready
-if (typeof document !== 'undefined') {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => BFCacheHandler.initialize());
-  } else {
-    BFCacheHandler.initialize();
-  }
-}
+if (typeof window !== 'undefined') window.BFCacheHandler = BFCacheHandler;
