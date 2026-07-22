@@ -1,0 +1,5 @@
+item_name,category,quantity,unit,unit_price,supplier,purchase_date,expiry_date,storage_location,notes
+Rice (Pishori),Grains,500,kg,120,Nakumatt Wholesale,2025-01-08,2026-01-08,Food Store A,
+Maize Flour,Grains,200,kg,85,Local Supplier,2025-01-08,,Food Store A,
+Cooking Oil,Oil,50,litres,350,Bidco,2025-01-10,2025-07-10,Food Store B,
+Tomatoes,Vegetables,30,kg,60,Wakulima Market,2025-01-13,,Kitchen,Fresh

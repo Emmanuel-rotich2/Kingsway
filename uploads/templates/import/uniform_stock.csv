@@ -1,0 +1,6 @@
+item_name,category,size,gender,quantity,unit_price,reorder_level,notes
+School Shirt (Short Sleeve),Top,S,boys,50,450,10,
+School Shirt (Short Sleeve),Top,M,boys,80,500,15,
+School Dress,Top,S,girls,60,650,10,
+School Trouser,Bottom,28,boys,45,800,10,
+PE Kit Top,Sports,M,unisex,100,350,20,

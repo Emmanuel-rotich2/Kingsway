@@ -1,0 +1,4 @@
+student_admission_no,amount,payment_method,reference_number,payment_date,term,year,description,bank_name,bank_branch
+ADM001,25000,bank_transfer,TRF20250110001,2025-01-10,1,2025,Term 1 tuition,Equity Bank,Westlands
+ADM001,5000,cash,RCP001,2025-01-15,1,2025,Lunch fee,,,
+ADM002,30000,mpesa,QWE123456789,2025-01-12,1,2025,Term 1 full payment,,,
