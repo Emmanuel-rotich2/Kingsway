@@ -39,7 +39,7 @@ class AcademicAPI extends BaseAPI
         $this->curriculumWorkflow = new CurriculumPlanningWorkflow();
         $this->yearTransitionWorkflow = new AcademicYearTransitionWorkflow();
     }
-
+    
     private function getCurrentStaffId(): ?int
     {
         $userId = $this->getCurrentUserId();

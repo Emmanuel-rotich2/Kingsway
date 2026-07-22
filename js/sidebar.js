@@ -1,271 +1,283 @@
 /**
  * Sidebar Manager
- * Handles dynamic sidebar menu rendering based on user permissions
+ * Renders permission-aware navigation from AuthContext.
+ * UI interaction is handled by js/index.js through window.KingswayShell.
  */
+(() => {
+  "use strict";
 
-(function() {
-    'use strict';
+  let initialized = false;
 
-    /**
-     * Render sidebar menu items from data
-     * @param {Array} menuItems - Array of menu item objects from backend
-     */
-    function renderSidebar(menuItems) {
-        const sidebarMenu = document.getElementById('sidebarMenu');
-        if (!sidebarMenu) {
-            console.warn('Sidebar menu container not found');
-            return;
-        }
+  function escapeHtml(value) {
+    const element = document.createElement("div");
+    element.textContent = String(value ?? "");
+    return element.innerHTML;
+  }
 
-        if (!Array.isArray(menuItems) || menuItems.length === 0) {
-            sidebarMenu.innerHTML = '<div class="p-3 text-muted text-center">No menu items available</div>';
-            return;
-        }
+  function hasRequiredPermission(item) {
+    const permissions =
+      item?.permission ||
+      item?.permissions ||
+      item?.required_permissions;
 
-        const hasRequiredPermission = (item) => {
-            const permissions = item?.permission || item?.permissions || item?.required_permissions;
-            if (!permissions || !window.AuthContext) return true;
-            const list = Array.isArray(permissions)
-                ? permissions
-                : String(permissions).split(',').map((permission) => permission.trim()).filter(Boolean);
-            return list.length === 0 || window.AuthContext.hasAnyPermission(list);
-        };
-
-        const filterMenuItem = (item) => {
-            if (!item || !hasRequiredPermission(item)) return null;
-            const subitems = Array.isArray(item.subitems)
-                ? item.subitems.map(filterMenuItem).filter(Boolean)
-                : [];
-            if (Array.isArray(item.subitems)) {
-                return subitems.length > 0 || item.url || item.route || item.route_name
-                    ? { ...item, subitems }
-                    : null;
-            }
-            return item;
-        };
-
-        let html = '';
-
-        menuItems.map(filterMenuItem).forEach(item => {
-          if (!item) return;
-
-          const hasSubitems =
-            item.subitems &&
-            Array.isArray(item.subitems) &&
-            item.subitems.length > 0;
-          const itemId = btoa(item.label || "").replace(/=/g, ""); // Use base64 hash for unique ID
-          const icon = item.icon || "bi-circle";
-          const normalizeMenuRoute = (value) => {
-            if (!value) return { route: "#", params: "" };
-            const text = String(value).trim();
-            try {
-              const parsed = new URL(text, window.location.origin);
-              const route = parsed.searchParams.get("route") || text;
-              parsed.searchParams.delete("route");
-              const params = parsed.searchParams.toString();
-              return { route, params: params ? `&${params}` : "" };
-            } catch (e) {
-              const [route, query = ""] = text.split("?");
-              return { route, params: query ? `&${query}` : "" };
-            }
-          };
-
-          const buildMenuHref = (routeData) => {
-            if (!routeData.route || routeData.route === "#") return "#";
-            return `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(routeData.route)}${routeData.params || ""}`;
-          };
-
-          // Prefer canonical route name when url contains a route query
-          const rawUrl = item.route || item.route_name || item.url || "#";
-          const routeData = normalizeMenuRoute(rawUrl);
-          const route = routeData.route;
-          const routeHref = buildMenuHref(routeData);
-
-          if (hasSubitems) {
-            // Menu item with subitems (collapsible)
-            html += `
-                    <a href="#submenu-${itemId}"
-                       class="list-group-item list-group-item-action d-flex justify-content-between align-items-center sidebar-toggle"
-                       data-bs-toggle="collapse"
-                       aria-expanded="false"
-                       aria-controls="submenu-${itemId}">
-                        <span>
-                            <i class="${icon} me-2"></i>
-                            <span class="sidebar-text">${escapeHtml(
-                              item.label
-                            )}</span>
-                        </span>
-                        <i class="fas fa-chevron-down small"></i>
-                    </a>
-                    <div class="collapse" id="submenu-${itemId}" data-bs-parent="#sidebarMenu">
-                `;
-
-            // Render subitems
-            item.subitems.forEach((subitem) => {
-              if (!subitem) return;
-              const subIcon = subitem.icon || "bi-dot";
-              const subRaw = subitem.route || subitem.route_name || subitem.url || "#";
-              const subRouteData = normalizeMenuRoute(subRaw);
-              const subRoute = subRouteData.route;
-              const subHref = buildMenuHref(subRouteData);
-
-              html += `
-                        <a href="${escapeHtml(subHref)}" data-route="${escapeHtml(
-                          subRoute
-                        )}" data-params="${escapeHtml((subRouteData.params || "").replace(/^&/, ""))}" class="list-group-item list-group-item-action ps-5 sidebar-link">
-                            <i class="${subIcon} me-2"></i>
-                            ${escapeHtml(subitem.label)}
-                        </a>
-                    `;
-            });
-
-            html += `</div>`;
-          } else {
-            // Simple menu item (no subitems)
-            html += `
-                    <a href="${escapeHtml(routeHref)}" data-route="${escapeHtml(
-                      route
-                    )}" data-params="${escapeHtml((routeData.params || "").replace(/^&/, ""))}" class="list-group-item list-group-item-action sidebar-link">
-                        <i class="${icon} me-2"></i>
-                        <span class="sidebar-text">${escapeHtml(
-                          item.label
-                        )}</span>
-                    </a>
-                `;
-          }
-        });
-
-        sidebarMenu.innerHTML = html;
-
-        // Re-attach click handlers for full-page shell navigation
-        attachSidebarHandlers();
+    if (!permissions || !window.AuthContext) {
+      return true;
     }
 
-    /**
-     * Close mobile sidebar
-     */
-    function closeMobileSidebar() {
-        if (window.innerWidth < 992) {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebar-overlay');
-            if (sidebar) sidebar.classList.remove('sidebar-visible-mobile');
-            if (overlay) overlay.style.display = 'none';
-        }
+    const list = Array.isArray(permissions)
+      ? permissions
+      : String(permissions)
+          .split(",")
+          .map((permission) => permission.trim())
+          .filter(Boolean);
+
+    return (
+      list.length === 0 ||
+      window.AuthContext.hasAnyPermission?.(list)
+    );
+  }
+
+  function filterMenuItem(item) {
+    if (!item || !hasRequiredPermission(item)) {
+      return null;
     }
 
-    /**
-     * Attach click handlers to sidebar links for full-page shell navigation
-     */
-    function attachSidebarHandlers() {
-        const sidebarLinks = document.querySelectorAll('.sidebar-link');
+    const subitems = Array.isArray(item.subitems)
+      ? item.subitems.map(filterMenuItem).filter(Boolean)
+      : [];
 
-        sidebarLinks.forEach(link => {
-            link.addEventListener('click', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                closeMobileSidebar();
-                const route = this.getAttribute('data-route');
-                const params = this.getAttribute('data-params') || "";
-
-                if (route && route !== '#') {
-                  const normalizedRoute =
-                    window.AppRouteAccess &&
-                    typeof window.AppRouteAccess.normalizeRoute === "function"
-                      ? window.AppRouteAccess.normalizeRoute(route)
-                      : route;
-                  // Remove active class from all links
-                  document
-                    .querySelectorAll(".sidebar-link")
-                    .forEach((l) => l.classList.remove("active"));
-                  // Add active class to clicked link
-                  this.classList.add("active");
-
-                  const goToRoute = () => {
-                    if (window.AppRouter && typeof window.AppRouter.go === "function") {
-                      window.AppRouter.go(`${normalizedRoute}${params ? `?${params}` : ""}`);
-                    } else {
-                      window.location.href = (window.APP_BASE || "") + `/home.php?route=${encodeURIComponent(
-                        normalizedRoute
-                      )}${params ? `&${params}` : ""}`;
-                    }
-                  };
-
-                  if (
-                    window.AppRouteAccess &&
-                    typeof window.AppRouteAccess.authorizeRoute === "function"
-                  ) {
-                    window.AppRouteAccess
-                      .authorizeRoute(normalizedRoute)
-                      .then((authorization) => {
-                        if (!authorization.authorized) {
-                          showNotification(
-                            "You are not allowed to open that page.",
-                            NOTIFICATION_TYPES.WARNING
-                          );
-                          return window.AppRouteAccess.redirectToAllowedRoute(
-                            normalizedRoute
-                          );
-                        }
-
-                        goToRoute();
-                      })
-                      .catch((error) => {
-                        console.warn("Sidebar authorization failed:", error);
-                      });
-                  } else {
-                    goToRoute();
-                  }
-                }
-            });
-        });
+    if (Array.isArray(item.subitems)) {
+      return subitems.length > 0 ||
+        item.url ||
+        item.route ||
+        item.route_name
+        ? { ...item, subitems }
+        : null;
     }
 
-    /**
-     * Escape HTML to prevent XSS
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+    return item;
+  }
+
+  function normalizeRoute(value) {
+    if (!value) {
+      return {
+        route: "#",
+        params: "",
+      };
     }
 
-    /**
-     * Initialize sidebar from localStorage on page load
-     */
-    function initializeSidebar() {
-        // Get sidebar items from AuthContext
-        if (typeof AuthContext !== 'undefined' && typeof AuthContext.getSidebarItems === 'function') {
-            const sidebarItems = AuthContext.getSidebarItems();
-            if (sidebarItems && sidebarItems.length > 0) {
-                renderSidebar(sidebarItems);
-            }
-        }
+    const text = String(value).trim();
+
+    try {
+      const parsed = new URL(text, window.location.origin);
+      const route =
+        parsed.searchParams.get("route") ||
+        text.replace(/^\/+/, "");
+
+      parsed.searchParams.delete("route");
+
+      return {
+        route,
+        params: parsed.searchParams.toString(),
+      };
+    } catch {
+      const [route, query = ""] = text.split("?");
+
+      return {
+        route: route.replace(/^\/+/, ""),
+        params: query,
+      };
+    }
+  }
+
+  function createId(label) {
+    try {
+      return `submenu-${btoa(unescape(encodeURIComponent(label)))
+        .replace(/[^A-Za-z0-9]/g, "")
+        .slice(0, 28)}`;
+    } catch {
+      return `submenu-${Date.now().toString(36)}`;
+    }
+  }
+
+  function renderSimpleItem(item) {
+    const routeData = normalizeRoute(
+      item.route || item.route_name || item.url || "#"
+    );
+
+    const label = escapeHtml(item.label || "Menu");
+    const icon = escapeHtml(item.icon || "bi bi-circle");
+
+    return `
+      <a
+        href="#"
+        data-route="${escapeHtml(routeData.route)}"
+        data-params="${escapeHtml(routeData.params)}"
+        class="app-sidebar-item sidebar-link"
+        title="${label}"
+      >
+        <span class="app-sidebar-icon">
+          <i class="${icon}"></i>
+        </span>
+        <span class="sidebar-text">${label}</span>
+      </a>
+    `;
+  }
+
+  function renderParentItem(item) {
+    const submenuId = createId(item.label || "menu");
+    const label = escapeHtml(item.label || "Menu");
+    const icon = escapeHtml(item.icon || "bi bi-folder");
+
+    const children = item.subitems
+      .map((subitem) => {
+        const routeData = normalizeRoute(
+          subitem.route ||
+            subitem.route_name ||
+            subitem.url ||
+            "#"
+        );
+
+        const subLabel = escapeHtml(
+          subitem.label || "Submenu"
+        );
+
+        const subIcon = escapeHtml(
+          subitem.icon || "bi bi-dot"
+        );
+
+        return `
+          <a
+            href="#"
+            data-route="${escapeHtml(routeData.route)}"
+            data-params="${escapeHtml(routeData.params)}"
+            class="app-sidebar-subitem sidebar-link"
+            title="${subLabel}"
+          >
+            <span class="app-sidebar-subicon">
+              <i class="${subIcon}"></i>
+            </span>
+            <span class="sidebar-text">${subLabel}</span>
+          </a>
+        `;
+      })
+      .join("");
+
+    return `
+      <button
+        class="app-sidebar-item sidebar-toggle"
+        type="button"
+        data-submenu-target="#${submenuId}"
+        aria-expanded="false"
+        aria-controls="${submenuId}"
+        title="${label}"
+      >
+        <span class="app-sidebar-icon">
+          <i class="${icon}"></i>
+        </span>
+        <span class="sidebar-text">${label}</span>
+        <i class="bi bi-chevron-down app-sidebar-chevron"></i>
+      </button>
+
+      <div
+        class="app-sidebar-submenu collapse"
+        id="${submenuId}"
+      >
+        ${children}
+      </div>
+    `;
+  }
+
+  function renderSidebar(menuItems) {
+    const container =
+      document.getElementById("sidebarMenu");
+
+    if (!container) {
+      return;
     }
 
-    /**
-     * Refresh sidebar with new menu items
-     * Called after login or when permissions change
-     */
-    window.refreshSidebar = function(menuItems) {
-        if (menuItems) {
-            renderSidebar(menuItems);
-        } else if (typeof AuthContext !== 'undefined') {
-            const sidebarItems = AuthContext.getSidebarItems();
-            renderSidebar(sidebarItems);
-        }
-    };
+    const filtered = Array.isArray(menuItems)
+      ? menuItems.map(filterMenuItem).filter(Boolean)
+      : [];
 
-    // Initialize sidebar when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeSidebar);
-    } else {
-        initializeSidebar();
+    if (!filtered.length) {
+      container.innerHTML = `
+        <div class="app-sidebar-empty">
+          <i class="bi bi-exclamation-circle"></i>
+          <span class="sidebar-text">
+            No navigation items available
+          </span>
+        </div>
+      `;
+      return;
     }
 
-    // Expose for global use
-    window.SidebarManager = {
-        render: renderSidebar,
-        initialize: initializeSidebar,
-        refresh: window.refreshSidebar
-    };
+    container.innerHTML = `
+      <div class="app-sidebar-section-label">
+        Navigation
+      </div>
+      ${filtered
+        .map((item) =>
+          Array.isArray(item.subitems) &&
+          item.subitems.length
+            ? renderParentItem(item)
+            : renderSimpleItem(item)
+        )
+        .join("")}
+    `;
+
+    window.KingswayShell?.refresh?.();
+  }
+
+  function initializeSidebar() {
+    const items =
+      window.AuthContext?.getSidebarItems?.() || [];
+
+    renderSidebar(items);
+  }
+
+  function initialize() {
+    if (initialized) {
+      initializeSidebar();
+      return;
+    }
+
+    initialized = true;
+    initializeSidebar();
+
+    document.addEventListener(
+      "authchanged",
+      initializeSidebar
+    );
+
+    window.addEventListener(
+      "kingsway:ready",
+      initializeSidebar,
+      { once: true }
+    );
+  }
+
+  window.refreshSidebar = (menuItems) => {
+    renderSidebar(
+      menuItems ||
+        window.AuthContext?.getSidebarItems?.() ||
+        []
+    );
+  };
+
+  window.SidebarManager = {
+    initialize,
+    render: renderSidebar,
+    refresh: window.refreshSidebar,
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener(
+      "DOMContentLoaded",
+      initialize,
+      { once: true }
+    );
+  } else {
+    initialize();
+  }
 })();

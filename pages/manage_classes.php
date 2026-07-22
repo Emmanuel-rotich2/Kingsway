@@ -107,7 +107,7 @@
                                 <th>Grade Level</th>
                                 <th>Streams</th>
                                 <th>Students</th>
-                                <th>Class Teacher</th>
+                                <th>Teachers</th>
                                 <th>Capacity</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -115,7 +115,7 @@
                         </thead>
                         <tbody id="classesTableBody">
                             <tr>
-                                <td colspan="9" class="text-center py-4">
+                                <td colspan="8" class="text-center py-4">
                                     <div class="spinner-border text-primary" role="status">
                                         <span class="visually-hidden">Loading...</span>
                                     </div>
@@ -433,4 +433,12 @@
 </div>
 
 <!-- Link to Controller -->
-<script src="<?= $appBase ?>/js/pages/academics.js?v=<?= time() ?>"></script>
+<?php
+$academicsScriptPath = __DIR__ . '/../js/pages/academics.js';
+$academicsScriptVersion = is_file($academicsScriptPath)
+    ? (string) filemtime($academicsScriptPath)
+    : '1';
+?>
+<script
+    src="<?= $appBase ?>/js/pages/academics.js?v=<?= htmlspecialchars($academicsScriptVersion, ENT_QUOTES, 'UTF-8') ?>"
+></script>

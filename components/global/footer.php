@@ -1,7 +1,14 @@
-<!--components/global/footer.php-->
-<footer class="footer mt-auto py-3 bg-light shadow-sm">
-    
-    <div class="container text-center">
-        <span class="text-muted">&copy; <?php echo date("Y"); ?> Kings Way Academy. All rights reserved.</span>
+<!-- components/global/footer.php -->
+<footer class="app-footer">
+    <div>
+        &copy; <?= date('Y') ?> Kingsway Preparatory School
+    </div>
+
+    <div class="app-footer-meta">
+        <span>
+            <i class="bi bi-shield-check"></i>
+            Secure portal
+        </span>
+        <span class="d-none d-md-inline">Version 2.0</span>
     </div>
 </footer>
