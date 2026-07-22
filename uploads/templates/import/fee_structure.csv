@@ -1,0 +1,6 @@
+class_name,fee_type,amount,term,year,description,is_mandatory
+Grade 1,Tuition Fee,25000,1,2025,Term 1 tuition,1
+Grade 1,Lunch Fee,5000,1,2025,Daily lunch,1
+Grade 4,Tuition Fee,30000,1,2025,Term 1 tuition,1
+Grade 4,Activity Fee,2000,1,2025,Sport and co-curricular,1
+Grade 7,Boarding Fee,45000,1,2025,Full boarding term 1,1

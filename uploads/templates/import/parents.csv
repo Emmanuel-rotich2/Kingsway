@@ -1,0 +1,3 @@
+student_admission_no,parent_name,relationship,phone,email,national_id,occupation,workplace,address,county,is_primary,emergency_contact
+ADM001,Mary Wanjiku,mother,0712345678,mary@email.com,23456789,Teacher,Nairobi School,Kiambu Road,Nairobi,1,1
+ADM001,Peter Wanjiku,father,0798765432,,34567890,Engineer,KenGen,Kiambu Road,Nairobi,0,0

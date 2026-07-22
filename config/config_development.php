@@ -19,6 +19,7 @@ define('SCHOOL_LOGO_URL', BASE_URL . '/uploads/school_assets/official_school_log
 
 // File upload paths - Development (relative to project root)
 define('UPLOAD_PATH', $_ENV['UPLOAD_PATH'] ?? __DIR__ . '/../uploads');
+
 define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
 define('STUDENT_IMAGES', STUDENT_PHOTOS . '/images');
 define('STUDENT_QR_CODES', STUDENT_IMAGES . '/qr_codes');
@@ -34,13 +35,11 @@ define('SCHOOL_ASSETS', UPLOAD_PATH . '/school_assets');
 define('SCHOOL_ASSETS_DOCUMENTS', SCHOOL_ASSETS . '/documents');
 define('SCHOOL_ASSETS_GALLERY', SCHOOL_ASSETS . '/gallery');
 define('SCHOOL_ASSETS_QR_CODES', SCHOOL_ASSETS . '/qr_codes');
-define('TEMPLATES_PATH', UPLOAD_PATH . '/../templates');
+define('TEMPLATES_PATH', UPLOAD_PATH . '/templates');
 define('ID_CARD_TEMPLATES', TEMPLATES_PATH . '/id_cards');
-// Output dir for server-generated PDFs/exports. Derived from the project root
-// (config dir's parent) so it works in ANY environment — never hardcode the
-// localhost home directory. Generated files are reachable via
-// BASE_URL . '/temp/print/<name>' (see PrintController::getWebUrl()).
-define('PRINT_OUTPUT_PATH', __DIR__ . '/../temp/print');
+define('PRINT_OUTPUT_PATH', UPLOAD_PATH . '/temp/print');
+
+// File upload paths - Live (relative to project root)
 
 // Database Configuration - Development
 define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');

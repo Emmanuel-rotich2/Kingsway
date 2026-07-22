@@ -1,0 +1,5 @@
+student_admission_no,subject,exam_type,term,year,score,max_score,grade,remarks
+ADM001,Mathematics,End of Term,1,2025,78,100,ME,Good performance
+ADM001,English,End of Term,1,2025,85,100,EE,Excellent
+ADM002,Mathematics,End of Term,1,2025,45,100,AE,Needs improvement
+ADM002,Science & Technology,End of Term,1,2025,62,100,ME,
