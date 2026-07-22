@@ -134,10 +134,7 @@ const YearCalendarController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "year_calendar.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "year_calendar.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

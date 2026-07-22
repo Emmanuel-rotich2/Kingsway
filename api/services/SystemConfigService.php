@@ -1077,7 +1077,7 @@ class SystemConfigService
         $content = "<?php\n/**\n * AUTO-GENERATED ROUTES CONFIGURATION\n * Generated: " . date('Y-m-d H:i:s') . "\n * DO NOT EDIT - Changes will be overwritten\n */\n\nreturn " . var_export($routes, true) . ";\n";
 
         $this->ensureDirectoryExists(dirname($filePath));
-        file_put_contents($filePath, $content);
+        (new \App\API\Services\UploadService())->writeFile($filePath, $content);
 
         $checksum = hash('sha256', $content);
         $this->logConfigSync('routes', $filePath, $checksum, count($routes), 'success', null, $syncedBy);
@@ -1098,7 +1098,7 @@ class SystemConfigService
         $content = "<?php\n/**\n * AUTO-GENERATED DASHBOARD/MENU CONFIGURATION\n * Generated: " . date('Y-m-d H:i:s') . "\n * DO NOT EDIT - Changes will be overwritten\n */\n\nreturn " . var_export($roleMenus, true) . ";\n";
 
         $this->ensureDirectoryExists(dirname($filePath));
-        file_put_contents($filePath, $content);
+        (new \App\API\Services\UploadService())->writeFile($filePath, $content);
 
         $checksum = hash('sha256', $content);
         $this->logConfigSync('menus', $filePath, $checksum, count($roleMenus), 'success', null, $syncedBy);
@@ -1117,7 +1117,7 @@ class SystemConfigService
         $content = "<?php\n/**\n * AUTO-GENERATED DASHBOARD WIDGETS CONFIGURATION\n * Generated: " . date('Y-m-d H:i:s') . "\n * DO NOT EDIT - Changes will be overwritten\n */\n\nreturn " . var_export($dashboards, true) . ";\n";
 
         $this->ensureDirectoryExists(dirname($filePath));
-        file_put_contents($filePath, $content);
+        (new \App\API\Services\UploadService())->writeFile($filePath, $content);
 
         $checksum = hash('sha256', $content);
         $this->logConfigSync('dashboards', $filePath, $checksum, count($dashboards), 'success', null, $syncedBy);
@@ -1136,7 +1136,7 @@ class SystemConfigService
         $content = "<?php\n/**\n * AUTO-GENERATED POLICY CONFIGURATION\n * Generated: " . date('Y-m-d H:i:s') . "\n * DO NOT EDIT - Changes will be overwritten\n */\n\nreturn " . var_export($policies, true) . ";\n";
 
         $this->ensureDirectoryExists(dirname($filePath));
-        file_put_contents($filePath, $content);
+        (new \App\API\Services\UploadService())->writeFile($filePath, $content);
 
         $checksum = hash('sha256', $content);
         $this->logConfigSync('policies', $filePath, $checksum, count($policies), 'success', null, $syncedBy);

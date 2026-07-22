@@ -167,8 +167,7 @@ const requisitionsController = {
     if (!this._filtered.length) { showNotification('No data to export.','warning'); return; }
     const h=['Date','Department','Purpose','Items','Priority','Status'];
     const rows=[h.join(','),...this._filtered.map(r=>[`"${r.created_at?.split('T')[0]||''}"`,`"${r.department||''}"`,`"${(r.purpose||'').replace(/"/g,"'")}"`,r.item_count||'',`"${r.priority||''}"`,`"${r.status||''}"`].join(','))];
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='requisitions.csv'; el.click();
+    KingswayFileLifecycle.exportText(rows.join('\n'), 'requisitions.csv', 'text/csv');
   },
 
   _set: (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; },

@@ -309,11 +309,7 @@
                 const pct   = alloc > 0 ? ((spent / alloc) * 100).toFixed(1) : '0.0';
                 lines.push([r.financial_year, r.department, r.category, alloc.toFixed(2), spent.toFixed(2), rem.toFixed(2), pct, r.status].join(','));
             });
-            const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `budget_overview_${new Date().toISOString().slice(0,10)}.csv`;
-            a.click();
+            KingswayFileLifecycle.exportText(lines.join('\n'), `budget_overview_${new Date().toISOString().slice(0,10)}.csv`, 'text/csv');
         }
     };
 

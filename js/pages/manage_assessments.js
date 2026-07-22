@@ -395,11 +395,7 @@ const assessmentsController = (() => {
         );
       csv += cells.join(",") + "\n";
     });
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "assessments_export.csv";
-    a.click();
+    KingswayFileLifecycle.exportText(csv, "assessments_export.csv", "text/csv");
   }
 
   return {

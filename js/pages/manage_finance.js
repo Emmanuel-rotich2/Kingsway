@@ -472,14 +472,7 @@ const ManageFinanceController = {
         return r.join(",");
       })
       .join("\n");
-    var blob = new Blob([csv], { type: "text/csv" });
-    var url = window.URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download =
-      "finance_export_" + new Date().toISOString().split("T")[0] + ".csv";
-    a.click();
-    window.URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, "finance_export_" + new Date().toISOString().split("T")[0] + ".csv", "text/csv");
   },
 };
 

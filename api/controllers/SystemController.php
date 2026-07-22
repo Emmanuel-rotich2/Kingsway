@@ -1034,14 +1034,16 @@ class SystemController extends BaseController
         }
 
         $backupDir = $this->getBackupDirectory();
-        if (!is_dir($backupDir) && !mkdir($backupDir, 0775, true)) {
+        try {
+            $this->ensureManagedDirectory($backupDir);
+        } catch (\Throwable $exception) {
             return $this->serverError('Unable to create backup directory');
         }
 
         $filename = 'backup_' . date('Ymd_His') . '.sql';
         $path = $backupDir . '/' . $filename;
         $payload = "-- Kingsway backup placeholder created by System Admin\n-- Created: " . date('c') . "\n";
-        if (file_put_contents($path, $payload) === false) {
+        if ($this->writeManagedFile($path, $payload) === false) {
             return $this->serverError('Unable to create backup file');
         }
 
@@ -1064,7 +1066,7 @@ class SystemController extends BaseController
             return $this->notFound('Backup not found');
         }
 
-        return unlink($path)
+        return $this->deleteManagedFile($path)
             ? $this->success(null, 'Backup deleted')
             : $this->serverError('Unable to delete backup');
     }
@@ -2316,13 +2318,11 @@ class SystemController extends BaseController
     {
         $path = $this->getSystemStatePath();
         $dir = dirname($path);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0775, true);
-        }
+        $this->ensureManagedDirectory($dir);
 
         $state = $this->readSystemState();
         $state[$key] = $value;
-        file_put_contents($path, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $this->writeManagedFile($path, json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     private function getSystemStatePath(): string

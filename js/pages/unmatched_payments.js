@@ -214,11 +214,7 @@ const UnmatchedPaymentsController = (() => {
       headers.join(",") +
       "\n" +
       rows.map((r) => r.map((v) => `"${v || ""}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "unmatched_payments.csv";
-    a.click();
+    KingswayFileLifecycle.exportText(csv, "unmatched_payments.csv", "text/csv");
   }
 
   function escapeHtml(s) {

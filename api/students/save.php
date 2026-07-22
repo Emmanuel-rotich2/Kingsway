@@ -2,6 +2,22 @@
 header('Content-Type: application/json');
 include 'db.php'; // include your PDO connection
 
+final class LegacyStudentSaveUploadAdapter extends \App\API\Includes\BaseAPI
+{
+    public function store(array $file, string $category): ?string
+    {
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        $stored = $this->uploadManaged($file, $category, [
+            'prefix' => $category,
+        ]);
+        return (string) $stored['application_path'];
+    }
+}
+
+$legacyUploads = new LegacyStudentSaveUploadAdapter('students');
+
 try {
     $data = $_POST;
 
@@ -28,20 +44,15 @@ try {
     $phone = $data['studentPhone'] ?? null;
     $address = $data['studentAddress'] ?? null;
 
-    // Handle file uploads
-    $profile_pic = null;
-    if(isset($_FILES['profile_pic']) && $_FILES['profile_pic']['error']==0){
-        $ext = pathinfo($_FILES['profile_pic']['name'], PATHINFO_EXTENSION);
-        $profile_pic = 'uploads/students/'.uniqid().'.'.$ext;
-        move_uploaded_file($_FILES['profile_pic']['tmp_name'], $profile_pic);
-    }
-
-    $national_id_file = null;
-    if(isset($_FILES['nationalId']) && $_FILES['nationalId']['error']==0){
-        $ext = pathinfo($_FILES['nationalId']['name'], PATHINFO_EXTENSION);
-        $national_id_file = 'uploads/ids/'.uniqid().'.'.$ext;
-        move_uploaded_file($_FILES['nationalId']['tmp_name'], $national_id_file);
-    }
+    // Handle file uploads through the inherited canonical service.
+    $profile_pic = $legacyUploads->store(
+        $_FILES['profile_pic'] ?? [],
+        'student_photo'
+    );
+    $national_id_file = $legacyUploads->store(
+        $_FILES['nationalId'] ?? [],
+        'student_document'
+    );
 
     // Insert/Update Student
     if($studentId){

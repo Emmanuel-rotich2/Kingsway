@@ -231,11 +231,7 @@ const attendanceReportsController = {
       c.attendance_rate != null ? c.attendance_rate + '%' : '',
     ]));
     const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a    = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'attendance_report_' + new Date().toISOString().slice(0, 10) + '.csv';
-    a.click();
+    KingswayFileLifecycle.exportText(csv, 'attendance_report_' + new Date().toISOString().slice(0, 10) + '.csv', 'text/csv');
   },
 
   _esc: function (str) {

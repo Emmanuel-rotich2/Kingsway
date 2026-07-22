@@ -426,11 +426,7 @@
                 }))
                 .join("\n");
 
-            var a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            a.download = "teacher_workload_" + new Date().toISOString().split("T")[0] + ".csv";
-            a.click();
-            URL.revokeObjectURL(a.href);
+            KingswayFileLifecycle.exportText(csv, "teacher_workload_" + new Date().toISOString().split("T")[0] + ".csv", "text/csv");
             showToast("Workload export started", "success");
         }
     };

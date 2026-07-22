@@ -169,8 +169,7 @@ const announcementsController = {
         a.title, a.category, a.audience, a.status, a.publish_date, a.expiry_date
       ].map(csvCell).join(','))
     ];
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='announcements.csv'; el.click();
+    KingswayFileLifecycle.exportText(rows.join('\n'), 'announcements.csv', 'text/csv');
   },
 
   _set: (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; },

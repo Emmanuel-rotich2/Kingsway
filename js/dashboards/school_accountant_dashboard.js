@@ -1476,15 +1476,7 @@ schoolAccountantDashboardController.exportPaymentHistory = async function (
     }
   });
 
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `payment_history_${data.admissionNo || "student"}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  KingswayFileLifecycle.exportText(csv, `payment_history_${data.admissionNo || "student"}.csv`, "text/csv");
 };
 
 // ==================== RECORD PAYMENT MODAL ====================
@@ -2038,13 +2030,13 @@ schoolAccountantDashboardController.renderStudentProfile = function (response) {
     return;
   }
 
-  const photoUrl = student.photo_url || (window.APP_BASE || '') + '/uploads/students/avatar.jpg';
+  const photoUrl = student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg');
 
   let html = `
     <div class="row">
       <div class="col-md-4 text-center">
         <img src="${photoUrl}" class="img-thumbnail mb-2" style="max-width: 150px;" 
-             alt="Student Photo" onerror="this.src=(window.APP_BASE || '') + '/uploads/students/avatar.jpg'">
+             alt="Student Photo" onerror="this.src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')">
         <h5 class="mb-1">${student.first_name || ""} ${student.last_name || ""}</h5>
         <p class="text-muted">${student.admission_no || "--"}</p>
       </div>
@@ -4246,15 +4238,11 @@ schoolAccountantDashboardController.downloadCSV = function (
   csvContent,
   filename,
 ) {
-  var blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  var link = document.createElement("a");
-  var url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-  link.setAttribute("download", filename);
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  KingswayFileLifecycle.exportText(
+    csvContent,
+    filename,
+    "text/csv;charset=utf-8;",
+  );
 };
 
 /**

@@ -637,11 +637,7 @@ const StudentFeesController = {
       )
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    downloadFile(
-      blob,
-      `student_fees_${new Date().toISOString().slice(0, 10)}.csv`,
-    );
+    KingswayFileLifecycle.exportText(csv, `student_fees_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv;charset=utf-8;");
   },
 
   formatCurrency: function (value) {
@@ -785,14 +781,19 @@ const StudentFeesController = {
       });
     });
 
+    const money = (value) => `KSh ${Number(value || 0).toLocaleString("en-KE", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
     const columns = [
-      { key: 'term', label: 'Term' },
-      { key: 'fee_type', label: 'Fee Type' },
-      { key: 'amount_due', label: 'Amount Due' },
-      { key: 'amount_paid', label: 'Amount Paid' },
-      { key: 'amount_waived', label: 'Waived' },
-      { key: 'balance', label: 'Balance' },
-      { key: 'status', label: 'Status' }
+      { key: "term", label: "Term", width: "12%" },
+      { key: "fee_type", label: "Fee Item", width: "22%" },
+      { key: "amount_due", label: "Amount Due", type: "currency", width: "15%", formatter: money },
+      { key: "amount_paid", label: "Amount Paid", type: "currency", width: "15%", formatter: money },
+      { key: "amount_waived", label: "Waived", type: "currency", width: "12%", formatter: money },
+      { key: "balance", label: "Balance", type: "currency", width: "15%", formatter: money },
+      { key: "status", label: "Status", width: "9%" },
     ];
 
     // Calculate totals
@@ -810,18 +811,17 @@ const StudentFeesController = {
         'Student Name': `${student.first_name || ''} ${student.last_name || ''}`,
         'Admission No': student.admission_no || '—',
         'Class': student.class_name || '—',
-        'Total Due': `KES ${totalDue.toLocaleString()}`,
-        'Total Paid': `KES ${totalPaid.toLocaleString()}`,
-        'Total Waived': `KES ${totalWaived.toLocaleString()}`,
-        'Outstanding Balance': `KES ${totalBalance.toLocaleString()}`,
-        'Generated Date': new Date().toLocaleDateString()
-      },
+        'Total Due': money(totalDue),
+        'Total Paid': money(totalPaid),
+        'Total Waived': money(totalWaived),
+        'Outstanding Balance': money(totalBalance),
+              },
       orientation: 'landscape',
       paperSize: 'A4',
       reportCode: 'FEE-' + (student.student_id || student.id || '0'),
       signatureSection: [
-        { label: 'Accountant' },
-        { label: 'Principal' }
+        { label: 'Accountant', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   },

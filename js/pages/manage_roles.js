@@ -347,11 +347,7 @@
         ]);
       });
       const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'roles_export.csv';
-      a.click();
+      KingswayFileLifecycle.exportText(csv, 'roles_export.csv', 'text/csv');
     },
 
     esc: function (s) {

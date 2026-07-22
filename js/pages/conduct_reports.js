@@ -321,13 +321,7 @@ const ConductReportsController = {
         row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","),
       )
       .join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "conduct_reports.csv";
-    a.click();
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, "conduct_reports.csv", "text/csv");
   },
 
   showTableLoading() {

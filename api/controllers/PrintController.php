@@ -2,7 +2,6 @@
 namespace App\API\Controllers;
 
 use App\API\Controllers\BaseController;
-use App\API\Services\PrintService;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -21,13 +20,6 @@ use function App\API\Includes\formatResponse;
  */
 class PrintController extends BaseController
 {
-    private $printService;
-    
-    public function __construct()
-    {
-        parent::__construct();
-        $this->printService = new PrintService();
-    }
     
     /**
      * Generate PDF from table data
@@ -62,14 +54,27 @@ class PrintController extends BaseController
                 return formatResponse(false, null, 'No columns provided');
             }
             
-            $pdfPath = $this->printService->printTable($data['rows'], $data);
+            $pdfPath = $this->prints()->printTable($data['rows'], $data);
             
             // Convert to relative URL
-            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+            $pdfUrl = $this->getPrintUrl($pdfPath);
 
             return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
                 'pdf_url' => $pdfUrl,
-                'filename' => basename($pdfPath)
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
@@ -110,14 +115,27 @@ class PrintController extends BaseController
                 return formatResponse(false, null, 'No sections provided');
             }
             
-            $pdfPath = $this->printService->printRecord($data, $data);
+            $pdfPath = $this->prints()->printRecord($data, $data);
             
             // Convert to relative URL
-            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+            $pdfUrl = $this->getPrintUrl($pdfPath);
 
             return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
                 'pdf_url' => $pdfUrl,
-                'filename' => basename($pdfPath)
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
             ], 'PDF generated successfully');
             
         } catch (\Exception $e) {
@@ -155,14 +173,27 @@ class PrintController extends BaseController
                 return formatResponse(false, null, 'Recipient name is required');
             }
             
-            $pdfPath = $this->printService->printCertificate($data['type'], $data);
+            $pdfPath = $this->prints()->printCertificate($data['type'], $data);
             
             // Convert to relative URL
-            $pdfUrl = $this->getWebUrl(basename($pdfPath));
+            $pdfUrl = $this->getPrintUrl($pdfPath);
 
             return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($pdfPath),
+                    'mime_type' => 'application/pdf',
+                    'url' => $pdfUrl,
+                    'download_url' => $pdfUrl,
+                ]],
                 'pdf_url' => $pdfUrl,
-                'filename' => basename($pdfPath)
+                'download_url' => $pdfUrl,
+                'filename' => basename($pdfPath),
             ], 'Certificate generated successfully');
             
         } catch (\Exception $e) {
@@ -193,14 +224,27 @@ class PrintController extends BaseController
             }
             
             $filename = $data['filename'] ?? 'export';
-            $csvPath = $this->printService->exportCSV($data['data'], $filename);
+            $csvPath = $this->prints()->exportCSV($data['data'], $filename);
             
             // Convert to relative URL
-            $csvUrl = $this->getWebUrl(basename($csvPath));
+            $csvUrl = $this->getGeneratedDownloadUrl($csvPath);
 
             return formatResponse(true, [
+                'file' => [
+                    'filename' => basename($csvPath),
+                    'mime_type' => 'text/csv',
+                    'url' => $csvUrl,
+                    'download_url' => $csvUrl,
+                ],
+                'files' => [[
+                    'filename' => basename($csvPath),
+                    'mime_type' => 'text/csv',
+                    'url' => $csvUrl,
+                    'download_url' => $csvUrl,
+                ]],
                 'csv_url' => $csvUrl,
-                'filename' => basename($csvPath)
+                'download_url' => $csvUrl,
+                'filename' => basename($csvPath),
             ], 'CSV exported successfully');
             
         } catch (\Exception $e) {
@@ -219,8 +263,19 @@ class PrintController extends BaseController
      * @param string $filename Basename of the generated file
      * @return string Absolute, environment-agnostic URL
      */
-    private function getWebUrl($filename)
+    private function getPrintUrl(string $path): string
     {
-        return rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($filename, '/');
+        return $this->downloads()->printUrlForAbsolutePath(
+            $path,
+            1800
+        );
+    }
+
+    private function getGeneratedDownloadUrl(string $path): string
+    {
+        return $this->downloads()->generatedDownloadUrlForAbsolutePath(
+            $path,
+            1800
+        );
     }
 }

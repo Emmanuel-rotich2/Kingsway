@@ -49,6 +49,7 @@ return [
 
         ['label' => 'Configuration', 'url' => null, 'icon' => 'fas fa-cogs', 'subitems' => [
             ['label' => 'System Settings',         'url' => 'system_settings'],
+            ['label' => 'Initialize School',       'url' => 'school_initialization'],
             ['label' => 'Feature Flags',           'url' => 'feature_flags'],
             ['label' => 'Module Enablement',       'url' => 'module_enablement'],
             ['label' => 'Maintenance Mode',        'url' => 'maintenance_mode'],

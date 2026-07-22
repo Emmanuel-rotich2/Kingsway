@@ -389,10 +389,7 @@ const AssignClassTeachersController = {
       let csv = headers.join(',') + '\n' + 
         rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
       
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'class_teacher_assignments.csv';
-      a.click();
+      KingswayFileLifecycle.exportText(csv, 'class_teacher_assignments.csv', 'text/csv');
     }
   },
 

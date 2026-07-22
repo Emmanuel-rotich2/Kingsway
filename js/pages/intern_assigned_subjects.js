@@ -211,10 +211,7 @@ const InternAssignedSubjectsController = {
       let csv = headers.join(',') + '\n' + 
         rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
       
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'intern_assigned_subjects.csv';
-      a.click();
+      KingswayFileLifecycle.exportText(csv, 'intern_assigned_subjects.csv', 'text/csv');
     }
   },
 

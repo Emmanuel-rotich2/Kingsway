@@ -105,7 +105,7 @@ final class PrintService
             rtrim((string) PRINT_OUTPUT_PATH, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR;
 
-        $this->assertTemplateDirectories();
+        $this->validateConfiguredPaths();
         $this->ensureDirectory($this->outputPath);
 
         $this->schoolConfig = $this->loadSchoolConfig();
@@ -542,12 +542,13 @@ final class PrintService
         $dompdfOptions->set('defaultFont', 'DejaVu Sans');
         $dompdfOptions->set('isFontSubsettingEnabled', true);
 
-        $publicPath = $this->resolveProjectRoot()
-            . DIRECTORY_SEPARATOR
-            . 'public';
+        $projectRoot = $this->resolveProjectRoot();
 
-        if (is_dir($publicPath)) {
-            $dompdfOptions->set('chroot', $publicPath);
+        if (is_dir($projectRoot)) {
+            // Reports use trusted templates and assets from both public/ and
+            // uploads/. Restricting Dompdf to public/ caused the school logo
+            // under UPLOAD_PATH to be silently omitted.
+            $dompdfOptions->set('chroot', $projectRoot);
         }
 
         $dompdf = new Dompdf($dompdfOptions);
@@ -814,14 +815,35 @@ final class PrintService
                     ?? $card['issue_date']
                     ?? ''
                 ),
-                'expiryYear' => (string) (
-                    $card['expiryYear']
-                    ?? $card['expiry_year']
-                    ?? ''
+                'expiryYear' => $this->formatIdCardExpiry(
+                    (string) (
+                        $card['expiryYear']
+                        ?? $card['expiry_year']
+                        ?? $card['expiry_date']
+                        ?? $card['card_expiry_date']
+                        ?? ''
+                    )
                 ),
             ],
             $card
         );
+    }
+
+    private function formatIdCardExpiry(string $value): string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+
+        if ($timestamp === false) {
+            return $value;
+        }
+
+        return date('d M Y', $timestamp);
     }
 
     private function loadStudentIdCardStyles(): string
@@ -1066,23 +1088,46 @@ final class PrintService
                     'label' => (string) $column,
                 ];
 
-            $label = $columnConfig['label']
-                ?? $columnConfig['key']
-                ?? '';
+            $key = (string) ($columnConfig['key'] ?? '');
+            $label = (string) (
+                $columnConfig['label']
+                ?? $key
+            );
+            $type = strtolower(
+                (string) ($columnConfig['type'] ?? 'text')
+            );
 
-            $width = isset($columnConfig['width'])
+            $headerClasses = ['print-column-header'];
+            $configuredHeaderClass = trim(
+                (string) ($columnConfig['className'] ?? '')
+            );
+
+            if ($configuredHeaderClass !== '') {
+                $headerClasses[] = $configuredHeaderClass;
+            }
+
+            if (in_array(
+                $type,
+                ['number', 'integer', 'decimal', 'percentage', 'currency'],
+                true
+            )) {
+                $headerClasses[] = 'print-cell-numeric';
+            }
+
+            $width = trim(
+                (string) ($columnConfig['width'] ?? '')
+            );
+            $widthAttribute = $width !== ''
                 ? ' style="width:'
-                . $this->escape((string) $columnConfig['width'])
-                . '"'
+                    . $this->escape($width)
+                    . ';"'
                 : '';
 
-            $class = isset($columnConfig['className'])
-                ? ' class="'
-                . $this->escape((string) $columnConfig['className'])
+            $html .= '<th class="'
+                . $this->escape(implode(' ', $headerClasses))
                 . '"'
-                : '';
-
-            $html .= '<th' . $width . $class . '>';
+                . $widthAttribute
+                . ' scope="col">';
             $html .= $this->escape($label);
             $html .= '</th>';
         }
@@ -1090,7 +1135,15 @@ final class PrintService
         $html .= '</tr></thead><tbody>';
 
         foreach ($rows as $rowIndex => $row) {
-            $html .= '<tr>';
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $rowClass = $rowIndex % 2 === 0
+                ? 'print-row-odd'
+                : 'print-row-even';
+
+            $html .= '<tr class="' . $rowClass . '">';
 
             foreach ($columns as $column) {
                 $columnConfig = is_array($column)
@@ -1101,7 +1154,9 @@ final class PrintService
                     ];
 
                 $key = (string) ($columnConfig['key'] ?? '');
-                $type = (string) ($columnConfig['type'] ?? '');
+                $type = strtolower(
+                    (string) ($columnConfig['type'] ?? 'text')
+                );
 
                 if ($type === 'index') {
                     $value = $rowIndex + 1;
@@ -1122,24 +1177,53 @@ final class PrintService
                     );
                 }
 
-                $cellClass = isset($columnConfig['cellClassName'])
-                    ? ' class="'
-                    . $this->escape(
-                        (string) $columnConfig['cellClassName']
-                    )
-                    . '"'
-                    : '';
+                $cellClasses = ['print-table-cell'];
+                $configuredCellClass = trim(
+                    (string) ($columnConfig['cellClassName'] ?? '')
+                );
+
+                if ($configuredCellClass !== '') {
+                    $cellClasses[] = $configuredCellClass;
+                }
+
+                if (in_array(
+                    $type,
+                    ['number', 'integer', 'decimal', 'percentage', 'currency'],
+                    true
+                )) {
+                    $cellClasses[] = 'print-cell-numeric';
+                }
+
+                if ($type === 'currency') {
+                    $cellClasses[] = 'print-cell-currency';
+                }
+
+                if ($type === 'percentage') {
+                    $cellClasses[] = 'print-cell-percentage';
+                }
 
                 $renderedValue = !empty($columnConfig['allowHtml'])
                     ? $this->trustedHtml($value)
                     : $this->escape($this->stringify($value));
 
-                $html .= '<td' . $cellClass . '>';
+                if (trim($this->stringify($value)) === '') {
+                    $renderedValue = '<span class="print-empty-value">—</span>';
+                }
+
+                $html .= '<td class="'
+                    . $this->escape(implode(' ', $cellClasses))
+                    . '">';
                 $html .= $renderedValue;
                 $html .= '</td>';
             }
 
             $html .= '</tr>';
+        }
+
+        if ($rows === []) {
+            $html .= '<tr><td class="print-table-empty" colspan="'
+                . max(1, count($columns))
+                . '">No records were available for this report.</td></tr>';
         }
 
         $html .= '</tbody></table></div>';
@@ -1224,9 +1308,9 @@ final class PrintService
     ): string {
         $path = $this->templatesPath . $filename;
 
-        if (!is_file($path)) {
+        if (!is_file($path) || !is_readable($path)) {
             throw new RuntimeException(
-                "Server print template was not found: {$path}"
+                "Server print template was not found or is unreadable: {$path}"
             );
         }
 
@@ -1421,8 +1505,8 @@ final class PrintService
                 ? (string) SCHOOL_MOTTO
                 : 'In God We Soar',
 
-            'logo' => defined('SCHOOL_LOGO_URL')
-                ? (string) SCHOOL_LOGO_URL
+            'logo' => defined('SCHOOL_LOGO_PATH')
+                ? (string) SCHOOL_LOGO_PATH
                 : '/uploads/school_assets/official_school_logo.png',
 
             'principal' => defined('SCHOOL_PRINCIPAL_NAME')
@@ -1449,6 +1533,34 @@ final class PrintService
                 ? (string) SCHOOL_WEBSITE
                 : 'www.kingswaypreparatoryschool.sc.ke',
         ];
+    }
+
+    /**
+     * Validate the configured print paths.
+     *
+     * Individual template files are still checked immediately before use.
+     */
+    private function validateConfiguredPaths(): void
+    {
+        $requiredDirectories = [
+            'Report template directory' => $this->templatesPath,
+            'Certificate template directory' => $this->certificatesPath,
+            'Student ID template directory' => $this->idCardTemplatesPath,
+        ];
+
+        foreach ($requiredDirectories as $label => $path) {
+            if (!is_dir($path)) {
+                throw new RuntimeException(
+                    "{$label} was not found: {$path}"
+                );
+            }
+
+            if (!is_readable($path)) {
+                throw new RuntimeException(
+                    "{$label} is not readable: {$path}"
+                );
+            }
+        }
     }
 
     private function resolveProjectRoot(): string
@@ -1479,35 +1591,55 @@ final class PrintService
             return '';
         }
 
-        if (
-            preg_match(
-                '#^(https?://|data:|file://)#i',
-                $asset
-            ) === 1
-        ) {
+        if (str_starts_with($asset, 'data:') || str_starts_with($asset, 'file://')) {
             return $asset;
         }
 
-        $publicPath = $this->resolveProjectRoot()
-            . DIRECTORY_SEPARATOR
-            . 'public';
+        $projectRoot = $this->resolveProjectRoot();
+        $pathPart = $asset;
 
-        $localPath = $publicPath
-            . DIRECTORY_SEPARATOR
-            . ltrim(
-                str_replace(
-                    ['/', '\\'],
-                    DIRECTORY_SEPARATOR,
-                    $asset
-                ),
-                DIRECTORY_SEPARATOR
-            );
-
-        if (is_file($localPath)) {
-            return 'file://' . $localPath;
+        if (preg_match('#^https?://#i', $asset) === 1) {
+            $parsedPath = parse_url($asset, PHP_URL_PATH);
+            $pathPart = is_string($parsedPath) ? $parsedPath : '';
         }
 
-        return $asset;
+        $relative = ltrim(
+            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $pathPart),
+            DIRECTORY_SEPARATOR
+        );
+
+        $candidates = [];
+
+        if (defined('UPLOAD_PATH')) {
+            $uploadRoot = rtrim((string) UPLOAD_PATH, DIRECTORY_SEPARATOR);
+            $uploadRelative = preg_replace(
+                '#^uploads[\\\\/]#i',
+                '',
+                $relative
+            ) ?? $relative;
+            $candidates[] = $uploadRoot . DIRECTORY_SEPARATOR . $uploadRelative;
+        }
+
+        $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . $relative;
+        $candidates[] = $projectRoot
+            . DIRECTORY_SEPARATOR
+            . 'public'
+            . DIRECTORY_SEPARATOR
+            . $relative;
+
+        foreach ($candidates as $candidate) {
+            if (is_file($candidate) && is_readable($candidate)) {
+                $realPath = realpath($candidate);
+                return 'file://' . ($realPath !== false ? $realPath : $candidate);
+            }
+        }
+
+        // Keep genuinely remote assets as a final Dompdf fallback.
+        if (preg_match('#^https?://#i', $asset) === 1) {
+            return $asset;
+        }
+
+        return '';
     }
 
     private function ensureDirectory(string $path): void
@@ -1590,4 +1722,35 @@ final class PrintService
     {
         return is_string($value) ? $value : '';
     }
+    /**
+     * Canonical generated-file writer used by printable/export generators.
+     */
+    public function writeGeneratedFile(string $filename, string $contents): string
+    {
+        $safe = preg_replace('/[^A-Za-z0-9._-]+/', '_', basename($filename));
+        if ($safe === '' || $safe === null) {
+            throw new \RuntimeException('Invalid generated filename.');
+        }
+        $path = $this->generatedOutputPath($safe);
+        if (file_put_contents($path, $contents) === false) {
+            throw new \RuntimeException('Unable to write generated file.');
+        }
+        @chmod($path, 0664);
+        return $path;
+    }
+
+    /** Resolve a safe generated output path without exposing path logic. */
+    public function generatedOutputPath(string $filename): string
+    {
+        $safe = preg_replace('/[^A-Za-z0-9._-]+/', '_', basename($filename));
+        if ($safe === '' || $safe === null) {
+            throw new \RuntimeException('Invalid generated filename.');
+        }
+        $directory = rtrim((string) PRINT_OUTPUT_PATH, '/\\');
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new \RuntimeException('Unable to create generated output directory.');
+        }
+        return $directory . DIRECTORY_SEPARATOR . $safe;
+    }
+
 }

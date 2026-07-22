@@ -275,11 +275,7 @@ const boardingController = {
       d.name, d.gender, d.capacity, d.occupied ?? 0, d.available ?? 0, d.patron_name || '', d.status,
     ]));
     const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a    = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'boarding_report_' + new Date().toISOString().slice(0,10) + '.csv';
-    a.click();
+    KingswayFileLifecycle.exportText(csv, 'boarding_report_' + new Date().toISOString().slice(0,10) + '.csv', 'text/csv');
   },
 
   _loadStaffDropdown: async function () {

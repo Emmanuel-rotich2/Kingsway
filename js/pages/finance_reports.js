@@ -441,83 +441,104 @@ const financeReportsController = (() => {
     ]);
   }
 
+  function getPrintableModel() {
+    const labels = Array.from(
+      getEl("reportTableHeader")?.children || [],
+    ).map((th) => th.textContent.trim());
+
+    const keys = labels.map((label, index) =>
+      `${label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "column"}_${index}`,
+    );
+
+    const currencyPattern = /amount|due|paid|balance|income|expense|movement/i;
+    const percentagePattern = /rate|percentage/i;
+
+    const columns = labels.map((label, index) => ({
+      key: keys[index],
+      label,
+      type: currencyPattern.test(label)
+        ? "currency"
+        : percentagePattern.test(label)
+          ? "percentage"
+          : "text",
+      width: labels.length >= 7 ? "14%" : "",
+    }));
+
+    const rows = state.rows.map((row) =>
+      Object.fromEntries(keys.map((key, index) => [key, row[index] ?? ""])),
+    );
+
+    return { columns, rows };
+  }
+
   function exportReport() {
     if (!state.rows.length) {
       showError("No report data available to export.");
       return;
     }
+
     showError(null);
+    const model = getPrintableModel();
 
-    const header = Array.from(getEl("reportTableHeader")?.children || []).map((th) => th.textContent.trim());
-    const csvRows = [header, ...state.rows];
-    if (state.footer.length) {
-      csvRows.push(state.footer);
-    }
-    const csv = csvRows
-      .map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `finance_report_${state.reportType}_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: model.columns,
+      rows: model.rows,
+      filename: `finance_report_${state.reportType}_${new Date()
+        .toISOString()
+        .slice(0, 10)}`,
+    });
   }
 
   function printReport() {
-    if (!state.rows || state.rows.length === 0) {
-      alert("No data to print");
+    if (!state.rows.length) {
+      showError("No report data available to print.");
       return;
     }
 
     const reportType = getEl("reportType")?.value || "income_statement";
+    const reportLabel = reportType
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase());
     const startDate = getEl("startDate")?.value || "";
     const endDate = getEl("endDate")?.value || "";
+    const model = getPrintableModel();
 
     const filters = {
-      'Report Type': reportType.replace(/_/g, ' ').toUpperCase(),
-      'Date Range': `${startDate} to ${endDate}`
+      "Report Type": reportLabel,
+      "Date From": startDate || "Not specified",
+      "Date To": endDate || "Not specified",
     };
 
-    // Remove empty filters
-    Object.keys(filters).forEach(key => {
-      if (!filters[key] || filters[key] === ' to ') {
-        delete filters[key];
-      }
-    });
+    const summary = {
+      "Records Included": state.rows.length,
+    };
 
-    // Calculate summary from footer
-    const summary = {};
-    state.footer.forEach(row => {
-      if (row.label) {
-        summary[row.label] = row.value || row.amount || '';
-      }
-    });
-
-    // Get columns from first row
-    const columns = Object.keys(state.rows[0] || {}).map(key => ({
-      key: key,
-      label: key.replace(/_/g, ' ').toUpperCase()
-    }));
+    if (state.footer.length) {
+      const footerLabel = state.footer.find((value) => value) || "Total";
+      const footerValue = [...state.footer].reverse().find((value) => value) || "—";
+      summary[footerLabel] = footerValue;
+    }
 
     window.PrintManager.printTable({
-      title: 'Financial Report',
-      subtitle: filters['Report Type'] || 'Income Statement',
-      columns: columns,
-      rows: state.rows,
-      summary: summary,
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'FIN-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      title: "Financial Report",
+      subtitle: reportLabel,
+      description:
+        "Official financial activity, balances and transaction summary.",
+      columns: model.columns,
+      rows: model.rows,
+      summary,
+      filters,
+      orientation: model.columns.length > 5 ? "landscape" : "portrait",
+      paperSize: "A4",
+      filename: `finance_${reportType}_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `FIN-${reportType.slice(0, 4).toUpperCase()}-${new Date()
+        .toISOString()
+        .slice(0, 10)
+        .replace(/-/g, "")}`,
       signatureSection: [
-        { label: 'Accountant' },
-        { label: 'Principal' }
-      ]
+        { label: "Accountant", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
     });
   }
 

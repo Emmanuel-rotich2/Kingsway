@@ -328,23 +328,16 @@ class AcademicController extends BaseController
             return $this->error('Unsupported file type.');
         }
 
-        // UPLOAD_PATH may be an absolute path or a relative one; normalize to
-        // absolute against the application base so mkdir is CWD-independent.
-        $base = defined('UPLOAD_PATH') ? UPLOAD_PATH : __DIR__ . '/../../uploads';
-        if (!preg_match('#^(/|\\\\|[A-Za-z]:\\\\)#', $base)) {
-            $base = dirname(__DIR__, 2) . '/' . $base;
+        try {
+            $stored = $this->uploadManaged($f, 'teaching_material', [
+                'prefix' => 'resource',
+                'preferred_name' => $title,
+            ]);
+        } catch (\Throwable $exception) {
+            return $this->error($exception->getMessage());
         }
-        $destDir = $base . '/teaching_materials';
-        if (!is_dir($destDir) && !@mkdir($destDir, 0775, true) && !is_dir($destDir)) {
-            return $this->error('Could not create upload directory: ' . $destDir);
-        }
-        $safeName = bin2hex(random_bytes(12)) . '.' . $ext;
-        $destPath = $destDir . '/' . $safeName;
-        if (!move_uploaded_file($f['tmp_name'], $destPath)) {
-            return $this->error('Failed to save uploaded file.');
-        }
-
-        $relPath = 'uploads/teaching_materials/' . $safeName;
+        $safeName = $stored['storage_filename'];
+        $relPath = $stored['application_path'] ?? $stored['relative_path'];
         $db = \App\Database\Database::getInstance();
         $userId = $this->user['id'] ?? null;
 
@@ -384,9 +377,9 @@ class AcademicController extends BaseController
                 !empty($_POST['class']) ? (int) $_POST['class'] : null,
                 !empty($_POST['term']) ? (int) $_POST['term'] : null,
                 $relPath,
-                $f['name'],
-                $f['type'] ?: $ext,
-                $f['size'],
+                $stored['original_filename'],
+                $stored['mime_type'],
+                $stored['file_size_bytes'],
                 $resourceType,
             ]
         );
@@ -411,10 +404,9 @@ class AcademicController extends BaseController
         if (!$row || empty($row['file_path'])) {
             return $this->error('Resource not found.', 404);
         }
-        $abs = (strpos($row['file_path'], '/') === 0)
-            ? $row['file_path']
-            : __DIR__ . '/../../' . $row['file_path'];
-        if (!is_file($abs)) {
+        try {
+            $abs = $this->uploads()->absolutePath((string) $row['file_path']);
+        } catch (\Throwable $exception) {
             return $this->error('File is missing on the server.', 404);
         }
 
@@ -428,11 +420,12 @@ class AcademicController extends BaseController
             [$id]
         );
 
-        header('Content-Type: ' . ($row['file_type'] ?: 'application/octet-stream'));
-        header('Content-Disposition: inline; filename="' . basename($row['file_name'] ?: 'download') . '"');
-        header('Content-Length: ' . filesize($abs));
-        readfile($abs);
-        exit;
+        $this->streamManagedFile(
+            $abs,
+            (string) ($row['file_name'] ?: 'download'),
+            (string) ($row['file_type'] ?: 'application/octet-stream'),
+            'inline'
+        );
     }
 
 

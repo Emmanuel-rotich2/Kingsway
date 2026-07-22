@@ -69,7 +69,7 @@ const studentTimelineController = {
     const s = d.student;
 
     // Bio
-    document.getElementById('tlPhoto').src = (window.APP_BASE || '') + '/' + (s.photo_url || 'uploads/students/avatar.jpg');
+    document.getElementById('tlPhoto').src = (window.APP_BASE || '') + '/' + (s.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg'));
     document.getElementById('tlStudentName').textContent = [s.first_name, s.middle_name, s.last_name].filter(Boolean).join(' ');
     document.getElementById('tlAdmNo').textContent     = s.admission_no || '—';
     document.getElementById('tlDob').textContent       = s.date_of_birth || '—';

@@ -212,10 +212,7 @@ const CompetitionsController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "competitions.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "competitions.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

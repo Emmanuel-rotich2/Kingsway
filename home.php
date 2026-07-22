@@ -185,6 +185,7 @@ $files = [
     'js/components/UIComponents.js',
     'js/components/PageNavigator.js',
     'js/components/PageShell.js',
+    'js/utils/file_lifecycle.js',
     'js/utils/print_manager.js',
     'js/utils/academic_context.js',
     'js/index.js',

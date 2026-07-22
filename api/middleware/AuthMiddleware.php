@@ -64,6 +64,12 @@ class AuthMiddleware
             // window.location.href (a top-level navigation carries no Authorization
             // header). Materials are a shared, non-sensitive library.
             'academic/resources/download',
+            // Opaque generated-file and school-document delivery.
+            // The encrypted token is the authorization credential because direct
+            // browser navigation and <iframe>/<a> requests do not attach bearer JWTs.
+            'download/public',
+            'download/print',
+            'download/generated',
             // Public website content showcase (read-only). These resources are
             // rendered unauthenticated on the static public site via kw_*()
             // helpers, so anonymous JS cache hydration (PublicCache) must fetch

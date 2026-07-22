@@ -8,12 +8,13 @@ require_once __DIR__ . '/helpers.php';
 
 use App\Database\Database;
 use App\API\Services\PermissionContract;
+use App\API\Core\FileLifecycleBase;
 use PDO;
 use RuntimeException;
 use Exception;
 use finfo;
 
-class BaseAPI
+class BaseAPI extends FileLifecycleBase
 {
     /**
      * Standard API response formatter
@@ -64,12 +65,12 @@ class BaseAPI
         // break the API response flow. Fall back to system temp dir if creation fails.
         if (!is_dir($this->logDir)) {
             // Suppress warnings from mkdir and verify after call.
-            @mkdir($this->logDir, 0755, true);
+            $this->ensureManagedDirectory($this->logDir);
             if (!is_dir($this->logDir)) {
                 error_log('BaseAPI: Failed to create log directory: ' . $this->logDir);
                 // Use system temp dir as a fallback to avoid throwing and breaking responses
                 $this->logDir = sys_get_temp_dir() . '/kingsway_logs';
-                @mkdir($this->logDir, 0755, true);
+                $this->ensureManagedDirectory($this->logDir);
                 if (!is_dir($this->logDir)) {
                     // As a last resort, use system temp dir without subfolder
                     $this->logDir = sys_get_temp_dir();
@@ -275,7 +276,7 @@ class BaseAPI
 
             // Ensure directory exists and is writable. Try to create if missing, suppress warnings.
             if (!is_dir($logDir)) {
-                @mkdir($logDir, 0755, true);
+                $this->ensureManagedDirectory($logDir);
             }
 
             if (!is_dir($logDir) || !is_writable($logDir)) {
@@ -293,7 +294,7 @@ class BaseAPI
             $logEntry = json_encode($data) . "\n";
 
             // Use @ to suppress potential warnings and handle failure gracefully
-            @file_put_contents($logFile, $logEntry, FILE_APPEND);
+            @$this->writeManagedFile($logFile, $logEntry, FILE_APPEND);
         } catch (Exception $e) {
             error_log("Failed to write to log file {$filename}: " . $e->getMessage());
         }
@@ -375,77 +376,13 @@ class BaseAPI
 
     protected function uploadFile($file, $destination, $allowedTypes = ['jpg', 'jpeg', 'png', 'pdf'])
     {
-        try {
-            if (!isset($file['error']) || is_array($file['error'])) {
-                throw new RuntimeException('Invalid parameters.');
-            }
-
-            switch ($file['error']) {
-                case UPLOAD_ERR_OK:
-                    break;
-                case UPLOAD_ERR_NO_FILE:
-                    throw new RuntimeException('No file sent.');
-                case UPLOAD_ERR_INI_SIZE:
-                case UPLOAD_ERR_FORM_SIZE:
-                    throw new RuntimeException('Exceeded filesize limit.');
-                default:
-                    throw new RuntimeException('Unknown errors.');
-            }
-
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mimeTypes = [
-                'jpg' => 'image/jpeg',
-                'jpeg' => 'image/jpeg',
-                'png' => 'image/png',
-                'pdf' => 'application/pdf',
-                'doc' => 'application/msword',
-                'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'xls' => 'application/vnd.ms-excel',
-                'xlsx' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                'txt' => 'text/plain',
-                'csv' => 'text/csv',
-                'zip' => 'application/zip',
-                'rar' => 'application/x-rar-compressed',
-                'mp3' => 'audio/mpeg',
-                'mp4' => 'video/mp4',
-                'avi' => 'video/x-msvideo',
-                'mov' => 'video/quicktime',
-                'gif' => 'image/gif',
-                'bmp' => 'image/bmp',
-                'svg' => 'image/svg+xml',
-            ];
-
-            $ext = array_search($finfo->file($file['tmp_name']), $mimeTypes, true);
-
-            if (false === $ext) {
-                throw new RuntimeException('Invalid file format.');
-            }
-
-            if (!in_array($ext, $allowedTypes)) {
-                throw new RuntimeException('File type not allowed.');
-            }
-
-            $filename = sprintf(
-                '%s-%s.%s',
-                uniqid(),
-                date('Y-m-d-H-i-s'),
-                $ext
-            );
-
-            if (!is_dir($destination)) {
-                mkdir($destination, 0755, true);
-            }
-
-            if (!move_uploaded_file($file['tmp_name'], $destination . '/' . $filename)) {
-                throw new RuntimeException('Failed to move uploaded file.');
-            }
-
-            return $filename;
-
-        } catch (RuntimeException $e) {
-            throw new RuntimeException($e->getMessage());
-        }
+        return $this->uploadLegacyCompatible(
+            $file,
+            $destination,
+            $allowedTypes
+        );
     }
+
 
     /**
      * Execute a parameterized query on the raw PDO connection.

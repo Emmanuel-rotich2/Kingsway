@@ -132,8 +132,7 @@ const stockController = {
     if (!this._filtered.length) { showNotification('No data to export.','warning'); return; }
     const h=['Date','Item','Type','Quantity','Unit','Source','Reference'];
     const rows=[h.join(','),...this._filtered.map(m=>[`"${(m.transaction_date||m.created_at||'').split('T')[0]||''}"`,`"${m.item_name||''}"`,`"${m.type||''}"`,m.quantity||0,`"${m.unit||''}"`,`"${m.source||''}"`,`"${m.reference||''}"`].join(','))];
-    const blob=new Blob([rows.join('\n')],{type:'text/csv'});
-    const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='stock_movements.csv'; el.click();
+    KingswayFileLifecycle.exportText(rows.join('\n'), 'stock_movements.csv', 'text/csv');
   },
 
   _set: (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; },

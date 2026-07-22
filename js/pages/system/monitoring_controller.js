@@ -27,7 +27,6 @@ class MonitoringController {
     stop() { if (this.timer) clearInterval(this.timer); }
     exportCSV() {
         const csv = Object.entries(this.allData).map(([k,v]) => '"'+k+'","'+v+'"').join('\n');
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['Metric,Value\n'+csv],{type:'text/csv'}));
-        a.download = this.config.title.toLowerCase().replace(/\s+/g,'_') + '.csv'; a.click();
+        KingswayFileLifecycle.exportText('Metric,Value\n'+csv, this.config.title.toLowerCase().replace(/\s+/g,'_') + '.csv', 'text/csv');
     }
 }

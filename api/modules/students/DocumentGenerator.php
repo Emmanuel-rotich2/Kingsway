@@ -26,18 +26,11 @@ use function App\API\Includes\formatResponse;
 class DocumentGenerator extends BaseAPI
 {
     private $templatesPath;
-    private $outputPath;
 
     public function __construct()
     {
         parent::__construct('documents');
         $this->templatesPath = __DIR__ . '/../../../templates/documents/';
-        $this->outputPath = __DIR__ . '/../../../temp/documents/';
-
-        // Ensure output directory exists
-        if (!file_exists($this->outputPath)) {
-            mkdir($this->outputPath, 0755, true);
-        }
     }
 
     /**
@@ -84,8 +77,8 @@ class DocumentGenerator extends BaseAPI
 
             // Save to file
             $filename = "leaving_certificate_{$data['transfer_no']}_" . time() . ".html";
-            $filepath = $this->outputPath . $filename;
-            file_put_contents($filepath, $html);
+            $filepath = $this->writePrintable($filename, $html);
+            $viewUrl = $this->generatedDownloadUrl($filepath, true);
 
             // Update transfer record with file path
             $this->db->prepare("
@@ -101,7 +94,7 @@ class DocumentGenerator extends BaseAPI
                 'file_path' => $filepath,
                 'filename' => $filename,
                 'certificate_no' => $data['leaving_certificate_no'],
-                'view_url' => '/temp/documents/' . $filename
+                'view_url' => $viewUrl
             ], 'Leaving certificate generated successfully');
 
         } catch (Exception $e) {
@@ -155,8 +148,8 @@ class DocumentGenerator extends BaseAPI
 
             // Save to file
             $filename = "clearance_form_{$transfer['transfer_no']}_" . time() . ".html";
-            $filepath = $this->outputPath . $filename;
-            file_put_contents($filepath, $html);
+            $filepath = $this->writePrintable($filename, $html);
+            $viewUrl = $this->generatedDownloadUrl($filepath, true);
 
             // Update transfer record
             $this->db->prepare("UPDATE student_transfers SET clearance_form_path = ? WHERE id = ?")
@@ -167,7 +160,7 @@ class DocumentGenerator extends BaseAPI
             return formatResponse(true, [
                 'file_path' => $filepath,
                 'filename' => $filename,
-                'view_url' => '/temp/documents/' . $filename
+                'view_url' => $viewUrl
             ], 'Clearance form generated successfully');
 
         } catch (Exception $e) {
@@ -311,7 +304,7 @@ class DocumentGenerator extends BaseAPI
     private function getPrintButtonHTML($label = 'Print')
     {
         $labelEscaped = htmlspecialchars($label, ENT_QUOTES);
-        return "<button class='btn btn-success btn-lg' onclick='window.print()'>{$labelEscaped}</button>";
+        return "<button class='btn btn-success btn-lg' onclick='window.opener?.PrintManager?.printElement?.(document.body.id || \"print-root\")'>{$labelEscaped}</button>";
     }
 
     // ========================================================================

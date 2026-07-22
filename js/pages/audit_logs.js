@@ -115,12 +115,7 @@ const auditLogsController = {
       `"${l.entity||''}"`,`"${l.reference||''}"`,l.amount||0,
       `"${(l.details||'').replace(/"/g,"'")}"`,`"${l.ip_address||''}"`,
     ].join(','))];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `audit_log_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(rows.join('\n'), `audit_log_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   _set: (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; },

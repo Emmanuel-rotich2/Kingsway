@@ -46,7 +46,7 @@ class MatrixGridController {
         const h=[this.config.rowLabel,...this.allData.columns.map(c=>typeof c==='string'?c:c.name)];
         const rows=this.allData.rows.map(r=>{const ri=typeof r==='string'?r:r.id||r.name;return[typeof r==='string'?r:r.name,...this.allData.columns.map(c=>{const ci=typeof c==='string'?c:c.id||c.name;return this.isChk(ri,ci)?'Yes':'No';})];});
         let csv=h.join(',')+'\n'+rows.map(r=>r.map(v=>'"'+v+'"').join(',')).join('\n');
-        const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=this.config.title.toLowerCase().replace(/\s+/g,'_')+'_matrix.csv';a.click();
+        KingswayFileLifecycle.exportText(csv, this.config.title.toLowerCase().replace(/\s+/g,'_')+'_matrix.csv', 'text/csv');
     }
     esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
     notify(msg,type){const modal=document.getElementById('notificationModal');if(modal){const m=modal.querySelector('.notification-message'),c=modal.querySelector('.modal-content');if(m)m.textContent=msg;if(c)c.className='modal-content notification-'+(type||'info');const b=bootstrap.Modal.getOrCreateInstance(modal);b.show();setTimeout(()=>b.hide(),3000);}}

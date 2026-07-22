@@ -1219,15 +1219,12 @@ class AdmissionController extends BaseController
             return $path !== '' ? $path : null;
         }
 
-        $url = '/uploads/' . $document['media_context'];
-        if (!empty($document['media_entity_id'])) {
-            $url .= '/' . $document['media_entity_id'];
-        }
-        if (!empty($document['media_album_id'])) {
-            $url .= '/album_' . $document['media_album_id'];
-        }
-
-        return $url . '/' . $document['media_filename'];
+        return $this->managedMediaUrl(
+            (string) $document['media_context'],
+            $document['media_entity_id'] ?? null,
+            (string) $document['media_filename'],
+            $document['media_album_id'] ?? null
+        );
     }
 
     /**

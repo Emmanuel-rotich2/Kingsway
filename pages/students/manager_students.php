@@ -300,9 +300,7 @@
         const rows = [['Admission No','First Name','Last Name','Gender','Class','Status']];
         _allStudentsData.forEach(s => rows.push([s.admission_no||'', s.first_name||'', s.last_name||'', s.gender||'', s.class_name||'', s.status||'']));
         const csv  = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const a    = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = 'students.csv'; a.click();
+        KingswayFileLifecycle.exportText(csv, 'students.csv', 'text/csv');
     }
 
     function escapeHtml(s) { return s ? s.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[m]) : ''; }

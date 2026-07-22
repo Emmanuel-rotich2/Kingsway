@@ -334,10 +334,7 @@
       apiFetch('/student-statement/' + studentId, 'GET')
         .then(function (resp) {
           var d   = resp.data || resp;
-          var win = window.open('', '_blank');
-          win.document.write(buildStatementHTML(d));
-          win.document.close();
-          win.print();
+          PrintManager.printHtml(buildStatementHTML(d), { title: 'Parent Statement' });
         })
         .catch(function (e) {
           content.innerHTML = '<div class="alert alert-danger">Failed to generate statement: ' + esc(e.message) + '</div>';

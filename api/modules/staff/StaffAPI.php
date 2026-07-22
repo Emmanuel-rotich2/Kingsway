@@ -392,8 +392,15 @@ class StaffAPI extends BaseAPI {
             }
 
             // Ensure placeholders for profile picture and documents folder
-            $placeholderPic = '/uploads/staff/profile_pictures/staff_avatar.jpeg';
-            $defaultDocsFolder = "uploads/staff/documents/{$staffNo}";
+            $placeholderPic = $this->managedPublicUrl(
+                'staff_photo',
+                'staff_avatar.jpeg'
+            );
+            $defaultDocsFolder = $this->uploads()->applicationUploadPath(
+                'staff',
+                'documents',
+                (string) $staffNo
+            );
             $needUpdate = false;
             $updateParams = [];
             $updateFields = [];
@@ -414,47 +421,9 @@ class StaffAPI extends BaseAPI {
                 $stmt->execute($updateParams);
             }
 
-            // Ensure the documents folder exists on disk under the project's uploads directory
-            // i.e. <projectRoot>/uploads/staff/{staffNo}
-            $projectRoot = realpath(__DIR__ . '/../../..');
-            if ($projectRoot) {
-                $uploadsBase = $projectRoot . DIRECTORY_SEPARATOR . 'uploads';
-                $fullDocsPath = $uploadsBase . DIRECTORY_SEPARATOR . 'staff' . DIRECTORY_SEPARATOR . $staffNo;
-                if (!is_dir($fullDocsPath)) {
-                    @mkdir($fullDocsPath, 0755, true);
-                    if (is_dir($fullDocsPath)) {
-                        @chmod($fullDocsPath, 0755);
-                    }
-                } else {
-                    @chmod($fullDocsPath, 0755);
-                }
-
-                // Register placeholder profile image via MediaManager so metadata exists
-                $placeholderFs = $projectRoot . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'staff' . DIRECTORY_SEPARATOR . 'profile_pictures' . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
-                if (file_exists($placeholderFs)) {
-                    try {
-                        // import into uploads/staff/profile_pictures/{staffNo}/
-                        $mediaId = $this->mediaManager->import($placeholderFs, 'staff/profile_pictures', $staffNo, 'staff_avatar.jpeg', null, 'placeholder profile');
-                        $preview = $this->mediaManager->getFileUrl($mediaId) ?: $this->mediaManager->getPreviewUrl($mediaId);
-                        // Update staff profile_pic_url to the managed preview path if not already set
-                        if (empty($profilePic) && $preview) {
-                            $stmt = $this->db->prepare('UPDATE staff SET profile_pic_url = ? WHERE id = ?');
-                            $stmt->execute([$preview, $staffId]);
-                        }
-                    } catch (Exception $e) {
-                        // fallback: attempt a raw copy if import fails
-                        $destDir = $fullDocsPath . DIRECTORY_SEPARATOR . '..' . DIRECTORY_SEPARATOR . 'profile_pictures';
-                        if (!is_dir($destDir)) {
-                            @mkdir($destDir, 0755, true);
-                        }
-                        $destPic = $destDir . DIRECTORY_SEPARATOR . 'staff_avatar.jpeg';
-                        if (!file_exists($destPic)) {
-                            @copy($placeholderFs, $destPic);
-                            @chmod($destPic, 0644);
-                        }
-                    }
-                }
-            }
+            // Physical directories are created lazily by UploadService when a
+            // staff document or photo is actually uploaded. No controller/module
+            // constructs or copies upload paths.
 
             // Ensure at least one placeholder qualification and experience row exist
             $stmt = $this->db->prepare("SELECT COUNT(*) as cnt FROM staff_qualifications WHERE staff_id = ?");

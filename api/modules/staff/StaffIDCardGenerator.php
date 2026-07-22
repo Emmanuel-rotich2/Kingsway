@@ -4,7 +4,6 @@ namespace App\API\Modules\staff;
 use App\Config;
 use App\API\Includes\BaseAPI;
 use App\API\Services\IDCardTemplateRenderer;
-use App\API\Services\PrintService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -26,7 +25,6 @@ class StaffIDCardGenerator extends BaseAPI
     private $qrCodesPath;
     private $templatesPath;
     private $renderer;
-    private $printService;
 
     public function __construct()
     {
@@ -37,7 +35,6 @@ class StaffIDCardGenerator extends BaseAPI
         $this->qrCodesPath = STAFF_QR_CODES;
         $this->templatesPath = ID_CARD_TEMPLATES;
         $this->renderer = new IDCardTemplateRenderer($this->db);
-        $this->printService = new PrintService();
     }
 
     /**
@@ -49,85 +46,56 @@ class StaffIDCardGenerator extends BaseAPI
     public function uploadStaffPhoto($staffId, $fileData)
     {
         try {
-            // Validate staff exists
-            $stmt = $this->db->prepare("SELECT id, staff_number FROM staff WHERE id = ?");
-            $stmt->execute([$staffId]);
-            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+            $statement = $this->db->prepare(
+                "SELECT id, staff_number FROM staff WHERE id = ?"
+            );
+            $statement->execute([$staffId]);
+            $staff = $statement->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
                 return formatResponse(false, null, 'Staff not found');
             }
 
-            // Validate file
-            $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-            $maxSize = 5 * 1024 * 1024; // 5MB
+            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaId = $mediaManager->upload(
+                $fileData,
+                'staff/profile_pictures',
+                $staffId,
+                null,
+                $this->user_id,
+                'staff profile photo',
+                '',
+                'photo_staff_' . $staffId
+            );
+            $photoUrl = $mediaManager->getFileUrl($mediaId)
+                ?: $mediaManager->getPreviewUrl($mediaId);
 
-            if (!isset($fileData['tmp_name']) || !is_uploaded_file($fileData['tmp_name'])) {
-                return formatResponse(false, null, 'No file uploaded');
+            if (!$photoUrl) {
+                return formatResponse(false, null, 'Uploaded photo could not be resolved');
             }
 
-            $fileType = mime_content_type($fileData['tmp_name']);
-            if (!in_array($fileType, $allowedTypes)) {
-                return formatResponse(false, null, 'Invalid file type. Only JPG, JPEG, and PNG are allowed');
-            }
+            $statement = $this->db->prepare(
+                "UPDATE staff SET photo_url = ?, updated_at = NOW() WHERE id = ?"
+            );
+            $statement->execute([$photoUrl, $staffId]);
 
-            if ($fileData['size'] > $maxSize) {
-                return formatResponse(false, null, 'File size exceeds 5MB limit');
-            }
+            $this->logAction(
+                'update',
+                $staffId,
+                'Uploaded staff photo through canonical UploadService'
+            );
 
-            // Create staff-specific directory: uploads/staff/images/{staff_id}/
-            $staffImageDir = STAFF_IMAGES . '/' . $staffId . '/';
-            if (!is_dir($staffImageDir)) {
-                @mkdir($staffImageDir, 0755, true);
-            }
-
-            // Generate unique filename
-            $extension = strtolower(pathinfo($fileData['name'], PATHINFO_EXTENSION)) ?: 'jpg';
-            $filename = 'photo_' . date('Ymd_His') . '.' . $extension;
-            $filepath = $staffImageDir . $filename;
-
-            // Resize and optimize image
-            $this->resizeImage($fileData['tmp_name'], $filepath, 400, 500);
-
-            // Web-accessible path
-            $webPath = '/uploads/staff/images/' . $staffId . '/' . $filename;
-
-            // Import into MediaManager
-            try {
-                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                $projectRoot = defined('UPLOAD_PATH') ? dirname(UPLOAD_PATH) : __DIR__ . '/../../..';
-                $fullSource = $projectRoot . '/' . ltrim($webPath, '/');
-                $mediaId = null;
-                if (file_exists($fullSource)) {
-                    $mediaId = $mediaManager->import($fullSource, 'staff/images', $staffId, $filename, null, 'staff photo');
-                }
-                $dbPath = $mediaId ? ($mediaManager->getFileUrl($mediaId) ?: $mediaManager->getPreviewUrl($mediaId)) : null;
-                $dbPath = $dbPath ?? $webPath;
-
-                $stmt = $this->db->prepare("UPDATE staff SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$dbPath, $staffId]);
-
-                $this->logAction('update', $staffId, "Uploaded staff photo: {$filename}");
-
-                return formatResponse(true, [
-                    'photo_url' => $dbPath,
-                    'filename' => $filename,
-                    'media_id' => $mediaId
-                ], 'Photo uploaded successfully');
-            } catch (\Exception $e) {
-                // Fallback: record the web path
-                $stmt = $this->db->prepare("UPDATE staff SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$webPath, $staffId]);
-                $this->logAction('update', $staffId, "Uploaded staff photo (fallback): {$filename}");
-                return formatResponse(true, [
-                    'photo_url' => $webPath,
-                    'filename' => $filename
-                ], 'Photo uploaded (fallback)');
-            }
-
-        } catch (Exception $e) {
-            $this->logError('uploadStaffPhoto', $e->getMessage());
-            return formatResponse(false, null, 'Failed to upload photo: ' . $e->getMessage());
+            return formatResponse(true, [
+                'photo_url' => $photoUrl,
+                'media_id' => $mediaId,
+            ], 'Photo uploaded successfully');
+        } catch (Exception $exception) {
+            $this->logError('uploadStaffPhoto', $exception->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to upload photo: ' . $exception->getMessage()
+            );
         }
     }
 
@@ -174,14 +142,14 @@ class StaffIDCardGenerator extends BaseAPI
 
             if ($format === 'pdf') {
                 // Generate PDF
-                $pdfPath = $this->printService->generatePDFFromHtml($html, [
+                $pdfPath = $this->prints()->generatePDFFromHtml($html, [
                     'orientation' => 'landscape',
                     'paperSize' => 'A4',
                     'filename' => 'staff_id_card_' . $staff['staff_number'] . '_' . time()
                 ]);
 
                 // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
-                $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
+                $webPath = str_replace($this->prints()->getOutputPath(), '', $pdfPath);
                 $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
 
                 $this->logAction('create', $staffId, "Generated staff ID card PDF: {$pdfPath}");
@@ -197,7 +165,7 @@ class StaffIDCardGenerator extends BaseAPI
                 // Save HTML version
                 $filename = "staff_id_card_{$staff['staff_number']}_" . time() . ".html";
                 $filepath = $this->templatesPath . $filename;
-                file_put_contents($filepath, $html);
+                (new \App\API\Services\UploadService())->writeFile($filepath, $html);
 
                 $this->logAction('create', $staffId, "Generated staff ID card HTML: {$filename}");
 
@@ -317,7 +285,7 @@ class StaffIDCardGenerator extends BaseAPI
                 // Generate bulk A4 sheet
                 $html = $this->renderer->renderBulkA4Sheet($staff, 'staff', $schoolConfig);
                 
-                $pdfPath = $this->printService->generatePDFFromHtml($html, [
+                $pdfPath = $this->prints()->generatePDFFromHtml($html, [
                     'orientation' => 'landscape',
                     'paperSize' => 'A4',
                     'filename' => 'staff_id_cards_bulk_' . time()
@@ -328,7 +296,7 @@ class StaffIDCardGenerator extends BaseAPI
             }
 
             // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
-            $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
+            $webPath = str_replace($this->prints()->getOutputPath(), '', $pdfPath);
             $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
 
             $this->logAction('create', 0, "Generated bulk staff ID cards PDF: " . count($staff) . " staff");
@@ -404,7 +372,7 @@ class StaffIDCardGenerator extends BaseAPI
         $staff['staff_number'] = $staff['staff_number'] ?? $staff['staff_no'] ?? '';
         $staff['department'] = $staff['department_name'] ?? $staff['department'] ?? '';
 
-        $defaultAvatar = defined('STAFF_AVATAR_DEFAULT') ? STAFF_AVATAR_DEFAULT : 'uploads/staff/avatar.jpg';
+        $defaultAvatar = defined('STAFF_AVATAR_DEFAULT') ? STAFF_AVATAR_DEFAULT : $this->publicUploadAssetUrl('staff', 'avatar.jpg');
         if (empty($staff['photo_url']) || !file_exists('.' . $staff['photo_url'])) {
             $staff['photo_url'] = '/' . ltrim($defaultAvatar, '/');
         }
@@ -420,7 +388,7 @@ class StaffIDCardGenerator extends BaseAPI
             return [
                 'name' => $configs['school_name'] ?? 'Kingsway Academy',
                 'motto' => $configs['school_motto'] ?? 'Excellence in Education',
-                'logo' => $configs['school_logo'] ?? '/uploads/school_assets/official_school_logo.png',
+                'logo' => $configs['school_logo'] ?? $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png'),
                 'address' => $configs['school_address'] ?? '',
                 'phone' => $configs['school_phone'] ?? '',
                 'email' => $configs['school_email'] ?? '',
@@ -430,7 +398,7 @@ class StaffIDCardGenerator extends BaseAPI
             return [
                 'name' => 'Kingsway Academy',
                 'motto' => 'Excellence in Education',
-                'logo' => '/uploads/school_assets/official_school_logo.png',
+                'logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png'),
                 'address' => '',
                 'phone' => '',
                 'email' => '',

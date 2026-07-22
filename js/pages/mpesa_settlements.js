@@ -258,37 +258,46 @@
             csv += "Net Amount (KES)," + netAmount + "\n";
             csv += "Status," + (settlement.status || "-") + "\n";
 
-            var blob = new Blob([csv], { type: "text/csv" });
-            var url = window.URL.createObjectURL(blob);
-            var a = document.createElement("a");
-            a.href = url;
-            a.download = "mpesa_settlement_" + (settlement.reference || settlement.id) + ".csv";
-            a.click();
-            window.URL.revokeObjectURL(url);
+            KingswayFileLifecycle.exportText(csv, "mpesa_settlement_" + (settlement.reference || settlement.id) + ".csv", "text/csv");
             this.showNotification("Settlement exported", "success");
         },
 
         /**
          * Print current settlement details
          */
-        printSettlement: function () {
-            if (!this.currentSettlement) return;
+        printSettlement: async function () {
+            if (!this.currentSettlement) {
+                this.showNotification("No settlement is selected", "warning");
+                return;
+            }
 
-            var content = document.querySelector("#settlementDetailsModal .modal-body").innerHTML;
-            var printWindow = window.open("", "_blank");
-            printWindow.document.write(
-                '<html><head><title>M-Pesa Settlement</title>' +
-                '<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">' +
-                '<style>body { padding: 20px; } @media print { .no-print { display: none; } }</style>' +
-                '</head><body>' +
-                '<h4 class="text-center mb-4">KINGSWAY ACADEMY - M-Pesa Settlement Report</h4>' +
-                content +
-                '</body></html>'
-            );
-            printWindow.document.close();
-            printWindow.onload = function () {
-                printWindow.print();
-            };
+            const settlement = this.currentSettlement;
+            const gross = Number(settlement.gross_amount || 0);
+            const charges = Number(settlement.charges || settlement.fees || 0);
+            const net = Number(settlement.net_amount || (gross - charges));
+
+            await window.PrintManager.printRecord({
+                title: "M-Pesa Settlement Report",
+                subtitle: settlement.reference || settlement.settlement_ref || `Settlement ${settlement.id}`,
+                sections: [{
+                    title: "Settlement Details",
+                    fields: [
+                        { label: "Settlement Date", value: this.formatDate(settlement.settlement_date || settlement.date || settlement.created_at) },
+                        { label: "Reference", value: settlement.reference || settlement.settlement_ref || settlement.id },
+                        { label: "Transactions", value: settlement.transaction_count || settlement.txn_count || 0 },
+                        { label: "Gross Amount", value: `KSh ${gross.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
+                        { label: "Charges", value: `KSh ${charges.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
+                        { label: "Net Amount", value: `KSh ${net.toLocaleString("en-KE", { minimumFractionDigits: 2 })}` },
+                        { label: "Status", value: settlement.status || "—" },
+                    ],
+                }],
+                reportCode: `MPESA-SETTLEMENT-${settlement.id}`,
+                filename: `mpesa_settlement_${settlement.id}`,
+                signatureSection: [
+                    { label: "Accountant", dateLine: true },
+                    { label: "Headteacher", dateLine: true },
+                ],
+            });
         },
 
         /**
@@ -315,13 +324,7 @@
             });
 
             var csv = [headers.join(",")].concat(rows.map(function (r) { return r.join(","); })).join("\n");
-            var blob = new Blob([csv], { type: "text/csv" });
-            var url = window.URL.createObjectURL(blob);
-            var a = document.createElement("a");
-            a.href = url;
-            a.download = "mpesa_settlements_" + new Date().toISOString().split("T")[0] + ".csv";
-            a.click();
-            window.URL.revokeObjectURL(url);
+            KingswayFileLifecycle.exportText(csv, "mpesa_settlements_" + new Date().toISOString().split("T")[0] + ".csv", "text/csv");
             this.showNotification("Export completed", "success");
         },
 

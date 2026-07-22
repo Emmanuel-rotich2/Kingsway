@@ -160,14 +160,7 @@ function handleApiError(error) {
 
 // Download file helper
 async function downloadFile(blob, filename) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(url);
-  document.body.removeChild(a);
+  return KingswayFileLifecycle.downloadBlob(blob, filename);
 }
 
 // Safely read and parse JSON responses with clearer errors
@@ -4425,6 +4418,20 @@ window.API = {
         : `/accounts/bank-transactions`;
       return apiCall(url, "GET", null, params);
     },
+  },
+
+  systemAdministration: {
+    getDashboard: async () => apiCall('/system-administration/dashboard', 'GET'),
+    getAccounts: async () => apiCall('/system-administration/accounts', 'GET'),
+    accountAction: async (data) => apiCall('/system-administration/account-action', 'POST', data),
+    getSessions: async () => apiCall('/system-administration/sessions', 'GET'),
+    revokeSession: async (sessionId) => apiCall('/system-administration/revoke-session', 'POST', {session_id: sessionId}),
+    listRegistry: async (name) => apiCall('/system-administration/registry', 'GET', null, {name}),
+    saveRegistry: async (registry, record, id = null) => apiCall('/system-administration/registry', 'POST', {registry, record, id}),
+    deleteRegistry: async (registry, id) => apiCall('/system-administration/registry', 'DELETE', {registry, id}),
+    startProvisioning: async (data) => apiCall('/system-administration/provisioning-start', 'POST', data),
+    saveProvisioningStep: async (data) => apiCall('/system-administration/provisioning-step', 'POST', data),
+    finalizeProvisioning: async (data) => apiCall('/system-administration/provisioning-finalize', 'POST', data),
   },
 
   // System endpoints

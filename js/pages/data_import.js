@@ -273,10 +273,7 @@ const dataImportController = {
     if (!this._previewData?.errors?.length) return;
     const rows = [['Row','Field','Error'], ...this._previewData.errors.map(e => [e.row, e.field, e.message])];
     const csv  = rows.map(r => r.map(c => `"${String(c).replace(/"/g,"''")}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = `import_errors_${this._type}_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click(); URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(csv, `import_errors_${this._type}_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv'); URL.revokeObjectURL(a.href);
   },
 
   // ── STEP 4: Confirm ───────────────────────────────────────────────────────

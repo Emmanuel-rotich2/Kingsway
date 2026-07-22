@@ -593,6 +593,50 @@ class StudentsController extends BaseController
         return $this->success($result, 'Card marked as lost');
     }
 
+
+    /**
+     * POST /api/students/id-cards/print
+     * Canonical single and bulk student ID-card PDF endpoint.
+     */
+    public function postIdCardsPrint(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
+        if ($auth = $this->authorizeStudents(
+            self::STUDENT_ID_CARD_GENERATE_PERMS,
+            'Insufficient permission to print student ID cards'
+        )) {
+            return $auth;
+        }
+
+        $studentIds = $data['student_ids'] ?? [];
+
+        if (!is_array($studentIds) || $studentIds === []) {
+            return $this->badRequest(
+                'Select at least one student before printing.'
+            );
+        }
+
+        $printerMode = $data['printer_mode'] ?? 'a4_pdf';
+        $side = strtolower((string) ($data['side'] ?? 'both'));
+
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            return $this->badRequest(
+                'Card side must be front, back or both.'
+            );
+        }
+
+        $result = $this->api->generateBulkIDCardsPDF(
+            $studentIds,
+            $printerMode,
+            $side !== 'back',
+            $side !== 'front'
+        );
+
+        return $this->handleResponse($result);
+    }
+
     /**
      * POST /api/students/id-card/generate
      * Enhanced to generate unique card numbers (KPA-ID-YYYY-000001 format), QR tokens, expiry years
@@ -706,7 +750,7 @@ class StudentsController extends BaseController
 
         $side = $data['side'] ?? 'both';
         $printMode = $data['print_mode'] ?? 'direct_card';
-        $format = $data['format'] ?? 'html';
+        $format = 'pdf';
 
         $result = $this->api->generatePrintableSingle((int) $studentId, $side, $printMode, $format);
         return $this->handleResponse($result);

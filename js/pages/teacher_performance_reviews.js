@@ -66,7 +66,7 @@ const TeacherPerformanceReviewsController = (() => {
         const headers = ['#', 'Teacher', 'Subject', 'Review Date', 'Reviewer', 'Rating', 'Category', 'Remarks', 'Actions'];
         const rows = allData.map(item => Object.values(item).slice(0, headers.length));
         let csv = headers.join(',') + '\n' + rows.map(r => r.map(v => '"' + (v||'') + '"').join(',')).join('\n');
-        const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download = 'teacher_performance_reviews.csv'; a.click();
+        KingswayFileLifecycle.exportText(csv, 'teacher_performance_reviews.csv', 'text/csv');
     }
     function escapeHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
     function showNotification(msg, type) { const modal = document.getElementById('notificationModal'); if(modal){const m=modal.querySelector('.notification-message'),c=modal.querySelector('.modal-content');if(m)m.textContent=msg;if(c)c.className='modal-content notification-'+(type||'info');const b=bootstrap.Modal.getOrCreateInstance(modal);b.show();setTimeout(()=>b.hide(),3000);} }

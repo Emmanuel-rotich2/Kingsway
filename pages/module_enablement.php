@@ -1,15 +1,7 @@
-<?php /** Module Enablement - Enable/disable modules */ ?>
-<div>
-    <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
-        <div><h4 class="mb-1"><i class="fas fa-cubes me-2"></i>Module Enablement</h4><p class="text-muted mb-0">Enable/disable modules</p></div>
-        <button class="btn btn-outline-primary" onclick="window._toggleCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button>
-    </div></div></div>
-    <div class="row mb-4">
-        <div class="col-md-4 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="fas fa-list text-primary fa-lg"></i></div><div><h6 class="text-muted mb-1">Total Settings</h6><h4 class="mb-0" id="statTotal">0</h4></div></div></div></div></div>
-        <div class="col-md-4 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i class="fas fa-toggle-on text-success fa-lg"></i></div><div><h6 class="text-muted mb-1">Enabled</h6><h4 class="mb-0" id="statEnabled">0</h4></div></div></div></div></div>
-        <div class="col-md-4 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-secondary bg-opacity-10 p-3 me-3"><i class="fas fa-toggle-off text-secondary fa-lg"></i></div><div><h6 class="text-muted mb-1">Disabled</h6><h4 class="mb-0" id="statDisabled">0</h4></div></div></div></div></div>
-    </div>
-    <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-cubes me-2"></i>Module Enablement Settings</h6></div><div class="card-body" id="settingsContainer"><div class="text-center text-muted py-4">Loading settings...</div></div></div>
+<?php /** Canonical System Administration console. */ ?>
+<div class="container-fluid py-4" data-system-console data-mode="registry" data-registry="modules">
+ <div class="d-flex justify-content-between align-items-start mb-4"><div><h3>Module Enablement</h3><p class="text-muted">System Domain records only. All actions are permission checked and audited.</p></div><button class="btn btn-outline-primary" data-refresh><i class="fas fa-sync-alt me-1"></i>Refresh</button></div>
+ <div class="alert alert-info" data-state>Loading…</div>
+ <div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table table-hover mb-0"><thead><tr><th>Loading</th></tr></thead><tbody><tr><td class="text-center py-4">Loading…</td></tr></tbody></table></div></div>
 </div>
-<script src="<?= $appBase ?>/js/pages/system/toggle_config_controller.js?v=<?php echo time(); ?>"></script>
-<script>window._toggleCtrl = new ToggleConfigController({ title: 'Module Enablement', apiEndpoint: '/system/module-enablement' });</script>
+<script src="<?= $appBase ?>/js/pages/system/system_admin_console.js?v=<?= time() ?>"></script>

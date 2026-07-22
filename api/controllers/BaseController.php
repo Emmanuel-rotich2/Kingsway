@@ -3,6 +3,7 @@ namespace App\API\Controllers;
 
 use App\Database\Database;
 use Exception;
+use App\API\Core\FileLifecycleBase;
 
 /**
  * BaseController - Enhanced RESTful API base class
@@ -20,7 +21,7 @@ use Exception;
  *   "request_id": "req_12345"
  * }
  */
-abstract class BaseController
+abstract class BaseController extends FileLifecycleBase
 {
     protected $db;
     protected $user;

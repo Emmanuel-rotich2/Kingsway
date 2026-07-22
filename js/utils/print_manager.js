@@ -207,6 +207,63 @@ const PrintManager = (() => {
     };
   }
 
+  function humanizeIdentity(value) {
+    return String(value || "")
+      .trim()
+      .replace(/[._-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+
+  function resolveUserDisplayName(user = {}) {
+    const composedName = [
+      user.first_name || user.firstName,
+      user.middle_name || user.middleName,
+      user.last_name || user.lastName,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return (
+      composedName ||
+      user.full_name ||
+      user.fullName ||
+      user.name ||
+      humanizeIdentity(user.username) ||
+      "System User"
+    );
+  }
+
+  function resolveUserRole(user = {}) {
+    const role =
+      user.main_role ||
+      user.role_name ||
+      user.role ||
+      user.roles?.[0]?.name ||
+      user.roles?.[0] ||
+      "";
+
+    return humanizeIdentity(role);
+  }
+
+  function formatReportDate(value = new Date()) {
+    const date = value instanceof Date ? value : new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return String(value || "");
+    }
+
+    return date.toLocaleString("en-KE", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  }
+
   function normalizeApiError(response, payload) {
     const message =
       payload?.message ||
@@ -291,17 +348,7 @@ const PrintManager = (() => {
   }
 
   function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = safeFilename(filename, "document.pdf");
-
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return KingswayFileLifecycle.downloadBlob(blob, safeFilename(filename, 'document.pdf'));
   }
 
   function openUrl(url, target = "_blank") {
@@ -338,13 +385,29 @@ const PrintManager = (() => {
       );
     }
 
-    return (
+    const directUrl =
       file.download_url ||
+      file.pdf_url ||
+      file.csv_url ||
       file.url ||
       file.file_url ||
       file.path_url ||
-      ""
-    );
+      "";
+
+    if (directUrl) {
+      return /^https?:\/\//i.test(directUrl)
+        ? directUrl
+        : buildUrl(directUrl, config);
+    }
+
+    const filename = file.filename || file.name || file.file;
+
+    return filename
+      ? buildUrl(
+          `${config.endpoints.fileDownload}?file=${encodeURIComponent(filename)}`,
+          config,
+        )
+      : "";
   }
 
   async function handleGeneratedFiles(response, options = {}) {
@@ -357,7 +420,7 @@ const PrintManager = (() => {
       if (options.download === true) {
         downloadBlob(response, filename);
       } else {
-        openUrl(URL.createObjectURL(response));
+        KingswayFileLifecycle.openBlob(response);
       }
 
       return {
@@ -372,15 +435,21 @@ const PrintManager = (() => {
       throw new Error(payload.message || "The print request failed.");
     }
 
-    const files = Array.isArray(payload.files)
+    const files = Array.isArray(payload.files) && payload.files.length
       ? payload.files
       : payload.file
         ? [payload.file]
         : payload.download_url
           ? [payload.download_url]
-          : payload.url
-            ? [payload.url]
-            : [];
+          : payload.pdf_url
+            ? [payload.pdf_url]
+            : payload.csv_url
+              ? [payload.csv_url]
+              : payload.url
+                ? [payload.url]
+                : payload.filename
+                  ? [payload.filename]
+                  : [];
 
     if (!files.length) {
       throw new Error(
@@ -547,12 +616,15 @@ const PrintManager = (() => {
         createReportCode(config.reportCodePrefix || "KWPS"),
       generatedBy:
         config.generatedBy ||
-        user.full_name ||
-        user.fullName ||
-        user.username ||
-        "System User",
-      generatedAt: config.generatedAt || new Date().toISOString(),
-      printedAt: config.printedAt || new Date().toISOString(),
+        [resolveUserDisplayName(user), resolveUserRole(user)]
+          .filter(Boolean)
+          .join(" — "),
+      generatedAt: formatReportDate(
+        config.generatedAt || new Date(),
+      ),
+      printedAt: formatReportDate(
+        config.printedAt || new Date(),
+      ),
       confidentialityNote:
         config.confidentialityNote ||
         "This document is issued by Kingsway Preparatory School and is intended for authorized use only.",
@@ -775,7 +847,7 @@ const PrintManager = (() => {
   }
 
   async function printElement(elementId, options = {}) {
-    const element = document.getElementById(elementId);
+    const element = document.getElementById(String(elementId || ""));
 
     if (!element) {
       notify("error", "The requested printable element could not be found.");
@@ -1118,141 +1190,107 @@ const PrintManager = (() => {
   async function printReceipt(options = {}) {
     const config = normalizeConfig(options);
 
-    const payload = {
-      schoolName: config.schoolName,
-      schoolMotto: config.schoolMotto,
-      schoolLogo: config.schoolLogo,
-      schoolAddress: config.schoolAddress,
-      schoolPhone: config.schoolPhone,
-      schoolEmail: config.schoolEmail,
-      receiptNumber: config.receiptNumber || "",
-      date: config.date || new Date().toISOString(),
-      customer: config.customer || "",
-      items: Array.isArray(config.items) ? config.items : [],
-      total: config.total || 0,
-      receiptNote: config.receiptNote || "Thank you.",
-      filename:
-        config.filename ||
-        safeFilename(
-          `receipt_${config.receiptNumber || Date.now()}`,
-          "receipt",
-        ),
-    };
+    const receiptNumber = String(config.receiptNumber || "").trim();
+    const items = Array.isArray(config.items) ? config.items : [];
 
-    /*
-     * Receipts use a backend template only when an endpoint exists.
-     * This preserves compatibility with installations that have not yet
-     * created a server receipt template.
-     */
-    if (config.endpoints.receipt) {
-      try {
-        const response = await request(
-          config.endpoints.receipt,
-          payload,
-          config,
-        );
-
-        return handleGeneratedFiles(response, {
-          ...config,
-          filename: `${payload.filename}.pdf`,
-        });
-      } catch (error) {
-        if (config.allowReceiptBrowserFallback === false) {
-          notify("error", error.message || "Unable to generate the receipt.");
-          throw error;
-        }
-
-        console.warn(
-          "Server receipt generation failed. Using browser fallback.",
-          error,
-        );
-      }
-    }
-
-    return printReceiptInBrowser(payload, config);
-  }
-
-  function printReceiptInBrowser(payload, options = {}) {
-    const printWindow = window.open("", "_blank");
-
-    if (!printWindow) {
-      notify("error", "Allow popups before printing the receipt.");
+    if (!items.length) {
+      notify("warning", "No receipt items were provided.");
       return null;
     }
 
-    const items = payload.items
-      .map(
-        (item) => `
-          <div style="display:flex;justify-content:space-between;gap:10px;margin:5px 0;">
-            <span>${escapeHtml(item.name || item.description || "")}</span>
-            <span>${escapeHtml(item.price ?? item.amount ?? "")}</span>
-          </div>
-        `,
-      )
+    const money = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number)
+        ? `KSh ${number.toLocaleString("en-KE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`
+        : "KSh 0.00";
+    };
+
+    const itemRows = items
+      .map((item) => {
+        const description = item.name || item.description || "Item";
+        const amount = Number(item.price ?? item.amount ?? 0);
+
+        return `<tr>
+          <td>${escapeHtml(description)}</td>
+          <td style="text-align:right;white-space:nowrap;">${escapeHtml(
+            money(amount),
+          )}</td>
+        </tr>`;
+      })
       .join("");
 
-    printWindow.document.open();
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <title>${escapeHtml(payload.filename)}</title>
-        <style>
-          @page { size: 80mm auto; margin: 4mm; }
-          body {
-            width:72mm;
-            margin:0;
-            font-family:"Courier New",monospace;
-            font-size:11px;
-          }
-          .divider { border-bottom:1px dashed #000; margin:10px 0; }
-        </style>
-      </head>
-      <body>
-        <div style="text-align:center;">
-          <img src="${escapeHtml(payload.schoolLogo)}"
-            style="width:55px;height:55px;object-fit:contain;">
-          <h3>${escapeHtml(payload.schoolName)}</h3>
-          <div>${escapeHtml(payload.schoolAddress)}</div>
-          <div>${escapeHtml(payload.schoolPhone)}</div>
-        </div>
+    const total = Number(config.total || 0);
+    const content = `
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th style="text-align:right;width:32%;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+        <tfoot>
+          <tr>
+            <td><strong>Total</strong></td>
+            <td style="text-align:right;white-space:nowrap;"><strong>${escapeHtml(
+              money(total),
+            )}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    `;
 
-        <div class="divider"></div>
-
-        <div><strong>Receipt:</strong> ${escapeHtml(payload.receiptNumber)}</div>
-        <div><strong>Received from:</strong> ${escapeHtml(payload.customer)}</div>
-
-        <div class="divider"></div>
-
-        ${items}
-
-        <div class="divider"></div>
-
-        <div style="text-align:right;font-weight:bold;">
-          TOTAL: ${escapeHtml(payload.total)}
-        </div>
-
-        <div class="divider"></div>
-
-        <div style="text-align:center;">${escapeHtml(payload.receiptNote)}</div>
-      </body>
-      </html>
-    `);
-    printWindow.document.close();
-
-    printWindow.addEventListener(
-      "load",
-      () => {
-        window.setTimeout(() => {
-          printWindow.focus();
-          printWindow.print();
-        }, 300);
-      },
-      { once: true },
-    );
-
-    return printWindow;
+    return printRecord({
+      ...config,
+      title: config.title || "Official Receipt",
+      subtitle:
+        config.subtitle ||
+        (receiptNumber ? `Receipt No. ${receiptNumber}` : "Payment Receipt"),
+      description: config.description || "Official financial document",
+      sections: [
+        {
+          title: "Receipt Information",
+          fields: [
+            { label: "Receipt Number", value: receiptNumber || "—" },
+            {
+              label: "Date",
+              value: formatReportDate(config.date || new Date()),
+            },
+            { label: "Received From", value: config.customer || "—" },
+          ],
+        },
+        {
+          title: "Transaction Details",
+          content,
+          allowHtml: true,
+        },
+        {
+          title: "Notes",
+          fields: [
+            {
+              label: "Remarks",
+              value: config.receiptNote || "Payment received with thanks.",
+            },
+          ],
+        },
+      ],
+      paperSize: config.paperSize || "A4",
+      orientation: config.orientation || "portrait",
+      reportCode:
+        config.reportCode ||
+        `RCT-${receiptNumber || createReportCode("RCT")}`,
+      filename:
+        config.filename ||
+        safeFilename(`receipt_${receiptNumber || Date.now()}`, "receipt"),
+      signatureSection:
+        config.signatureSection || [
+          { label: "Accounts Office", dateLine: true },
+          { label: "Headteacher", dateLine: true },
+        ],
+    });
   }
 
   /* ==========================================================================
@@ -1302,17 +1340,9 @@ const PrintManager = (() => {
     const csv = [headers, ...rows]
       .map((row) => row.join(","))
       .join("\n");
-
-    const blob = new Blob([`\uFEFF${csv}`], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    downloadBlob(
-      blob,
-      `${safeFilename(config.filename, "export")}_${new Date()
+    KingswayFileLifecycle.exportText(`\uFEFF${csv}`, `${safeFilename(config.filename, "export")}_${new Date()
         .toISOString()
-        .slice(0, 10)}.csv`,
-    );
+        .slice(0, 10)}.csv`, 'text/csv;charset=utf-8;');
   }
 
   /* ==========================================================================

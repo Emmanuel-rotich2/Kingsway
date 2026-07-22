@@ -1284,55 +1284,38 @@ const PayrollManagerController = {
   /**
    * Print payslip
    */
-  printPayslip: function () {
+  printPayslip: async function () {
     const source = document.getElementById("payslipPrintArea");
+
     if (!source) {
       this.showError("Payslip is not ready to print");
       return;
     }
 
-    const printWindow = window.open("", "_blank");
-    const doc = printWindow.document;
-    doc.title = "Payslip";
-
-    const bootstrap = doc.createElement("link");
-    bootstrap.rel = "stylesheet";
-    bootstrap.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
-    doc.head.appendChild(bootstrap);
-
-    const style = doc.createElement("style");
-    style.textContent = "body { padding: 20px; } @media print { .no-print { display: none; } }";
-    doc.head.appendChild(style);
-    doc.body.appendChild(source.cloneNode(true));
-    printWindow.focus();
-    setTimeout(() => printWindow.print(), 300);
+    await window.PrintManager.printRecord({
+      title: "Staff Payslip",
+      description: "Official payroll statement.",
+      sections: [
+        {
+          title: "Payslip Details",
+          content: source.innerHTML,
+          allowHtml: true,
+        },
+      ],
+      filename: `staff_payslip_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `PAYSLIP-${Date.now()}`,
+      signatureSection: [
+        { label: "Payroll Officer", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
+    });
   },
 
   /**
    * Download payslip as PDF (uses print dialog with auto-trigger)
    */
-  downloadPayslip: function () {
-    var source = document.getElementById("payslipPrintArea");
-    if (!source) {
-      this.showError("Payslip is not ready to download");
-      return;
-    }
-
-    var printWindow = window.open("", "_blank");
-    var doc = printWindow.document;
-    doc.title = "Payslip - Download";
-
-    var bsLink = doc.createElement("link");
-    bsLink.rel = "stylesheet";
-    bsLink.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
-    doc.head.appendChild(bsLink);
-
-    var style = doc.createElement("style");
-    style.textContent = "@page { margin: 15mm; } body { padding: 0; font-family: 'DM Sans', Arial, sans-serif; } @media print { .no-print { display: none; } }";
-    doc.head.appendChild(style);
-    doc.body.appendChild(source.cloneNode(true));
-    printWindow.focus();
-    setTimeout(function () { printWindow.print(); }, 500);
+  downloadPayslip: async function () {
+    return this.printPayslip();
   },
 
   /**
@@ -1340,85 +1323,127 @@ const PayrollManagerController = {
    */
   exportCsv: function () {
     const rows = this.filteredPayrolls || [];
+
     if (!rows.length) {
       this.showError("No payroll records to export");
       return;
     }
 
-    const headers = [
-      "Staff",
-      "Period",
-      "Basic Salary",
-      "Allowances",
-      "Statutory Deductions",
-      "Children Fees",
-      "Other Deductions",
-      "Net Pay",
-      "Status",
-    ];
+    const exportRows = rows.map((payroll) => ({
+      staff_name:
+        payroll.staff_name
+        || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
+      period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
+      basic_salary: Number(payroll.basic_salary || 0),
+      allowances: Number(payroll.allowances || 0),
+      statutory_deductions: Number(payroll.statutory_deductions || 0),
+      children_fee_deductions: Number(payroll.children_fee_deductions || 0),
+      other_deductions: Number(payroll.other_deductions || 0),
+      net_salary: Number(payroll.net_salary || 0),
+      status: payroll.status || "",
+    }));
 
-    const csvRows = rows.map((p) => [
-      `${p.staff_name || `${p.first_name || ""} ${p.last_name || ""}`.trim()}`,
-      `${this.getMonthName(p.payroll_month)} ${p.payroll_year}`,
-      p.basic_salary || 0,
-      p.allowances || 0,
-      p.statutory_deductions || 0,
-      p.children_fee_deductions || 0,
-      p.other_deductions || 0,
-      p.net_salary || 0,
-      p.status || "",
-    ]);
-
-    const csv = [headers, ...csvRows]
-      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `payroll-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: [
+        { key: "staff_name", label: "Staff" },
+        { key: "period", label: "Period" },
+        { key: "basic_salary", label: "Basic Salary" },
+        { key: "allowances", label: "Allowances" },
+        { key: "statutory_deductions", label: "Statutory Deductions" },
+        { key: "children_fee_deductions", label: "Children Fees" },
+        { key: "other_deductions", label: "Other Deductions" },
+        { key: "net_salary", label: "Net Pay" },
+        { key: "status", label: "Status" },
+      ],
+      rows: exportRows,
+      filename: `payroll_report_${new Date().toISOString().slice(0, 10)}`,
+    });
   },
 
   /**
    * Print the payroll table as a PDF via the browser print dialog
    */
-  printPayrollReport: function () {
-    const table = document.getElementById("payrollTable");
-    if (!table || !(this.filteredPayrolls || []).length) {
+  printPayrollReport: async function () {
+    const rows = this.filteredPayrolls || [];
+
+    if (!rows.length) {
       this.showError("No payroll records to print");
       return;
     }
 
-    const printWindow = window.open("", "_blank");
-    const doc = printWindow.document;
-    doc.title = "Payroll Report";
+    const reportRows = rows.map((payroll) => ({
+      staff_name:
+        payroll.staff_name
+        || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
+      period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
+      basic_salary: Number(payroll.basic_salary || 0),
+      allowances: Number(payroll.allowances || 0),
+      deductions:
+        Number(payroll.statutory_deductions || 0)
+        + Number(payroll.children_fee_deductions || 0)
+        + Number(payroll.other_deductions || 0),
+      net_salary: Number(payroll.net_salary || 0),
+      status: payroll.status || "—",
+    }));
 
-    const style = doc.createElement("style");
-    style.textContent = `
-      body { font-family: Arial, sans-serif; padding: 24px; color: #111814; }
-      h1 { margin: 0 0 4px; font-family: Georgia, serif; }
-      p { margin: 0 0 18px; color: #536158; }
-      table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th { background: #082d21; color: #fff; text-align: left; }
-      th, td { border: 1px solid #d9e3dc; padding: 8px; }
-      .btn-group, button { display: none !important; }
-    `;
-    doc.head.appendChild(style);
+    const currency = (value) =>
+      `KSh ${Number(value || 0).toLocaleString("en-KE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
 
-    const title = doc.createElement("h1");
-    title.textContent = "Payroll Report";
-    const generated = doc.createElement("p");
-    generated.textContent = `Generated ${new Date().toLocaleString()}`;
-    const clonedTable = table.cloneNode(true);
-
-    doc.body.appendChild(title);
-    doc.body.appendChild(generated);
-    doc.body.appendChild(clonedTable);
-    printWindow.focus();
-    printWindow.print();
+    await window.PrintManager.printTable({
+      title: "Payroll Report",
+      description: "Consolidated staff payroll report.",
+      columns: [
+        { key: "staff_name", label: "Staff", width: "24%" },
+        { key: "period", label: "Period", width: "14%" },
+        {
+          key: "basic_salary",
+          label: "Basic Salary",
+          type: "currency",
+          width: "15%",
+          formatter: currency,
+        },
+        {
+          key: "allowances",
+          label: "Allowances",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        {
+          key: "deductions",
+          label: "Deductions",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        {
+          key: "net_salary",
+          label: "Net Pay",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        { key: "status", label: "Status", width: "10%" },
+      ],
+      rows: reportRows,
+      orientation: "landscape",
+      filename: `payroll_report_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `PAYROLL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
+      summary: {
+        "Staff Records": reportRows.length,
+        "Total Net Pay": currency(
+          reportRows.reduce((sum, row) => sum + row.net_salary, 0)
+        ),
+      },
+      signatureSection: [
+        { label: "Payroll Officer", dateLine: true },
+        { label: "Accountant", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
+    });
   },
 
   // ========================================================================

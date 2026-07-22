@@ -418,13 +418,20 @@ const DetailedPayslipController = {
     }
 
     window.PrintManager.printReceipt({
-      schoolName: 'Kingsway Preparatory Academy',
-      schoolAddress: 'Londiani, Kenya',
+      title: 'Staff Payslip',
+      subtitle: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
       receiptNumber: payslip.payslip_number || payslip.id || '—',
       date: payslip.pay_date || payslip.period || new Date().toISOString(),
       customer: `${staff.first_name || ''} ${staff.last_name || ''} (${staff.staff_no || '—'})`,
       items: items,
-      total: payslip.net_pay || payslip.total || 0
+      total: payslip.net_pay || payslip.total || 0,
+      receiptNote: 'This payslip is system-generated and subject to payroll verification.',
+      reportCode: `PAY-${payslip.payslip_number || payslip.id || Date.now()}`,
+      filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
+      signatureSection: [
+        { label: 'Payroll Officer', dateLine: true },
+        { label: 'Headteacher', dateLine: true },
+      ]
     });
   },
 

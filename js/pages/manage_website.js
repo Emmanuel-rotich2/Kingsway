@@ -436,7 +436,7 @@
   window.wsOpenDownloadModal = async function(id = null) {
     document.getElementById('dlEditId').value = id || '';
     document.getElementById('wsDownloadModalTitle').textContent = id ? 'Edit Download' : 'Add Download';
-    ['dlTitle','dlUrl','dlDesc','dlSize'].forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
+    ['dlTitle','dlDesc','dlSize'].forEach(f => { const el=document.getElementById(f); if(el) el.value=''; });
     document.getElementById('dlCategory').value = 'General';
     document.getElementById('dlType').value = 'PDF';
     const fileInput = document.getElementById('dlFile'); if (fileInput) fileInput.value = '';
@@ -445,7 +445,6 @@
       const item = (r?.data?.items||[]).find(d => d.id == id);
       if (item) {
         document.getElementById('dlTitle').value    = item.title||'';
-        document.getElementById('dlUrl').value      = item.file_url||'';
         document.getElementById('dlDesc').value     = item.description||'';
         document.getElementById('dlSize').value     = item.file_size||'';
         document.getElementById('dlCategory').value = item.category||'General';
@@ -461,8 +460,7 @@
     if (!title) return notify('Title is required.','warning');
     const fileInput = document.getElementById('dlFile');
     const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
-    const manualUrl = document.getElementById('dlUrl').value.trim();
-    if (!hasFile && !manualUrl) return notify('Choose a file to upload or paste a file URL.','warning');
+    if (!id && !hasFile) return notify('Choose a school document to upload.','warning');
 
     // Build multipart so the backend stores the upload under uploads/school_assets/documents.
     const fd = new FormData();
@@ -471,7 +469,6 @@
     fd.append('category', document.getElementById('dlCategory').value);
     fd.append('file_type', document.getElementById('dlType').value);
     if (document.getElementById('dlSize').value.trim()) fd.append('file_size', document.getElementById('dlSize').value.trim());
-    if (manualUrl) fd.append('file_url', manualUrl);
     if (hasFile) fd.append('file', fileInput.files[0]);
     try {
       const r = id ? await API('PUT',`website/downloads/${id}`, fd, {}, { isFile: true }) : await API('POST','website/downloads', fd, {}, { isFile: true });
