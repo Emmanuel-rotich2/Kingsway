@@ -5,6 +5,13 @@
  */
 
 const academicsController = {
+    initialized: false,
+    initializationPromise: null,
+    eventsBound: false,
+    classLoadPromise: null,
+    classDataLoadPromise: null,
+    teachersLoadPromise: null,
+
     state: {
         classes: [],
         allClasses: [],
@@ -21,69 +28,128 @@ const academicsController = {
 
     // ==================== INITIALIZATION ====================
     async init() {
-        console.log('Initializing Academics Controller...');
-        console.log('Checking prerequisites...');
-        console.log('- AuthContext available:', typeof AuthContext !== 'undefined' ? '✓ Yes' : '✗ No');
-        console.log('- window.API available:', typeof window.API !== 'undefined' ? '✓ Yes' : '✗ No');
-        console.log('- Token in auth storage:', AuthContext.getToken() ? '✓ Yes' : '✗ No');
-        console.log('- User authenticated:', AuthContext ? AuthContext.isAuthenticated() : 'N/A');
-        
+        if (this.initializationPromise) {
+            return this.initializationPromise;
+        }
+
+        this.initializationPromise = this._initialize();
+
         try {
-            // Check if we have authentication
-            if (!AuthContext.isAuthenticated()) {
-                console.error('❌ User is not authenticated');
-                console.log('Redirecting to login page...');
-                this.showToast('Please log in to access this page', 'error', 'Authentication Required');
-                setTimeout(() => {
-                    window.location.href = (window.APP_BASE || '') + '/index.php';
-                }, 2000);
-                return;
+            await this.initializationPromise;
+            return this;
+        } catch (error) {
+            this.initializationPromise = null;
+            throw error;
+        }
+    },
+
+    async _initialize() {
+        if (this.initialized) {
+            return this;
+        }
+
+        console.log('[AcademicsController] Initializing...');
+
+        try {
+            if (window.AuthContext?.ready) {
+                await window.AuthContext.ready();
             }
-            
-            // Load teachers first (needed for dropdowns)
+
+            if (!window.AuthContext?.isAuthenticated?.()) {
+                this.showToast(
+                    'Please log in to access this page',
+                    'error',
+                    'Authentication Required'
+                );
+
+                window.setTimeout(() => {
+                    window.location.replace(
+                        `${window.APP_BASE || ''}/index.php`
+                    );
+                }, 800);
+
+                return this;
+            }
+
+            if (!window.API?.academic) {
+                throw new Error('Academic API is unavailable.');
+            }
+
+            this.setupEventListeners();
+
+            // Teachers are shared by class/stream/assignment dropdowns.
             await this.loadTeachers();
-            console.log('Teachers loaded');
-            
-            // Only load classes if the element exists
+
             if (document.getElementById('classesTableBody')) {
-                await this.loadClasses();
+                // Exactly one paginated table request.
+                await this.loadClasses(1);
+
+                // Supporting metadata is loaded separately and once.
                 await this.loadClassData();
             }
 
-            // Load subjects if on manage_subjects page
             if (document.getElementById('subjectsTableBody')) {
                 await this._loadSubjectsPage();
             }
 
-            this.setupEventListeners();
-            console.log('Academics Controller initialized successfully');
+            this.initialized = true;
+            console.log('[AcademicsController] Initialized successfully');
+
+            return this;
         } catch (error) {
-            console.error('Error initializing Academics Controller:', error);
+            console.error(
+                '[AcademicsController] Initialization failed:',
+                error
+            );
+            throw error;
         }
     },
 
     setupEventListeners() {
-        // Event listeners for modals and controls
-        document.addEventListener('click', (e) => {
-            if (e.target.closest('[data-permission]')) {
-                // Permission checks handled by middleware
-            }
-        });
+        if (this.eventsBound) {
+            return;
+        }
 
-        document.querySelectorAll('#classesTabs button[data-bs-toggle="tab"]').forEach((tab) => {
-            tab.addEventListener('shown.bs.tab', (e) => {
-                const target = e.target.getAttribute('data-bs-target');
-                if (target === '#streams') {
-                    this.loadStreams();
-                } else if (target === '#class-teachers') {
-                    this.loadClassTeachers();
-                } else if (target === '#timetables') {
-                    this.loadTimetables();
-                } else if (target === '#all-classes') {
-                    this.loadClasses();
-                }
+        this.eventsBound = true;
+
+        document
+            .querySelectorAll(
+                '#classesTabs button[data-bs-toggle="tab"]'
+            )
+            .forEach((tab) => {
+                tab.addEventListener('shown.bs.tab', (event) => {
+                    const target =
+                        event.target.getAttribute('data-bs-target');
+
+                    if (target === '#streams') {
+                        void this.loadStreams();
+                    } else if (target === '#class-teachers') {
+                        void this.loadClassTeachers();
+                    } else if (target === '#timetables') {
+                        void this.loadTimetables();
+                    } else if (target === '#all-classes') {
+                        void this.loadClasses(
+                            this.state.currentPage || 1
+                        );
+                    }
+                });
             });
-        });
+
+        const assignClassSelect =
+            document.getElementById('assignClass');
+
+        if (
+            assignClassSelect &&
+            assignClassSelect.dataset.listenerBound !== 'true'
+        ) {
+            assignClassSelect.dataset.listenerBound = 'true';
+
+            assignClassSelect.addEventListener('change', () => {
+                void this.populateAssignStreams(
+                    assignClassSelect.value
+                );
+            });
+        }
     },
 
     // ==================== TOAST NOTIFICATIONS ====================
@@ -99,65 +165,93 @@ const academicsController = {
     },
 
     // ==================== CLASSES MANAGEMENT ====================
-    async loadClasses(page = 1) {
-        try {
-            this.state.currentPage = page;
-            const params = {
-                page,
-                limit: this.state.pageSize,
-                search: this.state.searchTerm,
-                ...this.state.filters
-            };
+    async loadClasses(page = 1, options = {}) {
+        const force = options.force === true;
 
-            console.log('Loading classes with params:', params);
-            console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
-            console.log('Auth user:', AuthContext.getUser());
-            console.log('Is authenticated:', AuthContext.isAuthenticated());
-            
-            // Make the API call
-            let response;
-            try {
-                response = await window.API.academic.listClasses(params);
-            } catch (apiError) {
-                console.error('API call failed:', apiError);
-                console.error('Error message:', apiError.message);
-                console.error('Full error:', apiError);
-                
-                // Check if it's an auth issue
-                if (apiError.message && apiError.message.includes('JSON')) {
-                    console.error('⚠️ Non-JSON response received - likely authentication issue or server error');
-                    console.error('Checking authentication status...');
-                    if (!AuthContext.isAuthenticated()) {
-                        this.showToast('Please log in to access this page', 'error', 'Authentication Required');
-                        setTimeout(() => {
-                            window.location.href = (window.APP_BASE || '') + '/index.php';
-                        }, 2000);
-                    } else {
-                        this.showToast(`Server error: ${apiError.message}`, 'error', 'Error');
-                    }
-                } else {
-                    // Show the actual error message from the API
-                    this.showToast(`API Error: ${apiError.message}`, 'error', 'Error');
-                }
-                return;
+        if (this.classLoadPromise && !force) {
+            return this.classLoadPromise;
+        }
+
+        const request = this._loadClasses(page);
+        this.classLoadPromise = request;
+
+        try {
+            return await request;
+        } finally {
+            if (this.classLoadPromise === request) {
+                this.classLoadPromise = null;
             }
-            
-            console.log('Classes API response:', response);
-            
-            const data = Array.isArray(response) ? response : (Array.isArray(response?.data) ? response.data : []);
-            
-            console.log('Processed classes data:', data);
-            this.state.classes = data;
-            this.renderClassesTable();
-            this.updateClassStatistics();
-        } catch (error) {
-            console.error('Error loading classes:', error);
-            console.error('Error details:', error.message, error.response);
-            this.showToast(`Failed to load classes: ${error.message}`, 'error', 'Error');
         }
     },
 
-    async loadClassData() {
+    async _loadClasses(page = 1) {
+        this.state.currentPage = page;
+
+        const params = {
+            page,
+            limit: this.state.pageSize,
+            search: this.state.searchTerm,
+            ...this.state.filters
+        };
+
+        try {
+            const response =
+                await window.API.academic.listClasses(params);
+
+            const data = Array.isArray(response)
+                ? response
+                : Array.isArray(response?.data)
+                    ? response.data
+                    : [];
+
+            this.state.classes = data;
+            this.renderClassesTable();
+            this.updateClassStatistics();
+
+            return data;
+        } catch (error) {
+            if (
+                error?.name === 'AbortError' ||
+                error?.cancelled === true
+            ) {
+                return [];
+            }
+
+            console.error(
+                '[AcademicsController] Failed to load classes:',
+                error
+            );
+
+            this.showToast(
+                error?.message || 'Failed to load classes',
+                'error',
+                'Error'
+            );
+
+            return [];
+        }
+    },
+
+    async loadClassData(options = {}) {
+        const force = options.force === true;
+
+        if (this.classDataLoadPromise && !force) {
+            return this.classDataLoadPromise;
+        }
+
+        const request = this._loadClassData();
+        this.classDataLoadPromise = request;
+
+        try {
+            return await request;
+        } finally {
+            if (this.classDataLoadPromise === request) {
+                this.classDataLoadPromise = null;
+            }
+        }
+    },
+
+    async _loadClassData() {
         try {
             // Load static data for dropdowns and full summary-card totals.
             const [classesRes, levelsRes, streamsRes] = await Promise.all([
@@ -208,8 +302,9 @@ const academicsController = {
                 streamClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
             }
             if (assignClassSelect && classes.length > 0) {
-                assignClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
-                assignClassSelect.addEventListener('change', () => this.populateAssignStreams(assignClassSelect.value));
+                assignClassSelect.innerHTML =
+                    '<option value="">Select Class</option>' +
+                    classOptions;
             }
             if (timetableClassSelect && classes.length > 0) {
                 timetableClassSelect.innerHTML = '<option value="">Select Class</option>' + classOptions;
@@ -221,7 +316,26 @@ const academicsController = {
         }
     },
 
-    async loadTeachers() {
+    async loadTeachers(options = {}) {
+        const force = options.force === true;
+
+        if (this.teachersLoadPromise && !force) {
+            return this.teachersLoadPromise;
+        }
+
+        const request = this._loadTeachers();
+        this.teachersLoadPromise = request;
+
+        try {
+            return await request;
+        } finally {
+            if (this.teachersLoadPromise === request) {
+                this.teachersLoadPromise = null;
+            }
+        }
+    },
+
+    async _loadTeachers() {
         try {
             console.log('Loading teachers...');
             console.log('Current token:', AuthContext.getToken() ? '✓ Present' : '✗ Missing');
@@ -1144,7 +1258,23 @@ const academicsController = {
     _escH(str) { const d = document.createElement('div'); d.textContent = String(str ?? ''); return d.innerHTML; },
 };
 
-// Initialize when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    academicsController.init();
-});
+window.academicsController = academicsController;
+
+function initializeAcademicsController() {
+    void academicsController.init().catch((error) => {
+        console.error(
+            '[AcademicsController] Page initialization failed:',
+            error
+        );
+    });
+}
+
+if (window.__APP_BOOTED__) {
+    initializeAcademicsController();
+} else {
+    window.addEventListener(
+        'kingsway:ready',
+        initializeAcademicsController,
+        { once: true }
+    );
+}

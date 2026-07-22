@@ -5,7 +5,6 @@ use App\API\Includes\BaseAPI;
 use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
-use App\API\Services\MenuBuilderService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -832,22 +831,12 @@ class UsersAPI extends BaseAPI
             $roleIds = array_values(array_filter(array_unique($roleIds)));
         }
 
-        // Use MenuBuilderService to build sidebar (ensures consistency with login response)
+        // Sidebar is built from config/role_sidebars.php (the single source of
+        // truth) via SidebarConfigReader, identical to the login/refresh path.
+        // This keeps the profile sidebar in lockstep with the login sidebar.
         $items = [];
-        if (!empty($roleIds)) {
-            try {
-                $menuBuilder = MenuBuilderService::getInstance();
-
-                // If single role, use buildSidebarForUser; if multiple, use buildSidebarForMultipleRoles
-                if (count($roleIds) === 1) {
-                    $items = $menuBuilder->buildSidebarForUser($userId, $roleIds[0]);
-                } else {
-                    $items = $menuBuilder->buildSidebarForMultipleRoles($userId, $roleIds);
-                }
-            } catch (\Exception $e) {
-                error_log("UsersAPI.getSidebarItems() MenuBuilderService error: " . $e->getMessage());
-                $items = [];
-            }
+        foreach ($roleIds as $rid) {
+            $items = array_merge($items, \App\API\Services\SidebarConfigReader::forRole((int) $rid));
         }
 
         return ['success' => true, 'data' => $items];

@@ -18,8 +18,8 @@ const driverDashboardController = {
     loadAll: async function () {
         try {
             const [routeRes, vehicleRes] = await Promise.allSettled([
-                API.transport.getMyRoute ? API.transport.getMyRoute() : fetch((window.APP_BASE || '') + '/api/transport/my-route', {headers: {'Authorization': 'Bearer ' + AuthContext.getToken()}}).then(r => r.json()),
-                fetch((window.APP_BASE || '') + '/api/transport/my-vehicle', {headers: {'Authorization': 'Bearer ' + AuthContext.getToken()}}).then(r => r.json())
+                API.transport.getMyRoute ? API.transport.getMyRoute() : API.callAPI('/transport/my-route', 'GET', null, null, { checkPermission: false }).then(r => r?.data || r),
+                API.callAPI('/transport/my-vehicle', 'GET', null, null, { checkPermission: false }).then(r => r?.data || r)
             ]);
 
             if (routeRes.status === 'fulfilled') {
@@ -98,11 +98,7 @@ const driverDashboardController = {
     saveAttendance: async function () {
         const present = Array.from(document.querySelectorAll('.student-att-check:checked')).map(cb => cb.dataset.id);
         try {
-            await fetch((window.APP_BASE || '') + '/api/transport/attendance', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + AuthContext.getToken()},
-                body: JSON.stringify({ students: present, date: new Date().toISOString().slice(0, 10) })
-            });
+            await API.callAPI('/transport/attendance', 'POST', { students: present, date: new Date().toISOString().slice(0, 10) }, null, { checkPermission: false });
             document.getElementById('presentToday').textContent = present.length;
             if (typeof showNotification === 'function') showNotification('Attendance saved!', 'success');
         } catch (e) {

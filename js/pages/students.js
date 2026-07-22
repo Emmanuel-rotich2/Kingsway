@@ -22,7 +22,7 @@ const studentsManagementController = {
                         strategy: 'stale-while-revalidate',
                         ttl: 300000, // 5 minutes
                         storeName: 'student_directory_cache',
-                        endpoint: '/api/students',
+                        endpoint: '/students',
                         params: params
                     });
                     console.log("[Students] Data from DataStore:", data);

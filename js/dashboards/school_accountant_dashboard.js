@@ -247,13 +247,18 @@ const schoolAccountantDashboardController = Object.assign(
             e,
           );
         }
-        // Fallback to direct fetch
+        // Fallback to API.callAPI (no raw fetch)
         try {
-          const res = await fetch(fallbackEndpoint);
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return await res.json();
+          // Extract the path after /api and pass it as a relative endpoint
+          const relPath = fallbackEndpoint.split('/api')[1];
+          if (!relPath) throw new Error('Invalid fallback endpoint');
+          const data = await API.callAPI(relPath, 'GET', null, null, {
+            checkPermission: false,
+          });
+          // Mimic previous res.json() envelope shape ({ data: ... })
+          return { data };
         } catch (e) {
-          console.warn(`Fallback fetch failed: ${fallbackEndpoint}`, e);
+          console.warn(`Fallback API call failed: ${fallbackEndpoint}`, e);
           return null;
         }
       };
@@ -2321,11 +2326,9 @@ schoolAccountantDashboardController.fetchBankTransactions = async function (
     if (window.API?.accounts?.getBankTransactions) {
       json = await window.API.accounts.getBankTransactions(bankId);
     } else {
-      const res = await fetch(
-        `${window.APP_BASE || ''}/api/accounts/bank-transactions?bank_id=${encodeURIComponent(bankId)}`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch bank transactions");
-      json = await res.json();
+      json = await API.callAPI('/accounts/bank-transactions', 'GET', null, {
+        bank_id: bankId,
+      }, { checkPermission: false });
     }
     const txs = json.transactions || json.data || json;
     this.state.bankTransactions = Array.isArray(txs) ? txs : [];
@@ -2924,24 +2927,28 @@ schoolAccountantDashboardController.openReconcileModal = async function (
               : json.message || "Transaction reconciled successfully";
             showNotification(msg, "success");
           } else {
-            const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                mpesa_id: currentMpesaId,
-                bank_statement_ref: bankRef,
-                notes: notes,
-                student_id: studentId,
-              }),
-            });
-            json = await res.json();
-            if (res.ok) {
+            try {
+              json = await API.callAPI(
+                '/payments/reconcile-mpesa',
+                'POST',
+                {
+                  mpesa_id: currentMpesaId,
+                  bank_statement_ref: bankRef,
+                  notes: notes,
+                  student_id: studentId,
+                },
+                null,
+                { checkPermission: false },
+              );
               showNotification(
                 json.message || "Transaction reconciled successfully",
                 "success",
               );
-            } else {
-              showNotification(json.message || "Failed to reconcile", "error");
+            } catch (err) {
+              showNotification(
+                err.message || "Failed to reconcile",
+                "error",
+              );
               return;
             }
           }
@@ -3092,12 +3099,9 @@ schoolAccountantDashboardController.loadReconcileHistory = async function (
     if (window.API?.payments?.getMpesaReconcileHistory) {
       json = await window.API.payments.getMpesaReconcileHistory(mpesaId);
     } else {
-      const res = await fetch(
-        (window.APP_BASE || '') + '/api/payments/mpesa-reconcile-history?mpesa_id=' +
-          encodeURIComponent(mpesaId),
-      );
-      if (!res.ok) throw new Error("History fetch failed");
-      json = await res.json();
+      json = await API.callAPI('/payments/mpesa-reconcile-history', 'GET', null, {
+        mpesa_id: mpesaId,
+      }, { checkPermission: false });
     }
     const history = json.history || json.data || [];
     if (!historyContainer) return history;
@@ -3158,18 +3162,9 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
 
   try {
     let json;
-    const url = `${window.APP_BASE || ''}/api/payments/lookup-by-phone?phone=${encodeURIComponent(phone)}`;
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${AuthContext.getToken() || ""}`,
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error("Phone lookup failed");
-    }
-
-    json = await res.json();
+    json = await API.callAPI('/payments/lookup-by-phone', 'GET', null, {
+      phone,
+    }, { checkPermission: false });
     const students = json.data?.students || json.students || [];
 
     if (students.length === 0) {
@@ -3248,60 +3243,53 @@ schoolAccountantDashboardController.lookupStudentByPhone = async function (
 
         try {
           // Call API to update mpesa_transactions with student_id
-          const linkRes = await fetch((window.APP_BASE || '') + '/api/payments/link-student', {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${AuthContext.getToken() || ""}`,
-            },
-            body: JSON.stringify({
+          await API.callAPI(
+            '/payments/link-student',
+            'POST',
+            {
               mpesa_id: mpesaId,
               student_id: studentId,
-            }),
-          });
+            },
+            null,
+            { checkPermission: false },
+          );
 
-          const linkJson = await linkRes.json();
+          showNotification(
+            `Linked to ${studentName} (${admissionNo})`,
+            "success",
+          );
 
-          if (linkRes.ok) {
-            showNotification(
-              `Linked to ${studentName} (${admissionNo})`,
-              "success",
+          // Update the transaction in state
+          const unmatchedPayments =
+            schoolAccountantDashboardController.state?.tableData
+              ?.unmatched_payments || [];
+          const txIndex = unmatchedPayments.findIndex(
+            (p) => String(p.id) === String(mpesaId),
+          );
+          if (txIndex >= 0) {
+            unmatchedPayments[txIndex].student_id = studentId;
+            unmatchedPayments[txIndex].student_name = studentName;
+          }
+
+          // Hide the lookup section and update summary
+          const studentLookupSection = modalEl.querySelector(
+            "#studentLookupSection",
+          );
+          if (studentLookupSection)
+            studentLookupSection.classList.add("d-none");
+
+          // Update summary to show linked student
+          const summaryContainer = modalEl.querySelector(
+            "#reconcileTransactionSummary",
+          );
+          if (summaryContainer) {
+            const studentSpan = summaryContainer.querySelector(
+              ".text-warning.fw-bold",
             );
-
-            // Update the transaction in state
-            const unmatchedPayments =
-              schoolAccountantDashboardController.state?.tableData
-                ?.unmatched_payments || [];
-            const txIndex = unmatchedPayments.findIndex(
-              (p) => String(p.id) === String(mpesaId),
-            );
-            if (txIndex >= 0) {
-              unmatchedPayments[txIndex].student_id = studentId;
-              unmatchedPayments[txIndex].student_name = studentName;
+            if (studentSpan) {
+              studentSpan.className = "";
+              studentSpan.innerHTML = studentName;
             }
-
-            // Hide the lookup section and update summary
-            const studentLookupSection = modalEl.querySelector(
-              "#studentLookupSection",
-            );
-            if (studentLookupSection)
-              studentLookupSection.classList.add("d-none");
-
-            // Update summary to show linked student
-            const summaryContainer = modalEl.querySelector(
-              "#reconcileTransactionSummary",
-            );
-            if (summaryContainer) {
-              const studentSpan = summaryContainer.querySelector(
-                ".text-warning.fw-bold",
-              );
-              if (studentSpan) {
-                studentSpan.className = "";
-                studentSpan.innerHTML = studentName;
-              }
-            }
-          } else {
-            throw new Error(linkJson.message || "Failed to link student");
           }
         } catch (e) {
           console.error("Link student error:", e);
@@ -3350,9 +3338,9 @@ schoolAccountantDashboardController.loadBankTransactionsForReconcile =
       if (window.API?.accounts?.getBankTransactions) {
         json = await window.API.accounts.getBankTransactions();
       } else {
-        const res = await fetch((window.APP_BASE || '') + '/api/accounts/bank-transactions');
-        if (!res.ok) throw new Error("Failed to fetch bank transactions");
-        json = await res.json();
+        json = await API.callAPI('/accounts/bank-transactions', 'GET', null, null, {
+          checkPermission: false,
+        });
       }
 
       const transactions =
@@ -3451,9 +3439,9 @@ schoolAccountantDashboardController.loadBankTransactionsCache =
       if (window.API?.accounts?.getBankTransactions) {
         json = await window.API.accounts.getBankTransactions();
       } else {
-        const res = await fetch((window.APP_BASE || '') + '/api/accounts/bank-transactions');
-        if (!res.ok) return [];
-        json = await res.json();
+        json = await API.callAPI('/accounts/bank-transactions', 'GET', null, null, {
+          checkPermission: false,
+        });
       }
       let allTxns =
         json.data?.transactions || json.transactions || json.data || [];
@@ -3688,17 +3676,17 @@ schoolAccountantDashboardController.autoReconcile = async function (
         "Auto-matched by system",
       );
     } else {
-      const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      json = await API.callAPI(
+        '/payments/reconcile-mpesa',
+        'POST',
+        {
           mpesa_id: mpesaId,
           bank_statement_ref: bankRef,
           notes: "Auto-matched by system",
-        }),
-      });
-      json = await res.json();
-      if (!res.ok) throw new Error(json.message || "Failed");
+        },
+        null,
+        { checkPermission: false },
+      );
     }
 
     showNotification(json.message || "Transaction auto-reconciled!", "success");
@@ -3749,17 +3737,17 @@ schoolAccountantDashboardController.bulkAutoReconcile = async function () {
           "Bulk auto-matched by system",
         );
       } else {
-        const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        json = await API.callAPI(
+          '/payments/reconcile-mpesa',
+          'POST',
+          {
             mpesa_id: mpesaId,
             bank_statement_ref: bankRef,
             notes: "Bulk auto-matched by system",
-          }),
-        });
-        json = await res.json();
-        if (!res.ok) throw new Error(json.message || "Failed");
+          },
+          null,
+          { checkPermission: false },
+        );
       }
       successCount++;
 
@@ -3872,20 +3860,17 @@ schoolAccountantDashboardController.openBulkReconcileModal = function () {
             if (window.API?.payments?.reconcileMpesa) {
               await window.API.payments.reconcileMpesa(mpesaId, ref, notes);
             } else {
-              const res = await fetch(
-                (window.APP_BASE || '') + '/api/payments/reconcile-mpesa',
+              await API.callAPI(
+                '/payments/reconcile-mpesa',
+                'POST',
                 {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    mpesa_id: mpesaId,
-                    bank_statement_ref: ref,
-                    notes,
-                  }),
+                  mpesa_id: mpesaId,
+                  bank_statement_ref: ref,
+                  notes,
                 },
+                null,
+                { checkPermission: false },
               );
-              const json = await res.json();
-              if (!res.ok) throw new Error(json.message);
             }
             successCount++;
 
@@ -3954,20 +3939,21 @@ document.addEventListener("DOMContentLoaded", function () {
         );
         showNotification(json.message || "Reconciled", "success");
       } else {
-        const res = await fetch((window.APP_BASE || '') + '/api/payments/reconcile-mpesa', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            mpesa_id: mpesaId,
-            bank_statement_ref: bankRef,
-            notes: notes,
-          }),
-        });
-        json = await res.json();
-        if (res.ok) {
+        try {
+          json = await API.callAPI(
+            '/payments/reconcile-mpesa',
+            'POST',
+            {
+              mpesa_id: mpesaId,
+              bank_statement_ref: bankRef,
+              notes: notes,
+            },
+            null,
+            { checkPermission: false },
+          );
           showNotification(json.message || "Reconciled", "success");
-        } else {
-          showNotification(json.message || "Failed to reconcile", "error");
+        } catch (err) {
+          showNotification(err.message || "Failed to reconcile", "error");
           return;
         }
       }

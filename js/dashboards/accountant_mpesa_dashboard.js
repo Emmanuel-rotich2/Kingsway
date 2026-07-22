@@ -41,8 +41,13 @@ const accountantMpesaDashboardController = Object.assign(
     },
 
     fetchJSON: function (url) {
-      return fetch(url)
-        .then(function (r) { return r.ok ? r.json() : null; })
+      // Route through the centralized API.callAPI (no raw fetch allowed).
+      // Convert the absolute url into a /api-relative endpoint.
+      var endpoint = url.replace((window.APP_BASE || '') + '/api', '');
+      return API.callAPI(endpoint, 'GET', null, null, { checkPermission: false })
+        // API.callAPI resolves to the *inner* data object; preserve the
+        // downstream `result.data` business logic by re-wrapping it.
+        .then(function (data) { return { data: data }; })
         .catch(function () { return null; });
     },
 
@@ -123,24 +128,24 @@ const accountantMpesaDashboardController = Object.assign(
         .join("");
     },
 
-    handleMatchPayment: function (id, receipt) {
+    handleMatchPayment: async function (id, receipt) {
       var self = this;
       var studentId = prompt("Enter Student ID or Admission Number to match payment " + receipt + ":");
       if (!studentId) {
         return;
       }
-      fetch((window.APP_BASE || '') + '/api/payments/mpesa/match', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payment_id: id, student_id: studentId }),
-      })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (result) {
-          if (result && result.success) {
-            self.loadAllData();
-          }
-        })
-        .catch(function (e) { console.warn("Match payment failed:", e); });
+      try {
+        await API.callAPI(
+          "/payments/mpesa/match",
+          "POST",
+          { payment_id: id, student_id: studentId },
+          null,
+          { checkPermission: false }
+        );
+        self.loadAllData();
+      } catch (e) {
+        console.warn("Match payment failed:", e && e.message ? e.message : e);
+      }
     },
 
     setupEventListeners: function () {

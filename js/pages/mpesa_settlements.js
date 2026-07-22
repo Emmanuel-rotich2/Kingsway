@@ -36,16 +36,8 @@
          */
         loadData: async function () {
             try {
-                var response = await fetch(API_BASE_URL + "/finance/mpesa-settlements", {
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
-
-                if (result.status === "success" || result.success) {
-                    this.data = result.data || result.settlements || [];
-                } else {
-                    this.data = [];
-                }
+                this.data = await API.callAPI("/finance/mpesa-settlements", "GET");
+                if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading M-Pesa settlements:", error);
                 this.data = [];
@@ -212,15 +204,8 @@
             var transBody = document.getElementById("settlementTransactionsBody");
 
             try {
-                var response = await fetch(API_BASE_URL + "/finance/mpesa-settlements/" + id + "/transactions", {
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
-                var transactions = [];
-
-                if (result.status === "success" || result.success) {
-                    transactions = result.data || result.transactions || [];
-                }
+                var transactions = await API.callAPI("/finance/mpesa-settlements/" + id + "/transactions", "GET");
+                if (!Array.isArray(transactions)) transactions = [];
 
                 if (transactions.length === 0) {
                     // Fallback: use embedded transactions if any

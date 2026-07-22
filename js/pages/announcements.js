@@ -162,7 +162,13 @@ const announcementsController = {
   exportCSV: function () {
     if (!this._filtered.length) { showNotification('No data to export.','warning'); return; }
     const h = ['Title','Category','Audience','Status','Published','Expiry'];
-    const rows = [h.join(','),...this._filtered.map(a=>[`"${a.title||''}"`,'`"${a.category||''}"`,`"${a.audience||''}"`,`"${a.status||''}"`,`"${a.publish_date||''}"`,`"${a.expiry_date||''}"` ].join(','))];
+    const csvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const rows = [
+      h.map(csvCell).join(','),
+      ...this._filtered.map((a) => [
+        a.title, a.category, a.audience, a.status, a.publish_date, a.expiry_date
+      ].map(csvCell).join(','))
+    ];
     const blob=new Blob([rows.join('\n')],{type:'text/csv'});
     const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='announcements.csv'; el.click();
   },

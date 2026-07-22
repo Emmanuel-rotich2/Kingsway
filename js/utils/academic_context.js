@@ -11,6 +11,9 @@
 (function() {
     'use strict';
 
+    let academicInitPromise = null;
+    let changesListenerStarted = false;
+
     const AcademicContext = {
         // State
         state: {
@@ -40,6 +43,8 @@
          * Loads current academic context from server
          */
         async init() {
+            if (academicInitPromise) return academicInitPromise;
+            academicInitPromise = (async () => {
             if (this.state.isLoading) return;
             
             this.state.isLoading = true;
@@ -53,6 +58,9 @@
             } finally {
                 this.state.isLoading = false;
             }
+            return this.getState();
+            })();
+            return academicInitPromise;
         },
 
         /**
@@ -374,6 +382,8 @@
          * Listen for context changes from other tabs
          */
         listenForChanges() {
+            if (changesListenerStarted) return;
+            changesListenerStarted = true;
             if (typeof BroadcastChannel !== 'undefined') {
                 try {
                     const channel = new BroadcastChannel('academic_context');
@@ -416,17 +426,6 @@
             return this.state.isLoading;
         }
     };
-
-    // Initialize on page load
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            AcademicContext.init();
-            AcademicContext.listenForChanges();
-        });
-    } else {
-        AcademicContext.init();
-        AcademicContext.listenForChanges();
-    }
 
     // Expose globally
     window.AcademicContext = AcademicContext;

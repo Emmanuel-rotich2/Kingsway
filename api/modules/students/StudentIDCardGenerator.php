@@ -353,6 +353,7 @@ class StudentIDCardGenerator extends BaseAPI
                 $student['card_number'] = $student['card_number'] ?? $student['admission_no'];
                 $student['issue_date'] = $student['card_issue_date'] ?? date('Y-m-d');
                 $student['expiry_date'] = $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31';
+                $student['academic_year'] = $this->getAcademicYearForStudent($student['id']);
             }
 
             // Get school configuration
@@ -406,7 +407,7 @@ class StudentIDCardGenerator extends BaseAPI
      * @param string $printMode 'a4_sheet'|'direct_card'
      * @return array Response with 'html' key
      */
-    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card')
+    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card', $format = 'html')
     {
         try {
             $stmt = $this->db->prepare("
@@ -438,6 +439,7 @@ class StudentIDCardGenerator extends BaseAPI
                 'issue_date' => $student['card_issue_date'] ?? date('Y-m-d'),
                 'expiry_date' => $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
             ];
+            $student['academic_year'] = $this->getAcademicYearForStudent($student['id']);
 
             $schoolConfig = $this->getSchoolConfig();
 
@@ -447,6 +449,24 @@ class StudentIDCardGenerator extends BaseAPI
             } else {
                 // Exact CR80 page guided by @page in renderer CSS.
                 $html = $this->renderer->renderDirectCard($student, 'student', $side, $schoolConfig);
+            }
+
+            // PDF mode: produce a real CR80 page-sized PDF (85.60 x 53.98 mm)
+            // so a direct PVC/CR80 printer can be fed one side per physical page.
+            if ($format === 'pdf') {
+                $pdfPath = $this->printService->generatePDFFromHtml($html, [
+                    'cr80' => true,
+                    'orientation' => 'landscape',
+                    'filename' => 'id_card_' . $student['admission_no'] . '_' . time()
+                ]);
+                $pdfUrl = rtrim(BASE_URL ?? '', '/') . '/temp/print/' . basename($pdfPath);
+                return formatResponse(true, [
+                    'pdf_url' => $pdfUrl,
+                    'file_path' => $pdfPath,
+                    'side' => $side,
+                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
+                    'admission_no' => $student['admission_no']
+                ], 'ID card PDF generated');
             }
 
             return formatResponse(true, [
@@ -543,28 +563,72 @@ class StudentIDCardGenerator extends BaseAPI
         imagedestroy($newImage);
     }
 
+    /**
+     * Resolve school profile for card rendering.
+     *
+     * Uses the SAME source as the browser preview (school_settings + school_assets),
+     * so the printed card's logo, name, address, phone, email and signature exactly
+     * match what renderCardPreview displays. Maps to the keys the renderer expects.
+     */
+    /**
+     * Derive the student's current academic year from their active enrollment,
+     * matching the source used by the browser preview (StudentService::getIdCardDetails
+     * joins current_enrollment -> academic_years). Returns e.g. "2026".
+     */
+    private function getAcademicYearForStudent($studentId)
+    {
+        try {
+            $stmt = $this->db->prepare("
+                SELECT ay.year_code AS academic_year
+                FROM class_enrollments ce
+                LEFT JOIN academic_years ay ON ce.academic_year_id = ay.id
+                WHERE ce.student_id = ? AND ce.enrollment_status = 'active'
+                ORDER BY ay.year_code DESC
+                LIMIT 1
+            ");
+            $stmt->execute([$studentId]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            return $row['academic_year'] ?? '';
+        } catch (Exception $e) {
+            return '';
+        }
+    }
+
     private function getSchoolConfig()
     {
         try {
-            $stmt = $this->db->query("SELECT config_key, config_value FROM school_configuration");
-            $configs = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+            $stmt = $this->db->prepare("SELECT setting_key, setting_value FROM school_settings WHERE setting_key IN ('school_name', 'school_address', 'school_phone', 'school_email', 'school_website', 'school_motto', 'headteacher_name', 'authorized_signature')");
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $settings = [];
+            foreach ($rows as $row) {
+                $settings[$row['setting_key']] = $row['setting_value'];
+            }
 
             return [
-                'name' => $configs['school_name'] ?? 'Kingsway Academy',
-                'motto' => $configs['school_motto'] ?? 'Excellence in Education',
-                'logo' => $configs['school_logo'] ?? '/uploads/school_assets/official_school_logo.png',
-                'address' => $configs['school_address'] ?? '',
-                'phone' => $configs['school_phone'] ?? '',
-                'email' => $configs['school_email'] ?? ''
+                'school_name' => $settings['school_name'] ?? 'Kingsway Preparatory School',
+                'school_address' => $settings['school_address'] ?? '',
+                'school_phone' => $settings['school_phone'] ?? '',
+                'school_email' => $settings['school_email'] ?? '',
+                'school_website' => $settings['school_website'] ?? '',
+                'school_motto' => $settings['school_motto'] ?? 'In God We Soar',
+                'headteacher_name' => $settings['headteacher_name'] ?? '',
+                'authorized_signature' => $settings['authorized_signature'] ?? '',
+                // Logo resolution mirrors the browser preview (resolveAssetUrl
+                // fallback to the on-disk official logo).
+                'school_logo' => '/uploads/school_assets/official_school_logo.png'
             ];
         } catch (Exception $e) {
             return [
-                'name' => 'Kingsway Academy',
-                'motto' => 'Excellence in Education',
-                'logo' => '/uploads/school_assets/official_school_logo.png',
-                'address' => '',
-                'phone' => '',
-                'email' => ''
+                'school_name' => 'Kingsway Preparatory School',
+                'school_address' => '',
+                'school_phone' => '',
+                'school_email' => '',
+                'school_website' => '',
+                'school_motto' => 'In God We Soar',
+                'headteacher_name' => '',
+                'authorized_signature' => '',
+                'school_logo' => '/uploads/school_assets/official_school_logo.png'
             ];
         }
     }

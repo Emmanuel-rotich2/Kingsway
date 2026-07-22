@@ -544,9 +544,9 @@ function renderBillingHistoryModal(data) {
   });
 
   contentEl.innerHTML = html;
-},
+}
 
-printBillingStatement() {
+BalancesByClassController.printBillingStatement = function printBillingStatement() {
   if (!this.state.selectedStudentBilling || this.state.selectedStudentBilling.length === 0) {
     alert('No billing data to print');
     return;
@@ -610,6 +610,6 @@ printBillingStatement() {
       { label: 'Principal' }
     ]
   });
-}
+};
 
 document.addEventListener('DOMContentLoaded', () => BalancesByClassController.init());

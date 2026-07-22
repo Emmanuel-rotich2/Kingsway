@@ -35,16 +35,8 @@
          */
         loadData: async function () {
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-accounts", {
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
-
-                if (result.status === "success" || result.success) {
-                    this.data = result.data || result.accounts || [];
-                } else {
-                    this.data = [];
-                }
+                this.data = await API.callAPI("/accounts/bank-accounts", "GET");
+                if (!Array.isArray(this.data)) this.data = [];
             } catch (error) {
                 console.error("Error loading bank accounts:", error);
                 this.data = [];
@@ -244,24 +236,15 @@
             };
 
             try {
-                var url = API_BASE_URL + "/finance/bank-accounts";
+                var endpoint = "/accounts/bank-accounts";
                 var method = payload.id ? "PUT" : "POST";
-                if (payload.id) url += "/" + payload.id;
+                if (payload.id) endpoint += "/" + payload.id;
 
-                var response = await fetch(url, {
-                    method: method,
-                    headers: this.getHeaders(),
-                    body: JSON.stringify(payload)
-                });
-                var result = await response.json();
+                await API.callAPI(endpoint, method, payload);
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Bank account saved successfully", "success");
-                    bootstrap.Modal.getInstance(document.getElementById("bankAccountModal")).hide();
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to save bank account", "error");
-                }
+                this.showNotification("Bank account saved successfully", "success");
+                bootstrap.Modal.getInstance(document.getElementById("bankAccountModal")).hide();
+                await this.loadData();
             } catch (error) {
                 console.error("Error saving bank account:", error);
                 this.showNotification("Failed to save bank account", "error");
@@ -313,18 +296,10 @@
             if (!confirm("Are you sure you want to delete this bank account?")) return;
 
             try {
-                var response = await fetch(API_BASE_URL + "/finance/bank-accounts/" + id, {
-                    method: "DELETE",
-                    headers: this.getHeaders()
-                });
-                var result = await response.json();
+                await API.callAPI("/accounts/bank-accounts/" + id, "DELETE");
 
-                if (result.status === "success" || result.success) {
-                    this.showNotification("Bank account deleted", "success");
-                    await this.loadData();
-                } else {
-                    this.showNotification(result.message || "Failed to delete account", "error");
-                }
+                this.showNotification("Bank account deleted", "success");
+                await this.loadData();
             } catch (error) {
                 console.error("Error deleting bank account:", error);
                 this.showNotification("Failed to delete bank account", "error");
