@@ -693,16 +693,14 @@ class SystemConfigAPI
      */
     public function buildUserSidebar(int $userId, int $roleId, array $permissions = []): array
     {
-        try {
-            $sidebar = $this->menuService->buildSidebarForUser($userId, $roleId, $permissions);
+        // Sidebar is file-driven (config/role_sidebars.php) via the shared
+        // reader — matches the login/profile path exactly.
+        $sidebar = \App\API\Services\SidebarConfigReader::forRole($roleId);
 
-            return [
-                'success' => true,
-                'data' => $sidebar
-            ];
-        } catch (Exception $e) {
-            return $this->errorResponse($e->getMessage());
-        }
+        return [
+            'success' => true,
+            'data' => $sidebar
+        ];
     }
 
     // =========================================================================
@@ -1005,11 +1003,22 @@ class SystemConfigAPI
 
     /**
      * POST /api/system/import/menus
+     *
+     * @deprecated Sidebar menus now live in config/role_sidebars.php (the single
+     * source of truth). The legacy includes/dashboards.php file was removed;
+     * this endpoint is retained for route-compatibility but no longer imports.
      */
     public function importLegacyMenus(): array
     {
+        $legacyFile = dirname(__DIR__, 2) . '/includes/dashboards.php';
+        if (!file_exists($legacyFile)) {
+            return $this->errorResponse(
+                'Legacy menu import is obsolete. Sidebar menus are defined in config/role_sidebars.php.'
+            );
+        }
+
         try {
-            $legacyConfig = require dirname(__DIR__, 2) . '/includes/dashboards.php';
+            $legacyConfig = require $legacyFile;
 
             if (!is_array($legacyConfig)) {
                 return $this->errorResponse('Could not load legacy config');

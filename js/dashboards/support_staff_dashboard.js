@@ -36,9 +36,7 @@ const supportStaffDashboardController = {
         if (!el) return;
         try {
             const token = AuthContext.getToken();
-            const res = await fetch((window.APP_BASE || '') + '/api/staff/my-schedule', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(r => r.json()).catch(() => null);
+            const res = await API.callAPI('/staff/my-schedule', 'GET', null, null, { checkPermission: false, headers: { 'Authorization': 'Bearer ' + token } }).then(r => r?.data || r).catch(() => null);
 
             const schedule = res?.data || res;
             if (!schedule || !Array.isArray(schedule) || !schedule.length) {
@@ -63,9 +61,7 @@ const supportStaffDashboardController = {
         if (!el) return;
         try {
             const token = AuthContext.getToken();
-            const res = await fetch((window.APP_BASE || '') + '/api/announcements?limit=5&audience=staff', {
-                headers: { 'Authorization': 'Bearer ' + token }
-            }).then(r => r.json()).catch(() => null);
+            const res = await API.callAPI('/announcements', 'GET', null, { limit: 5, audience: 'staff' }, { checkPermission: false, headers: { 'Authorization': 'Bearer ' + token } }).then(r => r?.data || r).catch(() => null);
 
             const list = res?.data || res;
             if (!Array.isArray(list) || !list.length) {

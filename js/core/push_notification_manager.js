@@ -265,11 +265,4 @@ const PushNotificationManager = {
   }
 };
 
-// Auto-initialize when DOM is ready
-if (typeof document !== 'undefined') {
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => PushNotificationManager.initialize());
-  } else {
-    PushNotificationManager.initialize();
-  }
-}
+if (typeof window !== 'undefined') window.PushNotificationManager = PushNotificationManager;

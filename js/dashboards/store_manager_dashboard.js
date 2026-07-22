@@ -14,14 +14,12 @@ const storeDashboardController = {
     refresh: function () { this.loadAll(); },
 
     loadAll: async function () {
-        const token = AuthContext.getToken();
-        const h = { 'Authorization': 'Bearer ' + token };
-        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
 
         const [stats, lowStock, requisitions] = await Promise.allSettled([
-            get('/api/inventory/stats'),
-            get('/api/inventory/low-stock?limit=8'),
-            get('/api/requisitions?status=pending&limit=8')
+            get('/inventory/dashboard'),
+            get('/inventory/items/low-stock?limit=8'),
+            get('/inventory/requisitions/list?status=pending&limit=8')
         ]);
 
         if (stats.value) this.renderStats(stats.value?.data || stats.value);

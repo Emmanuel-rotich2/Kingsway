@@ -49,23 +49,39 @@ const dashboardBaseController = {
     
     /**
      * Initialize dashboard - ENTRY POINT
+     *
+     * AUTH FLOW (fixes the "bounced to login before session restored" bug):
+     * Authentication MUST complete BEFORE we decide to redirect or load data.
+     * We await AuthContext.ready() — the singleton boot promise that performs the
+     * silent refresh-cookie restore if web-storage has no token — so the gate
+     * below always sees settled auth state. No more "appears logged out for 1s
+     * then token arrives too late" race.
      */
-    init: function() {
+    init: async function() {
         const dashboardName = this.dashboardName || 'Dashboard';
         console.log(`🚀 ${dashboardName} initializing...`);
-        
+
+        // Settle authentication FIRST (network restore if needed), THEN gate.
+        if (typeof AuthContext !== 'undefined' && typeof AuthContext.ready === 'function') {
+            try {
+                await AuthContext.ready();
+            } catch (e) {
+                console.warn(`[${dashboardName}] auth ready() failed:`, e);
+            }
+        }
+
         // Security: Check authentication
         if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
             console.error('❌ User not authenticated');
             window.location.href = (window.APP_BASE || '') + '/index.php';
             return;
         }
-        
+
         // Load data and render
         this.loadDashboardData();
         this.setupEventListeners();
         this.setupAutoRefresh();
-        
+
         console.log(`✓ ${dashboardName} initialized successfully`);
     },
     
@@ -102,9 +118,10 @@ const dashboardBaseController = {
                 if (endpoint.includes('attendance')) return window.API.dashboard?.getTodayAttendance?.() || Promise.resolve(null);
                 if (endpoint.includes('schedule')) return window.API.dashboard?.getScheduleStats?.() || Promise.resolve(null);
                 
-                // Generic fetch for other endpoints
-                return fetch(`${window.APP_BASE || ''}${endpoint}`)
-                    .then(r => r.ok ? r.json() : null)
+                // Generic fetch for other endpoints (route via API.callAPI)
+                const rel = endpoint.replace(/^\/api\//, '');
+                return API.callAPI(rel, 'GET', null, null, { checkPermission: false })
+                    .then(r => r?.data || r)
                     .catch(e => {
                         console.warn(`⚠️  API call failed: ${endpoint}`, e);
                         return null;

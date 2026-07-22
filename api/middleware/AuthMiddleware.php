@@ -56,6 +56,8 @@ class AuthMiddleware
             // batch that may fire while the access token is mid-refresh; keep it public
             // so it never gets stuck in a 401/retry loop).
             'telemetry',
+            'telemetry/data',
+            'telemetry/errors',
             // Resource file downloads (teaching materials / past papers). The list
             // (GET /api/academic/resources) and upload (POST) stay authenticated; only
             // the file-serving GET is public because the frontend opens it via
@@ -109,7 +111,10 @@ class AuthMiddleware
             ];
             $isPublic = false;
             foreach ($publicPortal as $ep) {
-                if (strpos($path, $ep) !== false) { $isPublic = true; break; }
+                if (strpos($path, $ep) !== false) {
+                    $isPublic = true;
+                    break;
+                }
             }
             if (!$isPublic) {
                 \App\API\Middleware\ParentAuthMiddleware::handle();
@@ -238,11 +243,11 @@ class AuthMiddleware
         }
         $payload = json_encode([
             'success' => false,
-            'status'  => 'error',
+            'status' => 'error',
             'data' => null,
             'message' => $message,
             'errors' => [],
-            'code'    => $code,
+            'code' => $code,
         ]);
         echo $payload !== false
             ? $payload

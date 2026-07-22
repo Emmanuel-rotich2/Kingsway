@@ -1,194 +1,255 @@
-<!--components/global/header.php-->
-<!-- 
-Stateless header component using JWT tokens (no PHP sessions)
-User data is populated from localStorage via JavaScript
-Authentication is handled by AuthContext in js/api.js
-Compatible with load balancing and horizontal scaling
--->
-<div class="school-header d-flex align-items-center justify-content-start px-3">
-    <div class="header-items d-flex align-items-center justify-content-between flex-grow-1">
-        <div class="topbar d-flex align-items-center flex-grow-1 gap-4">
-            <button class="btn btn-light" onclick="toggleSidebar()">☰</button>
-            <div>Welcome <span id="header-user-role">User</span></div>
+<!-- components/global/header.php -->
+<header class="app-header" id="app-header">
+    <div class="app-header-left">
+        <button
+            class="app-icon-button"
+            id="sidebar-toggle-button"
+            type="button"
+            aria-controls="sidebar"
+            aria-expanded="true"
+            aria-label="Toggle navigation"
+            title="Toggle navigation"
+        >
+            <i class="bi bi-list" aria-hidden="true"></i>
+        </button>
+
+        <div class="app-header-copy">
+            <span class="app-header-kicker">Welcome back</span>
+            <strong id="header-user-role">User</strong>
         </div>
-        <!-- Actions -->
-        <div class="d-flex align-items-center gap-2 ms-3">
-            <!-- Notifications -->
-            <button class="btn btn-light position-relative">
-                <i class="fas fa-bell"></i>
-                <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger">
-                    3
-                    <span class="visually-hidden">unread messages</span>
+    </div>
+
+    <div class="app-header-actions">
+        <button
+            class="app-icon-button"
+            id="header-search-button"
+            type="button"
+            aria-label="Search"
+            title="Search"
+        >
+            <i class="bi bi-search" aria-hidden="true"></i>
+        </button>
+
+        <div class="dropdown">
+            <button
+                class="app-icon-button position-relative"
+                id="notificationsDropdown"
+                type="button"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+                aria-label="Notifications"
+                title="Notifications"
+            >
+                <i class="bi bi-bell" aria-hidden="true"></i>
+                <span
+                    class="app-notification-badge"
+                    id="header-notification-count"
+                >3</span>
+            </button>
+
+            <div
+                class="dropdown-menu dropdown-menu-end app-header-menu"
+                aria-labelledby="notificationsDropdown"
+            >
+                <div class="app-menu-heading">
+                    <strong>Notifications</strong>
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-link text-decoration-none"
+                        id="mark-all-notifications-read"
+                    >
+                        Mark all read
+                    </button>
+                </div>
+
+                <div id="header-notification-list">
+                    <div class="app-notification-item">
+                        <span class="app-notification-icon bg-success-subtle text-success">
+                            <i class="bi bi-person-check"></i>
+                        </span>
+                        <div>
+                            <strong>Admissions update</strong>
+                            <small>2 applications are pending review.</small>
+                        </div>
+                    </div>
+
+                    <div class="app-notification-item">
+                        <span class="app-notification-icon bg-warning-subtle text-warning-emphasis">
+                            <i class="bi bi-calendar-event"></i>
+                        </span>
+                        <div>
+                            <strong>Academic schedule</strong>
+                            <small>Review this week’s timetable.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button
+            class="app-icon-button"
+            id="header-theme-button"
+            type="button"
+            aria-label="Toggle theme"
+            title="Toggle theme"
+        >
+            <i class="bi bi-moon-stars" aria-hidden="true"></i>
+        </button>
+
+        <div class="dropdown">
+            <button
+                class="app-user-button dropdown-toggle"
+                type="button"
+                id="userDropdown"
+                data-bs-toggle="dropdown"
+                aria-expanded="false"
+            >
+                <span class="app-user-avatar" id="header-user-avatar">U</span>
+                <span class="app-user-meta">
+                    <strong id="header-username">User</strong>
+                    <small id="header-role-short">Account</small>
                 </span>
             </button>
-            <!-- Settings -->
-            <button class="btn btn-light">
-                <i class="fas fa-cog"></i>
-            </button>
-            <!-- User Dropdown -->
-            <div class="dropdown">
-                <button class="btn btn-secondary dropdown-toggle" type="button" id="userDropdown"
-                    data-bs-toggle="dropdown" aria-expanded="false">
-                    <i class="fas fa-user"></i> <span id="header-username">User</span>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                    <li><a class="dropdown-item" href="javascript:void(0);" onclick="goToProfile()">Profile</a></li>
-                    <li><a class="dropdown-item text-danger" href="javascript:void(0);" onclick="showLogoutModal()"><i
-                                class="fas fa-sign-out-alt"></i> Logout</a></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</div>
 
-<!-- Logout Confirmation Modal -->
-<div class="modal fade" id="logoutModal" tabindex="-1" aria-labelledby="logoutModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content border-0 shadow-lg" style="border-radius: 1rem; overflow: hidden;">
-            <!-- Header -->
-            <div class="modal-header border-0 pb-0 pt-4 px-4">
-                <div class="w-100 text-center">
-                    <div class="mx-auto mb-3" style="width: 70px; height: 70px; background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(220,53,69,0.3);">
-                        <i class="fas fa-sign-out-alt text-white" style="font-size: 1.8rem;"></i>
+            <ul
+                class="dropdown-menu dropdown-menu-end app-user-menu"
+                aria-labelledby="userDropdown"
+            >
+                <li class="app-user-menu-summary">
+                    <span
+                        class="app-user-avatar app-user-avatar-lg"
+                        id="menu-user-avatar"
+                    >U</span>
+                    <div>
+                        <strong id="menu-username">User</strong>
+                        <small id="menu-user-email">Signed in</small>
                     </div>
-                    <h5 class="modal-title fw-bold text-dark" id="logoutModalLabel">Logout Confirmation</h5>
-                </div>
-                <button type="button" class="btn-close position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" aria-label="Close"></button>
-            </div>
-            
-            <!-- Body -->
-            <div class="modal-body text-center px-4 py-3">
-                <p class="text-muted mb-1">Are you sure you want to sign out?</p>
-                <p class="text-muted small mb-0">You'll need to log in again to access your account.</p>
-            </div>
-            
-            <!-- Footer -->
-            <div class="modal-footer border-0 justify-content-center gap-2 pb-4 px-4">
-                <button type="button" class="btn btn-light px-4 py-2" data-bs-dismiss="modal" style="border-radius: 0.5rem; min-width: 100px;">
-                    <i class="fas fa-times me-1"></i>Cancel
-                </button>
-                <button type="button" class="btn btn-danger px-4 py-2" id="confirmLogoutBtn" onclick="executeLogout()" style="border-radius: 0.5rem; min-width: 100px;">
-                    <span id="logoutBtnText"><i class="fas fa-sign-out-alt me-1"></i>Logout</span>
-                    <span id="logoutSpinner" class="d-none">
-                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
-                        Logging out...
-                    </span>
-                </button>
-            </div>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <button
+                        class="dropdown-item"
+                        type="button"
+                        onclick="goToProfile()"
+                    >
+                        <i class="bi bi-person me-2"></i>
+                        My profile
+                    </button>
+                </li>
+                <li>
+                    <button
+                        class="dropdown-item"
+                        type="button"
+                        id="account-settings-button"
+                    >
+                        <i class="bi bi-gear me-2"></i>
+                        Account settings
+                    </button>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                    <button
+                        class="dropdown-item text-danger"
+                        type="button"
+                        onclick="showLogoutModal()"
+                    >
+                        <i class="bi bi-box-arrow-right me-2"></i>
+                        Sign out
+                    </button>
+                </li>
+            </ul>
+        </div>
+    </div>
+</header>
+
+<div
+    class="offcanvas offcanvas-top app-search-panel"
+    tabindex="-1"
+    id="globalSearchPanel"
+    aria-labelledby="globalSearchPanelLabel"
+>
+    <div class="offcanvas-header">
+        <h5 id="globalSearchPanelLabel">Search Kingsway</h5>
+        <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="offcanvas"
+            aria-label="Close"
+        ></button>
+    </div>
+    <div class="offcanvas-body">
+        <div class="input-group input-group-lg">
+            <span class="input-group-text">
+                <i class="bi bi-search"></i>
+            </span>
+            <input
+                id="global-search-input"
+                type="search"
+                class="form-control"
+                placeholder="Search pages and modules..."
+                autocomplete="off"
+            >
+        </div>
+
+        <div id="global-search-results" class="app-search-results">
+            <p class="text-muted mb-0">
+                Start typing to search available navigation pages.
+            </p>
         </div>
     </div>
 </div>
 
-<script>
-    // ============================================================================
-    // HEADER COMPONENT - STATELESS JWT-BASED AUTHENTICATION
-    // ============================================================================
+<div
+    class="modal fade"
+    id="logoutModal"
+    tabindex="-1"
+    aria-labelledby="logoutModalLabel"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content app-logout-modal">
+            <div class="modal-body text-center p-4">
+                <span class="app-logout-icon">
+                    <i class="bi bi-box-arrow-right"></i>
+                </span>
 
-    /**
-     * Initialize header with user info from AuthContext
-     * Called when page loads and after login
-     */
-    function initializeHeader() {
-        // Get current user from AuthContext
-        const currentUser = AuthContext.getUser();
-        const userRoles = AuthContext.getRoles();
+                <h5 id="logoutModalLabel" class="mt-3 mb-2">
+                    Sign out of Kingsway?
+                </h5>
 
-        if (currentUser) {
-            // Get primary role (first role or main_role)
-            const primaryRole = (userRoles && userRoles.length > 0)
-                ? userRoles[0]
-                : (currentUser.main_role || 'User');
+                <p class="text-muted small">
+                    You will need to sign in again to access your dashboard.
+                </p>
 
-            // Update header with user info
-            document.getElementById('header-user-role').textContent = primaryRole.replace(/_/g, ' ').split(' ')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-                .join(' ');
+                <div class="d-grid gap-2 mt-4">
+                    <button
+                        type="button"
+                        class="btn btn-danger"
+                        id="confirmLogoutBtn"
+                        onclick="executeLogout()"
+                    >
+                        <span id="logoutBtnText">
+                            <i class="bi bi-box-arrow-right me-1"></i>
+                            Sign out
+                        </span>
+                        <span id="logoutSpinner" class="d-none">
+                            <span
+                                class="spinner-border spinner-border-sm me-1"
+                                aria-hidden="true"
+                            ></span>
+                            Signing out...
+                        </span>
+                    </button>
 
-            document.getElementById('header-username').textContent = currentUser.username || currentUser.name || 'User';
-
-            console.log('[Header] Initialized with user:', currentUser.username, 'Role:', primaryRole);
-        } else {
-            console.log('[Header] No user authenticated');
-        }
-    }
-
-    /**
-     * Show the logout confirmation modal
-     */
-    function showLogoutModal() {
-        const logoutModal = new bootstrap.Modal(document.getElementById('logoutModal'));
-        logoutModal.show();
-    }
-
-    /**
-     * Execute logout - clear auth context and redirect to login
-     */
-    function executeLogout() {
-        const logoutBtnText = document.getElementById('logoutBtnText');
-        const logoutSpinner = document.getElementById('logoutSpinner');
-        const confirmLogoutBtn = document.getElementById('confirmLogoutBtn');
-        
-        // Show loading state
-        if (logoutBtnText) logoutBtnText.classList.add('d-none');
-        if (logoutSpinner) logoutSpinner.classList.remove('d-none');
-        if (confirmLogoutBtn) confirmLogoutBtn.disabled = true;
-        
-        API.auth.logout().catch(err => {
-            console.error('Logout error:', err);
-            // Even if API call fails, clear local storage and redirect
-            AuthContext.clearUser();
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-        });
-    }
-
-    /**
-     * Handle logout - legacy function that now shows the modal
-     */
-    function handleLogout() {
-        showLogoutModal();
-    }
-
-    /**
-     * Navigate to user profile
-     */
-    function goToProfile() {
-        window.location.href = (window.APP_BASE || '') + '/home.php?route=profile';
-    }
-
-    /**
-     * Toggle sidebar visibility — desktop collapses to icon rail, mobile slides in/out
-     */
-    function toggleSidebar() {
-        const sidebar = document.getElementById('sidebar');
-        const mainContent = document.querySelector('.main-flex-layout');
-        const overlay = document.getElementById('sidebar-overlay');
-        if (!sidebar) return;
-
-        const isMobile = window.innerWidth < 992;
-
-        if (isMobile) {
-            const isOpen = sidebar.classList.toggle('sidebar-visible-mobile');
-            if (overlay) overlay.style.display = isOpen ? 'block' : 'none';
-        } else {
-            sidebar.classList.toggle('sidebar-collapsed');
-            if (mainContent) mainContent.classList.toggle('collapsed-main');
-        }
-    }
-
-    // Initialize header when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initializeHeader);
-    } else {
-        initializeHeader();
-    }
-
-    // Re-initialize header when user logs in (listen for storage changes)
-    window.addEventListener('storage', (e) => {
-        if (e.key === 'user_data' || e.key === 'token') {
-            initializeHeader();
-        }
-    });
-
-    // Also listen for custom auth change event
-    document.addEventListener('authchanged', initializeHeader);
-</script>
+                    <button
+                        type="button"
+                        class="btn btn-light"
+                        data-bs-dismiss="modal"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

@@ -4,6 +4,7 @@ namespace App\API\Services;
 
 use PDO;
 use PDOException;
+use App\API\Services\SharedCache;
 
 /**
  * Academic Context Service
@@ -19,6 +20,20 @@ class AcademicContextService
     private $db;
     private $cache = [];
     private $cacheTTL = 300; // 5 minutes default cache
+
+    /**
+     * Shared, node-spanning cache. All 5 LB nodes warm one copy on disk so a
+     * single DB read serves every node; this is what keeps the parallel
+     * dashboard burst from saturating the lone MySQL.
+     */
+    private ?SharedCache $shared = null;
+
+    /**
+     * Per-request memo: year/term resolved once and reused by every context
+     * sub-method (was an N+1 of ~10 academic_years / academic_terms reads
+     * per request, which is what made the dashboard burst slow).
+     */
+    private array $memo = [];
 
     public function __construct($database = null)
     {
@@ -52,40 +67,33 @@ class AcademicContextService
     public function getCurrentContext()
     {
         $cacheKey = 'academic_context';
-        
-        // Check cache first
-        if (isset($this->cache[$cacheKey]) && (time() - $this->cache[$cacheKey]['timestamp']) < $this->cacheTTL) {
-            return $this->cache[$cacheKey]['data'];
-        }
+
+        // Node-spanning shared cache: every LB node reads one warmed copy off
+        // disk instead of each re-querying the lone MySQL. A cold miss computes
+        // once; subsequent hits (this node and all siblings) are <5ms file reads.
+        $this->shared ??= new SharedCache();
 
         try {
-            // Get current academic year
-            $currentYear = $this->getCurrentAcademicYear();
-            
-            // Get current term
-            $currentTerm = $this->getCurrentTerm();
-            
-            // Build context
-            $context = [
-                'current_year' => $currentYear ? $currentYear['year_name'] : null,
-                'academic_year_id' => $currentYear ? $currentYear['id'] : null,
-                'current_term' => $currentTerm ? $currentTerm['name'] : null,
-                'term_id' => $currentTerm ? $currentTerm['id'] : null,
-                'calendar_period' => $this->getCalendarPeriod(),
-                'school_week' => $this->getSchoolWeek(),
-                'operations_open' => $this->areOperationsOpen(),
-                'grading_open' => $this->isGradingOpen(),
-                'timetable_editing_open' => $this->isTimetableEditingOpen(),
-                'last_updated' => date('c')
-            ];
+            return $this->shared->remember($cacheKey, function () {
+                // Resolve year + term ONCE. Sub-methods below reuse these via
+                // getCurrentTerm()/getCurrentAcademicYear(), which now read the
+                // memoized pair instead of re-querying (was an N+1 of ~10 queries).
+                $currentYear = $this->getCurrentAcademicYear();
+                $currentTerm = $this->getCurrentTerm();
 
-            // Cache the result
-            $this->cache[$cacheKey] = [
-                'data' => $context,
-                'timestamp' => time()
-            ];
-
-            return $context;
+                return [
+                    'current_year' => $currentYear ? $currentYear['year_name'] : null,
+                    'academic_year_id' => $currentYear ? $currentYear['id'] : null,
+                    'current_term' => $currentTerm ? $currentTerm['name'] : null,
+                    'term_id' => $currentTerm ? $currentTerm['id'] : null,
+                    'calendar_period' => $this->getCalendarPeriod(),
+                    'school_week' => $this->getSchoolWeek(),
+                    'operations_open' => $this->areOperationsOpen(),
+                    'grading_open' => $this->isGradingOpen(),
+                    'timetable_editing_open' => $this->isTimetableEditingOpen(),
+                    'last_updated' => date('c')
+                ];
+            }, $this->cacheTTL);
         } catch (PDOException $e) {
             error_log('Error getting academic context: ' . $e->getMessage());
             return [
@@ -110,17 +118,25 @@ class AcademicContextService
      */
     public function getCurrentAcademicYear()
     {
-        $sql = "SELECT * FROM academic_years 
+        // Memoized within the request: callers (getCurrentContext, getCurrentTerm,
+        // calendar/school-week/operations checks) all share ONE DB read.
+        if (isset($this->memo['year'])) {
+            return $this->memo['year'];
+        }
+
+        $sql = "SELECT id, year_name, year_code, start_date, end_date, is_current, status
+                FROM academic_years
                 WHERE (is_current = 1 OR status = 'active')
-                ORDER BY is_current DESC, start_date DESC, id DESC 
+                ORDER BY is_current DESC, start_date DESC, id DESC
                 LIMIT 1";
-        
+
         try {
             $stmt = $this->db->prepare($sql);
             $stmt->execute();
             $result = $stmt->fetch();
-            
-            return $result ?: null;
+            $this->memo['year'] = $result ?: null;
+
+            return $this->memo['year'];
         } catch (PDOException $e) {
             error_log('Error getting current academic year: ' . $e->getMessage());
             return null;
@@ -134,28 +150,34 @@ class AcademicContextService
      */
     public function getCurrentTerm()
     {
+        if (isset($this->memo['term'])) {
+            return $this->memo['term'];
+        }
+
         $currentYear = $this->getCurrentAcademicYear();
-        
+
         if (!$currentYear) {
             return null;
         }
 
-        $sql = "SELECT * FROM academic_terms 
-                WHERE academic_year_id = :year_id 
+        $sql = "SELECT id, name, academic_year_id, start_date, end_date, status, term_number
+                FROM academic_terms
+                WHERE academic_year_id = :year_id
                 AND status IN ('active', 'current')
-                ORDER BY 
+                ORDER BY
                     CASE WHEN status = 'current' THEN 0 ELSE 1 END,
                     CASE WHEN CURDATE() BETWEEN start_date AND end_date THEN 0 ELSE 1 END,
-                    term_number ASC 
+                    term_number ASC
                 LIMIT 1";
-        
+
         try {
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['year_id' => $currentYear['id']]);
             $result = $stmt->fetch();
 
             if (!$result && !empty($currentYear['year_code'])) {
-                $fallbackSql = "SELECT * FROM academic_terms
+                $fallbackSql = "SELECT id, name, academic_year_id, start_date, end_date, status, term_number
+                        FROM academic_terms
                         WHERE academic_year_id IS NULL
                         AND year = :year_code
                         AND status IN ('active', 'current')
@@ -168,8 +190,10 @@ class AcademicContextService
                 $fallbackStmt->execute(['year_code' => $currentYear['year_code']]);
                 $result = $fallbackStmt->fetch();
             }
-            
-            return $result ?: null;
+
+            $this->memo['term'] = $result ?: null;
+
+            return $this->memo['term'];
         } catch (PDOException $e) {
             error_log('Error getting current term: ' . $e->getMessage());
             return null;

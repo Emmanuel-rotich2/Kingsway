@@ -5164,9 +5164,9 @@ class StudentsAPI extends BaseAPI
     /**
      * Generate print-ready single card HTML for browser/system printing.
      */
-    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card')
+    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card', $format = 'html')
     {
-        return $this->idCardGenerator->generatePrintableSingle($studentId, $side, $printMode);
+        return $this->idCardGenerator->generatePrintableSingle($studentId, $side, $printMode, $format);
     }
 
     /**

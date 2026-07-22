@@ -14,9 +14,7 @@ const counselorDashboardController = {
     refresh: function () { this.loadAll(); },
 
     loadAll: async function () {
-        const token = AuthContext.getToken();
-        const h = { 'Authorization': 'Bearer ' + token };
-        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
 
         const [stats, sessions, chapel] = await Promise.allSettled([
             get('/api/counseling/stats'),

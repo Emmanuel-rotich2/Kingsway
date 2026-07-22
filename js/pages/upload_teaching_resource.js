@@ -133,24 +133,13 @@ const uploadResourceController = {
       formData.append('term',        term);
       formData.append('description', desc);
 
-      // callAPI doesn't handle FormData natively — use fetch directly
-      const token = AuthContext.getToken ? AuthContext.getToken() : (AuthContext.token || localStorage.getItem('auth_token') || '');
-      const base  = (window.APP_BASE || '').replace(/\/$/, '');
-      const res   = await fetch(base + '/api/academic/resources', {
-        method:  'POST',
-        headers: { Authorization: 'Bearer ' + token },
-        body:    formData,
-      });
+      // callAPI handles FormData via options.isFile (passes body directly, no manual auth header).
+      await API.callAPI('/academic/resources', 'POST', formData, null, { isFile: true });
 
       clearInterval(ticker);
-      const json = await res.json().catch(() => ({}));
 
       if (progBar) progBar.style.width = '100%';
       if (progTxt) progTxt.textContent = 'Done!';
-
-      if (!res.ok && !json.success) {
-        throw new Error(json.message || json.error || 'Upload failed.');
-      }
 
       if (succEl) {
         succEl.innerHTML = '✔ <strong>' + this._esc(title) + '</strong> uploaded successfully!';

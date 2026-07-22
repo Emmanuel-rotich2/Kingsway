@@ -1,207 +1,95 @@
-/**
- * Connectivity Manager
- * 
- * Monitors online/offline status and triggers appropriate actions.
- * Manages user-facing connectivity UI and coordinates with other systems.
- */
-
-const ConnectivityManager = (function() {
+/** ConnectivityManager: reachability only; never owns or refreshes authentication. */
+const ConnectivityManager = (() => {
   'use strict';
+  const subscribers = new Set();
+  const OFFLINE_CONFIRM_TRIES = 3;
+  const CHECK_INTERVAL = 60000;
+  let online = true;
+  let failures = 0;
+  let timer = null;
+  let initialized = false;
+  let probePromise = null;
 
-  let isOnline = navigator.onLine;
-  let subscribers = new Set();
-  let retryInterval = null;
-
-  /**
-   * Initialize connectivity monitoring
-   */
-  function initialize() {
-    console.log('[ConnectivityManager] Initializing...');
-    
-    // Set initial state
-    isOnline = navigator.onLine;
-    
-    // Listen for online/offline events
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    // Periodic connectivity check
-    startConnectivityCheck();
-    
-    console.log('[ConnectivityManager] Initialized, current status:', isOnline ? 'online' : 'offline');
-    emit('INITIAL_STATUS', { online: isOnline });
+  function probeUrl() {
+    const base = (window.APP_BASE || '').replace(/\/+$/, '');
+    return `${base}/`;
   }
 
-  /**
-   * Handle online event
-   */
-  function handleOnline() {
-    if (!isOnline) {
-      isOnline = true;
-      console.log('[ConnectivityManager] Connection restored');
-      emit('ONLINE', {});
-      
-      // Trigger sync queue processing
-      if (typeof SyncQueue !== 'undefined') {
-        SyncQueue.processQueue();
-      }
-      
-      // Trigger session refresh
-      if (typeof SessionManager !== 'undefined') {
-        SessionManager.refreshSession();
-      }
-      
-      // Show online notification
-      showOnlineNotification();
-    }
-  }
-
-  /**
-   * Handle offline event
-   */
-  function handleOffline() {
-    if (isOnline) {
-      isOnline = false;
-      console.log('[ConnectivityManager] Connection lost');
-      emit('OFFLINE', {});
-      
-      // Show offline notification
-      showOfflineNotification();
-    }
-  }
-
-  /**
-   * Start periodic connectivity check
-   */
-  function startConnectivityCheck() {
-    // Check every 30 seconds
-    retryInterval = setInterval(checkConnectivity, 30000);
-  }
-
-  /**
-   * Check actual connectivity (not just browser state)
-   */
   async function checkConnectivity() {
-    try {
-      // Try to fetch a small resource
-      const response = await fetch('./home.php', {
-        method: 'HEAD',
-        cache: 'no-cache',
-        signal: AbortSignal.timeout(5000)
-      });
-      
-      const wasOnline = isOnline;
-      isOnline = response.ok;
-      
-      if (isOnline && !wasOnline) {
-        handleOnline();
-      } else if (!isOnline && wasOnline) {
-        handleOffline();
-      }
-      
-      return isOnline;
-    } catch (error) {
-      if (isOnline) {
-        handleOffline();
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Get current connectivity status
-   */
-  function getStatus() {
-    return isOnline;
-  }
-
-  /**
-   * Update connectivity status (manual trigger)
-   */
-  function updateStatus() {
-    checkConnectivity();
-  }
-
-  /**
-   * Check if online
-   */
-  function isOnlineStatus() {
-    return isOnline;
-  }
-
-  /**
-   * Show online notification
-   */
-  function showOnlineNotification() {
-    if (typeof showNotification === 'function') {
-      showNotification('Connection restored. Syncing pending changes...', 'success');
-    }
-  }
-
-  /**
-   * Show offline notification
-   */
-  function showOfflineNotification() {
-    if (typeof showNotification === 'function') {
-      showNotification('You are offline. Some features may be unavailable.', 'warning');
-    }
-  }
-
-  /**
-   * Subscribe to connectivity events
-   */
-  function subscribe(event, callback) {
-    subscribers.add({ event, callback });
-    
-    return () => {
-      subscribers.delete({ event, callback });
-    };
-  }
-
-  /**
-   * Emit event to subscribers
-   */
-  function emit(event, data) {
-    subscribers.forEach(({ event: subscribedEvent, callback }) => {
-      if (subscribedEvent === event || subscribedEvent === '*') {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error('[ConnectivityManager] Event callback error:', error);
+    if (probePromise) return probePromise;
+    probePromise = (async () => {
+      try {
+        const response = await fetch(probeUrl(), {
+          method: 'HEAD',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-store' },
+        });
+        // Any normal HTTP response proves that the browser reached the server.
+        // 401/403/404 are routing/auth issues, not an offline condition.
+        if (response.status >= 500 || response.status === 408 || response.status === 429) {
+          throw new Error(`Reachability probe returned ${response.status}`);
         }
+        failures = 0;
+        setOnline(true);
+        return true;
+      } catch (error) {
+        failures += 1;
+        console.warn(`[ConnectivityManager] Probe failed (${failures}/${OFFLINE_CONFIRM_TRIES}):`, error.message || error);
+        if (failures >= OFFLINE_CONFIRM_TRIES && navigator.onLine === false) setOnline(false);
+        return false;
+      } finally {
+        probePromise = null;
+      }
+    })();
+    return probePromise;
+  }
+
+  function setOnline(value) {
+    if (online === value) return;
+    online = value;
+    emit(value ? 'ONLINE' : 'OFFLINE', { online });
+    if (typeof window.showNotification === 'function') {
+      window.showNotification(
+        value ? 'Connection restored.' : 'You are offline. Cached information may still be available.',
+        value ? 'success' : 'warning',
+      );
+    }
+    if (value) window.SyncQueue?.processQueue?.().catch(console.warn);
+  }
+
+  function initialize() {
+    if (initialized) return true;
+    initialized = true;
+    online = navigator.onLine !== false;
+    window.addEventListener('online', checkConnectivity);
+    window.addEventListener('offline', () => {
+      failures = OFFLINE_CONFIRM_TRIES;
+      setOnline(false);
+    });
+    timer = window.setInterval(checkConnectivity, CHECK_INTERVAL);
+    window.setTimeout(checkConnectivity, 1500);
+    return true;
+  }
+
+  function subscribe(event, callback) {
+    const entry = { event, callback };
+    subscribers.add(entry);
+    return () => subscribers.delete(entry);
+  }
+  function emit(event, data) {
+    subscribers.forEach((entry) => {
+      if (entry.event === event || entry.event === '*') {
+        try { entry.callback(data); } catch (error) { console.error(error); }
       }
     });
   }
-
-  /**
-   * Stop connectivity monitoring
-   */
   function stop() {
-    window.removeEventListener('online', handleOnline);
-    window.removeEventListener('offline', handleOffline);
-    
-    if (retryInterval) {
-      clearInterval(retryInterval);
-      retryInterval = null;
-    }
-    
-    console.log('[ConnectivityManager] Stopped');
+    if (timer) clearInterval(timer);
+    timer = null;
+    initialized = false;
   }
-
-  // Public API
-  return {
-    initialize,
-    getStatus,
-    updateStatus,
-    isOnline: isOnlineStatus,
-    checkConnectivity,
-    subscribe,
-    stop
-  };
-
+  return { initialize, checkConnectivity, updateStatus: checkConnectivity,
+    getStatus: () => online, isOnline: () => online, subscribe, stop };
 })();
-
-// Export for use in other modules
-if (typeof window !== 'undefined') {
-  window.ConnectivityManager = ConnectivityManager;
-}
+window.ConnectivityManager = ConnectivityManager;

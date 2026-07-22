@@ -59,7 +59,8 @@ cache/
 *.7z
 *.rar
 
-# Ignore test output
+# Ignore generated print/test output
+/temp/print/
 /test-output/
 
 # Ignore documentation build output

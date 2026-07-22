@@ -14,14 +14,12 @@ const hodDashboardController = {
     refresh: function () { this.loadAll(); },
 
     loadAll: async function () {
-        const token = AuthContext.getToken();
-        const h = { 'Authorization': 'Bearer ' + token };
-        const get = url => fetch((window.APP_BASE || '') + url, { headers: h }).then(r => r.json()).catch(() => null);
+        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
 
         const [stats, activities, events] = await Promise.allSettled([
-            get('/api/activities/stats'),
-            get('/api/activities?limit=8&status=active'),
-            get('/api/events?limit=5&upcoming=1')
+            get('/activities/stats'),
+            get('/activities/list?limit=8&status=active'),
+            get('/events?limit=5&upcoming=1')
         ]);
 
         if (stats.value) this.renderStats(stats.value?.data || stats.value);

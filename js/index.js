@@ -1,338 +1,205 @@
-// Sidebar UI re-initializer for dynamic sidebar
-window.initSidebarUI = function() {
-    // Sidebar submenu accordion (open/close on click)
-    document.querySelectorAll('.sidebar-toggle').forEach(function (toggle) {
-        toggle.addEventListener('click', function (e) {
-            e.preventDefault();
-            const target = document.querySelector(this.getAttribute('href'));
-            if (!target) return;
-            if (target.classList.contains('show')) {
-                target.classList.remove('show');
-                this.setAttribute('aria-expanded', 'false');
-            } else {
-                // Close all open submenus
-                document.querySelectorAll('.list-group .collapse.show').forEach(function (open) {
-                    open.classList.remove('show');
-                });
-                document.querySelectorAll('.sidebar-toggle[aria-expanded="true"]').forEach(function (btn) {
-                    btn.setAttribute('aria-expanded', 'false');
-                });
-                // Open the clicked submenu
-                target.classList.add('show');
-                this.setAttribute('aria-expanded', 'true');
-            }
-        });
-    });
+(() => {
+  "use strict";
 
-    // Responsive sidebar behavior on resize
-    window.addEventListener('resize', function () {
-        const sidebar = document.querySelector('.sidebar');
-        const mainFlex = document.querySelector('.main-flex-layout');
-        if (!sidebar || !mainFlex) return;
-        if (window.innerWidth < 992) {
-            sidebar.classList.add('sidebar-collapsed');
-            sidebar.classList.remove('sidebar-visible-mobile');
-            mainFlex.style.marginLeft = '0';
-            document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
-            document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
-        } else {
-            sidebar.classList.remove('sidebar-visible-mobile');
-            sidebar.classList.remove('sidebar-collapsed');
-            mainFlex.style.marginLeft = '250px';
-            document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = '');
-            document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
-        }
-    });
-};
-// Call on DOMContentLoaded for initial sidebar
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', window.initSidebarUI);
-} else {
-    window.initSidebarUI();
-}
+  function getRouteDataFromUrl(url) {
+    if (!url) return { route: "", params: "" };
 
-// Sidebar submenu accordion (open/close on click)
-document.addEventListener('DOMContentLoaded', function () {
-    // Only run sidebar logic if sidebar exists
-    const sidebar = document.querySelector('.sidebar');
-    if (!sidebar) return;
-
-    // Make sidebar scrollable if overflow
-    const sidebarScroll = document.querySelector('.sidebar .shadow-sm');
-    if (sidebarScroll) {
-        sidebarScroll.style.overflowY = 'auto';
-        sidebarScroll.style.flex = '1 1 0';
-    }
-
-    // Hide dropdown arrows and logo name if sidebar is collapsed on load
-    if (document.querySelector('.sidebar').classList.contains('sidebar-collapsed')) {
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
-    }
-
-    // Accordion for sidebar submenus
-    document.querySelectorAll('.sidebar-toggle').forEach(function (toggle) {
-        toggle.addEventListener('click', function (e) {
-            // Prevent toggling when sidebar is collapsed
-            if (document.querySelector('.sidebar').classList.contains('sidebar-collapsed')) {
-                e.preventDefault();
-                return;
-            }
-            e.preventDefault();
-            const target = document.querySelector(this.getAttribute('href'));
-            if (target.classList.contains('show')) {
-                target.classList.remove('show');
-                this.setAttribute('aria-expanded', 'false');
-            } else {
-                // Close all open submenus
-                document.querySelectorAll('.list-group .collapse.show').forEach(function (open) {
-                    open.classList.remove('show');
-                });
-                document.querySelectorAll('.sidebar-toggle[aria-expanded="true"]').forEach(function (btn) {
-                    btn.setAttribute('aria-expanded', 'false');
-                });
-                // Open the clicked submenu
-                target.classList.add('show');
-                this.setAttribute('aria-expanded', 'true');
-            }
-        });
-    });
-});
-
-// Responsive sidebar behavior on resize
-window.addEventListener('resize', function () {
-    const sidebar = document.querySelector('.sidebar');
-    const mainFlex = document.querySelector('.main-flex-layout');
-    if (window.innerWidth < 992) {
-        sidebar.classList.add('sidebar-collapsed');
-        sidebar.classList.remove('sidebar-visible-mobile');
-        mainFlex.style.marginLeft = '0';
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = 'none');
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = 'none');
-    } else {
-        sidebar.classList.remove('sidebar-visible-mobile');
-        sidebar.classList.remove('sidebar-collapsed');
-        mainFlex.style.marginLeft = '250px';
-        document.querySelectorAll('.sidebar .sidebar-toggle .fa-chevron-down').forEach(icon => icon.style.display = '');
-        document.querySelectorAll('.sidebar .logo .logo-name, .sidebar .logo h5').forEach(el => el.style.display = '');
-    }
-});
-
-function getRouteDataFromUrl(url) {
-    if (!url) return { route: '', params: '' };
     const value = String(url).trim();
 
     try {
-        const parsed = new URL(value, window.location.origin);
-        const route = parsed.searchParams.get('route');
-        if (route) {
-            parsed.searchParams.delete('route');
-            const params = parsed.searchParams.toString();
-            return { route, params };
-        }
-    } catch (e) {
-        // Fall through to route fragment parsing.
+      const parsed = new URL(value, window.location.origin);
+      const route = parsed.searchParams.get("route");
+
+      if (route) {
+        parsed.searchParams.delete("route");
+        return {
+          route,
+          params: parsed.searchParams.toString(),
+        };
+      }
+    } catch {
+      // Continue with fragment parsing.
     }
 
     const match = value.match(/^([^?&#]+)(?:\?([^#]*))?/);
-    if (match && match[1]) {
-        return { route: match[1].replace(/^\/+/, ''), params: match[2] || '' };
-    }
-
-    return { route: value.replace(/^\/+/, ''), params: '' };
-}
-
-function getRouteFromUrl(url) {
-    return getRouteDataFromUrl(url).route;
-}
-
-function navigateWithFullPageShell(route) {
-    const routeData = getRouteDataFromUrl(route);
-    const normalizedRoute = routeData.route;
-    if (!normalizedRoute || normalizedRoute === '#') {
-        return false;
-    }
-
-    const suffix = routeData.params ? `&${routeData.params}` : '';
-    window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}${suffix}`;
-    return true;
-}
-
-window.AppRouter = window.AppRouter || {};
-window.AppRouter.go = navigateWithFullPageShell;
-window.navigateToRoute = navigateWithFullPageShell;
-
-function getCurrentUserRoleIds() {
-    const user = typeof AuthContext !== "undefined" ? AuthContext.getUser() : null;
-    if (!user) {
-        return [];
-    }
-
-    if (Array.isArray(user.role_ids) && user.role_ids.length > 0) {
-        return [...new Set(user.role_ids.map((roleId) => Number(roleId)).filter(Boolean))];
-    }
-
-    const resolved = [];
-    const roles = Array.isArray(user.roles) ? user.roles : [];
-    roles.forEach((role) => {
-        if (role && typeof role === "object") {
-            const roleId = role.id || role.role_id;
-            if (roleId) {
-                resolved.push(Number(roleId));
-            }
-        } else if (role) {
-            const numericRole = Number(role);
-            if (numericRole) {
-                resolved.push(numericRole);
-            }
-        }
-    });
-
-    return [...new Set(resolved)];
-}
-
-function collectAllowedRoutes(items, allowed = new Set()) {
-    if (!Array.isArray(items)) {
-        return allowed;
-    }
-
-    items.forEach((item) => {
-        if (!item) {
-            return;
-        }
-
-        const route = getRouteFromUrl(item.url || item.route || item.data_route || "");
-        if (route && route !== "#" && route !== "loading") {
-            allowed.add(route);
-        }
-
-        if (Array.isArray(item.subitems)) {
-            collectAllowedRoutes(item.subitems, allowed);
-        }
-    });
-
-    return allowed;
-}
-
-function getAllowedRoutes() {
-    const allowed = collectAllowedRoutes(
-        typeof AuthContext !== "undefined" ? AuthContext.getSidebarItems() : []
-    );
-    const dashboardInfo =
-        typeof AuthContext !== "undefined" ? AuthContext.getDashboardInfo() : null;
-    const dashboardRoute = getRouteFromUrl(dashboardInfo?.key || "");
-    if (dashboardRoute) {
-        allowed.add(dashboardRoute);
-    }
-    return allowed;
-}
-
-function getBestAllowedRoute(excludedRoute = "") {
-    const allowed = [...getAllowedRoutes()].filter(
-        (route) => route && route !== excludedRoute
-    );
-
-    const dashboardInfo =
-        typeof AuthContext !== "undefined" ? AuthContext.getDashboardInfo() : null;
-    const dashboardRoute = getRouteFromUrl(dashboardInfo?.key || "");
-    if (dashboardRoute && dashboardRoute !== excludedRoute && allowed.includes(dashboardRoute)) {
-        return dashboardRoute;
-    }
-
-    return allowed[0] || dashboardRoute || "";
-}
-
-function authorizeRouteAccess(route) {
-    const normalizedRoute = getRouteFromUrl(route);
-
-    // Loading placeholder and empty routes are always allowed
-    if (!normalizedRoute || normalizedRoute === "loading") {
-        return Promise.resolve({ authorized: true, route: normalizedRoute, source: "shell" });
-    }
-
-    // Must be authenticated
-    if (typeof AuthContext === "undefined" || !AuthContext.isAuthenticated()) {
-        return Promise.resolve({ authorized: false, route: normalizedRoute, reason: "unauthenticated" });
-    }
-
-    return Promise.resolve(authorizeRouteFromLocalContract(normalizedRoute));
-}
-
-function authorizeRouteFromLocalContract(normalizedRoute) {
-    const allowedRoutes = getAllowedRoutes();
-    const dashboardRoute = getRouteFromUrl(AuthContext.getDashboardInfo()?.key || "");
-    const authorized = allowedRoutes.has(normalizedRoute) || normalizedRoute === dashboardRoute;
 
     return {
-        authorized,
-        route: normalizedRoute,
-        source: "local_sidebar",
-        reason: authorized ? "in_sidebar" : "not_in_sidebar",
+      route: match?.[1]?.replace(/^\/+/, "") || "",
+      params: match?.[2] || "",
     };
-}
+  }
 
-// Route guard overlay removed — PHP serves the correct page directly.
-// These stubs keep existing callers from throwing.
-function setRouteGuardPending(_isPending, _message) { /* no-op */ }
-function revealProtectedContent() { /* no-op */ }
+  function getRouteFromUrl(url) {
+    return getRouteDataFromUrl(url).route;
+  }
 
-async function redirectToAllowedRoute(disallowedRoute) {
-    const normalizedRoute = getRouteFromUrl(disallowedRoute);
-    const fallbackRoute = getBestAllowedRoute(normalizedRoute);
-    if (!fallbackRoute || fallbackRoute === normalizedRoute) {
-        revealProtectedContent();
-        return null;
+  function collectAllowedRoutes(items, allowed = new Set()) {
+    if (!Array.isArray(items)) return allowed;
+
+    items.forEach((item) => {
+      if (!item) return;
+
+      const route = getRouteFromUrl(
+        item.url || item.route || item.data_route || ""
+      );
+
+      if (route && route !== "#" && route !== "loading") {
+        allowed.add(route);
+      }
+
+      collectAllowedRoutes(item.subitems, allowed);
+    });
+
+    return allowed;
+  }
+
+  function getAllowedRoutes() {
+    const allowed = collectAllowedRoutes(
+      window.AuthContext?.getSidebarItems?.() || []
+    );
+
+    const dashboardRoute = getRouteFromUrl(
+      window.AuthContext?.getDashboardInfo?.()?.key || ""
+    );
+
+    if (dashboardRoute) {
+      allowed.add(dashboardRoute);
     }
+
+    allowed.add("profile");
+
+    return allowed;
+  }
+
+  async function authorizeRouteAccess(route) {
+    const normalizedRoute = getRouteFromUrl(route);
+
+    if (!normalizedRoute || normalizedRoute === "loading") {
+      return {
+        authorized: true,
+        route: normalizedRoute,
+        source: "shell",
+      };
+    }
+
+    if (!window.AuthContext?.isAuthenticated?.()) {
+      return {
+        authorized: false,
+        route: normalizedRoute,
+        reason: "unauthenticated",
+      };
+    }
+
+    const allowedRoutes = getAllowedRoutes();
+    const dashboardRoute = getRouteFromUrl(
+      window.AuthContext?.getDashboardInfo?.()?.key || ""
+    );
+
+    const authorized =
+      allowedRoutes.has(normalizedRoute) ||
+      normalizedRoute === dashboardRoute;
+
+    return {
+      authorized,
+      route: normalizedRoute,
+      source: "local_sidebar",
+      reason: authorized ? "in_sidebar" : "not_in_sidebar",
+    };
+  }
+
+  function getBestAllowedRoute(excludedRoute = "") {
+    const dashboardRoute = getRouteFromUrl(
+      window.AuthContext?.getDashboardInfo?.()?.key || ""
+    );
+
+    if (dashboardRoute && dashboardRoute !== excludedRoute) {
+      return dashboardRoute;
+    }
+
+    return (
+      [...getAllowedRoutes()].find(
+        (route) => route && route !== excludedRoute
+      ) || ""
+    );
+  }
+
+  async function redirectToAllowedRoute(disallowedRoute) {
+    const fallbackRoute = getBestAllowedRoute(
+      getRouteFromUrl(disallowedRoute)
+    );
+
+    if (!fallbackRoute) return null;
 
     window.location.replace(
-        (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(fallbackRoute)}`
+      `${window.APP_BASE || ""}/home.php?route=${encodeURIComponent(
+        fallbackRoute
+      )}`
     );
+
     return fallbackRoute;
-}
+  }
 
-// Navigation handler for sidebar links
-window.addEventListener('click', async function(e) {
-    if (e.defaultPrevented) {
-        return;
+  async function navigateWithFullPageShell(route) {
+    const routeData = getRouteDataFromUrl(route);
+    const normalizedRoute = routeData.route;
+
+    if (!normalizedRoute || normalizedRoute === "#") {
+      return false;
     }
-    const link = e.target.closest ? e.target.closest('.sidebar-link') : null;
-    if (link) {
-        e.preventDefault();
-        const route = link.getAttribute('data-route');
-        if (route) {
-            const authorization = await authorizeRouteAccess(route);
-            if (!authorization.authorized) {
-                showNotification("You are not allowed to open that page.", NOTIFICATION_TYPES.WARNING);
-                await redirectToAllowedRoute(getRouteFromUrl(route));
-                return;
-            }
 
-            const normalizedRoute = getRouteFromUrl(route);
-            window.location.href = (window.APP_BASE || '') + `/home.php?route=${encodeURIComponent(normalizedRoute)}`;
-        }
+    const authorization = await authorizeRouteAccess(normalizedRoute);
+
+    if (!authorization.authorized) {
+      window.showNotification?.(
+        "You are not allowed to open that page.",
+        window.NOTIFICATION_TYPES?.WARNING || "warning"
+      );
+
+      await redirectToAllowedRoute(normalizedRoute);
+      return false;
     }
-});
 
-// Navigation function for dashboard/cards. The app standard is full-page shell routing
-// so PHP page scripts execute normally and old controllers cannot remain mounted.
-function navigateToRoute(route) {
-    return navigateWithFullPageShell(route);
-}
+    const suffix = routeData.params
+      ? `&${routeData.params}`
+      : "";
 
-// Initial load: load sidebar and default dashboard if needed
-if (typeof loadSidebarAndDefault === 'function') {
-    document.addEventListener('DOMContentLoaded', loadSidebarAndDefault);
-}
+    window.location.href =
+      `${window.APP_BASE || ""}/home.php?route=` +
+      `${encodeURIComponent(normalizedRoute)}${suffix}`;
 
-window.AppRouteAccess = {
+    return true;
+  }
+
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest?.(".sidebar-link");
+    if (!link) return;
+
+    event.preventDefault();
+
+    const route = link.dataset.route;
+    if (!route) return;
+
+    if (window.innerWidth < 992) {
+      window.KingswayShell?.closeMobileSidebar?.();
+    }
+
+    void navigateWithFullPageShell(route);
+  });
+
+  window.AppRouter = {
+    ...(window.AppRouter || {}),
+    go: navigateWithFullPageShell,
+  };
+
+  window.AppRouteAccess = {
     authorizeRoute: authorizeRouteAccess,
     getAllowedRoutes,
     getBestAllowedRoute,
     redirectToAllowedRoute,
-    revealProtectedContent,
-    setPending: setRouteGuardPending,
-    getCurrentUserRoleIds,
+    revealProtectedContent() {},
+    setPending() {},
     normalizeRoute: getRouteFromUrl,
-};
-window.AppRouter.go = navigateToRoute;
-window.navigateToRoute = navigateToRoute;
+  };
+
+  window.navigateToRoute = navigateWithFullPageShell;
+})();
