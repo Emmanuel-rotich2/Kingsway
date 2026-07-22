@@ -45,32 +45,46 @@ final class PrintService
 
     public function __construct()
     {
+        if (!defined('TEMPLATES_PATH')) {
+            throw new RuntimeException(
+                'TEMPLATES_PATH is not defined.'
+            );
+        }
+
+        if (!defined('ID_CARD_TEMPLATES')) {
+            throw new RuntimeException(
+                'ID_CARD_TEMPLATES is not defined.'
+            );
+        }
+
+        if (!defined('PRINT_OUTPUT_PATH')) {
+            throw new RuntimeException(
+                'PRINT_OUTPUT_PATH is not defined.'
+            );
+        }
+
         $projectRoot = $this->resolveProjectRoot();
 
-        $this->templatesPath = defined('TEMPLATES_PATH')
-            ? rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
-            . DIRECTORY_SEPARATOR
-            . 'print'
-            . DIRECTORY_SEPARATOR
-            . 'server'
-            . DIRECTORY_SEPARATOR
-            : $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'templates'
+        $this->templatesPath =
+            rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR
             . 'print'
             . DIRECTORY_SEPARATOR
             . 'server'
             . DIRECTORY_SEPARATOR;
 
-        $this->certificatesPath = $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'templates'
+        $this->certificatesPath =
+            rtrim((string) TEMPLATES_PATH, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR
             . 'certificates'
             . DIRECTORY_SEPARATOR;
 
-        $this->printCssPath = $projectRoot
+        $this->idCardTemplatesPath =
+            rtrim((string) ID_CARD_TEMPLATES, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR;
+
+        $this->printCssPath =
+            $projectRoot
             . DIRECTORY_SEPARATOR
             . 'public'
             . DIRECTORY_SEPARATOR
@@ -78,14 +92,8 @@ final class PrintService
             . DIRECTORY_SEPARATOR
             . 'print-reports.css';
 
-        $this->idCardTemplatesPath = $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'templates'
-            . DIRECTORY_SEPARATOR
-            . 'id-cards'
-            . DIRECTORY_SEPARATOR;
-
-        $this->idCardCssPath = $projectRoot
+        $this->idCardCssPath =
+            $projectRoot
             . DIRECTORY_SEPARATOR
             . 'public'
             . DIRECTORY_SEPARATOR
@@ -93,16 +101,11 @@ final class PrintService
             . DIRECTORY_SEPARATOR
             . 'student-id-card.css';
 
-        $this->outputPath = defined('PRINT_OUTPUT_PATH')
-            ? rtrim((string) PRINT_OUTPUT_PATH, DIRECTORY_SEPARATOR)
-            . DIRECTORY_SEPARATOR
-            : $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'temp'
-            . DIRECTORY_SEPARATOR
-            . 'print'
+        $this->outputPath =
+            rtrim((string) PRINT_OUTPUT_PATH, DIRECTORY_SEPARATOR)
             . DIRECTORY_SEPARATOR;
 
+        $this->assertTemplateDirectories();
         $this->ensureDirectory($this->outputPath);
 
         $this->schoolConfig = $this->loadSchoolConfig();

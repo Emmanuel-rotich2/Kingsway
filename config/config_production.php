@@ -30,9 +30,9 @@ define('SCHOOL_ASSETS', UPLOAD_PATH . '/school_assets');
 define('SCHOOL_ASSETS_DOCUMENTS', SCHOOL_ASSETS . '/documents');
 define('SCHOOL_ASSETS_GALLERY', SCHOOL_ASSETS . '/gallery');
 define('SCHOOL_ASSETS_QR_CODES', SCHOOL_ASSETS . '/qr_codes');
-define('TEMPLATES_PATH', UPLOAD_PATH . '/../templates');
+define('TEMPLATES_PATH', UPLOAD_PATH . '/templates');
 define('ID_CARD_TEMPLATES', TEMPLATES_PATH . '/id_cards');
-define('PRINT_OUTPUT_PATH', UPLOAD_PATH . '/../temp/print');
+define('PRINT_OUTPUT_PATH', UPLOAD_PATH . '/temp/print');
 
 // Create upload directories if they don't exist
 $directories = [
