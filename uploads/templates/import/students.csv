@@ -1,0 +1,3 @@
+admission_no,first_name,middle_name,last_name,date_of_birth,gender,class_name,stream_name,student_type,admission_date,status,nationality,religion,blood_group,special_needs,address,county,parent_name,parent_phone,parent_email,parent_relationship,sponsor_name,sponsor_waiver_percentage
+ADM001,Faith,,Wanjiku,2012-04-15,female,Grade 4,Blue,DAY,2024-01-10,active,Kenyan,Christian,A+,,Kiambu Road,Nairobi,Mary Wanjiku,0712345678,mary@email.com,mother,,0
+ADM002,Mercy,Atieno,Mwikali,2011-09-03,female,Grade 5,Red,BOARD,2024-01-10,active,Kenyan,Christian,O+,None,Mombasa Road,Mombasa,John Mwikali,0723456789,,father,,0

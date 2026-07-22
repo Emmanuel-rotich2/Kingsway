@@ -1,0 +1,5 @@
+class_name,level,stream_name,capacity,class_teacher_staff_number,room,academic_year
+Grade 1,Lower Primary,Blue,35,TCH003,Room 1A,2025
+Grade 1,Lower Primary,Red,35,TCH004,Room 1B,2025
+Grade 4,Upper Primary,Blue,40,TCH001,Room 4A,2025
+Grade 7,JSS,Blue,42,TCH010,Room 7A,2025
