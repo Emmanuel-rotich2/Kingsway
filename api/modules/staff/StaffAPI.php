@@ -183,6 +183,119 @@ class StaffAPI extends BaseAPI {
         }
     }
 
+    public function stats(): array
+    {
+        try {
+            $today = date('Y-m-d');
+
+            $totalStmt = $this->db->query("SELECT COUNT(*) FROM staff WHERE status = 'active'");
+            $totalStaff = (int)$totalStmt->fetchColumn();
+
+            $teacherStmt = $this->db->query("SELECT COUNT(*) FROM staff WHERE status = 'active' AND staff_type_id = 1");
+            $teacherCount = (int)$teacherStmt->fetchColumn();
+
+            $presentStmt = $this->db->prepare("
+                SELECT COUNT(DISTINCT staff_id)
+                FROM staff_attendance
+                WHERE date = ? AND status = 'present'
+            ");
+            $presentStmt->execute([$today]);
+            $staffPresentToday = (int)$presentStmt->fetchColumn();
+
+            $deptStmt = $this->db->query("
+                SELECT d.name AS department, COUNT(s.id) AS count
+                FROM staff s
+                LEFT JOIN departments d ON s.department_id = d.id
+                WHERE s.status = 'active'
+                GROUP BY s.department_id, d.name
+                ORDER BY count DESC
+            ");
+
+            return $this->response([
+                'status' => 'success',
+                'data' => [
+                    'total_staff' => $totalStaff,
+                    'teacher_count' => $teacherCount,
+                    'staff_present_today' => $staffPresentToday,
+                    'attendance_percentage' => $totalStaff > 0 ? round(($staffPresentToday / $totalStaff) * 100, 2) : 100,
+                    'department_distribution' => $deptStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'date' => $today,
+                    'timestamp' => date('Y-m-d H:i:s'),
+                ],
+            ]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function listTeachers(array $filters = []): array
+    {
+        try {
+            $where = ["s.status <> 'inactive'", "(LOWER(st.name) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $params = [];
+            if (!empty($filters['department_id'])) {
+                $where[] = 's.department_id = ?';
+                $params[] = (int)$filters['department_id'];
+            }
+
+            $stmt = $this->db->prepare("
+                SELECT s.id, s.staff_no AS employee_id, s.staff_no, s.first_name, s.last_name,
+                       s.profile_pic_url AS photo_url, s.department_id, d.name AS department_name,
+                       s.position, s.status, s.user_id, s.tsc_no,
+                       GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_name,
+                       COUNT(DISTINCT tsa.subject_id) AS subjects_count,
+                       MAX(CASE WHEN cta.staff_id IS NOT NULL THEN 1 ELSE 0 END) AS is_class_teacher
+                FROM staff s
+                LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                LEFT JOIN departments d ON d.id = s.department_id
+                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                LEFT JOIN roles r ON r.id = ur.role_id
+                LEFT JOIN staff_class_assignments tsa ON tsa.staff_id = s.id AND tsa.role = 'subject_teacher' AND tsa.status = 'active'
+                LEFT JOIN staff_class_assignments cta ON cta.staff_id = s.id AND cta.role = 'class_teacher' AND cta.status = 'active'
+                WHERE " . implode(' AND ', $where) . "
+                GROUP BY s.id
+                ORDER BY s.first_name, s.last_name
+            ");
+            $stmt->execute($params);
+
+            return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
+    public function listNonTeaching(array $filters = []): array
+    {
+        try {
+            $where = ["s.status <> 'inactive'", "NOT (LOWER(COALESCE(st.name,'')) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $params = [];
+            if (!empty($filters['department_id'])) {
+                $where[] = 's.department_id = ?';
+                $params[] = (int)$filters['department_id'];
+            }
+
+            $stmt = $this->db->prepare("
+                SELECT s.*, d.name AS department_name, st.name AS staff_type_name,
+                       CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
+                       GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
+                FROM staff s
+                LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                LEFT JOIN departments d ON d.id = s.department_id
+                LEFT JOIN staff sp ON sp.id = s.supervisor_id
+                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                LEFT JOIN roles r ON r.id = ur.role_id
+                WHERE " . implode(' AND ', $where) . "
+                GROUP BY s.id
+                ORDER BY d.name, s.first_name, s.last_name
+            ");
+            $stmt->execute($params);
+
+            return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+        } catch (Exception $e) {
+            return $this->handleException($e);
+        }
+    }
+
     // Get single staff member
     public function get($id) {
         try {
@@ -786,8 +899,9 @@ class StaffAPI extends BaseAPI {
             $year = isset($params['year']) ? $params['year'] : date('Y');
 
             $sql = "
-                SELECT * FROM view_staff_attendance_summary
-                WHERE staff_id = ? AND month = ? AND year = ?
+                SELECT *
+                FROM vw_staff_monthly_summary
+                WHERE staff_id = ? AND attendance_month = ? AND attendance_year = ?
             ";
             
             $stmt = $this->db->prepare($sql);
@@ -812,7 +926,7 @@ class StaffAPI extends BaseAPI {
                     lt.name as leave_type,
                     lt.days_allowed,
                     CONCAT(s.first_name, ' ', s.last_name) as approved_by_name
-                FROM staff_leave sl
+                FROM staff_leaves sl
                 JOIN leave_types lt ON sl.leave_type_id = lt.id
                 LEFT JOIN staff s ON sl.approved_by = s.id
                 WHERE sl.staff_id = ?
@@ -875,8 +989,8 @@ class StaffAPI extends BaseAPI {
             }
 
             $sql = "
-                INSERT INTO staff_leave (staff_id, leave_type_id, start_date, end_date, reason)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO staff_leaves (staff_id, leave_type_id, start_date, end_date, days_requested, reason)
+                VALUES (?, ?, ?, ?, DATEDIFF(?, ?) + 1, ?)
             ";
             
             $stmt = $this->db->prepare($sql);
@@ -885,6 +999,8 @@ class StaffAPI extends BaseAPI {
                 $data['leave_type_id'],
                 $data['start_date'],
                 $data['end_date'],
+                $data['end_date'],
+                $data['start_date'],
                 $data['reason']
             ]);
 
@@ -1144,7 +1260,7 @@ class StaffAPI extends BaseAPI {
 
     public function applyLeave($data) {
         try {
-            $required = ['staff_id', 'start_date', 'end_date', 'type', 'reason'];
+            $required = ['staff_id', 'start_date', 'end_date', 'reason'];
             $missing = $this->validateRequired($data, $required);
             if (!empty($missing)) {
                 return $this->response([
@@ -1153,28 +1269,52 @@ class StaffAPI extends BaseAPI {
                     'fields' => $missing
                 ], 400);
             }
+            $leaveTypeId = $data['leave_type_id'] ?? null;
+            $leaveType = $data['leave_type'] ?? $data['type'] ?? null;
+            if (!$leaveTypeId && !$leaveType) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'leave_type_id or leave_type is required'
+                ], 400);
+            }
+            if (!$leaveTypeId && $leaveType) {
+                $lookup = $this->db->prepare("SELECT id FROM leave_types WHERE code = ? OR name = ? LIMIT 1");
+                $lookup->execute([$leaveType, $leaveType]);
+                $leaveTypeId = $lookup->fetchColumn();
+            }
+            if (!$leaveTypeId) {
+                return $this->response([
+                    'status' => 'error',
+                    'message' => 'Leave type was not found'
+                ], 400);
+            }
 
             $sql = "
                 INSERT INTO staff_leaves (
                     staff_id,
+                    leave_type_id,
+                    leave_type,
                     start_date,
                     end_date,
-                    type,
+                    days_requested,
                     reason,
                     status,
-                    documents
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    attachments_folder
+                ) VALUES (?, ?, ?, ?, ?, DATEDIFF(?, ?) + 1, ?, ?, ?)
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['staff_id'],
+                $leaveTypeId,
+                $leaveType,
                 $data['start_date'],
                 $data['end_date'],
-                $data['type'],
+                $data['end_date'],
+                $data['start_date'],
                 $data['reason'],
                 $data['status'] ?? 'pending',
-                $data['documents'] ?? null
+                $data['documents'] ?? $data['attachments_folder'] ?? null
             ]);
 
             return $this->response([
@@ -1196,15 +1336,22 @@ class StaffAPI extends BaseAPI {
             }
 
             $sql = "
-                UPDATE staff_leaves 
-                SET status = ?, remarks = ?
+                UPDATE staff_leaves
+                SET status = ?,
+                    approved_by = CASE WHEN ? = 'approved' THEN ? ELSE approved_by END,
+                    approved_at = CASE WHEN ? = 'approved' THEN NOW() ELSE approved_at END,
+                    rejection_reason = CASE WHEN ? = 'rejected' THEN ? ELSE rejection_reason END
                 WHERE id = ?
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
                 $data['status'],
-                $data['remarks'] ?? null,
+                $data['status'],
+                $data['approved_by'] ?? null,
+                $data['status'],
+                $data['status'],
+                $data['remarks'] ?? $data['rejection_reason'] ?? null,
                 $id
             ]);
 

@@ -106,10 +106,7 @@ return [
         // Remaining approvals — these are Director approval gates in other workflows
         ['label' => 'Approvals', 'url' => null, 'icon' => 'fas fa-check-double', 'subitems' => [
             ['label' => 'Fee Structure Approval',  'url' => 'manage_fee_structure'],        // approve what accountant drafted
-            ['label' => 'Payroll Approval',        'url' => 'manage_payrolls'],             // approve what admin created
-            ['label' => 'Staff Appointments',      'url' => 'manage_staff'],                // approve new hires
             ['label' => 'Finance Approvals',       'url' => 'finance_approvals'],           // approve large transactions
-            ['label' => 'Leave Approvals',         'url' => 'staff_leave'],
         ]],
 
         // Academic Calendar — Director schedules Terms 1, 2, 3
@@ -128,7 +125,6 @@ return [
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Staff Performance',       'url' => 'staff_performance'],
             ['label' => 'Teacher Workload',        'url' => 'teacher_workload'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
@@ -154,8 +150,7 @@ return [
 
         // Payroll — Director creates AND approves (workflow role)
         ['label' => 'Payroll', 'url' => null, 'icon' => 'fas fa-wallet', 'subitems' => [
-            ['label' => 'Create Payroll',          'url' => 'manage_payrolls'],            // Director creates payroll
-            ['label' => 'Approve Payroll',         'url' => 'manage_payrolls'],            // Director approves
+            ['label' => 'Manage Payrolls',         'url' => 'manage_payrolls'],            // create, review and approve by permission
             ['label' => 'Payroll History',         'url' => 'payroll'],
             ['label' => 'Payslips',                'url' => 'payslips'],
         ]],
@@ -187,7 +182,6 @@ return [
         // Attendance — oversight
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
             ['label' => 'View Attendance',         'url' => 'view_attendance'],
-            ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
         ]],
 
@@ -210,7 +204,6 @@ return [
             ['label' => 'Academic',                'url' => 'academic_reports'],
             ['label' => 'Performance',             'url' => 'performance_reports'],
             ['label' => 'Enrollment',              'url' => 'enrollment_reports'],
-            ['label' => 'Staff Reports',           'url' => 'staff_performance'],
             ['label' => 'Comparative',             'url' => 'comparative_reports'],
             ['label' => 'Attendance Trends',       'url' => 'attendance_trends'],
         ]],
@@ -275,13 +268,11 @@ return [
         // STAFF — Admin handles full HR operations + onboarding
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
-            ['label' => 'Add New Staff',           'url' => 'manage_staff'],              // onboarding
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
             ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Staff ID Cards',          'url' => 'staff_id_cards'],              // generate staff ID
             ['label' => 'Staff Role Assignments',   'url' => 'staff_role_assignments'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
@@ -327,7 +318,6 @@ return [
         // ATTENDANCE
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
             ['label' => 'View Attendance',         'url' => 'view_attendance'],
-            ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
         ]],
 
@@ -421,12 +411,10 @@ return [
         // STAFF — HT interviews candidates, manages performance
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
-            ['label' => 'Staff Interviews',        'url' => 'manage_staff'],               // HT participates in interviews
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
             ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Performance Reviews',     'url' => 'teacher_performance_reviews'],
             ['label' => 'Teacher Workload',        'url' => 'teacher_workload'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
@@ -446,7 +434,6 @@ return [
         // ATTENDANCE
         ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
             ['label' => 'View Attendance',         'url' => 'view_attendance'],
-            ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
             ['label' => 'Attendance Reports',      'url' => 'attendance_reports'],
         ]],
 
@@ -588,7 +575,6 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'staff_leave'],
             ['label' => 'My Attendance',           'url' => 'my_attendance'],
         ]],
 
@@ -833,8 +819,7 @@ return [
 
         // PAYROLL — Accountant processes payment after Director approval
         ['label' => 'Payroll', 'url' => null, 'icon' => 'fas fa-wallet', 'subitems' => [
-            ['label' => 'Approved Payrolls',       'url' => 'manage_payrolls'],            // view what Director approved
-            ['label' => 'Process Payroll',         'url' => 'manage_payrolls'],            // ACCOUNTANT PAYS
+            ['label' => 'Manage Payrolls',         'url' => 'manage_payrolls'],            // view approved and process by permission
             ['label' => 'Payslips',                'url' => 'payslips'],
             ['label' => 'Payroll History',         'url' => 'payroll'],
         ]],
@@ -1220,7 +1205,6 @@ return [
             ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Staff Performance',       'url' => 'staff_performance'],
             ['label' => 'Performance Reviews',     'url' => 'teacher_performance_reviews'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
@@ -1261,7 +1245,6 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'staff_leave'],
             ['label' => 'My Attendance',           'url' => 'my_attendance'],
         ]],
 

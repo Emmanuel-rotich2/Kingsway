@@ -5,14 +5,28 @@
  * Authentication: JWT via api.js + backend middleware
  * Role-based access: JavaScript AuthContext + permission system
  */
+if (!isset($staffPageTitle)) {
+    $staffPageTitle = 'Staff Management';
+}
+if (!isset($staffPageDescription)) {
+    $staffPageDescription = 'Manage all staff members and their assignments';
+}
+if (!isset($staffPageIcon)) {
+    $staffPageIcon = 'fas fa-chalkboard-teacher';
+}
+if (isset($staffPageContext) && is_array($staffPageContext)) {
+    echo '<script>window.STAFF_PAGE_CONTEXT = ' .
+        json_encode($staffPageContext, JSON_UNESCAPED_SLASHES) .
+        ';</script>' . PHP_EOL;
+}
 ?>
-<div class="staff-management-container">
+    <div class="staff-management-container" data-staff-directory-page>
     <!-- Page Header -->
     <div class="page-header mb-4">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h4 class="mb-1"><i class="fas fa-chalkboard-teacher me-2"></i>Staff Management</h4>
-                <p class="text-muted mb-0">Manage all staff members and their assignments</p>
+                <h4 class="mb-1"><i class="<?= htmlspecialchars($staffPageIcon, ENT_QUOTES, 'UTF-8') ?> me-2"></i><?= htmlspecialchars($staffPageTitle, ENT_QUOTES, 'UTF-8') ?></h4>
+                <p class="text-muted mb-0"><?= htmlspecialchars($staffPageDescription, ENT_QUOTES, 'UTF-8') ?></p>
             </div>
             <div class="btn-group">
                 <button class="btn btn-primary" id="addStaffBtn" data-permission-module="staff" data-permission-action="create">
@@ -27,7 +41,7 @@
 
     <!-- Stats Cards -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        <div class="col-md-3" data-staff-card="total">
             <div class="card bg-primary text-white">
                 <div class="card-body text-center">
                     <h3 id="totalStaff">--</h3>
@@ -35,7 +49,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-3" data-staff-card="active">
             <div class="card bg-success text-white">
                 <div class="card-body text-center">
                     <h3 id="activeStaff">--</h3>
@@ -43,7 +57,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-3" data-staff-card="teaching">
             <div class="card bg-info text-white">
                 <div class="card-body text-center">
                     <h3 id="teachingStaff">--</h3>
@@ -51,7 +65,7 @@
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
+        <div class="col-md-3" data-staff-card="non_teaching">
             <div class="card bg-warning text-dark">
                 <div class="card-body text-center">
                     <h3 id="nonTeachingStaff">--</h3>
@@ -104,14 +118,14 @@
             <div class="table-responsive">
                 <table class="table table-hover" id="staffTable">
                     <thead>
-                        <tr>
-                            <th>Staff No</th>
-                            <th>Name</th>
-                            <th>Department</th>
-                            <th>Type</th>
-                            <th>Position</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+	                        <tr>
+	                            <th data-staff-column="staff_no">Staff No</th>
+	                            <th data-staff-column="name">Name</th>
+	                            <th data-staff-column="department">Department</th>
+	                            <th data-staff-column="type">Type</th>
+	                            <th data-staff-column="position">Position</th>
+	                            <th data-staff-column="status">Status</th>
+	                            <th data-staff-column="actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="staffTableBody">
@@ -195,4 +209,5 @@
     </div>
 </div>
 
+<script src="<?= $appBase ?>/js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>

@@ -26,19 +26,37 @@ window.KingswayFileLifecycle = Object.freeze({
     return popup;
   },
   async exportText(content, filename, mimeType = 'text/csv;charset=utf-8') {
-    const response = await fetch(`${window.API_BASE_URL || '/api'}/download/export`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(window.AuthContext?.getAuthHeaders?.() || {}),
-      },
-      body: JSON.stringify({ content, filename, mime_type: mimeType }),
-    });
-    const payload = await response.json();
-    if (!response.ok || payload.status !== 'success') {
-      throw new Error(payload.message || 'Export failed');
+    const requestBody = { content, filename, mime_type: mimeType };
+    const client = window.API?.apiCall || window.API?.callAPI || window.callAPI;
+    let data;
+
+    if (typeof client === 'function') {
+      data = await client('/download/export', 'POST', requestBody);
+    } else {
+      await window.AuthContext?.ready?.();
+      const token = window.AuthContext?.getToken?.();
+      const apiBase = window.API_BASE_URL || `${String(window.APP_BASE || '').replace(/\/$/, '')}/api`;
+      const response = await fetch(`${apiBase}/download/export`, {
+        method: 'POST',
+        credentials: window.location.hostname === 'localhost' ? 'same-origin' : 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(requestBody),
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.status !== 'success') {
+        throw new Error(payload.message || 'Export failed');
+      }
+      data = payload.data;
     }
-    window.location.assign(payload.data.download_url);
+
+    const downloadUrl = data?.download_url || data?.url;
+    if (!downloadUrl) {
+      throw new Error('Export completed without a download URL');
+    }
+    window.location.assign(downloadUrl);
   },
   open(file) {
     const url = typeof file === 'string' ? file : file?.preview_url || file?.download_url || file?.url;

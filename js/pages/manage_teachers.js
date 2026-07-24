@@ -184,7 +184,7 @@ const manageTeachersController = {
   loadDepartments: async function () {
     try {
       const response = await window.API.apiCall(
-        "/staff/departments/get",
+        "/staff/departments-get",
         "GET",
       );
       this.departments = this.unwrap(response) || [];

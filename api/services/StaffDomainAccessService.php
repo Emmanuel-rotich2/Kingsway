@@ -61,7 +61,10 @@ final class StaffDomainAccessService
             $decoded = json_decode($permissions, true);
             $permissions = is_array($decoded) ? $decoded : preg_split('/\s*,\s*/', $permissions);
         }
-        return array_values(array_unique(array_filter(array_map('strval', (array)$permissions))));
+        return array_values(array_unique(array_filter(array_map(
+            [$this, 'scalarAuthValue'],
+            (array)$permissions
+        ))));
     }
 
     public function roles(): array
@@ -73,10 +76,10 @@ final class StaffDomainAccessService
         if (isset($this->user['role_name'])) {
             $roles[] = $this->user['role_name'];
         }
-        return array_values(array_unique(array_map(
-            static fn($role) => strtolower(trim((string)$role)),
+        return array_values(array_unique(array_filter(array_map(
+            fn($role) => strtolower($this->scalarAuthValue($role)),
             (array)$roles
-        )));
+        ))));
     }
 
     public function allows(string $permission, array $fallbackRoles = []): bool
@@ -189,5 +192,30 @@ final class StaffDomainAccessService
         } catch (\Throwable $ignored) {
             // Audit failure must not corrupt the business transaction.
         }
+    }
+
+    private function scalarAuthValue($value): string
+    {
+        if (is_string($value) || is_numeric($value)) {
+            return trim((string)$value);
+        }
+
+        if (is_array($value)) {
+            foreach (['permission_code', 'code', 'name', 'role_name', 'label'] as $key) {
+                if (isset($value[$key]) && (is_string($value[$key]) || is_numeric($value[$key]))) {
+                    return trim((string)$value[$key]);
+                }
+            }
+        }
+
+        if (is_object($value)) {
+            foreach (['permission_code', 'code', 'name', 'role_name', 'label'] as $key) {
+                if (isset($value->{$key}) && (is_string($value->{$key}) || is_numeric($value->{$key}))) {
+                    return trim((string)$value->{$key});
+                }
+            }
+        }
+
+        return '';
     }
 }

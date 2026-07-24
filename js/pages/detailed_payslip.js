@@ -37,13 +37,21 @@ const DetailedPayslipController = {
   loadStaffList: async function () {
     try {
       const response = await window.API.staff.list();
-      if (response?.success) {
-        this.data.staffList = response.data || [];
-        this.populateStaffSelect();
-      }
+      this.data.staffList = this.extractStaffList(response);
+      this.populateStaffSelect();
     } catch (error) {
       console.error("Error loading staff list:", error);
     }
+  },
+
+  extractStaffList: function (response) {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.staff)) return response.staff;
+    if (Array.isArray(response.data?.staff)) return response.data.staff;
+    if (Array.isArray(response.items)) return response.items;
+    if (Array.isArray(response.data)) return response.data;
+    return [];
   },
 
   /**

@@ -192,6 +192,61 @@ async function readJsonSafely(response, context = "API") {
   }
 }
 
+function fetchWithBrowserFallback(requestUrl, fetchOptions) {
+  return fetch(requestUrl, fetchOptions).catch((fetchError) => {
+    const isNetworkFailure = /Failed to fetch|NetworkError|network/i.test(
+      fetchError?.message || "",
+    );
+    if (!isNetworkFailure || typeof XMLHttpRequest === "undefined") {
+      throw fetchError;
+    }
+
+    console.warn("[api.js] fetch failed; retrying with XMLHttpRequest", {
+      url: requestUrl,
+      method: fetchOptions.method || "GET",
+      error: fetchError.message,
+    });
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(fetchOptions.method || "GET", requestUrl, true);
+      xhr.withCredentials = fetchOptions.credentials !== "omit";
+
+      Object.entries(fetchOptions.headers || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          xhr.setRequestHeader(key, String(value));
+        }
+      });
+
+      xhr.onload = () => {
+        const rawHeaders = xhr.getAllResponseHeaders();
+        const headers = {
+          get(name) {
+            const target = String(name || "").toLowerCase();
+            const line = rawHeaders
+              .split(/\r?\n/)
+              .find((entry) => entry.toLowerCase().startsWith(target + ":"));
+            return line ? line.slice(line.indexOf(":") + 1).trim() : null;
+          },
+        };
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          headers,
+          text: async () => xhr.responseText,
+          blob: async () => new Blob([xhr.response], {
+            type: headers.get("content-type") || "application/octet-stream",
+          }),
+        });
+      };
+
+      xhr.onerror = () => reject(fetchError);
+      xhr.ontimeout = () => reject(fetchError);
+      xhr.send(fetchOptions.body || null);
+    });
+  });
+}
+
 // ============================================================================
 // AUTHENTICATION & AUTHORIZATION SYSTEM
 // ============================================================================
@@ -1207,6 +1262,16 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/lifecycle": "staff_lifecycle_view",
   "/staff/appointments": "staff_appointments_view",
   "/staff/import-existing": "staff_import_manage",
+  "/staff-migration/reference-data": "staff_import",
+  "/staff-migration/batches": "staff_import",
+  "/staff-migration/batch": "staff_import",
+  "/staff-migration/template": "staff_import",
+  "/staff-migration/stage": "staff_import",
+  "/staff-migration/commit": "staff_import",
+  "/staff-migration/rollback": "staff_import_rollback",
+  "/staff-migration/resend-invitation": "staff_invitation_resend",
+  "/staff-migration/onboarding": null,
+  "/staff-migration/profile": null,
 
   // Activities
   "/activities/index": "activities_view",
@@ -1690,10 +1755,26 @@ async function apiCall(
         url.searchParams.append(key, value);
       }
     });
+    const requestUrl = url.toString();
 
     // Check if token exists
-    const token = AuthContext.getToken();
-    if (!token) {
+    const authFreeEndpoints = new Set([
+      "/auth/login",
+      "/auth/register",
+      "/auth/forgot-password",
+      "/auth/reset-password",
+      "/auth/complete-reset",
+      "/auth/verify-reset-token",
+      "/auth/refresh-token",
+      "/auth/logout-refresh",
+      "/auth/session",
+      "/auth/refresh-session",
+      "/auth/validate-token",
+    ]);
+    const token = authFreeEndpoints.has(normalizedEndpoint)
+      ? null
+      : AuthContext.getToken();
+    if (!token && !authFreeEndpoints.has(normalizedEndpoint)) {
       console.warn("⚠️ No JWT token found - API call will fail with 401");
     }
 
@@ -1705,6 +1786,7 @@ async function apiCall(
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
+        Accept: "application/json",
         ...(token && {
           Authorization: "Bearer " + token,
         }),
@@ -1721,7 +1803,7 @@ async function apiCall(
       }
     }
 
-    let response = await fetch(url, fetchOptions);
+    let response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
 
     // Handle 401 Unauthorized - token may have expired, try to refresh
     if (response.status === 401 && !options.isRefreshAttempt) {
@@ -1772,7 +1854,7 @@ async function apiCall(
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
-        response = await fetch(url, fetchOptions);
+        response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
         // Refresh failed, user is logged out and redirected
         throw new Error("Authentication failed, please log in again");
@@ -1828,6 +1910,19 @@ async function apiCall(
   } catch (error) {
     error.endpoint = error.endpoint || endpoint;
     error.method = error.method || method;
+    if (/Failed to fetch|NetworkError|network/i.test(error.message || "")) {
+      console.error("[api.js] Network fetch failed", {
+        endpoint,
+        method,
+        apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
+        appBase: window.APP_BASE || "",
+        origin: window.location.origin,
+        href: window.location.href,
+        online: navigator.onLine,
+        serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+        error: error.message,
+      });
+    }
 
     // For permission denied errors, log to console instead of showing popup
     if (error.code === "PERMISSION_DENIED") {
@@ -3786,8 +3881,8 @@ window.API = {
 
   // Staff endpoints
   staff: {
-    index: async () => {
-      const data = await apiCall("/staff/index", "GET");
+    index: async (params = {}) => {
+      const data = await apiCall("/staff/index", "GET", null, params);
       // Directory data: warm the staff IndexedDB cache so reloads render
       // instantly and revalidate in the background (network-first strategy).
       if (typeof DataStore !== "undefined" && data != null) {
@@ -3817,6 +3912,7 @@ window.API = {
       id
         ? apiCall(`/staff/departments-get/${id}`, "GET")
         : apiCall("/staff/departments-get", "GET"),
+    getAll: async (params = {}) => apiCall("/staff", "GET", null, params),
 
     // Assignments
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
@@ -5456,6 +5552,34 @@ window.API = {
       apiCall(`/stafflifecycle/reject/${id}`, "PUT", { comment }),
     cancel: async (id, reason) =>
       apiCall(`/stafflifecycle/cancel/${id}`, "PUT", { reason }),
+  },
+
+  staffMigration: {
+    referenceData: async () =>
+      apiCall("/staff-migration/reference-data", "GET"),
+    batches: async (params = {}) =>
+      apiCall("/staff-migration/batches", "GET", null, params),
+    batch: async (id) => apiCall(`/staff-migration/batch/${id}`, "GET"),
+    templateUrl: () => `${API_BASE_URL}/staff-migration/template`,
+    downloadTemplate: async () =>
+      apiCall("/staff-migration/template", "GET", null, {}, {
+        isDownload: true,
+        filename: "existing_staff_migration_template.csv",
+      }),
+    stage: async (formData) =>
+      apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),
+    commit: async (batchId) =>
+      apiCall("/staff-migration/commit", "POST", { batch_id: batchId }),
+    rollback: async (batchId) =>
+      apiCall("/staff-migration/rollback", "POST", { batch_id: batchId }),
+    resendInvitation: async (userId, baseUrl = window.location.origin) =>
+      apiCall("/staff-migration/resend-invitation", "POST", {
+        user_id: userId,
+        base_url: baseUrl,
+      }),
+    onboarding: async () => apiCall("/staff-migration/onboarding", "GET"),
+    completeProfile: async (payload) =>
+      apiCall("/staff-migration/profile", "PUT", payload),
   },
 };
 

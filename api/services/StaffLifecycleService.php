@@ -68,7 +68,7 @@ final class StaffLifecycleService
     {
         return [
             'departments'=>$this->db->query("SELECT id,name,code FROM departments WHERE status='active' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
-            'roles'=>$this->db->query("SELECT id,name,display_name FROM roles WHERE is_active=1 AND scope IN ('school','both') ORDER BY display_name,name")->fetchAll(PDO::FETCH_ASSOC),
+            'roles'=>$this->db->query("SELECT id,name,description FROM roles WHERE is_active=1 AND scope='school' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC),
             'staff'=>$this->db->query("SELECT id,staff_no,CONCAT(first_name,' ',last_name) name FROM staff WHERE status='active' ORDER BY first_name,last_name")->fetchAll(PDO::FETCH_ASSOC),
             'action_types'=>['promotion','demotion','transfer','acting_appointment','confirmation','contract_renewal','salary_change','suspension','reinstatement','resignation','retirement','termination'],
         ];

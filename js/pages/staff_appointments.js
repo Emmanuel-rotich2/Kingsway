@@ -3,10 +3,83 @@ const StaffAppointmentsPage = {
   newStaff: [],
   pendingAction: null,
 
-  init() {
+  async init() {
+    if (window.StaffAccess) {
+      await StaffAccess.init();
+      const allowed =
+        StaffAccess.can("staff.appointments.view") ||
+        StaffAccess.can("staff.appointments.approve") ||
+        StaffAccess.can("staff.appointments.onboard");
+      if (!allowed) {
+        await StaffAccess.require("staff.appointments.view,staff.appointments.approve,staff.appointments.onboard");
+        return;
+      }
+      StaffAccess.apply(document);
+    }
     this.ensureModals();
     this.bindEvents();
-    this.loadAll();
+    this.applyRoleLayout();
+    this.applyContext();
+    await this.loadAll();
+  },
+
+  canApprove() {
+    return !window.StaffAccess || StaffAccess.can("staff.appointments.approve");
+  },
+
+  canOnboard() {
+    return !window.StaffAccess || StaffAccess.can("staff.appointments.onboard");
+  },
+
+  getRoleMode() {
+    if (this.canApprove()) return "approval";
+    if (this.canOnboard()) return "onboarding";
+    return "viewer";
+  },
+
+  getVisibleCards() {
+    const mode = this.getRoleMode();
+    if (mode === "approval") return ["internal_pending", "internal_approved", "new_submitted", "new_approved"];
+    if (mode === "onboarding") return ["new_approved", "new_submitted"];
+    return ["internal_pending", "new_submitted"];
+  },
+
+  getInternalColumns() {
+    if (this.getRoleMode() === "viewer") return ["staff", "type", "position", "status"];
+    return ["staff", "type", "position", "department", "salary", "status", "actions"];
+  },
+
+  getNewColumns() {
+    const mode = this.getRoleMode();
+    if (mode === "approval") return ["candidate", "contact", "position", "department", "start", "status", "actions"];
+    if (mode === "onboarding") return ["candidate", "position", "department", "start", "status", "actions"];
+    return ["candidate", "position", "department", "status"];
+  },
+
+  applyRoleLayout() {
+    const mode = this.getRoleMode();
+    document.getElementById("staff-appointments-page")?.setAttribute("data-appointment-mode", mode);
+
+    const cards = new Set(this.getVisibleCards());
+    document.querySelectorAll("[data-appointment-card]").forEach(card => {
+      card.hidden = !cards.has(card.dataset.appointmentCard);
+    });
+
+    const internalTab = document.querySelector('[data-appointment-tab="internal"]');
+    const internalPane = document.querySelector('[data-appointment-pane="internal"]');
+    const newTabButton = document.getElementById("new-tab");
+
+    if (mode === "onboarding") {
+      if (internalTab) internalTab.hidden = true;
+      if (internalPane) internalPane.hidden = true;
+      if (newTabButton && window.bootstrap?.Tab) bootstrap.Tab.getOrCreateInstance(newTabButton).show();
+    } else {
+      if (internalTab) internalTab.hidden = false;
+      if (internalPane) internalPane.hidden = false;
+    }
+
+    document.getElementById("openInternalAppointmentForm")?.toggleAttribute("hidden", !this.canApprove());
+    this.renderHeaders();
   },
 
   bindEvents() {
@@ -15,6 +88,41 @@ const StaffAppointmentsPage = {
 
     document.getElementById("staffAppointmentReasonConfirm")?.addEventListener("click", () => this.submitReasonAction());
     document.getElementById("staffAppointmentOnboardConfirm")?.addEventListener("click", () => this.submitOnboardAction());
+  },
+
+  applyContext() {
+    const context = window.STAFF_APPOINTMENTS_CONTEXT || {};
+    if (context.activeTab === "new") {
+      const tab = document.getElementById("new-tab");
+      if (tab && window.bootstrap?.Tab) {
+        bootstrap.Tab.getOrCreateInstance(tab).show();
+      }
+    }
+  },
+
+  renderHeaders() {
+    const labels = {
+      staff: "Staff",
+      type: "Type",
+      position: "Position Change",
+      department: "Department Change",
+      salary: "Salary Change",
+      status: "Status",
+      actions: "Actions",
+      candidate: "Candidate",
+      contact: "Contact",
+      start: "Start Date",
+    };
+    this.renderHeader("internalAppointmentsHeader", this.getInternalColumns(), labels);
+    this.renderHeader("newAppointmentsHeader", this.getNewColumns(), labels);
+  },
+
+  renderHeader(id, columns, labels) {
+    const header = document.getElementById(id);
+    if (!header) return;
+    header.innerHTML = columns
+      .map(column => `<th class="${column === "actions" ? "text-end" : ""}">${labels[column] || column}</th>`)
+      .join("");
   },
 
   async loadAll() {
@@ -26,6 +134,7 @@ const StaffAppointmentsPage = {
       ]);
       this.internal = internal.data || [];
       this.newStaff = newStaff.data || [];
+      this.applyRoleLayout();
       this.renderSummary(summary.data || {});
       this.renderInternal();
       this.renderNewStaff();
@@ -50,19 +159,14 @@ const StaffAppointmentsPage = {
     body.replaceChildren();
 
     if (!this.internal.length) {
-      this.appendEmptyRow(body, 7, "No internal appointments found.");
+      this.appendEmptyRow(body, this.getInternalColumns().length, "No internal appointments found.");
       return;
     }
 
+    const columns = this.getInternalColumns();
     this.internal.forEach((item) => {
       const row = document.createElement("tr");
-      this.appendStaffCell(row, item.staff_name || "Staff", item.staff_no || "");
-      this.appendCell(row, [this.makeBadge(item.promotion_type || "internal"), Number(item.is_temporary) === 1 ? this.smallText("Temporary acting") : null]);
-      this.appendTextCell(row, `${item.from_position || "-"} → ${item.to_position || "-"}`);
-      this.appendTextCell(row, `${item.from_department || "-"} → ${item.to_department || "-"}`);
-      this.appendTextCell(row, `${this.money(item.from_salary)} → ${this.money(item.to_salary)}`);
-      this.appendCell(row, [this.statusBadge(item.status)]);
-      this.appendCell(row, this.internalActions(item), "text-end");
+      columns.forEach(column => this.appendInternalCell(row, item, column));
       body.appendChild(row);
     });
   },
@@ -73,30 +177,52 @@ const StaffAppointmentsPage = {
     body.replaceChildren();
 
     if (!this.newStaff.length) {
-      this.appendEmptyRow(body, 7, "No new staff appointments found.");
+      this.appendEmptyRow(body, this.getNewColumns().length, "No new staff appointments found.");
       return;
     }
 
+    const columns = this.getNewColumns();
     this.newStaff.forEach((item) => {
       const row = document.createElement("tr");
-      this.appendStaffCell(row, `${item.candidate_first_name || ""} ${item.candidate_last_name || ""}`.trim(), `ID: ${item.candidate_id_number || "Not provided"}`);
-      this.appendStaffCell(row, item.candidate_email || "-", item.candidate_phone || "");
-      this.appendTextCell(row, item.position || "-");
-      this.appendTextCell(row, item.department_name || "-");
-      this.appendTextCell(row, item.employment_date || "-");
-      this.appendCell(row, [this.statusBadge(item.status)]);
-      this.appendCell(row, this.newStaffActions(item), "text-end");
+      columns.forEach(column => this.appendNewStaffCell(row, item, column));
       body.appendChild(row);
     });
   },
 
+  appendInternalCell(row, item, column) {
+    const cells = {
+      staff: () => this.appendStaffCell(row, item.staff_name || "Staff", item.staff_no || ""),
+      type: () => this.appendCell(row, [this.makeBadge(item.promotion_type || "internal"), Number(item.is_temporary) === 1 ? this.smallText("Temporary acting") : null]),
+      position: () => this.appendTextCell(row, `${item.from_position || "-"} -> ${item.to_position || "-"}`),
+      department: () => this.appendTextCell(row, `${item.from_department || "-"} -> ${item.to_department || "-"}`),
+      salary: () => this.appendTextCell(row, `${this.money(item.from_salary)} -> ${this.money(item.to_salary)}`),
+      status: () => this.appendCell(row, [this.statusBadge(item.status)]),
+      actions: () => this.appendCell(row, this.internalActions(item), "text-end"),
+    };
+    cells[column]?.();
+  },
+
+  appendNewStaffCell(row, item, column) {
+    const candidateName = `${item.candidate_first_name || ""} ${item.candidate_last_name || ""}`.trim() || "Candidate";
+    const cells = {
+      candidate: () => this.appendStaffCell(row, candidateName, `ID: ${item.candidate_id_number || "Not provided"}`),
+      contact: () => this.appendStaffCell(row, item.candidate_email || "-", item.candidate_phone || ""),
+      position: () => this.appendTextCell(row, item.position || "-"),
+      department: () => this.appendTextCell(row, item.department_name || "-"),
+      start: () => this.appendTextCell(row, item.employment_date || "-"),
+      status: () => this.appendCell(row, [this.statusBadge(item.status)]),
+      actions: () => this.appendCell(row, this.newStaffActions(item), "text-end"),
+    };
+    cells[column]?.();
+  },
+
   internalActions(item) {
     const buttons = [];
-    if (item.status === "pending") {
+    if (item.status === "pending" && this.canApprove()) {
       buttons.push(this.actionButton("Approve", "success", () => this.runAction("internal", "approve", item.id)));
       buttons.push(this.actionButton("Reject", "outline-danger", () => this.openReasonModal("internal", "reject", item.id)));
     }
-    if ((item.status === "approved" || item.status === "effective") && item.promotion_type === "acting" && Number(item.is_temporary) === 1) {
+    if ((item.status === "approved" || item.status === "effective") && item.promotion_type === "acting" && Number(item.is_temporary) === 1 && this.canApprove()) {
       buttons.push(this.actionButton("Revert Acting", "outline-warning", () => this.openReasonModal("internal", "revert", item.id)));
     }
     return buttons.length ? buttons : [this.smallText("No actions")];
@@ -104,17 +230,21 @@ const StaffAppointmentsPage = {
 
   newStaffActions(item) {
     const buttons = [];
-    if (item.status === "submitted") {
+    if (item.status === "submitted" && this.canApprove()) {
       buttons.push(this.actionButton("Approve", "success", () => this.runAction("new", "approve", item.id)));
       buttons.push(this.actionButton("Reject", "outline-danger", () => this.openReasonModal("new", "reject", item.id)));
     }
-    if (item.status === "approved") {
+    if (item.status === "approved" && this.canOnboard()) {
       buttons.push(this.actionButton("Onboard", "warning", () => this.openOnboardModal(item.id)));
     }
     return buttons.length ? buttons : [this.smallText("No actions")];
   },
 
   async runAction(queue, action, id, body = {}) {
+    if (!this.canApprove() && action !== "onboard") {
+      showNotification("You do not have permission to approve staff appointments", NOTIFICATION_TYPES.ERROR);
+      return;
+    }
     const prefix = queue === "internal" ? "internal" : "new";
     await this.request(`/staff-appointments/${prefix}-${action}/${id}`, { method: "PUT", body });
     showNotification(`${queue === "internal" ? "Internal" : "New staff"} appointment ${action} completed`, NOTIFICATION_TYPES.SUCCESS);
@@ -137,6 +267,10 @@ const StaffAppointmentsPage = {
   },
 
   openOnboardModal(id) {
+    if (!this.canOnboard()) {
+      showNotification("You do not have permission to onboard staff", NOTIFICATION_TYPES.ERROR);
+      return;
+    }
     this.pendingAction = { queue: "new", action: "onboard", id };
     document.getElementById("staffAppointmentRoleId").value = "";
     bootstrap.Modal.getOrCreateInstance(document.getElementById("staffAppointmentOnboardModal")).show();

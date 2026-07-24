@@ -12,7 +12,6 @@
 | staff_appointments | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | import_existing_staff | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | all_teachers | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| manage_non_teaching_staff | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
 | staff_performance | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ |
 | teacher_workload | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | staff_id_cards | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -73,14 +72,6 @@
 - **Headteacher**: Teacher oversight, performance management
 - **Deputy Academic**: Primary teacher management authority
 - **Deputy Discipline**: View teachers for disciplinary matters
-- **Generic Staff**: No access
-
-**manage_non_teaching_staff** - Non-Teaching Staff
-- **Director**: View non-teaching workforce, administrative oversight
-- **School Admin**: Full non-teaching staff management
-- **Headteacher**: Oversight of support staff
-- **Deputy Academic**: No access (focus on teaching staff)
-- **Deputy Discipline**: View non-teaching staff for disciplinary matters
 - **Generic Staff**: No access
 
 **teacher_workload** - Teacher Workload Management

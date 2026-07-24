@@ -19,7 +19,7 @@
  *   GET  /api/attendance/staff-report
  *   GET  /api/attendance/duty-types
  *   POST /api/attendance/mark-staff
- *   GET  /api/staff/departments/get
+ *   GET  /api/staff/departments-get
  */
 ?>
 

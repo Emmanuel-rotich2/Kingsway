@@ -21,6 +21,9 @@ const StaffProductionUI = {
         if (typeof AuthContext !== 'undefined') {
             await AuthContext.ready();
         }
+        if (window.StaffAccess) {
+            await StaffAccess.init();
+        }
 
         // Check authentication
         if (!AuthContext?.isAuthenticated()) {
@@ -29,13 +32,88 @@ const StaffProductionUI = {
         }
 
         // Check permissions
-        if (!AuthContext.canView('staff')) {
+        if (!this.canViewDirectory()) {
             showNotification('You do not have permission to view staff', 'error');
             return;
         }
 
         this.bindEvents();
         await this.loadInitialData();
+        this.applyAccessUi();
+        this.applyPageContext();
+    },
+
+    canViewDirectory() {
+        return (window.StaffAccess && StaffAccess.can('staff.directory.view')) || AuthContext.canView('staff');
+    },
+
+    canManageDirectory() {
+        return (window.StaffAccess && StaffAccess.can('staff.directory.manage')) || AuthContext.canCreate('staff') || AuthContext.canEdit('staff');
+    },
+
+    canDeleteDirectory() {
+        return AuthContext.canDelete('staff');
+    },
+
+    canExportDirectory() {
+        return AuthContext.canExport('staff');
+    },
+
+    applyAccessUi() {
+        const addBtn = document.getElementById('addStaffBtn');
+        if (addBtn) addBtn.hidden = !this.canManageDirectory();
+
+        const exportBtn = document.getElementById('exportStaffBtn');
+        if (exportBtn) exportBtn.hidden = !this.canExportDirectory();
+
+        this.applyRoleLayout();
+
+        if (window.StaffAccess) StaffAccess.apply(document);
+    },
+
+    getRoleMode() {
+        const roles = (window.StaffAccess?.getContext?.().roles || AuthContext?.getUser?.()?.roles || [])
+            .map(role => String(role.name || role.role_name || role).toLowerCase());
+        const hasRole = fragment => roles.some(role => role.includes(fragment));
+
+        if (this.canManageDirectory()) return 'operations';
+        if (hasRole('director') || hasRole('headteacher') || hasRole('deputy')) return 'leadership';
+        return 'viewer';
+    },
+
+    getVisibleCards() {
+        const mode = this.getRoleMode();
+        if (mode === 'operations') return ['total', 'active', 'teaching', 'non_teaching'];
+        if (mode === 'leadership') return ['total', 'active', 'teaching'];
+        return ['total', 'active'];
+    },
+
+    getVisibleColumns() {
+        const mode = this.getRoleMode();
+        if (mode === 'operations') {
+            return ['staff_no', 'name', 'department', 'type', 'position', 'status', 'actions'];
+        }
+        if (mode === 'leadership') {
+            return ['name', 'department', 'type', 'position', 'status', 'actions'];
+        }
+        return ['name', 'department', 'position', 'status'];
+    },
+
+    applyRoleLayout() {
+        const container = document.querySelector('[data-staff-directory-page]');
+        if (container) {
+            container.dataset.roleMode = this.getRoleMode();
+        }
+
+        const cards = new Set(this.getVisibleCards());
+        document.querySelectorAll('[data-staff-card]').forEach(card => {
+            card.hidden = !cards.has(card.dataset.staffCard);
+        });
+
+        const columns = new Set(this.getVisibleColumns());
+        document.querySelectorAll('[data-staff-column]').forEach(th => {
+            th.hidden = !columns.has(th.dataset.staffColumn);
+        });
     },
 
     async loadInitialData() {
@@ -141,7 +219,7 @@ const StaffProductionUI = {
         });
 
         document.getElementById('addStaffBtn')?.addEventListener('click', () => {
-            if (AuthContext.canCreate('staff')) {
+            if (this.canManageDirectory()) {
                 this.showAddModal();
             } else {
                 showNotification('You do not have permission to add staff', 'error');
@@ -153,12 +231,20 @@ const StaffProductionUI = {
         });
 
         document.getElementById('exportStaffBtn')?.addEventListener('click', () => {
-            if (AuthContext.canExport('staff')) {
+            if (this.canExportDirectory()) {
                 this.exportStaff();
             } else {
                 showNotification('You do not have permission to export staff', 'error');
             }
         });
+    },
+
+    applyPageContext() {
+        const context = window.STAFF_PAGE_CONTEXT || {};
+
+        if (context.mode === 'create' && this.canManageDirectory()) {
+            window.setTimeout(() => this.showAddModal(), 100);
+        }
     },
 
     applyFilters() {
@@ -213,6 +299,7 @@ const StaffProductionUI = {
     },
 
     render() {
+        this.applyRoleLayout();
         this.renderStats();
         this.renderTable();
     },
@@ -232,28 +319,34 @@ const StaffProductionUI = {
     renderTable() {
         const tbody = document.getElementById('staffTableBody');
         if (!tbody) return;
+        const columns = this.getVisibleColumns();
 
         if (this.state.filteredStaff.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No staff found</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="${columns.length}" class="text-center text-muted py-4">No staff found</td></tr>`;
             return;
         }
 
         tbody.innerHTML = this.state.filteredStaff.map((staff) => {
             return `
                 <tr>
-                    <td>${staff.staff_no || '-'}</td>
-                    <td>
-                        <strong>${this.escapeHtml(staff.first_name + ' ' + staff.last_name)}</strong>
-                        <br><small class="text-muted">${staff.email || '-'}</small>
-                    </td>
-                    <td>${staff.department_name || '-'}</td>
-                    <td>${this.renderStaffType(staff)}</td>
-                    <td>${staff.position || '-'}</td>
-                    <td>${this.renderStatusBadge(staff)}</td>
-                    <td>${this.renderActionButtons(staff)}</td>
+                    ${columns.map(column => this.renderStaffCell(staff, column)).join('')}
                 </tr>
             `;
         }).join('');
+    },
+
+    renderStaffCell(staff, column) {
+        const fullName = `${staff.first_name || ''} ${staff.last_name || ''}`.trim() || 'Unnamed staff';
+        const cells = {
+            staff_no: `<td>${this.escapeHtml(staff.staff_no || '-')}</td>`,
+            name: `<td><strong>${this.escapeHtml(fullName)}</strong>${this.getRoleMode() === 'operations' ? `<br><small class="text-muted">${this.escapeHtml(staff.email || '-')}</small>` : ''}</td>`,
+            department: `<td>${this.escapeHtml(staff.department_name || '-')}</td>`,
+            type: `<td>${this.renderStaffType(staff)}</td>`,
+            position: `<td>${this.escapeHtml(staff.position || '-')}</td>`,
+            status: `<td>${this.renderStatusBadge(staff)}</td>`,
+            actions: `<td>${this.renderActionButtons(staff)}</td>`,
+        };
+        return cells[column] || '';
     },
 
     renderStaffType(staff) {
@@ -261,7 +354,7 @@ const StaffProductionUI = {
         const typeName = typeMap[staff.staff_type_id] || 'Unknown';
         const colorMap = { 1: 'primary', 2: 'info', 3: 'warning' };
         const color = colorMap[staff.staff_type_id] || 'secondary';
-        return `<span class="badge bg-${color}">${typeName}</span>`;
+        return `<span class="badge bg-${color}">${this.escapeHtml(typeName)}</span>`;
     },
 
     renderStatusBadge(staff) {
@@ -271,7 +364,7 @@ const StaffProductionUI = {
             'on_leave': 'warning'
         };
         const color = statusMap[staff.status] || 'secondary';
-        return `<span class="badge bg-${color}">${staff.status || 'Unknown'}</span>`;
+        return `<span class="badge bg-${color}">${this.escapeHtml(staff.status || 'Unknown')}</span>`;
     },
 
     renderActionButtons(staff) {
@@ -281,13 +374,13 @@ const StaffProductionUI = {
             <i class="bi bi-eye"></i>
         </button>`);
 
-        if (AuthContext.canEdit('staff')) {
+        if (this.canManageDirectory()) {
             buttons.push(`<button class="btn btn-sm btn-outline-warning me-1" onclick="StaffProductionUI.editStaff(${staff.id})" title="Edit">
                 <i class="bi bi-pencil"></i>
             </button>`);
         }
 
-        if (AuthContext.canDelete('staff')) {
+        if (this.canDeleteDirectory()) {
             buttons.push(`<button class="btn btn-sm btn-outline-danger" onclick="StaffProductionUI.deleteStaff(${staff.id})" title="Delete">
                 <i class="bi bi-trash"></i>
             </button>`);
@@ -297,6 +390,10 @@ const StaffProductionUI = {
     },
 
     showAddModal() {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to add staff', 'error');
+            return;
+        }
         document.getElementById('staffModalTitle').textContent = 'Add Staff';
         document.getElementById('staffId').value = '';
         document.getElementById('staffForm').reset();
@@ -306,6 +403,10 @@ const StaffProductionUI = {
     },
 
     async saveStaff() {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to save staff', 'error');
+            return;
+        }
         const staffId = document.getElementById('staffId').value;
         const data = {
             first_name: document.getElementById('firstName').value,
@@ -353,6 +454,10 @@ const StaffProductionUI = {
     },
 
     async editStaff(staffId) {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to edit staff', 'error');
+            return;
+        }
         try {
             const response = await window.API.staff.get(staffId);
             const normalized = AppState.normalizeResponse(response);
@@ -383,6 +488,10 @@ const StaffProductionUI = {
     },
 
     async deleteStaff(staffId) {
+        if (!this.canDeleteDirectory()) {
+            showNotification('You do not have permission to delete staff', 'error');
+            return;
+        }
         if (!confirm('Are you sure you want to delete this staff member?')) return;
 
         try {

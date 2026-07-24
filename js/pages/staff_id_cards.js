@@ -14,8 +14,9 @@ const StaffIdCardsController = {
     document.getElementById('printStaffCardBtn')?.addEventListener('click',()=>this.printPreview());
   },
   async loadStaff() {
-    try { const data=await API.staff.list({limit:500}); this.staff=Array.isArray(data)?data:(data?.items||data?.data||[]); const sel=document.getElementById('cardStaffId'); sel.innerHTML='<option value="">Select staff</option>'+this.staff.map(s=>`<option value="${s.id}">${this.esc(s.staff_no||'')} — ${this.esc((s.first_name||'')+' '+(s.last_name||''))}</option>`).join(''); } catch(e){ this.notify(e.message,'error'); }
+    try { const data=await API.staff.list({limit:500}); this.staff=this.staffList(data); const sel=document.getElementById('cardStaffId'); sel.innerHTML='<option value="">Select staff</option>'+this.staff.map(s=>`<option value="${s.id}">${this.esc(s.staff_no||'')} — ${this.esc((s.first_name||'')+' '+(s.last_name||''))}</option>`).join(''); } catch(e){ this.notify(e.message,'error'); }
   },
+  staffList(data) { return Array.isArray(data)?data:(data?.staff||data?.data?.staff||data?.items||data?.data||[]); },
   async loadCards() {
     const body=document.getElementById('staffCardsBody'); body.innerHTML='<tr><td colspan="7" class="text-center py-4"><span class="spinner-border spinner-border-sm"></span></td></tr>';
     try { const data=await API.staff.getIdCards(); this.cards=Array.isArray(data)?data:(data?.items||[]); this.render(); } catch(e){ body.innerHTML=`<tr><td colspan="7" class="text-danger text-center py-4">${this.esc(e.message)}</td></tr>`; }

@@ -227,13 +227,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Per-resource renderers are intentionally OMITTED: we do not overwrite SSR.
 
+  async function fetchPublicResource(res) {
+    const base = String(window.APP_BASE || '').replace(/\/+$/, '');
+    const response = await fetch(`${base}/api/website/${encodeURIComponent(res)}`, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Public resource ${res} returned ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (payload && payload.success === false) {
+      throw new Error(payload.message || `Public resource ${res} failed`);
+    }
+    return payload && payload.data !== undefined ? payload.data : payload;
+  }
+
   async function hydrate(res) {
     if (!window.DataStore || !window.DataStore.fetchPage) return; // SSR stays source of truth
     try {
       const data = await window.DataStore.fetchPage(res, {
-        // RELATIVE endpoint — apiCall() prepends API_BASE_URL (/Kingsway/api),
-        // so a leading slash + path avoids the double-/api/-prefix bug.
-        endpoint: '/website/' + res,
+        fetcher: () => fetchPublicResource(res),
         storeName: 'public_' + res,
         ttl: 5 * 60 * 1000,            // 5 min cache
         strategy: 'stale-while-revalidate'
@@ -245,8 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
       setStoredSig(res, sig); // remember what we've now "seen"
       document.dispatchEvent(new CustomEvent('public:cache:updated', { detail: { resource: res, count: items.length } }));
     } catch (e) {
-      // Network/API failure: keep SSR content, do not throw.
-      if (window.console) console.warn('PublicCache hydration skipped for', res, e);
+      // Network/API failure: keep SSR content, do not throw or interrupt login.
+      if (window.console && window.KINGSWAY_DEBUG) console.debug('PublicCache hydration skipped for', res, e);
     }
   }
 
@@ -261,4 +278,3 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.PublicCache = { init, hydrate, refresh: init, resources: RESOURCES };
 })();
-
