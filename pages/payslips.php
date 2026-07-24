@@ -88,4 +88,5 @@
   </div>
 
 </div>
+<script src="js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/payslips.js"></script>

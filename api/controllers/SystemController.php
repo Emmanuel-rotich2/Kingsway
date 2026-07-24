@@ -2,17 +2,31 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\system\SystemAPI;
+use App\API\Includes\AuditLogger;
+use App\API\Services\AuthSessionService;
+use App\API\Services\IpAccessControlService;
+use App\API\Services\SystemAdminAnalyticsService;
 use App\Database\Database;
 use Exception;
 
 class SystemController extends BaseController
 {
     private $api;
+    private $authSessionService;
+    private $ipAccessControlService;
+    private $systemAdminAnalytics;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new SystemAPI();
+        $this->authSessionService = new AuthSessionService(
+            $this->db->getConnection()
+        );
+        $this->ipAccessControlService = new IpAccessControlService(
+            $this->db->getConnection()
+        );
+        $this->systemAdminAnalytics = new SystemAdminAnalyticsService();
     }
 
     public function index()
@@ -235,57 +249,15 @@ class SystemController extends BaseController
      */
     public function getAuthEvents($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+        if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
 
         try {
-            $db = Database::getInstance();
-
-            // Query audit log for auth events (last 24 hours)
-            $query = "
-                SELECT 
-                    al.id,
-                    al.user_id,
-                    u.first_name,
-                    u.last_name,
-                    u.email,
-                    al.action,
-                    al.details,
-                    al.ip_address,
-                    al.status,
-                    al.created_at
-                FROM audit_logs al
-                LEFT JOIN users u ON al.user_id = u.id
-                WHERE al.action IN ('login', 'logout', 'password_change')
-                AND al.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                ORDER BY al.created_at DESC
-                LIMIT 50
-            ";
-
-            $result = $db->query($query, []);
-            $events = $result->fetchAll() ?? [];
-
-            // Count by event type
-            $successCount = 0;
-            $failureCount = 0;
-            foreach ($events as $event) {
-                if ($event['status'] === 'failure') {
-                    $failureCount++;
-                } else if ($event['status'] === 'success') {
-                    $successCount++;
-                }
-            }
-
-            return $this->success([
-                'events' => $events,
-                'summary' => [
-                    'successful_logins' => $successCount,
-                    'failed_logins' => $failureCount,
-                    'total_events' => count($events),
-                    'timeframe' => '24 hours'
-                ]
-            ], 'Auth events retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getAuthEvents(),
+                'Auth events retrieved'
+            );
         } catch (Exception $e) {
             return $this->serverError('Failed to retrieve auth events: ' . $e->getMessage());
         }
@@ -297,51 +269,81 @@ class SystemController extends BaseController
      */
     public function getActiveSessions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureSystemOrDirectorAccess()) {
+        if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
 
         try {
-            $db = Database::getInstance();
+            $filters = array_merge(
+                $_GET,
+                is_array($data) ? $data : []
+            );
 
-            // Query sessions for active users
-            $query = "
-                SELECT 
-                    u.id,
-                    u.first_name,
-                    u.last_name,
-                    u.email,
-                    u.role_id,
-                    r.name as role_name,
-                    u.last_login,
-                    u.status
-                FROM users u
-                LEFT JOIN roles r ON u.role_id = r.id
-                WHERE u.status = 'active'
-                ORDER BY u.last_login DESC
-                LIMIT 100
-            ";
-
-            $result = $db->query($query, []);
-            $sessions = $result->fetchAll() ?? [];
-
-            // Count by role
-            $roleCount = [];
-            foreach ($sessions as $session) {
-                $role = $session['role_name'] ?? 'Unknown';
-                $roleCount[$role] = ($roleCount[$role] ?? 0) + 1;
-            }
-
-            return $this->success([
-                'sessions' => $sessions,
-                'summary' => [
-                    'total_active_users' => count($sessions),
-                    'by_role' => $roleCount,
-                    'last_updated' => date('Y-m-d H:i:s')
-                ]
-            ], 'Active sessions retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getActiveSessions(
+                    $filters,
+                    isset($_SERVER['auth_session_id'])
+                        ? (int) $_SERVER['auth_session_id']
+                        : null
+                ),
+                'Active sessions retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
         } catch (Exception $e) {
-            return $this->serverError('Failed to retrieve active sessions: ' . $e->getMessage());
+            error_log(
+                'Active session retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'Failed to retrieve active sessions'
+            );
+        }
+    }
+
+    /** POST /api/system/active-sessions-revoke */
+    public function postActiveSessionsRevoke($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $sessionId = filter_var(
+            $data['session_id'] ?? $id,
+            FILTER_VALIDATE_INT
+        );
+        if ($sessionId === false || $sessionId <= 0) {
+            return $this->badRequest(
+                'A valid session ID is required'
+            );
+        }
+
+        try {
+            $result = $this->authSessionService
+                ->revokeByAdministrator(
+                    (int) $sessionId,
+                    (int) $this->getUserId(),
+                    isset($_SERVER['auth_session_id'])
+                        ? (int) $_SERVER['auth_session_id']
+                        : null
+                );
+
+            return $this->success(
+                $result,
+                'Session revoked'
+            );
+        } catch (\DomainException $e) {
+            return $this->conflict($e->getMessage());
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'Active session revocation failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'The active session could not be revoked'
+            );
         }
     }
 
@@ -357,57 +359,10 @@ class SystemController extends BaseController
         }
 
         try {
-            $db = Database::getInstance();
-            $databaseHealthy = false;
-            try {
-                $ping = $db->query("SELECT 1 AS ok", []);
-                $databaseHealthy = (bool) ($ping && (int) ($ping->fetchColumn() ?? 0) === 1);
-            } catch (Exception $e) {
-                $databaseHealthy = false;
-            }
-
-            $failedAuthCount = (int) ($db->query(
-                "SELECT COUNT(*) FROM failed_auth_attempts WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)",
-                []
-            )->fetchColumn() ?? 0);
-
-            $failedAuditCount = (int) ($db->query(
-                "SELECT COUNT(*) FROM audit_logs WHERE status = 'failure' AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)",
-                []
-            )->fetchColumn() ?? 0);
-
-            $components = [
-                [
-                    'component' => 'Database Server',
-                    'uptime_percent' => $databaseHealthy ? 100.0 : 0.0,
-                    'status' => $databaseHealthy ? 'healthy' : 'down',
-                    'checks' => 1,
-                    'last_check' => date('Y-m-d H:i:s')
-                ],
-                [
-                    'component' => 'Authentication Layer',
-                    'uptime_percent' => max(0, 100 - min(100, $failedAuthCount)),
-                    'status' => $failedAuthCount >= 25 ? 'degraded' : 'healthy',
-                    'checks' => $failedAuthCount,
-                    'last_check' => date('Y-m-d H:i:s')
-                ],
-                [
-                    'component' => 'Audit Pipeline',
-                    'uptime_percent' => max(0, 100 - min(100, $failedAuditCount * 2)),
-                    'status' => $failedAuditCount > 0 ? 'degraded' : 'healthy',
-                    'checks' => $failedAuditCount,
-                    'last_check' => date('Y-m-d H:i:s')
-                ]
-            ];
-
-            $totalUptime = array_sum(array_column($components, 'uptime_percent')) / max(1, count($components));
-
-            return $this->success([
-                'overall_uptime_percent' => round($totalUptime, 2),
-                'components' => $components,
-                'period' => '24 hours',
-                'last_updated' => date('Y-m-d H:i:s')
-            ], 'System uptime retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getUptime(),
+                'System runtime health retrieved'
+            );
         } catch (Exception $e) {
             return $this->serverError('Failed to retrieve uptime metrics: ' . $e->getMessage());
         }
@@ -425,36 +380,10 @@ class SystemController extends BaseController
         }
 
         try {
-            $db = Database::getInstance();
-
-            // Query audit failures (last 24 hours)
-            $query = "
-                SELECT 
-                    al.id,
-                    'error' AS severity,
-                    al.action AS error_type,
-                    COALESCE(al.details, CONCAT('Action ', al.action, ' failed')) AS message,
-                    al.entity AS file,
-                    created_at
-                FROM audit_logs al
-                WHERE al.status = 'failure'
-                  AND al.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                ORDER BY al.created_at DESC
-                LIMIT 25
-            ";
-
-            $result = $db->query($query, []);
-            $errors = $result->fetchAll() ?? [];
-            $criticalCount = count($errors);
-
-            return $this->success([
-                'errors' => $errors,
-                'summary' => [
-                    'critical_errors' => $criticalCount,
-                    'total_errors' => count($errors),
-                    'timeframe' => '24 hours'
-                ]
-            ], 'System errors retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getHealthErrors(),
+                'System errors retrieved'
+            );
         } catch (Exception $e) {
             return $this->serverError('Failed to retrieve system errors: ' . $e->getMessage());
         }
@@ -472,32 +401,10 @@ class SystemController extends BaseController
         }
 
         try {
-            $db = Database::getInstance();
-            $query = "
-                SELECT
-                    MIN(faa.id) AS id,
-                    'warning' AS severity,
-                    'Authentication' AS type,
-                    CONCAT('IP ', faa.ip_address, ' has ', COUNT(*), ' failed authentication attempts in the last 24h') AS message,
-                    MAX(faa.created_at) AS created_at
-                FROM failed_auth_attempts faa
-                WHERE faa.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                GROUP BY faa.ip_address
-                HAVING COUNT(*) >= 3
-                ORDER BY COUNT(*) DESC, MAX(faa.created_at) DESC
-                LIMIT 25
-            ";
-
-            $result = $db->query($query, []);
-            $warnings = $result->fetchAll() ?? [];
-
-            return $this->success([
-                'warnings' => $warnings,
-                'summary' => [
-                    'total_warnings' => count($warnings),
-                    'timeframe' => '24 hours'
-                ]
-            ], 'System warnings retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getHealthWarnings(),
+                'System warnings retrieved'
+            );
         } catch (Exception $e) {
             return $this->serverError('Failed to retrieve system warnings: ' . $e->getMessage());
         }
@@ -515,68 +422,10 @@ class SystemController extends BaseController
         }
 
         try {
-            $db = Database::getInstance();
-
-            $endpointQuery = "
-                SELECT
-                    CONCAT('/', al.entity) AS route,
-                    UPPER(al.action) AS method,
-                    COUNT(*) AS request_count
-                FROM audit_logs al
-                WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                GROUP BY al.entity, al.action
-                ORDER BY request_count DESC
-                LIMIT 20
-            ";
-            $endpointRows = $db->query($endpointQuery, [])->fetchAll() ?? [];
-            $endpoints = array_map(static function ($row) {
-                return [
-                    'route' => $row['route'],
-                    'method' => $row['method'],
-                    'request_count' => (int) $row['request_count'],
-                    'avg_response_time' => null,
-                    'max_response_time' => null
-                ];
-            }, $endpointRows);
-
-            $hourlyQuery = "
-                SELECT
-                    HOUR(created_at) AS hour,
-                    COUNT(*) AS requests
-                FROM audit_logs
-                WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-                GROUP BY HOUR(created_at)
-                ORDER BY hour ASC
-            ";
-            $hourlyRows = $db->query($hourlyQuery, [])->fetchAll() ?? [];
-            $hourlyData = array_map(static function ($row) {
-                return [
-                    'hour' => (int) $row['hour'],
-                    'requests' => (int) $row['requests'],
-                    'avg_response_time' => null
-                ];
-            }, $hourlyRows);
-
-            $totalRequests = array_sum(array_column($endpoints, 'request_count'));
-            $peakHour = null;
-            $peakRequests = -1;
-            foreach ($hourlyData as $hourData) {
-                if ((int) $hourData['requests'] > $peakRequests) {
-                    $peakRequests = (int) $hourData['requests'];
-                    $peakHour = (int) $hourData['hour'];
-                }
-            }
-
-            return $this->success([
-                'endpoints' => $endpoints,
-                'hourly' => $hourlyData,
-                'summary' => [
-                    'total_requests_24h' => $totalRequests,
-                    'avg_response_time_ms' => null,
-                    'peak_hour' => $peakHour,
-                    'requests_per_second' => round($totalRequests / (24 * 3600), 6)
-                ]
-            ], 'API load metrics retrieved');
+            return $this->success(
+                $this->systemAdminAnalytics->getApiLoad(),
+                'API load metrics retrieved'
+            );
         } catch (Exception $e) {
             return $this->serverError('Failed to retrieve API load metrics: ' . $e->getMessage());
         }
@@ -826,7 +675,7 @@ class SystemController extends BaseController
      * Allows system admin full access; allows school admin read/scoped access.
      * Returns forbidden response for everyone else.
      */
-    private function ensureRoleManagementAccess()
+    private function ensureRoleManagementAccess(bool $manage = false)
     {
         if (!$this->user) {
             return $this->unauthorized('Authentication required');
@@ -834,6 +683,24 @@ class SystemController extends BaseController
         if ($this->isSystemAdmin() || $this->isSchoolAdmin()) {
             return null;
         }
+
+        $permissions = $manage
+            ? [
+                'system.rbac.manage',
+                'system_roles_create',
+                'system_roles_edit',
+                'system_roles_delete',
+            ]
+            : [
+                'system.rbac.view',
+                'system.rbac.manage',
+                'system_roles_view',
+            ];
+
+        if ($this->userHasAny($permissions)) {
+            return null;
+        }
+
         return $this->forbidden('Access denied');
     }
 
@@ -878,7 +745,30 @@ class SystemController extends BaseController
 
     public function getAuthenticationLogs($id = null, $data = [], $segments = [])
     {
-        return $this->getAuthEvents($id, $data, $segments);
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $filters = array_merge(
+                $_GET,
+                is_array($data) ? $data : []
+            );
+
+            return $this->success(
+                $this->systemAdminAnalytics->getAuthenticationLogs($filters),
+                'Authentication logs retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'Authentication log retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'Failed to retrieve authentication logs'
+            );
+        }
     }
 
     public function getFailedLoginAttempts($id = null, $data = [], $segments = [])
@@ -887,11 +777,26 @@ class SystemController extends BaseController
             return $auth;
         }
 
-        return $this->success($this->getAuditRows(
-            ["login", "failed_login", "login_failed"],
-            "failed",
-            200
-        ), 'Failed login attempts retrieved');
+        try {
+            $filters = array_merge(
+                $_GET,
+                is_array($data) ? $data : []
+            );
+
+            return $this->success(
+                $this->systemAdminAnalytics->getFailedLoginAttempts($filters),
+                'Failed login attempts retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'Failed login attempt retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'Failed to retrieve failed login attempts'
+            );
+        }
     }
 
     public function getErrorLogs($id = null, $data = [], $segments = [])
@@ -1221,11 +1126,132 @@ class SystemController extends BaseController
 
     public function getIpLists($id = null, $data = [], $segments = [])
     {
-        return $this->success([
-            'rows' => $this->getSystemState('ip_lists_rows', []),
-            'columns' => [['id' => 'allow', 'name' => 'Allow'], ['id' => 'deny', 'name' => 'Deny']],
-            'matrix' => $this->getSystemState('ip_lists_matrix', []),
-        ], 'IP lists retrieved');
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $filters = array_merge(
+                $_GET,
+                is_array($data) ? $data : []
+            );
+
+            return $this->success(
+                $this->ipAccessControlService->getRegistry(
+                    $filters,
+                    IpAccessControlService::resolveClientIp()
+                ),
+                'IP access rules retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'IP rule registry retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'IP access rules could not be retrieved'
+            );
+        }
+    }
+
+    public function postIpLists($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        try {
+            $rule = $this->ipAccessControlService->createRule(
+                is_array($data) ? $data : [],
+                (int) $this->getUserId(),
+                IpAccessControlService::resolveClientIp()
+            );
+
+            return $this->created($rule, 'IP access rule created');
+        } catch (\DomainException $e) {
+            return $this->conflict($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log('IP rule creation failed: ' . $e->getMessage());
+            return $this->serverError(
+                'The IP access rule could not be created'
+            );
+        }
+    }
+
+    public function putIpLists($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $ruleId = filter_var(
+            $id ?? $data['id'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+        if ($ruleId === false || $ruleId <= 0) {
+            return $this->badRequest('A valid IP rule ID is required');
+        }
+
+        try {
+            $rule = $this->ipAccessControlService->updateRule(
+                (int) $ruleId,
+                is_array($data) ? $data : [],
+                (int) $this->getUserId(),
+                IpAccessControlService::resolveClientIp()
+            );
+
+            return $this->success($rule, 'IP access rule updated');
+        } catch (\DomainException $e) {
+            return $this->conflict($e->getMessage());
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log('IP rule update failed: ' . $e->getMessage());
+            return $this->serverError(
+                'The IP access rule could not be updated'
+            );
+        }
+    }
+
+    public function deleteIpLists($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $ruleId = filter_var(
+            $id ?? $data['id'] ?? null,
+            FILTER_VALIDATE_INT
+        );
+        if ($ruleId === false || $ruleId <= 0) {
+            return $this->badRequest('A valid IP rule ID is required');
+        }
+
+        try {
+            $result = $this->ipAccessControlService->deleteRule(
+                (int) $ruleId,
+                (int) $this->getUserId(),
+                IpAccessControlService::resolveClientIp()
+            );
+
+            return $this->success($result, 'IP access rule deleted');
+        } catch (\DomainException $e) {
+            return $this->conflict($e->getMessage());
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log('IP rule deletion failed: ' . $e->getMessage());
+            return $this->serverError(
+                'The IP access rule could not be deleted'
+            );
+        }
     }
 
     public function getTokens($id = null, $data = [], $segments = [])
@@ -1234,40 +1260,207 @@ class SystemController extends BaseController
             return $auth;
         }
 
-        return $this->success([
-            'rows' => $this->tableExists('users') ? $this->fetchRows('users', 100, 'id DESC', 'id, email, first_name, last_name, status') : [],
-            'columns' => [['id' => 'active_token', 'name' => 'Active Token'], ['id' => 'revoked', 'name' => 'Revoked']],
-            'matrix' => [],
-        ], 'Token management data retrieved');
+        try {
+            $filters = array_merge(
+                $_GET,
+                is_array($data) ? $data : []
+            );
+
+            return $this->success(
+                $this->authSessionService->getTokenRegistry(
+                    $filters,
+                    isset($_SERVER['auth_session_id'])
+                        ? (int) $_SERVER['auth_session_id']
+                        : null
+                ),
+                'Tokens retrieved'
+            );
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'Token registry retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'Token records could not be retrieved'
+            );
+        }
     }
 
-    public function deleteTokens($id = null, $data = [], $segments = [])
+    public function postTokensRevoke($id = null, $data = [], $segments = [])
     {
         if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
 
-        return $this->success(null, 'Token revocation request accepted');
+        $tokenId = filter_var(
+            $data['token_id'] ?? $id,
+            FILTER_VALIDATE_INT
+        );
+        $tokenType = trim((string) ($data['token_type'] ?? ''));
+        if ($tokenId === false || $tokenId <= 0 || $tokenType === '') {
+            return $this->badRequest(
+                'A valid token ID and token type are required'
+            );
+        }
+
+        try {
+            $result = $this->authSessionService
+                ->revokeTokenByAdministrator(
+                    (int) $tokenId,
+                    $tokenType,
+                    (int) $this->getUserId(),
+                    isset($_SERVER['auth_session_id'])
+                        ? (int) $_SERVER['auth_session_id']
+                        : null
+                );
+
+            return $this->success($result, 'Token revoked');
+        } catch (\DomainException $e) {
+            return $this->conflict($e->getMessage());
+        } catch (\OutOfBoundsException $e) {
+            return $this->notFound($e->getMessage());
+        } catch (\InvalidArgumentException $e) {
+            return $this->badRequest($e->getMessage());
+        } catch (Exception $e) {
+            error_log(
+                'Token revocation failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'The token could not be revoked'
+            );
+        }
     }
 
     public function getResourcePermissions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureSystemAdminAccess()) {
             return $auth;
         }
 
-        $permissions = $this->tableExists('permissions') ? $this->fetchRows('permissions', 1000, 'entity, action, code') : [];
-        $resources = [];
-        foreach ($permissions as $permission) {
-            $resource = $permission['entity'] ?? $permission['module'] ?? 'general';
-            $resources[$resource] = ['id' => $resource, 'name' => ucwords(str_replace('_', ' ', $resource))];
-        }
+        try {
+            if (!$this->tableExists('permissions')) {
+                return $this->serverError('The permissions table is unavailable');
+            }
 
-        return $this->success([
-            'rows' => array_values($resources),
-            'columns' => $permissions,
-            'matrix' => [],
-        ], 'Resource permissions retrieved');
+            $filters = array_merge($_GET, $data ?? []);
+            $search = trim((string) ($filters['search'] ?? ''));
+            $module = trim((string) ($filters['module'] ?? ''));
+            $entity = trim((string) ($filters['entity'] ?? ''));
+            $action = trim((string) ($filters['action'] ?? ''));
+            $page = max(1, (int) ($filters['page'] ?? 1));
+            $limit = (int) ($filters['limit'] ?? 50);
+            if (!in_array($limit, [25, 50, 100], true)) {
+                $limit = 50;
+            }
+
+            $where = ['1 = 1'];
+            $params = [];
+            if ($search !== '') {
+                $where[] = '(
+                    p.code LIKE ?
+                    OR p.description LIKE ?
+                    OR p.entity LIKE ?
+                    OR p.action LIKE ?
+                    OR p.module LIKE ?
+                )';
+                $term = '%' . $search . '%';
+                array_push($params, $term, $term, $term, $term, $term);
+            }
+            foreach (
+                [
+                    'p.module' => $module,
+                    'p.entity' => $entity,
+                    'p.action' => $action,
+                ] as $column => $value
+            ) {
+                if ($value !== '') {
+                    $where[] = "$column = ?";
+                    $params[] = $value;
+                }
+            }
+
+            $whereSql = implode(' AND ', $where);
+            $total = (int) ($this->db->query(
+                "SELECT COUNT(*) FROM permissions p WHERE $whereSql",
+                $params
+            )->fetchColumn() ?? 0);
+            $totalPages = max(1, (int) ceil($total / $limit));
+            $page = min($page, $totalPages);
+            $offset = ($page - 1) * $limit;
+
+            $usageDefinitions = $this->permissionUsageDefinitions();
+            $usageColumns = [];
+            foreach (array_keys($usageDefinitions) as $table) {
+                $usageColumns[] = "(
+                    SELECT COUNT(*)
+                    FROM $table dependency
+                    WHERE dependency.permission_id = p.id
+                ) AS {$table}_count";
+            }
+            $usageSql = empty($usageColumns)
+                ? ''
+                : ', ' . implode(', ', $usageColumns);
+
+            $rows = $this->db->query(
+                "SELECT
+                    p.id,
+                    p.code,
+                    p.description,
+                    p.entity,
+                    p.action,
+                    p.module,
+                    p.created_at,
+                    p.updated_at
+                    $usageSql
+                 FROM permissions p
+                 WHERE $whereSql
+                 ORDER BY
+                    COALESCE(p.module, ''),
+                    COALESCE(p.entity, ''),
+                    COALESCE(p.action, ''),
+                    p.code,
+                    p.id
+                 LIMIT $limit OFFSET $offset",
+                $params
+            )->fetchAll() ?? [];
+
+            $rows = array_map(
+                fn (array $row) => $this->formatPermissionDefinition(
+                    $row,
+                    $usageDefinitions
+                ),
+                $rows
+            );
+
+            $summary = $this->getPermissionDefinitionSummary(
+                $usageDefinitions
+            );
+            $availableFilters = [
+                'modules' => $this->getDistinctPermissionValues('module'),
+                'entities' => $this->getDistinctPermissionValues('entity'),
+                'actions' => $this->getDistinctPermissionValues('action'),
+            ];
+
+            return $this->success([
+                'rows' => $rows,
+                'summary' => $summary,
+                'available_filters' => $availableFilters,
+                'pagination' => [
+                    'page' => $page,
+                    'limit' => $limit,
+                    'total' => $total,
+                    'total_pages' => $totalPages,
+                ],
+            ], 'Resource permission definitions retrieved');
+        } catch (Exception $e) {
+            error_log(
+                'Resource permission retrieval failed: ' . $e->getMessage()
+            );
+            return $this->serverError(
+                'Failed to load resource permission definitions'
+            );
+        }
     }
 
     public function getRolePermissionMatrix($id = null, $data = [], $segments = [])
@@ -1299,7 +1492,12 @@ class SystemController extends BaseController
             return $auth;
         }
 
-        return $this->success($this->tableExists('users') ? $this->fetchRows('users', 500, 'id DESC', 'id, email, first_name, last_name, status, is_active, created_at, updated_at') : [], 'Account status retrieved');
+        return $this->success($this->tableExists('users') ? $this->fetchRows(
+            'users',
+            500,
+            'id DESC',
+            'id, username, email, first_name, last_name, status, failed_login_attempts, account_locked_until, force_password_change, last_login, created_at, updated_at'
+        ) : [], 'Account status retrieved');
     }
 
     public function putAccountStatus($id = null, $data = [], $segments = [])
@@ -1308,18 +1506,67 @@ class SystemController extends BaseController
             return $auth;
         }
 
-        $userId = $id ?? $data['id'] ?? null;
+        $userId = $id ?? $data['user_id'] ?? $data['id'] ?? null;
         if (!$userId || !$this->tableExists('users')) {
             return $this->badRequest('User ID is required');
         }
 
+        $current = $this->db->query(
+            'SELECT id, username, status, failed_login_attempts, account_locked_until, force_password_change, updated_at FROM users WHERE id = ?',
+            [(int) $userId]
+        )->fetch();
+        if (!$current) {
+            return $this->badRequest('User account not found');
+        }
+
+        if ((int) $userId === (int) ($this->user['id'] ?? 0) && isset($data['status']) && $data['status'] !== 'active') {
+            return $this->badRequest('You cannot deactivate or suspend your own account');
+        }
+
         $fields = [];
         $values = [];
-        foreach (['status', 'is_active'] as $field) {
-            if (array_key_exists($field, $data) && $this->tableHasColumn('users', $field)) {
-                $fields[] = "$field = ?";
-                $values[] = $data[$field];
+        $changes = [];
+
+        if (array_key_exists('status', $data)) {
+            $allowedStatuses = ['active', 'inactive', 'suspended', 'pending'];
+            if (!in_array($data['status'], $allowedStatuses, true)) {
+                return $this->badRequest('Invalid account status');
             }
+            $fields[] = 'status = ?';
+            $values[] = $data['status'];
+            $changes['status'] = ['from' => $current['status'], 'to' => $data['status']];
+        }
+
+        if (array_key_exists('failed_login_attempts', $data)) {
+            $attempts = filter_var($data['failed_login_attempts'], FILTER_VALIDATE_INT);
+            if ($attempts === false || $attempts < 0) {
+                return $this->badRequest('failed_login_attempts must be a non-negative integer');
+            }
+            $fields[] = 'failed_login_attempts = ?';
+            $values[] = $attempts;
+            $changes['failed_login_attempts'] = ['from' => $current['failed_login_attempts'], 'to' => $attempts];
+        }
+
+        if (array_key_exists('account_locked_until', $data)) {
+            $lockedUntil = $data['account_locked_until'];
+            if ($lockedUntil !== null && $lockedUntil !== '' && strtotime((string) $lockedUntil) === false) {
+                return $this->badRequest('account_locked_until must be a valid date or null');
+            }
+            $lockedUntil = ($lockedUntil === '') ? null : $lockedUntil;
+            $fields[] = 'account_locked_until = ?';
+            $values[] = $lockedUntil;
+            $changes['account_locked_until'] = ['from' => $current['account_locked_until'], 'to' => $lockedUntil];
+        }
+
+        if (array_key_exists('force_password_change', $data)) {
+            $forceChange = filter_var($data['force_password_change'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($forceChange === null) {
+                return $this->badRequest('force_password_change must be true or false');
+            }
+            $forceChange = $forceChange ? 1 : 0;
+            $fields[] = 'force_password_change = ?';
+            $values[] = $forceChange;
+            $changes['force_password_change'] = ['from' => (int) $current['force_password_change'], 'to' => $forceChange];
         }
         if (empty($fields)) {
             return $this->badRequest('No supported account status fields provided');
@@ -1330,7 +1577,32 @@ class SystemController extends BaseController
         $values[] = $userId;
         $this->db->query('UPDATE users SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
 
-        return $this->success(null, 'Account status updated');
+        $wasLocked = !empty($current['account_locked_until']);
+        $isUnlock = $wasLocked && array_key_exists('account_locked_until', $data) && $data['account_locked_until'] === null;
+        if ($isUnlock && $this->tableExists('account_unlock_history')) {
+            $this->db->query(
+                'INSERT INTO account_unlock_history
+                    (user_id, locked_reason, locked_date, unlocked_date, unlocked_by, unlock_reason, created_at)
+                 VALUES (?, ?, ?, NOW(), ?, ?, NOW())',
+                [
+                    (int) $userId,
+                    'Account lock recorded on user account',
+                    $current['updated_at'],
+                    (int) ($this->user['id'] ?? 0),
+                    $data['unlock_reason'] ?? 'Unlocked by System Administrator',
+                ]
+            );
+        }
+
+        (new AuditLogger($this->db->getConnection()))->log(
+            'account_status_update',
+            'user',
+            (int) $userId,
+            (int) ($this->user['id'] ?? 0),
+            ['username' => $current['username'], 'changes' => $changes]
+        );
+
+        return $this->success(['id' => (int) $userId], 'Account status updated');
     }
 
     // ========================================================================
@@ -1524,11 +1796,11 @@ class SystemController extends BaseController
     }
 
     // ========================================================================
-    // ROLES MANAGEMENT (System Admin Only)
+    // ROLES MANAGEMENT
     // ========================================================================
 
     /**
-     * GET /api/system/roles - List all roles
+     * GET /api/system/roles[/id] - List role definitions or return one role.
      */
     public function getRoles($id = null, $data = [], $segments = [])
     {
@@ -1537,208 +1809,574 @@ class SystemController extends BaseController
         }
 
         try {
-            $db = Database::getInstance();
-            $schoolAdminOnly = $this->isSchoolAdmin();
+            $roleId = $id ?? $data['id'] ?? $_GET['id'] ?? null;
+            $roleId = $roleId !== null ? (int) $roleId : null;
 
-            if ($id) {
-                $query = $schoolAdminOnly
-                    ? "SELECT * FROM roles WHERE id = ? AND (scope='school' OR scope IS NULL)"
-                    : "SELECT * FROM roles WHERE id = ?";
-                $role = $db->query($query, [$id])->fetch();
-                if (!$role) {
-                    return $this->badRequest('Role not found');
-                }
-                return $this->success($role, 'Role retrieved');
+            if ($roleId !== null && $roleId <= 0) {
+                return $this->badRequest('Role ID must be a positive integer');
             }
 
-            // System admin sees all; school admin sees only school-scope roles
-            $query = $schoolAdminOnly
-                ? "SELECT * FROM roles WHERE (scope='school' OR scope IS NULL) ORDER BY name"
-                : "SELECT * FROM roles ORDER BY name";
-            $roles = $db->query($query, [])->fetchAll() ?? [];
+            $roles = $this->fetchRoleDefinitions(
+                $roleId,
+                $this->isSchoolAdmin()
+            );
+
+            if ($roleId !== null) {
+                if (empty($roles)) {
+                    return $this->notFound('Role not found');
+                }
+
+                return $this->success($roles[0], 'Role retrieved');
+            }
 
             return $this->success($roles, 'Roles retrieved');
-
         } catch (Exception $e) {
             return $this->badRequest('Failed to load roles: ' . $e->getMessage());
         }
     }
 
     /**
-     * POST /api/system/roles - Create a new role
+     * POST /api/system/roles - Create a custom role definition.
+     *
+     * is_system is intentionally reserved for seeded application roles. Runtime
+     * role creation always produces a custom role.
      */
     public function postRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
+        $db = null;
+
         try {
             $db = Database::getInstance();
+            $name = trim((string) ($data['name'] ?? ''));
+            $description = trim((string) ($data['description'] ?? ''));
 
-            if (empty($data['name'])) {
+            if ($name === '') {
                 return $this->badRequest('Role name is required');
             }
-
-            $check = $db->query("SELECT id FROM roles WHERE name = ?", [$data['name']]);
-            if ($check->fetch()) {
-                return $this->badRequest('A role with this name already exists');
+            if ($this->roleNameLength($name) > 50) {
+                return $this->badRequest('Role name must not exceed 50 characters');
             }
 
-            // School admin can only create school-scope, non-system roles
-            $scope    = 'school';
-            $isSystem = 0;
+            $scope = 'school';
             if ($this->isSystemAdmin()) {
-                $scope    = in_array($data['scope'] ?? '', ['system', 'school']) ? $data['scope'] : 'school';
-                $isSystem = (int)(bool)($data['is_system'] ?? false);
+                $scope = strtolower(trim((string) ($data['scope'] ?? 'school')));
+                if (!in_array($scope, ['system', 'school'], true)) {
+                    return $this->badRequest('Role scope must be system or school');
+                }
             }
 
+            $isActive = 1;
+            if (array_key_exists('is_active', $data)) {
+                $isActive = $this->normalizeToggleValue($data['is_active']);
+                if ($isActive === null) {
+                    return $this->badRequest('is_active must be true or false');
+                }
+            }
+
+            $existing = $db->query(
+                'SELECT id FROM roles WHERE name = ? LIMIT 1',
+                [$name]
+            )->fetch();
+            if ($existing) {
+                return $this->conflict('A role with this name already exists');
+            }
+
+            $db->beginTransaction();
             $db->query(
-                "INSERT INTO roles (name, description, scope, is_system, created_at) VALUES (?, ?, ?, ?, NOW())",
-                [$data['name'], $data['description'] ?? null, $scope, $isSystem]
+                'INSERT INTO roles
+                    (name, description, scope, is_system, is_active, created_at, updated_at)
+                 VALUES (?, ?, ?, 0, ?, NOW(), NOW())',
+                [$name, $description !== '' ? $description : null, $scope, $isActive]
             );
 
-            return $this->success(['id' => (int)$db->lastInsertId(), 'scope' => $scope], 'Role created successfully');
+            $roleId = (int) $db->lastInsertId();
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'role_create',
+                'role',
+                $roleId,
+                $this->getUserId(),
+                [
+                    'name' => $name,
+                    'description' => $description !== '' ? $description : null,
+                    'scope' => $scope,
+                    'is_system' => 0,
+                    'is_active' => $isActive,
+                ]
+            );
+            if (!$auditLogged) {
+                throw new Exception('Role creation audit could not be recorded');
+            }
+            $db->commit();
 
+            $created = $this->fetchRoleDefinitions($roleId, false);
+            return $this->created(
+                $created[0] ?? ['id' => $roleId],
+                'Role created successfully'
+            );
         } catch (Exception $e) {
+            if ($db && $db->inTransaction()) {
+                $db->rollback();
+            }
             return $this->badRequest('Failed to create role: ' . $e->getMessage());
         }
     }
 
     /**
-     * PUT /api/system/roles - Update a role
+     * PUT /api/system/roles[/id] - Update a custom role definition.
      */
     public function putRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
+        $db = null;
+
         try {
             $db = Database::getInstance();
+            $roleId = (int) ($id ?? $data['id'] ?? 0);
 
-            $roleId = $id ?? $data['id'] ?? null;
-            if (!$roleId) {
+            if ($roleId <= 0) {
                 return $this->badRequest('Role ID is required');
             }
 
-            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            $existingRows = $this->fetchRoleDefinitions($roleId, false);
+            $role = $existingRows[0] ?? null;
             if (!$role) {
-                return $this->badRequest('Role not found');
+                return $this->notFound('Role not found');
             }
-
-            // School admin cannot edit system-scoped or is_system=1 roles
-            if ($this->isSchoolAdmin() && ($role['is_system'] || ($role['scope'] ?? 'school') === 'system')) {
-                return $this->forbidden('Cannot modify system roles');
+            if ((int) ($role['is_system'] ?? 0) === 1) {
+                return $this->forbidden('Protected system roles are read-only');
             }
-
-            $allowedFields = ['name', 'description'];
-            // Only system admin can change scope/is_system
-            if ($this->isSystemAdmin()) {
-                $allowedFields[] = 'scope';
-                $allowedFields[] = 'is_system';
+            if (
+                $this->isSchoolAdmin() &&
+                ($role['scope'] ?? 'school') === 'system'
+            ) {
+                return $this->forbidden('Cannot modify system-scope roles');
             }
 
             $fields = [];
             $values = [];
-            foreach ($allowedFields as $field) {
-                if (array_key_exists($field, $data)) {
-                    $fields[] = "$field = ?";
-                    $values[] = $data[$field];
+            $changes = [];
+
+            if (array_key_exists('name', $data)) {
+                $name = trim((string) $data['name']);
+                if ($name === '') {
+                    return $this->badRequest('Role name is required');
+                }
+                if ($this->roleNameLength($name) > 50) {
+                    return $this->badRequest('Role name must not exceed 50 characters');
+                }
+
+                $duplicate = $db->query(
+                    'SELECT id FROM roles WHERE name = ? AND id <> ? LIMIT 1',
+                    [$name, $roleId]
+                )->fetch();
+                if ($duplicate) {
+                    return $this->conflict('A role with this name already exists');
+                }
+
+                if ($name !== (string) $role['name']) {
+                    $fields[] = 'name = ?';
+                    $values[] = $name;
+                    $changes['name'] = [
+                        'from' => $role['name'],
+                        'to' => $name,
+                    ];
+                }
+            }
+
+            if (array_key_exists('description', $data)) {
+                $description = trim((string) $data['description']);
+                $description = $description !== '' ? $description : null;
+                $oldDescription = $role['description'] !== ''
+                    ? $role['description']
+                    : null;
+
+                if ($description !== $oldDescription) {
+                    $fields[] = 'description = ?';
+                    $values[] = $description;
+                    $changes['description'] = [
+                        'from' => $oldDescription,
+                        'to' => $description,
+                    ];
+                }
+            }
+
+            if (array_key_exists('scope', $data)) {
+                if (!$this->isSystemAdmin()) {
+                    if (strtolower((string) $data['scope']) !== 'school') {
+                        return $this->forbidden('School Administrators can only manage school-scope roles');
+                    }
+                } else {
+                    $scope = strtolower(trim((string) $data['scope']));
+                    if (!in_array($scope, ['system', 'school'], true)) {
+                        return $this->badRequest('Role scope must be system or school');
+                    }
+                    if ($scope !== (string) $role['scope']) {
+                        $fields[] = 'scope = ?';
+                        $values[] = $scope;
+                        $changes['scope'] = [
+                            'from' => $role['scope'],
+                            'to' => $scope,
+                        ];
+                    }
                 }
             }
 
             if (empty($fields)) {
-                return $this->badRequest('No fields to update');
+                return $this->success($role, 'No role changes were required');
             }
 
-            $fields[]  = "updated_at = NOW()";
-            $values[]  = $roleId;
-            $db->query("UPDATE roles SET " . implode(', ', $fields) . " WHERE id = ?", $values);
+            $fields[] = 'updated_at = NOW()';
+            $values[] = $roleId;
+            $db->beginTransaction();
+            $db->query(
+                'UPDATE roles SET ' . implode(', ', $fields) . ' WHERE id = ?',
+                $values
+            );
 
-            return $this->success(null, 'Role updated successfully');
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'role_update',
+                'role',
+                $roleId,
+                $this->getUserId(),
+                ['name' => $role['name'], 'changes' => $changes]
+            );
+            if (!$auditLogged) {
+                throw new Exception('Role update audit could not be recorded');
+            }
+            $db->commit();
 
+            $updated = $this->fetchRoleDefinitions($roleId, false);
+            return $this->success(
+                $updated[0] ?? ['id' => $roleId],
+                'Role updated successfully'
+            );
         } catch (Exception $e) {
+            if ($db && $db->inTransaction()) {
+                $db->rollback();
+            }
             return $this->badRequest('Failed to update role: ' . $e->getMessage());
         }
     }
 
     /**
-     * DELETE /api/system/roles - Delete a role
+     * DELETE /api/system/roles/{id} - Delete an unused custom role.
      */
     public function deleteRoles($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
-        try {
-            $db = Database::getInstance();
+        $db = Database::getInstance();
 
-            $roleId = $id ?? $data['id'] ?? null;
-            if (!$roleId) {
+        try {
+            $roleId = (int) ($id ?? $data['id'] ?? $_GET['id'] ?? 0);
+            if ($roleId <= 0) {
                 return $this->badRequest('Role ID is required');
             }
 
-            $role = $db->query("SELECT * FROM roles WHERE id = ?", [$roleId])->fetch();
+            $roleRows = $this->fetchRoleDefinitions($roleId, false);
+            $role = $roleRows[0] ?? null;
             if (!$role) {
-                return $this->badRequest('Role not found');
+                return $this->notFound('Role not found');
             }
-
-            // No one can delete is_system=1 roles
-            if ($role['is_system']) {
-                return $this->badRequest('Cannot delete system roles');
+            if ((int) ($role['is_system'] ?? 0) === 1) {
+                return $this->forbidden('Protected system roles cannot be deleted');
             }
-
-            // School admin cannot delete system-scope roles
-            if ($this->isSchoolAdmin() && ($role['scope'] ?? 'school') === 'system') {
+            if (
+                $this->isSchoolAdmin() &&
+                ($role['scope'] ?? 'school') === 'system'
+            ) {
                 return $this->forbidden('Cannot delete system-scope roles');
             }
 
-            $db->query("DELETE FROM roles WHERE id = ?", [$roleId]);
+            $blockers = $role['delete_blockers'] ?? [];
+            if (!empty($blockers)) {
+                return $this->conflict(
+                    'Role cannot be deleted while it is in use',
+                    ['blockers' => $blockers]
+                );
+            }
 
-            return $this->success(null, 'Role deleted successfully');
+            $db->beginTransaction();
+            $db->query('DELETE FROM roles WHERE id = ?', [$roleId]);
 
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'role_delete',
+                'role',
+                $roleId,
+                $this->getUserId(),
+                [
+                    'name' => $role['name'],
+                    'description' => $role['description'],
+                    'scope' => $role['scope'],
+                    'is_active' => (int) $role['is_active'],
+                ]
+            );
+            if (!$auditLogged) {
+                throw new Exception('Role deletion audit could not be recorded');
+            }
+            $db->commit();
+
+            return $this->success(['id' => $roleId], 'Role deleted successfully');
         } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollback();
+            }
             return $this->badRequest('Failed to delete role: ' . $e->getMessage());
         }
     }
 
     /**
-     * POST /api/system/roles-toggle - Toggle role status
+     * POST /api/system/roles-toggle - Activate or deactivate a custom role.
      */
     public function postRolesToggle($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
+        $db = null;
+
         try {
             $db = Database::getInstance();
-
-            $roleId = $id ?? $data['id'] ?? null;
+            $roleId = (int) ($id ?? $data['id'] ?? 0);
             $isActive = $data['is_active'] ?? $data['enabled'] ?? null;
 
-            if (!$roleId) {
+            if ($roleId <= 0) {
                 return $this->badRequest('Role ID is required');
             }
-
             if (!$this->tableHasColumn('roles', 'is_active')) {
                 return $this->badRequest('Role status toggle is not supported by current schema');
             }
 
             $normalized = $this->normalizeToggleValue($isActive);
             if ($normalized === null) {
-                return $this->badRequest('is_active/enabled must be true/false');
+                return $this->badRequest('is_active/enabled must be true or false');
             }
 
-            $db->query("UPDATE roles SET is_active = ?, updated_at = NOW() WHERE id = ?", [$normalized, $roleId]);
+            $roleRows = $this->fetchRoleDefinitions($roleId, false);
+            $role = $roleRows[0] ?? null;
+            if (!$role) {
+                return $this->notFound('Role not found');
+            }
+            if ((int) ($role['is_system'] ?? 0) === 1) {
+                return $this->forbidden('Protected system roles cannot be deactivated');
+            }
+            if (
+                $this->isSchoolAdmin() &&
+                ($role['scope'] ?? 'school') === 'system'
+            ) {
+                return $this->forbidden('Cannot modify system-scope roles');
+            }
 
-            return $this->success(null, 'Role status updated');
+            $currentStatus = (int) ($role['is_active'] ?? 0);
+            if ($currentStatus === $normalized) {
+                return $this->success(
+                    ['id' => $roleId, 'is_active' => (bool) $normalized],
+                    'Role status is already up to date'
+                );
+            }
 
+            $db->beginTransaction();
+            $db->query(
+                'UPDATE roles SET is_active = ?, updated_at = NOW() WHERE id = ?',
+                [$normalized, $roleId]
+            );
+
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'role_status_update',
+                'role',
+                $roleId,
+                $this->getUserId(),
+                [
+                    'name' => $role['name'],
+                    'is_active' => [
+                        'from' => $currentStatus,
+                        'to' => $normalized,
+                    ],
+                ]
+            );
+            if (!$auditLogged) {
+                throw new Exception('Role status audit could not be recorded');
+            }
+            $db->commit();
+
+            return $this->success(
+                ['id' => $roleId, 'is_active' => (bool) $normalized],
+                'Role status updated'
+            );
         } catch (Exception $e) {
+            if ($db && $db->inTransaction()) {
+                $db->rollback();
+            }
             return $this->badRequest('Failed to toggle status: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Return role definitions with live relationship counts.
+     *
+     * roles.user_count is not trusted because the canonical dump contains no
+     * trigger that maintains it. User assignments are resolved from user_roles
+     * plus legacy users.role_id rows that are not already represented there.
+     */
+    private function fetchRoleDefinitions(
+        ?int $roleId = null,
+        bool $schoolAdminOnly = false
+    ): array {
+        $where = [];
+        $params = [];
+
+        if ($roleId !== null) {
+            $where[] = 'r.id = ?';
+            $params[] = $roleId;
+        }
+        if ($schoolAdminOnly) {
+            $where[] = "r.scope = 'school'";
+        }
+
+        $whereSql = empty($where)
+            ? ''
+            : ' WHERE ' . implode(' AND ', $where);
+
+        $sql = "
+            SELECT
+                r.id,
+                r.name,
+                r.description,
+                r.scope,
+                r.is_system,
+                r.is_active,
+                r.created_at,
+                r.updated_at,
+                (
+                    SELECT COUNT(DISTINCT ur.user_id)
+                    FROM user_roles ur
+                    WHERE ur.role_id = r.id
+                ) + (
+                    SELECT COUNT(*)
+                    FROM users u
+                    WHERE u.role_id = r.id
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM user_roles existing_ur
+                          WHERE existing_ur.user_id = u.id
+                            AND existing_ur.role_id = r.id
+                      )
+                ) AS user_count,
+                (
+                    SELECT COUNT(*)
+                    FROM role_permissions rp
+                    WHERE rp.role_id = r.id
+                ) AS permission_count,
+                (
+                    SELECT COUNT(*)
+                    FROM role_routes rr
+                    WHERE rr.role_id = r.id
+                ) AS route_count,
+                (
+                    SELECT COUNT(*)
+                    FROM role_sidebar_menus rsm
+                    WHERE rsm.role_id = r.id
+                ) AS navigation_count,
+                (
+                    SELECT COUNT(*)
+                    FROM role_dashboards rd
+                    WHERE rd.role_id = r.id
+                ) AS dashboard_count,
+                (
+                    SELECT COUNT(*)
+                    FROM workflow_stage_permissions wsp
+                    WHERE wsp.role_id = r.id
+                ) AS workflow_count,
+                (
+                    SELECT COUNT(*)
+                    FROM record_permissions recp
+                    WHERE recp.role_id = r.id
+                ) AS record_permission_count,
+                (
+                    SELECT COUNT(*)
+                    FROM system_time_bound_access stba
+                    WHERE stba.role_id = r.id
+                ) AS time_bound_access_count,
+                (
+                    SELECT COUNT(*)
+                    FROM role_delegations rdel
+                    WHERE rdel.delegator_role_id = r.id
+                       OR rdel.delegate_role_id = r.id
+                ) AS delegation_count,
+                (
+                    SELECT COUNT(*)
+                    FROM allowance_templates atpl
+                    WHERE atpl.role_id = r.id
+                ) AS allowance_template_count
+            FROM roles r
+            {$whereSql}
+            ORDER BY r.scope, r.name
+        ";
+
+        $rows = Database::getInstance()->query($sql, $params)->fetchAll() ?? [];
+        return array_map(
+            [$this, 'decorateRoleDefinition'],
+            $rows
+        );
+    }
+
+    /**
+     * Cast role values and expose only non-zero delete blockers.
+     */
+    private function decorateRoleDefinition(array $role): array
+    {
+        $blockers = array_filter([
+            'users' => (int) ($role['user_count'] ?? 0),
+            'permissions' => (int) ($role['permission_count'] ?? 0),
+            'routes' => (int) ($role['route_count'] ?? 0),
+            'navigation' => (int) ($role['navigation_count'] ?? 0),
+            'dashboards' => (int) ($role['dashboard_count'] ?? 0),
+            'workflows' => (int) ($role['workflow_count'] ?? 0),
+            'record_permissions' => (int) ($role['record_permission_count'] ?? 0),
+            'time_bound_access' => (int) ($role['time_bound_access_count'] ?? 0),
+            'delegations' => (int) ($role['delegation_count'] ?? 0),
+            'allowance_templates' => (int) ($role['allowance_template_count'] ?? 0),
+        ], static fn ($count) => $count > 0);
+
+        $role['id'] = (int) ($role['id'] ?? 0);
+        $role['is_system'] = (int) ($role['is_system'] ?? 0);
+        $role['is_active'] = (int) ($role['is_active'] ?? 0);
+        $role['user_count'] = (int) ($role['user_count'] ?? 0);
+        $role['permission_count'] = (int) ($role['permission_count'] ?? 0);
+        $role['delete_blockers'] = $blockers;
+        $role['can_delete'] =
+            $role['is_system'] === 0 &&
+            empty($blockers);
+
+        unset(
+            $role['route_count'],
+            $role['navigation_count'],
+            $role['dashboard_count'],
+            $role['workflow_count'],
+            $role['record_permission_count'],
+            $role['time_bound_access_count'],
+            $role['delegation_count'],
+            $role['allowance_template_count']
+        );
+
+        return $role;
+    }
+
+    private function roleNameLength(string $name): int
+    {
+        return function_exists('mb_strlen')
+            ? mb_strlen($name, 'UTF-8')
+            : strlen($name);
     }
 
     // ========================================================================
@@ -1777,34 +2415,587 @@ class SystemController extends BaseController
             return $auth;
         }
 
+        $validation = $this->normalizePermissionDefinitionPayload(
+            $data,
+            true
+        );
+        if (!$validation['valid']) {
+            return $this->badRequest($validation['message']);
+        }
+
+        $db = Database::getInstance();
+
         try {
-            $db = Database::getInstance();
+            $payload = $validation['data'];
+            $db->beginTransaction();
 
-            if (empty($data['code'])) {
-                return $this->badRequest('Permission code is required');
-            }
-
-            $check = $db->query("SELECT id FROM permissions WHERE code = ?", [$data['code']])->fetch();
-            if ($check) {
-                return $this->badRequest('A permission with this code already exists');
+            $duplicate = $db->query(
+                'SELECT id FROM permissions WHERE code = ? LIMIT 1',
+                [$payload['code']]
+            )->fetch();
+            if ($duplicate) {
+                $db->rollback();
+                return $this->conflict(
+                    'A permission with this code already exists'
+                );
             }
 
             $db->query(
-                "INSERT INTO permissions (code, name, description, entity, action, created_at) VALUES (?,?,?,?,?,NOW())",
+                'INSERT INTO permissions
+                    (
+                        code,
+                        description,
+                        entity,
+                        action,
+                        module,
+                        created_at,
+                        updated_at
+                    )
+                 VALUES (?, ?, ?, ?, ?, NOW(), NOW())',
                 [
-                    $data['code'],
-                    $data['name'] ?? $data['code'],
-                    $data['description'] ?? null,
-                    $data['entity'] ?? null,
-                    $data['action'] ?? null,
+                    $payload['code'],
+                    $payload['description'],
+                    $payload['entity'],
+                    $payload['action'],
+                    $payload['module'],
                 ]
             );
+            $permissionId = (int) $db->lastInsertId();
 
-            return $this->success(['id' => (int)$db->lastInsertId()], 'Permission created');
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'permission_definition_create',
+                'permission',
+                $permissionId,
+                $this->getUserId(),
+                $payload
+            );
+            if (!$auditLogged) {
+                throw new Exception(
+                    'Permission creation audit could not be recorded'
+                );
+            }
 
+            $db->commit();
+            $created = $this->getPermissionDefinitionById($permissionId);
+
+            return $this->created(
+                $this->formatPermissionDefinition(
+                    $created ?? ['id' => $permissionId] + $payload,
+                    $this->permissionUsageDefinitions()
+                ),
+                'Permission created successfully'
+            );
         } catch (Exception $e) {
-            return $this->badRequest('Failed to create permission: ' . $e->getMessage());
+            if ($db->inTransaction()) {
+                $db->rollback();
+            }
+            error_log('Permission creation failed: ' . $e->getMessage());
+            return $this->serverError('Failed to create permission');
         }
+    }
+
+    public function putPermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $permissionId = (int) ($id ?? $data['id'] ?? 0);
+        if ($permissionId <= 0) {
+            return $this->badRequest('Permission ID is required');
+        }
+
+        $validation = $this->normalizePermissionDefinitionPayload(
+            $data,
+            false
+        );
+        if (!$validation['valid']) {
+            return $this->badRequest($validation['message']);
+        }
+        if (empty($validation['data'])) {
+            return $this->badRequest(
+                'No supported permission fields were provided'
+            );
+        }
+
+        $db = Database::getInstance();
+
+        try {
+            $db->beginTransaction();
+            $current = $this->getPermissionDefinitionById(
+                $permissionId,
+                true
+            );
+            if (!$current) {
+                $db->rollback();
+                return $this->notFound('Permission not found');
+            }
+
+            $usageDefinitions = $this->permissionUsageDefinitions();
+            $usage = $this->getPermissionUsageCounts(
+                $permissionId,
+                $usageDefinitions
+            );
+            $usageTotal = array_sum($usage);
+            $payload = $validation['data'];
+
+            if (
+                array_key_exists('code', $payload) &&
+                $payload['code'] !== (string) $current['code']
+            ) {
+                if ($usageTotal > 0) {
+                    $db->rollback();
+                    return $this->conflict(
+                        'Permission codes cannot be changed while the permission is in use',
+                        ['usage' => $usage, 'usage_total' => $usageTotal]
+                    );
+                }
+
+                $duplicate = $db->query(
+                    'SELECT id
+                     FROM permissions
+                     WHERE code = ? AND id <> ?
+                     LIMIT 1',
+                    [$payload['code'], $permissionId]
+                )->fetch();
+                if ($duplicate) {
+                    $db->rollback();
+                    return $this->conflict(
+                        'A permission with this code already exists'
+                    );
+                }
+            }
+
+            $fields = [];
+            $values = [];
+            $changes = [];
+            foreach (
+                ['code', 'description', 'entity', 'action', 'module'] as $field
+            ) {
+                if (!array_key_exists($field, $payload)) {
+                    continue;
+                }
+
+                $oldValue = $current[$field] ?? null;
+                $newValue = $payload[$field];
+                if ($oldValue === $newValue) {
+                    continue;
+                }
+
+                $fields[] = "$field = ?";
+                $values[] = $newValue;
+                $changes[$field] = [
+                    'from' => $oldValue,
+                    'to' => $newValue,
+                ];
+            }
+
+            if (empty($fields)) {
+                $db->rollback();
+                return $this->success(
+                    $this->formatPermissionDefinition(
+                        $current,
+                        $usageDefinitions,
+                        $usage
+                    ),
+                    'No permission changes were required'
+                );
+            }
+
+            $fields[] = 'updated_at = NOW()';
+            $values[] = $permissionId;
+            $db->query(
+                'UPDATE permissions SET ' .
+                    implode(', ', $fields) .
+                    ' WHERE id = ?',
+                $values
+            );
+
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'permission_definition_update',
+                'permission',
+                $permissionId,
+                $this->getUserId(),
+                [
+                    'code' => $current['code'],
+                    'changes' => $changes,
+                ]
+            );
+            if (!$auditLogged) {
+                throw new Exception(
+                    'Permission update audit could not be recorded'
+                );
+            }
+
+            $db->commit();
+            $updated = $this->getPermissionDefinitionById($permissionId);
+
+            return $this->success(
+                $this->formatPermissionDefinition(
+                    $updated ?? $current,
+                    $usageDefinitions
+                ),
+                'Permission updated successfully'
+            );
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollback();
+            }
+            error_log('Permission update failed: ' . $e->getMessage());
+            return $this->serverError('Failed to update permission');
+        }
+    }
+
+    public function deletePermissions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) {
+            return $auth;
+        }
+
+        $permissionId = (int) ($id ?? $data['id'] ?? 0);
+        if ($permissionId <= 0) {
+            return $this->badRequest('Permission ID is required');
+        }
+
+        $db = Database::getInstance();
+
+        try {
+            $db->beginTransaction();
+            $current = $this->getPermissionDefinitionById(
+                $permissionId,
+                true
+            );
+            if (!$current) {
+                $db->rollback();
+                return $this->notFound('Permission not found');
+            }
+
+            $usageDefinitions = $this->permissionUsageDefinitions();
+            $usage = $this->getPermissionUsageCounts(
+                $permissionId,
+                $usageDefinitions
+            );
+            $usage = array_filter(
+                $usage,
+                static fn ($count) => (int) $count > 0
+            );
+            if (!empty($usage)) {
+                $db->rollback();
+                return $this->conflict(
+                    'Permission cannot be deleted while it is in use',
+                    [
+                        'usage' => $usage,
+                        'usage_total' => array_sum($usage),
+                    ]
+                );
+            }
+
+            $db->query(
+                'DELETE FROM permissions WHERE id = ?',
+                [$permissionId]
+            );
+
+            $auditLogged = (new AuditLogger($db->getConnection()))->log(
+                'permission_definition_delete',
+                'permission',
+                $permissionId,
+                $this->getUserId(),
+                [
+                    'code' => $current['code'],
+                    'description' => $current['description'],
+                    'entity' => $current['entity'],
+                    'action' => $current['action'],
+                    'module' => $current['module'],
+                ]
+            );
+            if (!$auditLogged) {
+                throw new Exception(
+                    'Permission deletion audit could not be recorded'
+                );
+            }
+
+            $db->commit();
+            return $this->success(
+                ['id' => $permissionId],
+                'Permission deleted successfully'
+            );
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollback();
+            }
+            error_log('Permission deletion failed: ' . $e->getMessage());
+            return $this->serverError('Failed to delete permission');
+        }
+    }
+
+    /**
+     * Permission relationships that make a definition unsafe to rename/delete.
+     *
+     * @return array<string, string>
+     */
+    private function permissionUsageDefinitions(): array
+    {
+        $definitions = [
+            'role_permissions' => 'role assignments',
+            'route_permissions' => 'route requirements',
+            'user_permissions' => 'user overrides',
+            'system_permission_changes' => 'permission change records',
+            'system_route_access_rules' => 'route access rules',
+            'system_time_bound_access' => 'time-bound grants',
+            'workflow_stage_permissions' => 'workflow stage rules',
+        ];
+
+        return array_filter(
+            $definitions,
+            fn ($label, $table) =>
+                $this->tableExists($table) &&
+                $this->tableHasColumn($table, 'permission_id'),
+            ARRAY_FILTER_USE_BOTH
+        );
+    }
+
+    private function getPermissionDefinitionById(
+        int $permissionId,
+        bool $forUpdate = false
+    ): ?array {
+        $query = 'SELECT
+                    id,
+                    code,
+                    description,
+                    entity,
+                    action,
+                    module,
+                    created_at,
+                    updated_at
+                  FROM permissions
+                  WHERE id = ?
+                  LIMIT 1';
+        if ($forUpdate) {
+            $query .= ' FOR UPDATE';
+        }
+
+        $row = $this->db->query($query, [$permissionId])->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * @param array<string, string> $usageDefinitions
+     * @return array<string, int>
+     */
+    private function getPermissionUsageCounts(
+        int $permissionId,
+        array $usageDefinitions
+    ): array {
+        $usage = [];
+        foreach (array_keys($usageDefinitions) as $table) {
+            $usage[$table] = (int) ($this->db->query(
+                "SELECT COUNT(*) FROM $table WHERE permission_id = ?",
+                [$permissionId]
+            )->fetchColumn() ?? 0);
+        }
+
+        return $usage;
+    }
+
+    /**
+     * @param array<string, string> $usageDefinitions
+     * @param array<string, int>|null $usageCounts
+     */
+    private function formatPermissionDefinition(
+        array $permission,
+        array $usageDefinitions,
+        ?array $usageCounts = null
+    ): array {
+        $permissionId = (int) ($permission['id'] ?? 0);
+
+        if ($usageCounts === null) {
+            $usageCounts = [];
+            $hasInlineCounts = true;
+            foreach (array_keys($usageDefinitions) as $table) {
+                $alias = "{$table}_count";
+                if (!array_key_exists($alias, $permission)) {
+                    $hasInlineCounts = false;
+                    break;
+                }
+                $usageCounts[$table] = (int) $permission[$alias];
+            }
+
+            if (!$hasInlineCounts && $permissionId > 0) {
+                $usageCounts = $this->getPermissionUsageCounts(
+                    $permissionId,
+                    $usageDefinitions
+                );
+            }
+        }
+
+        foreach (array_keys($usageDefinitions) as $table) {
+            unset($permission["{$table}_count"]);
+            $usageCounts[$table] = (int) ($usageCounts[$table] ?? 0);
+        }
+
+        $usageTotal = array_sum($usageCounts);
+        $permission['id'] = $permissionId;
+        $permission['code'] = (string) ($permission['code'] ?? '');
+        $permission['description'] = $permission['description'] ?? null;
+        $permission['entity'] = $permission['entity'] ?? null;
+        $permission['action'] = $permission['action'] ?? null;
+        $permission['module'] = $permission['module'] ?? null;
+        $permission['usage'] = $usageCounts;
+        $permission['usage_total'] = $usageTotal;
+        $permission['code_locked'] = $usageTotal > 0;
+        $permission['can_delete'] = $usageTotal === 0;
+
+        return $permission;
+    }
+
+    /**
+     * @param array<string, string> $usageDefinitions
+     */
+    private function getPermissionDefinitionSummary(
+        array $usageDefinitions
+    ): array {
+        $totals = $this->db->query(
+            "SELECT
+                COUNT(*) AS total_permissions,
+                COUNT(
+                    DISTINCT NULLIF(TRIM(COALESCE(entity, '')), '')
+                ) AS resource_count,
+                COUNT(
+                    DISTINCT NULLIF(TRIM(COALESCE(module, '')), '')
+                ) AS module_count
+             FROM permissions",
+            []
+        )->fetch() ?: [];
+
+        $inUsePermissions = 0;
+        if (!empty($usageDefinitions)) {
+            $exists = [];
+            foreach (array_keys($usageDefinitions) as $table) {
+                $exists[] = "EXISTS (
+                    SELECT 1
+                    FROM $table dependency
+                    WHERE dependency.permission_id = p.id
+                )";
+            }
+            $inUsePermissions = (int) ($this->db->query(
+                'SELECT COUNT(*)
+                 FROM permissions p
+                 WHERE ' . implode(' OR ', $exists),
+                []
+            )->fetchColumn() ?? 0);
+        }
+
+        return [
+            'total_permissions' => (int) (
+                $totals['total_permissions'] ?? 0
+            ),
+            'resource_count' => (int) ($totals['resource_count'] ?? 0),
+            'module_count' => (int) ($totals['module_count'] ?? 0),
+            'in_use_permissions' => $inUsePermissions,
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function getDistinctPermissionValues(string $column): array
+    {
+        if (!in_array($column, ['module', 'entity', 'action'], true)) {
+            return [];
+        }
+
+        $rows = $this->db->query(
+            "SELECT DISTINCT $column AS value
+             FROM permissions
+             WHERE $column IS NOT NULL
+               AND TRIM($column) <> ''
+             ORDER BY $column",
+            []
+        )->fetchAll() ?? [];
+
+        return array_values(array_map(
+            static fn (array $row) => (string) $row['value'],
+            $rows
+        ));
+    }
+
+    /**
+     * Normalize and validate permission definition fields.
+     *
+     * @return array{valid: bool, data: array, message: string}
+     */
+    private function normalizePermissionDefinitionPayload(
+        array $data,
+        bool $creating
+    ): array {
+        $normalized = [];
+        $fields = [
+            'code' => 255,
+            'description' => 500,
+            'entity' => 100,
+            'action' => 100,
+            'module' => 100,
+        ];
+
+        foreach ($fields as $field => $maximumLength) {
+            if (!$creating && !array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $value = $data[$field] ?? null;
+            if ($value !== null && !is_scalar($value)) {
+                return [
+                    'valid' => false,
+                    'data' => [],
+                    'message' => "$field must be a text value",
+                ];
+            }
+
+            $value = trim((string) ($value ?? ''));
+            if ($field === 'code') {
+                if ($value === '') {
+                    return [
+                        'valid' => false,
+                        'data' => [],
+                        'message' => 'Permission code is required',
+                    ];
+                }
+                if (!preg_match('/^[A-Za-z0-9._:-]+$/D', $value)) {
+                    return [
+                        'valid' => false,
+                        'data' => [],
+                        'message' =>
+                            'Permission code contains unsupported characters',
+                    ];
+                }
+            }
+
+            if ($this->permissionTextLength($value) > $maximumLength) {
+                return [
+                    'valid' => false,
+                    'data' => [],
+                    'message' =>
+                        "$field must not exceed $maximumLength characters",
+                ];
+            }
+
+            $normalized[$field] = $field === 'code' || $value !== ''
+                ? $value
+                : null;
+        }
+
+        return [
+            'valid' => true,
+            'data' => $normalized,
+            'message' => '',
+        ];
+    }
+
+    private function permissionTextLength(string $value): int
+    {
+        return function_exists('mb_strlen')
+            ? mb_strlen($value, 'UTF-8')
+            : strlen($value);
     }
 
     /**
@@ -1853,7 +3044,7 @@ class SystemController extends BaseController
      */
     public function postRolePermissions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
@@ -1885,7 +3076,16 @@ class SystemController extends BaseController
             $count = 0;
             foreach ($permissionIds as $pid) {
                 $ins->execute([(int)$roleId, (int)$pid]);
-                $count++;
+                if ($ins->rowCount() > 0) {
+                    $count++;
+                    (new AuditLogger($db->getConnection()))->log(
+                        'role_permission_assign',
+                        'role_permission',
+                        (int)$pid,
+                        $this->getUserId(),
+                        ['role_id' => (int)$roleId, 'permission_id' => (int)$pid]
+                    );
+                }
             }
 
             return $this->success(['assigned' => $count], 'Permissions assigned to role');
@@ -1900,15 +3100,15 @@ class SystemController extends BaseController
      */
     public function deleteRolePermissions($id = null, $data = [], $segments = [])
     {
-        if ($auth = $this->ensureRoleManagementAccess()) {
+        if ($auth = $this->ensureRoleManagementAccess(true)) {
             return $auth;
         }
 
         try {
             $db = Database::getInstance();
 
-            $roleId       = $data['role_id'] ?? null;
-            $permissionId = $id ?? $data['permission_id'] ?? null;
+            $roleId       = $data['role_id'] ?? $_GET['role_id'] ?? null;
+            $permissionId = $id ?? $data['permission_id'] ?? $_GET['permission_id'] ?? null;
 
             if (!$roleId || !$permissionId) {
                 return $this->badRequest('role_id and permission_id are required');
@@ -1923,10 +3123,20 @@ class SystemController extends BaseController
                 return $this->forbidden('Cannot modify system roles');
             }
 
-            $db->query(
+            $statement = $db->query(
                 "DELETE FROM role_permissions WHERE role_id = ? AND permission_id = ?",
                 [(int)$roleId, (int)$permissionId]
             );
+
+            if ($statement->rowCount() > 0) {
+                (new AuditLogger($db->getConnection()))->log(
+                    'role_permission_remove',
+                    'role_permission',
+                    (int)$permissionId,
+                    $this->getUserId(),
+                    ['role_id' => (int)$roleId, 'permission_id' => (int)$permissionId]
+                );
+            }
 
             return $this->success(null, 'Permission removed from role');
 
@@ -1991,6 +3201,68 @@ class SystemController extends BaseController
         } catch (Exception $e) {
             return $this->badRequest('Failed to load assignments: ' . $e->getMessage());
         }
+    }
+
+    public function postSidebarMenus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        if (empty($data['name']) || empty($data['label'])) return $this->badRequest('name and label are required');
+        try {
+            $this->db->query(
+                'INSERT INTO sidebar_menu_items (name,label,icon,url,route_id,parent_id,menu_type,display_order,domain,is_active) VALUES (?,?,?,?,?,?,?,?,?,?)',
+                [$data['name'], $data['label'], $data['icon'] ?? null, $data['url'] ?? null,
+                 $data['route_id'] ?? null, $data['parent_id'] ?? null, $data['menu_type'] ?? 'sidebar',
+                 (int)($data['display_order'] ?? 0), $data['domain'] ?? 'SYSTEM', (int)($data['is_active'] ?? 1)]
+            );
+            return $this->created(['id' => (int)$this->db->lastInsertId()], 'Sidebar menu created');
+        } catch (Exception $e) { return $this->badRequest('Failed to create sidebar menu: ' . $e->getMessage()); }
+    }
+
+    public function putSidebarMenus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $menuId = $id ?? $data['id'] ?? null;
+        if (!$menuId) return $this->badRequest('Menu ID is required');
+        $fields = []; $values = [];
+        foreach (['name','label','icon','url','route_id','parent_id','menu_type','display_order','domain','is_active'] as $field) {
+            if (array_key_exists($field, $data)) { $fields[] = "$field = ?"; $values[] = $data[$field]; }
+        }
+        if (!$fields) return $this->badRequest('No supported menu fields provided');
+        $values[] = $menuId;
+        try {
+            $this->db->query('UPDATE sidebar_menu_items SET ' . implode(', ', $fields) . ' WHERE id = ?', $values);
+            return $this->success(null, 'Sidebar menu updated');
+        } catch (Exception $e) { return $this->badRequest('Failed to update sidebar menu: ' . $e->getMessage()); }
+    }
+
+    public function deleteSidebarMenus($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $menuId = $id ?? $data['id'] ?? null;
+        if (!$menuId) return $this->badRequest('Menu ID is required');
+        try {
+            $this->db->query('DELETE FROM role_sidebar_menus WHERE menu_item_id = ?', [$menuId]);
+            $this->db->query('DELETE FROM sidebar_menu_items WHERE id = ?', [$menuId]);
+            return $this->success(null, 'Sidebar menu deleted');
+        } catch (Exception $e) { return $this->badRequest('Failed to delete sidebar menu: ' . $e->getMessage()); }
+    }
+
+    public function postRoleSidebarAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $roleId = $data['role_id'] ?? null; $menuId = $data['menu_item_id'] ?? null;
+        if (!$roleId || !$menuId) return $this->badRequest('role_id and menu_item_id are required');
+        $this->db->query('INSERT IGNORE INTO role_sidebar_menus (role_id,menu_item_id) VALUES (?,?)', [$roleId,$menuId]);
+        return $this->success(null, 'Menu assigned to role');
+    }
+
+    public function deleteRoleSidebarAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        $roleId = $data['role_id'] ?? null; $menuId = $id ?? $data['menu_item_id'] ?? null;
+        if (!$roleId || !$menuId) return $this->badRequest('role_id and menu_item_id are required');
+        $this->db->query('DELETE FROM role_sidebar_menus WHERE role_id = ? AND menu_item_id = ?', [$roleId,$menuId]);
+        return $this->success(null, 'Menu removed from role');
     }
 
     // ========================================================================

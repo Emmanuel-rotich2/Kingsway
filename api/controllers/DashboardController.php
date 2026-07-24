@@ -336,7 +336,7 @@ class DashboardController extends BaseController
 
     /**
      * GET /api/dashboard/system-admin/uptime
-     * System-only: Infrastructure uptime percentage
+     * System-only: Live database, runtime, and storage health
      */
     public function getSystemAdminUptime($id = null, $data = [], $segments = [])
     {
@@ -346,7 +346,7 @@ class DashboardController extends BaseController
         try {
             $service = new SystemAdminAnalyticsService();
             $result = $service->getUptime();
-            return $this->success(['data' => $result], 'System uptime retrieved');
+            return $this->success($result, 'System runtime health retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch uptime: ' . $e->getMessage());
         }
@@ -364,7 +364,7 @@ class DashboardController extends BaseController
         try {
             $service = new SystemAdminAnalyticsService();
             $result = $service->getHealthErrors();
-            return $this->success(['data' => $result], 'Health errors retrieved');
+            return $this->success($result, 'Health errors retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch health errors: ' . $e->getMessage());
         }
@@ -382,7 +382,7 @@ class DashboardController extends BaseController
         try {
             $service = new SystemAdminAnalyticsService();
             $result = $service->getHealthWarnings();
-            return $this->success(['data' => $result], 'Health warnings retrieved');
+            return $this->success($result, 'Health warnings retrieved');
         } catch (Exception $e) {
             return $this->serverError('Failed to fetch health warnings: ' . $e->getMessage());
         }

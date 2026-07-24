@@ -5,6 +5,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\AuthSessionService;
 use Firebase\JWT\JWT;
 use PDO;
 use Exception;
@@ -218,8 +219,17 @@ class UsersAPI extends BaseAPI
     // === Controller-required CRUD and utility methods ===
     public function get($id)
     {
-        // Fetch user by ID
-        $stmt = $this->db->prepare('SELECT * FROM users WHERE id = ?');
+        // Never expose password hashes through the user-management API.
+        $stmt = $this->db->prepare(
+            'SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+                    u.role_id, r.name AS role_name, u.status, u.last_login,
+                    u.password_changed_at, u.created_at, u.updated_at,
+                    u.failed_login_attempts, u.account_locked_until,
+                    u.password_expires_at, u.force_password_change, u.is_test_user
+             FROM users u
+             LEFT JOIN roles r ON r.id = u.role_id
+             WHERE u.id = ?'
+        );
         $stmt->execute([$id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($user) {
@@ -231,12 +241,19 @@ class UsersAPI extends BaseAPI
     public function list($data = [])
     {
         // List all users (optionally filter by status, role, etc.)
-        $sql = 'SELECT * FROM users';
+        $sql = 'SELECT u.id, u.username, u.email, u.first_name, u.last_name,
+                       u.role_id, r.name AS role_name, u.status, u.last_login,
+                       u.password_changed_at, u.created_at, u.updated_at,
+                       u.failed_login_attempts, u.account_locked_until,
+                       u.password_expires_at, u.force_password_change, u.is_test_user
+                FROM users u
+                LEFT JOIN roles r ON r.id = u.role_id';
         $params = [];
         if (isset($data['status'])) {
-            $sql .= ' WHERE status = ?';
+            $sql .= ' WHERE u.status = ?';
             $params[] = $data['status'];
         }
+        $sql .= ' ORDER BY u.id DESC';
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -265,9 +282,7 @@ class UsersAPI extends BaseAPI
             'address',
             'profile_pic_url',
             'documents_folder',
-            'date_of_birth',
-            'first_name',
-            'last_name'
+            'date_of_birth'
         ];
         if (empty($data['staff_info'])) {
             $staffInfo = [];
@@ -500,9 +515,7 @@ class UsersAPI extends BaseAPI
                     'address',
                     'profile_pic_url',
                     'documents_folder',
-                    'date_of_birth',
-                    'first_name',
-                    'last_name'
+                    'date_of_birth'
                 ];
                 if (empty($userData['staff_info'])) {
                     $staffInfoLocal = [];
@@ -841,35 +854,91 @@ class UsersAPI extends BaseAPI
 
         return ['success' => true, 'data' => $items];
     }
-    public function login($data)
+    public function login($data, bool $issueAccessToken = true)
     {
-        // Validate input
-        $username = $data['username'] ?? null;
-        $password = $data['password'] ?? null;
-        if (!$username || !$password) {
+        $username = trim((string) ($data['username'] ?? ''));
+        $password = (string) ($data['password'] ?? '');
+
+        if ($username === '' || $password === '') {
+            $this->recordAuthenticationAttempt(
+                $username,
+                null,
+                'failed',
+                'missing_credentials'
+            );
             return ['success' => false, 'error' => 'Username and password required'];
         }
 
         // Lookup user by username or email
-        $stmt = $this->db->prepare('SELECT * FROM users WHERE username = ? OR email = ? LIMIT 1');
+        $stmt = $this->db->prepare(
+            'SELECT
+                id,
+                username,
+                email,
+                password,
+                first_name,
+                last_name,
+                role_id,
+                status,
+                account_locked_until,
+                CASE
+                    WHEN account_locked_until IS NOT NULL
+                     AND account_locked_until > NOW()
+                    THEN 1
+                    ELSE 0
+                END AS is_locked
+             FROM users
+             WHERE username = ? OR email = ?
+             LIMIT 1'
+        );
         $stmt->execute([$username, $username]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$user) {
-            return ['success' => false, 'error' => 'Invalid username or Email'];
+            $this->recordAuthenticationAttempt(
+                $username,
+                null,
+                'failed',
+                'invalid_credentials'
+            );
+            return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
         // Verify password
         if (!password_verify($password, $user['password'])) {
-            return ['success' => false, 'error' => 'Incorrectpassword'];
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'invalid_credentials',
+                true
+            );
+            return ['success' => false, 'error' => 'Invalid username or password'];
         }
 
-        // Optionally: check user status
+        if ((int) ($user['is_locked'] ?? 0) === 1) {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'account_locked'
+            );
+            return [
+                'success' => false,
+                'error' => 'Account is temporarily locked'
+            ];
+        }
+
         if (isset($user['status']) && $user['status'] !== 'active') {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'account_inactive'
+            );
             return ['success' => false, 'error' => 'Account is not active'];
         }
 
-        // Get roles and permissions
-        // Get roles and permissions
+        // Get roles and permissions.
         $roles = $this->userRoleManager->getUserRoles($user['id']);
         $permissions = $this->userPermissionManager->getEffectivePermissions($user['id']);
 
@@ -890,17 +959,49 @@ class UsersAPI extends BaseAPI
         // Permissions should be stored in localStorage and sent separately when needed
         // This keeps the token small and prevents "Request Header Too Large" errors
 
-        // Generate JWT token - ONLY authentication data (no permissions!)
-        $token = $this->generateJWT([
-            'user_id' => $user['id'],
-            'username' => $user['username'],
-            'email' => $user['email'],
-            'roles' => $roles['data'] ?? []
-            // NO permissions in token!
-        ]);
+        $token = null;
+        $sessionId = null;
+        if ($issueAccessToken) {
+            // The legacy /users/login endpoint still issues its own short-lived
+            // token. The canonical /auth/login path passes false and lets
+            // AuthAPI create the refresh-backed session exactly once.
+            $token = $this->generateJWT([
+                'user_id' => $user['id'],
+                'username' => $user['username'],
+                'email' => $user['email'],
+                'roles' => $roles['data'] ?? []
+                // NO permissions in token!
+            ]);
 
-        // Return user info with token
-        // Permissions are returned in the response body (not in token)
+            try {
+                $sessionId = (new AuthSessionService($this->db))
+                    ->upsertAccessSession(
+                        (int) $user['id'],
+                        $token,
+                        null,
+                        date('Y-m-d H:i:s', time() + 3600)
+                    );
+            } catch (\Throwable $error) {
+                error_log(
+                    'Legacy user session creation failed: ' .
+                    $error->getMessage()
+                );
+                return [
+                    'success' => false,
+                    'error' => 'The authenticated session could not be established',
+                ];
+            }
+        }
+
+        $this->recordAuthenticationAttempt(
+            $username,
+            (int) $user['id'],
+            'success',
+            null,
+            false,
+            true
+        );
+
         // Return user info with token
         // Permissions are returned in the response body (not in token)
         return [
@@ -908,6 +1009,7 @@ class UsersAPI extends BaseAPI
             'message' => 'Login successful',
             'data' => [
                 'token' => $token,
+                'session_id' => $sessionId,
                 'user' => [
                     'id' => $user['id'],
                     'username' => $user['username'],
@@ -922,6 +1024,99 @@ class UsersAPI extends BaseAPI
             ]
         ];
     }
+
+    /**
+     * Persist real authentication telemetry without ever storing a password.
+     *
+     * The login response remains available if telemetry persistence fails, but
+     * the failure is written to the server error log for operational follow-up.
+     */
+    private function recordAuthenticationAttempt(
+        string $identifier,
+        ?int $userId,
+        string $status,
+        ?string $failureReason = null,
+        bool $incrementFailedAttempts = false,
+        bool $markSuccessfulLogin = false
+    ): void {
+        $ownsTransaction = false;
+
+        try {
+            if (!$this->db->inTransaction()) {
+                $this->db->beginTransaction();
+                $ownsTransaction = true;
+            }
+
+            if ($userId !== null && $incrementFailedAttempts) {
+                $stmt = $this->db->prepare(
+                    'UPDATE users
+                     SET failed_login_attempts =
+                            COALESCE(failed_login_attempts, 0) + 1,
+                         updated_at = NOW()
+                     WHERE id = ?'
+                );
+                $stmt->execute([$userId]);
+            } elseif ($userId !== null && $markSuccessfulLogin) {
+                $stmt = $this->db->prepare(
+                    'UPDATE users
+                     SET last_login = NOW(),
+                         failed_login_attempts = 0,
+                         account_locked_until = NULL,
+                         updated_at = NOW()
+                     WHERE id = ?'
+                );
+                $stmt->execute([$userId]);
+            }
+
+            $ipAddress = substr(
+                (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'),
+                0,
+                45
+            );
+            if ($ipAddress === '') {
+                $ipAddress = 'unknown';
+            }
+
+            $stmt = $this->db->prepare(
+                'INSERT INTO login_attempts (
+                    username,
+                    user_id,
+                    ip_address,
+                    user_agent,
+                    status,
+                    failure_reason,
+                    created_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, NOW())'
+            );
+            $stmt->execute([
+                substr($identifier, 0, 100),
+                $userId,
+                $ipAddress,
+                substr(
+                    (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''),
+                    0,
+                    255
+                ) ?: null,
+                $status,
+                $failureReason === null
+                    ? null
+                    : substr($failureReason, 0, 100),
+            ]);
+
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+        } catch (\Throwable $error) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log(
+                'Authentication telemetry write failed: ' .
+                $error->getMessage()
+            );
+        }
+    }
+
     public function changePassword($userId, $data)
     {
         // Validate input

@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.attendance.view'); });
 const StaffAttendanceController = {
   departments: [],
   dutyTypes: [],

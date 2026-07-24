@@ -49,7 +49,6 @@ return [
 
         ['label' => 'Configuration', 'url' => null, 'icon' => 'fas fa-cogs', 'subitems' => [
             ['label' => 'System Settings',         'url' => 'system_settings'],
-            ['label' => 'Initialize School',       'url' => 'school_initialization'],
             ['label' => 'Feature Flags',           'url' => 'feature_flags'],
             ['label' => 'Module Enablement',       'url' => 'module_enablement'],
             ['label' => 'Maintenance Mode',        'url' => 'maintenance_mode'],
@@ -110,7 +109,7 @@ return [
             ['label' => 'Payroll Approval',        'url' => 'manage_payrolls'],             // approve what admin created
             ['label' => 'Staff Appointments',      'url' => 'manage_staff'],                // approve new hires
             ['label' => 'Finance Approvals',       'url' => 'finance_approvals'],           // approve large transactions
-            ['label' => 'Leave Approvals',         'url' => 'manage_staff'],
+            ['label' => 'Leave Approvals',         'url' => 'staff_leave'],
         ]],
 
         // Academic Calendar — Director schedules Terms 1, 2, 3
@@ -124,11 +123,16 @@ return [
         // Staff — manage employees, approve appointments
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
+            ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
+            ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
+            ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
+            ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
             ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Staff Performance',       'url' => 'staff_performance'],
             ['label' => 'Teacher Workload',        'url' => 'teacher_workload'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
+            ['label' => 'Staff Leave',             'url' => 'staff_leave'],
         ]],
 
         // Students — oversight, not operational
@@ -272,11 +276,16 @@ return [
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Add New Staff',           'url' => 'manage_staff'],              // onboarding
+            ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
+            ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
+            ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
+            ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
             ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
-            ['label' => 'Staff ID Cards',          'url' => 'manage_staff'],              // generate staff ID
+            ['label' => 'Staff ID Cards',          'url' => 'staff_id_cards'],              // generate staff ID
+            ['label' => 'Staff Role Assignments',   'url' => 'staff_role_assignments'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
-            ['label' => 'Leave Management',        'url' => 'manage_staff'],
+            ['label' => 'Leave Management',        'url' => 'staff_leave'],
             ['label' => 'Performance Overview',    'url' => 'staff_performance'],
         ]],
 
@@ -413,12 +422,15 @@ return [
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Staff Interviews',        'url' => 'manage_staff'],               // HT participates in interviews
+            ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
+            ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
+            ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
             ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
             ['label' => 'Performance Reviews',     'url' => 'teacher_performance_reviews'],
             ['label' => 'Teacher Workload',        'url' => 'teacher_workload'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
-            ['label' => 'Leave Approval',          'url' => 'manage_staff'],
+            ['label' => 'Leave Approval',          'url' => 'staff_leave'],
         ]],
 
         // STUDENTS
@@ -576,8 +588,8 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
-            ['label' => 'My Attendance',           'url' => 'staff_attendance'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_leave'],
+            ['label' => 'My Attendance',           'url' => 'my_attendance'],
         ]],
 
         ['label' => 'Communications', 'url' => null, 'icon' => 'fas fa-comments', 'subitems' => [
@@ -1201,6 +1213,20 @@ return [
             ['label' => 'Policy Violations',       'url' => 'policy_violations'],
         ]],
 
+        // ── ADMIN: STAFF (disciplinary oversight) ─────────────────────────────
+        ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
+            ['label' => 'All Staff',               'url' => 'manage_staff'],
+            ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
+            ['label' => 'Staff Lifecycle',         'url' => 'staff_lifecycle'],
+            ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
+            ['label' => 'Teachers',                'url' => 'all_teachers'],
+            ['label' => 'Non-Teaching Staff',      'url' => 'manage_non_teaching_staff'],
+            ['label' => 'Staff Performance',       'url' => 'staff_performance'],
+            ['label' => 'Performance Reviews',     'url' => 'teacher_performance_reviews'],
+            ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
+            ['label' => 'Staff Leave',             'url' => 'staff_leave'],
+        ]],
+
         // ── ADMIN: STUDENT CONDUCT ────────────────────────────────────────────
         ['label' => 'Student Conduct', 'url' => null, 'icon' => 'fas fa-user-check', 'subitems' => [
             ['label' => 'Behavior Logs',           'url' => 'conduct_reports'],
@@ -1235,8 +1261,8 @@ return [
         // ── HR (personal) ────────────────────────────────────────────────────
         ['label' => 'My HR', 'url' => null, 'icon' => 'fas fa-id-badge', 'subitems' => [
             ['label' => 'My Payslip',              'url' => 'detailed_payslip'],
-            ['label' => 'My Leave Requests',       'url' => 'staff_attendance'],
-            ['label' => 'My Attendance',           'url' => 'staff_attendance'],
+            ['label' => 'My Leave Requests',       'url' => 'staff_leave'],
+            ['label' => 'My Attendance',           'url' => 'my_attendance'],
         ]],
 
         ['label' => 'Communications', 'url' => null, 'icon' => 'fas fa-comments', 'subitems' => [

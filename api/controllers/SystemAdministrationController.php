@@ -7,29 +7,137 @@ use Throwable;
 final class SystemAdministrationController extends BaseController
 {
     private SystemAdministrationService $service;
-    public function __construct(){parent::__construct();$this->service=new SystemAdministrationService();}
 
-    private function guard(string $permission='system.manage')
+    public function __construct()
     {
-        if(!$this->user) return $this->unauthorized('Authentication required');
-        if(!$this->userHasRole('System Administrator') && !$this->userHasPermission('*') && !$this->userHasPermission($permission)) return $this->forbidden('System Domain permission required');
-        return null;
-    }
-    private function actorId(): int {return (int)($this->user['id']??$this->user['user_id']??0);}
-    private function audit(string $action,string $resource,?int $resourceId=null,array $details=[]): void
-    {
-        try{$this->db->query("INSERT INTO audit_logs(user_id,action,resource_type,resource_id,details,status,ip_address,created_at) VALUES(?,?,?,?,?,'success',?,NOW())",[$this->actorId(),$action,$resource,$resourceId,json_encode($details),$_SERVER['REMOTE_ADDR']??null]);}catch(Throwable $e){}
+        parent::__construct();
+        $this->service = new SystemAdministrationService($this->db->getConnection());
     }
 
-    public function getDashboard($id=null,$data=[],$segments=[]){if($g=$this->guard('system.dashboard.view'))return $g;return $this->success($this->service->dashboard());}
-    public function getAccounts($id=null,$data=[],$segments=[]){if($g=$this->guard('system.users.view'))return $g;return $this->success($this->service->accounts());}
-    public function postAccountAction($id=null,$data=[],$segments=[]){if($g=$this->guard('system.users.manage'))return $g;try{$r=$this->service->changeAccountState((int)($data['user_id']??0),(string)($data['action']??''),$data['until']??null);$this->audit('account_state_changed','user',(int)$data['user_id'],$r);return $this->success($r,'Account updated');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
-    public function getSessions($id=null,$data=[],$segments=[]){if($g=$this->guard('system.sessions.view'))return $g;return $this->success($this->service->sessions());}
-    public function postRevokeSession($id=null,$data=[],$segments=[]){if($g=$this->guard('system.sessions.revoke'))return $g;$sid=(int)($data['session_id']??0);$this->service->revokeSession($sid);$this->audit('session_revoked','user_session',$sid);return $this->success(null,'Session revoked');}
-    public function getRegistry($id=null,$data=[],$segments=[]){if($g=$this->guard('system.configuration.view'))return $g;try{return $this->success($this->service->listRegistry((string)($_GET['name']??'')));}catch(Throwable $e){return $this->badRequest($e->getMessage());}}
-    public function postRegistry($id=null,$data=[],$segments=[]){if($g=$this->guard('system.configuration.manage'))return $g;try{$name=(string)($data['registry']??'');$r=$this->service->saveRegistry($name,$data['record']??[],isset($data['id'])?(int)$data['id']:null);$this->audit('registry_saved',$name,$r['id'],$data['record']??[]);return $this->success($r,'Configuration saved');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
-    public function deleteRegistry($id=null,$data=[],$segments=[]){if($g=$this->guard('system.configuration.manage'))return $g;try{$name=(string)($data['registry']??$_GET['registry']??'');$rid=(int)($data['id']??$id??0);$this->service->deleteRegistry($name,$rid);$this->audit('registry_deleted',$name,$rid);return $this->success(null,'Configuration deleted');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
-    public function postProvisioningStart($id=null,$data=[],$segments=[]){if($g=$this->guard('system.schools.provision'))return $g;try{$r=$this->service->startProvisioning($data,$this->actorId());$this->audit('school_provisioning_started','school',$r['school_id'],$r);return $this->created($r,'Provisioning started');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
-    public function postProvisioningStep($id=null,$data=[],$segments=[]){if($g=$this->guard('system.schools.provision'))return $g;try{$r=$this->service->saveProvisioningStep((int)$data['run_id'],(int)$data['step'],$data['payload']??[],$this->actorId());$this->audit('school_provisioning_step','school_provisioning_run',(int)$data['run_id'],$r);return $this->success($r,'Step saved');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
-    public function postProvisioningFinalize($id=null,$data=[],$segments=[]){if($g=$this->guard('system.schools.provision'))return $g;try{$r=$this->service->finalizeProvisioning((int)$data['run_id'],$this->actorId());$this->audit('school_provisioning_completed','school',$r['school_id'],$r);return $this->success($r,'School initialized');}catch(Throwable $e){return $this->unprocessable($e->getMessage());}}
+    private function guard(array $permissions = [])
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if ($this->userHasAnyRole(['System Administrator', 'Super Administrator', 'Super Admin'])) {
+            return null;
+        }
+
+        foreach ($permissions as $permission) {
+            if ($this->userHasPermission($permission)) {
+                return null;
+            }
+        }
+
+        return $this->forbidden('System Administrator permission required');
+    }
+
+    private function actorId(): ?int
+    {
+        $id = $this->user['user_id'] ?? $this->user['id'] ?? null;
+        return $id === null ? null : (int) $id;
+    }
+
+    private function audit(string $action, string $entity, ?int $entityId, array $details = [], string $status = 'success'): void
+    {
+        try {
+            $this->service->writeAudit(
+                $this->actorId(),
+                $action,
+                $entity,
+                $entityId,
+                $details,
+                $status,
+                $_SERVER['REMOTE_ADDR'] ?? null,
+                $_SERVER['HTTP_USER_AGENT'] ?? null
+            );
+        } catch (Throwable $e) {
+            error_log('[SystemAdministrationController] Audit failed: ' . $e->getMessage());
+        }
+    }
+
+    public function getDashboard($id = null, $data = [], $segments = [])
+    {
+        if ($response = $this->guard(['system.dashboard.view'])) return $response;
+        return $this->success($this->service->dashboard());
+    }
+
+    public function getResource($id = null, $data = [], $segments = [])
+    {
+        if ($response = $this->guard([
+            'system.users.view', 'system.rbac.view', 'system.security.view',
+            'system.configuration.view', 'system.navigation.view',
+            'system.monitoring.view', 'system.data_governance.view',
+            'system.audit.view', 'system.developer_tools.view'
+        ])) return $response;
+
+        try {
+            $key = trim((string)($data['key'] ?? $_GET['key'] ?? ''));
+            return $this->success($this->service->resource($key, $data));
+        } catch (Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    public function postResource($id = null, $data = [], $segments = [])
+    {
+        if ($response = $this->guard([
+            'system.users.manage', 'system.rbac.manage', 'system.security.manage',
+            'system.configuration.manage', 'system.navigation.manage',
+            'system.monitoring.manage', 'system.data_governance.manage',
+            'system.audit.manage', 'system.developer_tools.manage'
+        ])) return $response;
+
+        try {
+            $key = trim((string)($data['key'] ?? ''));
+            $record = is_array($data['record'] ?? null) ? $data['record'] : [];
+            $recordId = isset($data['id']) && $data['id'] !== '' ? (int)$data['id'] : null;
+            $result = $this->service->saveResource($key, $record, $recordId, $this->actorId());
+            $this->audit($recordId ? 'update' : 'create', $key, (int)($result['id'] ?? 0), ['fields' => array_keys($record)]);
+            return $recordId ? $this->success($result, 'Record updated') : $this->created($result, 'Record created');
+        } catch (Throwable $e) {
+            $this->audit('save_failed', (string)($data['key'] ?? 'system'), null, ['error' => $e->getMessage()], 'failure');
+            return $this->unprocessable($e->getMessage());
+        }
+    }
+
+    public function deleteResource($id = null, $data = [], $segments = [])
+    {
+        if ($response = $this->guard([
+            'system.rbac.manage', 'system.security.manage', 'system.configuration.manage',
+            'system.navigation.manage', 'system.monitoring.manage',
+            'system.data_governance.manage', 'system.audit.manage',
+            'system.developer_tools.manage'
+        ])) return $response;
+
+        try {
+            $key = trim((string)($data['key'] ?? $_GET['key'] ?? ''));
+            $recordId = (int)($data['id'] ?? $id ?? 0);
+            $this->service->deleteResource($key, $recordId);
+            $this->audit('delete', $key, $recordId);
+            return $this->success(null, 'Record deleted');
+        } catch (Throwable $e) {
+            return $this->unprocessable($e->getMessage());
+        }
+    }
+
+    public function postAction($id = null, $data = [], $segments = [])
+    {
+        if ($response = $this->guard([
+            'system.users.manage', 'system.security.manage', 'system.monitoring.manage',
+            'system.data_governance.manage', 'system.developer_tools.manage'
+        ])) return $response;
+
+        try {
+            $resource = trim((string)($data['resource'] ?? ''));
+            $action = trim((string)($data['action'] ?? ''));
+            $payload = is_array($data['payload'] ?? null) ? $data['payload'] : [];
+            $result = $this->service->runAction($resource, $action, $payload, $this->actorId());
+            $this->audit($action, $resource, isset($payload['id']) ? (int)$payload['id'] : null, $payload);
+            return $this->success($result, 'Action completed');
+        } catch (Throwable $e) {
+            return $this->unprocessable($e->getMessage());
+        }
+    }
 }

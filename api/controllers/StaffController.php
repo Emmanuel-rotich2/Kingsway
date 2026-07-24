@@ -5,6 +5,8 @@ namespace App\API\Controllers;
 use App\API\Modules\staff\StaffAPI;
 use App\API\Modules\staff\StaffPayrollManager;
 use App\API\Modules\staff\StaffIDCardGenerator;
+use App\API\Modules\staff\StaffLeaveManager;
+use App\API\Services\StaffDomainAccessService;
 use RuntimeException;
 use Exception;
 
@@ -19,6 +21,8 @@ class StaffController extends BaseController
     private $api;
     private $payroll;
     private $idCardGenerator;
+    private $leaveManager;
+    private $access;
 
     public function __construct()
     {
@@ -26,6 +30,8 @@ class StaffController extends BaseController
         $this->api = new StaffAPI();
         $this->payroll = new StaffPayrollManager();
         $this->idCardGenerator = new StaffIDCardGenerator();
+        $this->leaveManager = new StaffLeaveManager();
+        $this->access = new StaffDomainAccessService($this->user);
     }
 
     public function index()
@@ -111,6 +117,7 @@ class StaffController extends BaseController
      */
     public function get($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
             return $this->handleResponse($result);
@@ -139,6 +146,7 @@ class StaffController extends BaseController
      */
     public function post($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator'])) return $denied;
         if ($id !== null) {
             $data['id'] = $id;
         }
@@ -179,6 +187,610 @@ class StaffController extends BaseController
     public function postUploadDocument($id = null, $data = [], $segments = [])
     {
         return $this->handleStaffUpload($id, $data, $segments, 'document');
+    }
+
+    // ==================== NEW ENDPOINTS FOR STAFF UI CONTROLLERS ====================
+
+    /**
+     * GET /api/staff/teachers - Get teaching staff only
+     */
+    public function getTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        
+        $params = array_merge($_GET ?? [], $data);
+        $params['staff_type_id'] = 1; // Teaching staff
+        
+        $result = $this->api->list($params);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/non-teaching - Get non-teaching staff only
+     */
+    public function getNonTeaching($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        
+        $params = array_merge($_GET ?? [], $data);
+        $params['staff_type_id'] = 2; // Non-teaching staff
+        
+        $result = $this->api->list($params);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * GET /api/staff/performance-review-history/{staffId} - Get performance review history
+     */
+    public function getPerformanceReviewHistory($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        
+        $staffId = (int) $id;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        try {
+            $db = $this->db;
+            $query = $db->prepare("
+                SELECT pr.id as review_id, pr.review_date, pr.review_period, 
+                       pr.overall_score, pr.performance_grade, pr.comments,
+                       u.first_name || ' ' || u.last_name as reviewer_name,
+                       s.first_name || ' ' || s.last_name as staff_name,
+                       s.department_id
+                FROM staff_performance_reviews pr
+                LEFT JOIN users u ON pr.reviewer_id = u.id
+                LEFT JOIN staff s ON pr.staff_id = s.id
+                WHERE pr.staff_id = ?
+                ORDER BY pr.review_date DESC
+            ");
+            $query->execute([$staffId]);
+            $reviews = $query->fetchAll();
+
+            return $this->success([
+                'reviews' => $reviews,
+                'count' => count($reviews)
+            ], 'Performance review history retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch performance review history: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/academic-kpi-summary/{staffId} - Get academic KPI summary
+     */
+    public function getAcademicKPISummary($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        
+        $staffId = (int) $id;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        try {
+            $db = $this->db;
+            $params = array_merge($_GET ?? [], $data);
+            $academicYearId = $params['academic_year_id'] ?? null;
+
+            $whereClause = "WHERE kpi.staff_id = ?";
+            $queryParams = [$staffId];
+            
+            if ($academicYearId) {
+                $whereClause .= " AND kpi.academic_year_id = ?";
+                $queryParams[] = $academicYearId;
+            }
+
+            $query = $db->prepare("
+                SELECT kpi.id, kpi.kpi_name, kpi.kpi_code, 
+                       kpi.target_value, kpi.actual_value, 
+                       kpi.achievement_percentage, kpi.period,
+                       kpi.academic_year_id
+                FROM staff_academic_kpis kpi
+                $whereClause
+                ORDER BY kpi.period DESC
+            ");
+            $query->execute($queryParams);
+            $kpis = $query->fetchAll();
+
+            return $this->success([
+                'kpis' => $kpis,
+                'count' => count($kpis)
+            ], 'Academic KPI summary retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch academic KPI summary: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/performance-reviews - Get performance reviews with filters
+     */
+    public function getPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            $params = array_merge($_GET ?? [], $data);
+            
+            $whereClause = "WHERE 1=1";
+            $queryParams = [];
+            
+            if (!empty($params['teacher_id'])) {
+                $whereClause .= " AND pr.staff_id = ?";
+                $queryParams[] = $params['teacher_id'];
+            }
+            
+            if (!empty($params['subject_id'])) {
+                $whereClause .= " AND pr.subject_id = ?";
+                $queryParams[] = $params['subject_id'];
+            }
+            
+            if (!empty($params['review_date'])) {
+                $whereClause .= " AND pr.review_date = ?";
+                $queryParams[] = $params['review_date'];
+            }
+
+            $query = $db->prepare("
+                SELECT pr.id, pr.staff_id as teacher_id, pr.subject_id,
+                       pr.review_date, pr.rating, pr.category, pr.remarks,
+                       u.first_name || ' ' || u.last_name as reviewer_name,
+                       s.first_name || ' ' || s.last_name as teacher_name
+                FROM teacher_performance_reviews pr
+                LEFT JOIN users u ON pr.reviewer_id = u.id
+                LEFT JOIN staff s ON pr.staff_id = s.id
+                $whereClause
+                ORDER BY pr.review_date DESC
+            ");
+            $query->execute($queryParams);
+            $reviews = $query->fetchAll();
+
+            return $this->success($reviews, 'Performance reviews retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch performance reviews: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/available-roles - Get available system roles
+     */
+    public function getAvailableRoles($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            $query = $db->query("
+                SELECT id, name, description, level
+                FROM roles
+                WHERE status = 'active'
+                ORDER BY level ASC, name ASC
+            ");
+            $roles = $query->fetchAll();
+
+            return $this->success($roles, 'Available roles retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch available roles: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/role-assignments/{staffId} - Get role assignments for staff
+     */
+    public function getRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        
+        $staffId = (int) $id;
+        if (!$staffId) {
+            return $this->badRequest('Staff ID is required');
+        }
+
+        try {
+            $db = $this->db;
+            $query = $db->prepare("
+                SELECT r.id as role_id, r.name, r.description, r.level,
+                       sr.assigned_at, sr.assigned_by
+                FROM staff_roles sr
+                LEFT JOIN roles r ON sr.role_id = r.id
+                WHERE sr.staff_id = ? AND sr.status = 'active'
+                ORDER BY r.level ASC
+            ");
+            $query->execute([$staffId]);
+            $assignments = $query->fetchAll();
+
+            return $this->success($assignments, 'Role assignments retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch role assignments: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/assign-role - Assign role to staff
+     */
+    public function postAssignRole($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        $roleId = (int) ($data['role_id'] ?? 0);
+        
+        if (!$staffId || !$roleId) {
+            return $this->badRequest('Staff ID and Role ID are required');
+        }
+
+        try {
+            $db = $this->db;
+            
+            // Check if assignment already exists
+            $checkQuery = $db->prepare("
+                SELECT id FROM staff_roles 
+                WHERE staff_id = ? AND role_id = ? AND status = 'active'
+            ");
+            $checkQuery->execute([$staffId, $roleId]);
+            
+            if ($checkQuery->fetch()) {
+                return $this->error('Role already assigned to this staff member');
+            }
+            
+            // Assign role
+            $insertQuery = $db->prepare("
+                INSERT INTO staff_roles (staff_id, role_id, assigned_at, assigned_by, status)
+                VALUES (?, ?, NOW(), ?, 'active')
+            ");
+            $insertQuery->execute([$staffId, $roleId, $this->user['id'] ?? null]);
+
+            return $this->success(['assigned' => true], 'Role assigned successfully');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to assign role: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * DELETE /api/staff/revoke-role/{staffId}/{roleId} - Revoke role from staff
+     */
+    public function deleteRevokeRole($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        
+        $staffId = (int) $id;
+        $roleId = (int) ($segments[0] ?? 0);
+        
+        if (!$staffId || !$roleId) {
+            return $this->badRequest('Staff ID and Role ID are required');
+        }
+
+        try {
+            $db = $this->db;
+            
+            $updateQuery = $db->prepare("
+                UPDATE staff_roles 
+                SET status = 'inactive', revoked_at = NOW(), revoked_by = ?
+                WHERE staff_id = ? AND role_id = ? AND status = 'active'
+            ");
+            $updateQuery->execute([$this->user['id'] ?? null, $staffId, $roleId]);
+
+            return $this->success(['revoked' => true], 'Role revoked successfully');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to revoke role: ' . $e->getMessage());
+        }
+    }
+
+    // ==================== ADDITIONAL STAFF MANAGEMENT ENDPOINTS ====================
+
+    /**
+     * GET /api/staff/onboarding - Get staff onboarding records
+     */
+    public function getOnboarding($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            $params = array_merge($_GET ?? [], $data);
+            
+            $whereClause = "WHERE 1=1";
+            $queryParams = [];
+            
+            if (!empty($params['staff_id'])) {
+                $whereClause .= " AND so.staff_id = ?";
+                $queryParams[] = $params['staff_id'];
+            }
+            
+            if (!empty($params['status'])) {
+                $whereClause .= " AND so.status = ?";
+                $queryParams[] = $params['status'];
+            }
+
+            $query = $db->prepare("
+                SELECT so.id, so.staff_id, so.start_date, so.probation_months,
+                       so.contract_type, so.mentor_id, so.status, so.notes,
+                       s.first_name || ' ' || s.last_name as staff_name,
+                       s.staff_no, s.position, s.department_id,
+                       m.first_name || ' ' || m.last_name as mentor_name
+                FROM staff_onboarding so
+                LEFT JOIN staff s ON so.staff_id = s.id
+                LEFT JOIN staff m ON so.mentor_id = m.id
+                $whereClause
+                ORDER BY so.start_date DESC
+            ");
+            $query->execute($queryParams);
+            $onboarding = $query->fetchAll();
+
+            return $this->success($onboarding, 'Staff onboarding records retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch onboarding records: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/onboarding - Create onboarding record
+     */
+    public function postOnboarding($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', ['system administrator','school administrator'])) return $denied;
+        
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        $startDate = $data['start_date'] ?? null;
+        
+        if (!$staffId || !$startDate) {
+            return $this->badRequest('Staff ID and start date are required');
+        }
+
+        try {
+            $db = $this->db;
+            
+            $insertQuery = $db->prepare("
+                INSERT INTO staff_onboarding (staff_id, start_date, probation_months, contract_type, mentor_id, notes, status, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), ?)
+            ");
+            $insertQuery->execute([
+                $staffId,
+                $startDate,
+                $data['probation_months'] ?? 3,
+                $data['contract_type'] ?? 'probation',
+                $data['mentor_id'] ?? null,
+                $data['notes'] ?? null,
+                $this->user['id'] ?? null
+            ]);
+
+            return $this->success(['created' => true], 'Onboarding record created successfully');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to create onboarding record: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/lifecycle - Get staff lifecycle records
+     */
+    public function getLifecycle($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            $params = array_merge($_GET ?? [], $data);
+            
+            $whereClause = "WHERE 1=1";
+            $queryParams = [];
+            
+            if (!empty($params['staff_id'])) {
+                $whereClause .= " AND sl.staff_id = ?";
+                $queryParams[] = $params['staff_id'];
+            }
+            
+            if (!empty($params['action_type'])) {
+                $whereClause .= " AND sl.action_type = ?";
+                $queryParams[] = $params['action_type'];
+            }
+
+            $query = $db->prepare("
+                SELECT sl.id, sl.staff_id, sl.action_type, sl.effective_date,
+                       sl.to_position, sl.to_department_id, sl.to_salary,
+                       sl.reason, sl.notes, sl.status, sl.approved_by,
+                       s.first_name || ' ' || s.last_name as staff_name,
+                       s.staff_no, s.position as current_position,
+                       d.name as department_name
+                FROM staff_lifecycle sl
+                LEFT JOIN staff s ON sl.staff_id = s.id
+                LEFT JOIN departments d ON sl.to_department_id = d.id
+                $whereClause
+                ORDER BY sl.effective_date DESC
+            ");
+            $query->execute($queryParams);
+            $lifecycle = $query->fetchAll();
+
+            return $this->success($lifecycle, 'Staff lifecycle records retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch lifecycle records: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/lifecycle - Create lifecycle action
+     */
+    public function postLifecycle($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.manage', ['system administrator','school administrator','director','deputy head discipline'])) return $denied;
+        
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        $actionType = $data['action_type'] ?? null;
+        $effectiveDate = $data['effective_date'] ?? null;
+        
+        if (!$staffId || !$actionType || !$effectiveDate) {
+            return $this->badRequest('Staff ID, action type, and effective date are required');
+        }
+
+        try {
+            $db = $this->db;
+            
+            $insertQuery = $db->prepare("
+                INSERT INTO staff_lifecycle (staff_id, action_type, effective_date, to_position, to_department_id, to_salary, reason, notes, status, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), ?)
+            ");
+            $insertQuery->execute([
+                $staffId,
+                $actionType,
+                $effectiveDate,
+                $data['to_position'] ?? null,
+                $data['to_department_id'] ?? null,
+                $data['to_salary'] ?? null,
+                $data['reason'] ?? null,
+                $data['notes'] ?? null,
+                $this->user['id'] ?? null
+            ]);
+
+            return $this->success(['created' => true], 'Lifecycle action created successfully');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to create lifecycle action: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/appointments - Get staff appointments
+     */
+    public function getAppointments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.appointments.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            $params = array_merge($_GET ?? [], $data);
+            
+            $whereClause = "WHERE 1=1";
+            $queryParams = [];
+            
+            if (!empty($params['staff_id'])) {
+                $whereClause .= " AND sa.staff_id = ?";
+                $queryParams[] = $params['staff_id'];
+            }
+            
+            if (!empty($params['status'])) {
+                $whereClause .= " AND sa.status = ?";
+                $queryParams[] = $params['status'];
+            }
+
+            $query = $db->prepare("
+                SELECT sa.id, sa.staff_id, sa.position, sa.department_id,
+                       sa.appointment_date, sa.contract_type, sa.salary,
+                       sa.status, sa.approved_by, sa.approved_at,
+                       s.first_name || ' ' || s.last_name as staff_name,
+                       s.staff_no, d.name as department_name
+                FROM staff_appointments sa
+                LEFT JOIN staff s ON sa.staff_id = s.id
+                LEFT JOIN departments d ON sa.department_id = d.id
+                $whereClause
+                ORDER BY sa.appointment_date DESC
+            ");
+            $query->execute($queryParams);
+            $appointments = $query->fetchAll();
+
+            return $this->success($appointments, 'Staff appointments retrieved');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to fetch appointments: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/appointments - Create appointment
+     */
+    public function postAppointments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.appointments.manage', ['system administrator','school administrator','director'])) return $denied;
+        
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        $position = $data['position'] ?? null;
+        $appointmentDate = $data['appointment_date'] ?? null;
+        
+        if (!$staffId || !$position || !$appointmentDate) {
+            return $this->badRequest('Staff ID, position, and appointment date are required');
+        }
+
+        try {
+            $db = $this->db;
+            
+            $insertQuery = $db->prepare("
+                INSERT INTO staff_appointments (staff_id, position, department_id, appointment_date, contract_type, salary, status, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', NOW(), ?)
+            ");
+            $insertQuery->execute([
+                $staffId,
+                $position,
+                $data['department_id'] ?? null,
+                $appointmentDate,
+                $data['contract_type'] ?? 'permanent',
+                $data['salary'] ?? null,
+                $this->user['id'] ?? null
+            ]);
+
+            return $this->success(['created' => true], 'Appointment created successfully');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to create appointment: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/import-existing - Import existing staff records
+     */
+    public function postImportExisting($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.import.manage', ['system administrator','school administrator'])) return $denied;
+        
+        try {
+            $db = $this->db;
+            
+            if (empty($data['staff_records']) || !is_array($data['staff_records'])) {
+                return $this->badRequest('Staff records array is required');
+            }
+
+            $imported = 0;
+            $failed = 0;
+            
+            foreach ($data['staff_records'] as $record) {
+                try {
+                    $insertQuery = $db->prepare("
+                        INSERT INTO staff (staff_no, first_name, last_name, email, phone, position, department_id, staff_type_id, status, created_at, created_by)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), ?)
+                    ");
+                    $insertQuery->execute([
+                        $record['staff_no'] ?? null,
+                        $record['first_name'] ?? null,
+                        $record['last_name'] ?? null,
+                        $record['email'] ?? null,
+                        $record['phone'] ?? null,
+                        $record['position'] ?? null,
+                        $record['department_id'] ?? null,
+                        $record['staff_type_id'] ?? 2,
+                        $this->user['id'] ?? null
+                    ]);
+                    $imported++;
+                } catch (Exception $e) {
+                    $failed++;
+                }
+            }
+
+            return $this->success([
+                'imported' => $imported,
+                'failed' => $failed
+            ], 'Staff import completed');
+
+        } catch (Exception $e) {
+            return $this->error('Failed to import staff: ' . $e->getMessage());
+        }
     }
 
     private function handleStaffUpload($id = null, $data = [], $segments = [], $forcedType = 'document')
@@ -239,6 +851,7 @@ class StaffController extends BaseController
      */
     public function put($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator'])) return $denied;
         if ($id === null) {
             return $this->badRequest('Staff ID is required for update');
         }
@@ -260,6 +873,7 @@ class StaffController extends BaseController
      */
     public function delete($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.delete', ['system administrator'])) return $denied;
         if ($id === null) {
             return $this->badRequest('Staff ID is required for deletion');
         }
@@ -283,7 +897,7 @@ class StaffController extends BaseController
      */
     public function getProfileGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getProfile($staffId);
         return $this->handleResponse($result);
     }
@@ -293,7 +907,7 @@ class StaffController extends BaseController
      */
     public function getScheduleGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getSchedule($staffId);
         return $this->handleResponse($result);
     }
@@ -447,7 +1061,9 @@ class StaffController extends BaseController
      */
     public function getPayrollList($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         $filters = array_merge($_GET, $data);
+        if (!$this->access->allows('staff.payroll.manage', ['system administrator','accountant','director'])) { $filters['staff_id'] = $this->access->staffId(); }
         $result = $this->api->listPayroll($filters);
         return $this->handleResponse($result);
     }
@@ -457,6 +1073,7 @@ class StaffController extends BaseController
      */
     public function getPayrollSummary($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','accountant','director'])) return $denied;
         $filters = array_merge($_GET, $data);
         $result = $this->api->getPayrollSummary($filters);
         return $this->handleResponse($result);
@@ -473,8 +1090,11 @@ class StaffController extends BaseController
         $year    = (int) ($params['year']  ?? date('Y'));
 
         if (!$staffId) {
-            return $this->badRequest('Staff ID is required');
+            $staffId = $this->access->staffId();
         }
+        if (!$staffId) return $this->badRequest('Staff ID is required');
+        try { $this->access->requireSelfOr('staff.payslip.manage', (int)$staffId, ['system administrator','accountant']); }
+        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
 
         $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
         return $this->handleResponse($result);
@@ -487,6 +1107,7 @@ class StaffController extends BaseController
      */
     public function postAssignClass($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? null;
         if (!$staffId) {
             return $this->badRequest('Staff ID is required');
@@ -501,6 +1122,7 @@ class StaffController extends BaseController
      */
     public function postAssignSubject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? null;
         if (!$staffId) {
             return $this->badRequest('Staff ID is required');
@@ -515,7 +1137,7 @@ class StaffController extends BaseController
      */
     public function getAssignmentsGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         $includeHistory = $data['include_history'] ?? false;
         
@@ -528,7 +1150,7 @@ class StaffController extends BaseController
      */
     public function getAssignmentsCurrent($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getCurrentAssignments($staffId);
         return $this->handleResponse($result);
     }
@@ -538,7 +1160,7 @@ class StaffController extends BaseController
      */
     public function getWorkloadGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
         $result = $this->api->getStaffWorkload($staffId, $academicYearId);
@@ -550,6 +1172,7 @@ class StaffController extends BaseController
      */
     public function postAssignmentInitiate($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $data['staff_id'] ?? null;
         $classStreamId = $data['class_stream_id'] ?? null;
         $academicYearId = $data['academic_year_id'] ?? null;
@@ -569,6 +1192,8 @@ class StaffController extends BaseController
      */
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { return $this->forbidden($e->getMessage()); }
         $result = $this->api->getAttendance($data);
         return $this->handleResponse($result);
     }
@@ -578,6 +1203,7 @@ class StaffController extends BaseController
      */
     public function postAttendanceMark($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.attendance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
         $result = $this->api->markAttendance($data);
         return $this->handleResponse($result);
     }
@@ -589,6 +1215,8 @@ class StaffController extends BaseController
      */
     public function getLeavesList($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher','director'])) { $data['staff_id'] = $this->access->staffId(); }
         $result = $this->api->getLeaves($data);
         return $this->handleResponse($result);
     }
@@ -598,6 +1226,9 @@ class StaffController extends BaseController
      */
     public function postLeavesApply($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) { $data['staff_id'] = $this->access->staffId(); }
+        if (empty($data['staff_id'])) return $this->forbidden('No staff profile is linked to this account');
         $result = $this->api->applyLeave($data);
         return $this->handleResponse($result);
     }
@@ -607,6 +1238,7 @@ class StaffController extends BaseController
      */
     public function putLeavesUpdateStatus($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.leave.approve', ['director','headteacher','school administrator'])) return $denied;
         $leaveId = $id ?? $data['leave_id'] ?? null;
         if (!$leaveId) {
             return $this->badRequest('Leave ID is required');
@@ -638,7 +1270,8 @@ class StaffController extends BaseController
      */
     public function getPayrollPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $month = $data['month'] ?? date('m');
         $year = $data['year'] ?? date('Y');
         
@@ -651,7 +1284,8 @@ class StaffController extends BaseController
      */
     public function getPayrollHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
         
@@ -664,7 +1298,8 @@ class StaffController extends BaseController
      */
     public function getPayrollAllowances($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->viewAllowances($staffId);
         return $this->handleResponse($result);
     }
@@ -674,7 +1309,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDeductions($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->viewDeductions($staffId);
         return $this->handleResponse($result);
     }
@@ -684,7 +1320,8 @@ class StaffController extends BaseController
      */
     public function getPayrollLoanDetails($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $loanId = $data['loan_id'] ?? null;
         
         $result = $this->api->getLoanDetails($staffId, $loanId);
@@ -696,7 +1333,7 @@ class StaffController extends BaseController
      */
     public function postPayrollRequestAdvance($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->requestAdvance($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
@@ -706,7 +1343,7 @@ class StaffController extends BaseController
      */
     public function postPayrollApplyLoan($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->applyForLoan($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
@@ -716,7 +1353,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadP9($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $year = $data['year'] ?? date('Y');
         
         $result = $this->api->downloadP9Form($staffId, $year);
@@ -728,7 +1366,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $month = $data['month'] ?? date('m');
         $year = $data['year'] ?? date('Y');
         
@@ -741,7 +1380,8 @@ class StaffController extends BaseController
      */
     public function getPayrollExportHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
         
@@ -756,7 +1396,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceReviewHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getReviewHistory($staffId);
         return $this->handleResponse($result);
     }
@@ -780,7 +1420,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceAcademicKpiSummary($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
         $result = $this->api->getAcademicKPISummary($staffId, $academicYearId);
@@ -1761,4 +2401,348 @@ class StaffController extends BaseController
         $result = $this->idCardGenerator->uploadStaffPhoto((int) $staffId, $_FILES['photo']);
         return $this->handleResponse($result);
     }
+
+    // ========================================================================
+    // CHECKPOINT 2 — CANONICAL STAFF DOMAIN ENDPOINTS
+    // ========================================================================
+
+    private function guardStaffDomain(string $permission, array $roles = [])
+    {
+        try {
+            $this->access->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401
+                ? $this->unauthorized($e->getMessage())
+                : $this->forbidden($e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/access-context */
+    public function getAccessContext($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) {
+            return $this->unauthorized('Authentication required');
+        }
+        return $this->success([
+            'user_id' => $this->access->userId(),
+            'staff_id' => $this->access->staffId(),
+            'permissions' => $this->access->permissions(),
+            'roles' => $this->access->roles(),
+            'capabilities' => [
+                'staff_directory_view' => $this->access->allows('staff.directory.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_directory_manage' => $this->access->allows('staff.directory.manage', ['system administrator','school administrator']),
+                'teachers_view' => $this->access->allows('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic']),
+                'non_teaching_view' => $this->access->allows('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher']),
+                'attendance_manage' => $this->access->allows('staff.attendance.manage', ['system administrator','school administrator','headteacher']),
+                'attendance_self' => $this->access->allows('staff.attendance.self', ['staff','class teacher','subject teacher','accountant']),
+                'leave_manage' => $this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher']),
+                'leave_approve' => $this->access->allows('staff.leave.approve', ['director','headteacher','school administrator']),
+                'payroll_manage' => $this->access->allows('staff.payroll.manage', ['system administrator','accountant']),
+                'payroll_approve' => $this->access->allows('staff.payroll.approve', ['director']),
+                'payslip_self' => $this->access->allows('staff.payslip.self', ['staff','class teacher','subject teacher','accountant']),
+                'id_cards_manage' => $this->access->allows('staff.id_cards.manage', ['system administrator','school administrator']),
+                'role_assignments_manage' => $this->access->allows('staff.roles.manage', ['system administrator','school administrator']),
+                'teaching_assignments_manage' => $this->access->allows('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+            ],
+        ]);
+    }
+
+    /** GET /api/staff/teachers */
+    public function getTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $where = ["s.status <> 'inactive'", "(LOWER(st.name) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $params = [];
+            if (!empty($_GET['department_id'])) { $where[] = 's.department_id = ?'; $params[] = (int)$_GET['department_id']; }
+            $rows = $this->db->query(
+                "SELECT s.id, s.staff_no AS employee_id, s.staff_no, s.first_name, s.last_name,
+                        s.profile_pic_url AS photo_url, s.department_id, d.name AS department_name,
+                        s.position, s.status, s.user_id, s.tsc_no,
+                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_name,
+                        COUNT(DISTINCT tsa.subject_id) AS subjects_count,
+                        MAX(CASE WHEN cta.staff_id IS NOT NULL THEN 1 ELSE 0 END) AS is_class_teacher
+                 FROM staff s
+                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                 LEFT JOIN departments d ON d.id = s.department_id
+                 LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                 LEFT JOIN roles r ON r.id = ur.role_id
+                 LEFT JOIN staff_class_assignments tsa ON tsa.staff_id = s.id AND tsa.role = 'subject_teacher' AND tsa.status = 'active'
+                 LEFT JOIN staff_class_assignments cta ON cta.staff_id = s.id AND cta.role = 'class_teacher' AND cta.status = 'active'
+                 WHERE " . implode(' AND ', $where) . "
+                 GROUP BY s.id ORDER BY s.first_name, s.last_name",
+                $params
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows);
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load teachers', $e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/non-teaching */
+    public function getNonTeaching($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        try {
+            $where = ["s.status <> 'inactive'", "NOT (LOWER(COALESCE(st.name,'')) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $params = [];
+            if (!empty($_GET['department_id'])) { $where[] = 's.department_id = ?'; $params[] = (int)$_GET['department_id']; }
+            $rows = $this->db->query(
+                "SELECT s.*, d.name AS department_name, st.name AS staff_type_name,
+                        CONCAT(sp.first_name, ' ', sp.last_name) AS supervisor_name,
+                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_names
+                 FROM staff s
+                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                 LEFT JOIN departments d ON d.id = s.department_id
+                 LEFT JOIN staff sp ON sp.id = s.supervisor_id
+                 LEFT JOIN user_roles ur ON ur.user_id = s.user_id
+                 LEFT JOIN roles r ON r.id = ur.role_id
+                 WHERE " . implode(' AND ', $where) . "
+                 GROUP BY s.id ORDER BY d.name, s.first_name, s.last_name",
+                $params
+            )->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->success($rows);
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load non-teaching staff', $e->getMessage());
+        }
+    }
+
+    /** Alias required by all_teachers.js: GET /api/staff/departments */
+    public function getDepartments($id = null, $data = [], $segments = [])
+    {
+        return $this->getDepartmentsGet($id, $data, $segments);
+    }
+
+    /** GET /api/staff/payroll-eligibility/{staffId} */
+    public function getPayrollEligibility($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.payroll.eligibility.view', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $staffId = (int)($id ?? $_GET['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('Staff ID is required');
+        return $this->success($this->access->payrollEligibility($staffId));
+    }
+
+    /** POST /api/staff/payroll-eligibility/validate */
+    public function postPayrollEligibilityValidate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.payroll.eligibility.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $staffIds = array_values(array_unique(array_map('intval', (array)($data['staff_ids'] ?? []))));
+        if (!$staffIds && !empty($data['staff_id'])) $staffIds = [(int)$data['staff_id']];
+        if (!$staffIds) return $this->badRequest('staff_id or staff_ids is required');
+        $results = [];
+        foreach ($staffIds as $staffId) $results[] = $this->access->payrollEligibility($staffId);
+        return $this->success($results);
+    }
+
+    /** POST /api/staff/role-assignments */
+    public function postRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId = (int)($data['staff_id'] ?? 0);
+        $roleId = (int)($data['role_id'] ?? 0);
+        if (!$staffId || !$roleId) return $this->badRequest('staff_id and role_id are required');
+        $staff = $this->db->query('SELECT id, user_id FROM staff WHERE id = ? LIMIT 1', [$staffId])->fetch(\PDO::FETCH_ASSOC);
+        if (!$staff || !(int)$staff['user_id']) return $this->badRequest('Staff member has no linked user account');
+        $exists = $this->db->query('SELECT id FROM user_roles WHERE user_id = ? AND role_id = ? LIMIT 1', [(int)$staff['user_id'], $roleId])->fetch();
+        if (!$exists) {
+            $this->db->query('INSERT INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, NOW())', [(int)$staff['user_id'], $roleId]);
+        }
+        $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
+        return $this->success(['staff_id' => $staffId, 'role_id' => $roleId], 'Role assigned');
+    }
+
+    /** DELETE /api/staff/role-assignments/{roleId}?staff_id=X */
+    public function deleteRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        $roleId = (int)($id ?? $data['role_id'] ?? 0);
+        $staffId = (int)($_GET['staff_id'] ?? $data['staff_id'] ?? 0);
+        if (!$staffId || !$roleId) return $this->badRequest('staff_id and role_id are required');
+        $staff = $this->db->query('SELECT user_id FROM staff WHERE id = ? LIMIT 1', [$staffId])->fetch(\PDO::FETCH_ASSOC);
+        if (!$staff) return $this->notFound('Staff member not found');
+        $this->db->query('DELETE FROM user_roles WHERE user_id = ? AND role_id = ?', [(int)$staff['user_id'], $roleId]);
+        $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
+        return $this->success(null, 'Role removed');
+    }
+
+    /** GET /api/staff/id-cards */
+    public function getIdCards($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        $where = ['1=1']; $params = [];
+        if (!empty($_GET['staff_id'])) { $where[] = 'c.staff_id = ?'; $params[] = (int)$_GET['staff_id']; }
+        if (!empty($_GET['status'])) { $where[] = 'c.status = ?'; $params[] = $_GET['status']; }
+        $rows = $this->db->query(
+            "SELECT c.*, s.staff_no, s.first_name, s.last_name, s.position, s.profile_pic_url,
+                    d.name AS department_name
+             FROM staff_id_cards c JOIN staff s ON s.id = c.staff_id
+             LEFT JOIN departments d ON d.id = s.department_id
+             WHERE " . implode(' AND ', $where) . " ORDER BY c.created_at DESC",
+            $params
+        )->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->success($rows);
+    }
+
+    /** POST /api/staff/id-cards/generate */
+    public function postIdCardsGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId = (int)($data['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('staff_id is required');
+        try {
+            $card = $this->idCardGenerator->generateIDCard($staffId, $data['format'] ?? 'html', $data['side'] ?? 'both');
+            $number = 'KWA-S-' . str_pad((string)$staffId, 6, '0', STR_PAD_LEFT);
+            $this->db->query(
+                "INSERT INTO staff_id_cards (staff_id, card_number, status, issued_at, expires_at, generated_by, created_at, updated_at)
+                 VALUES (?, ?, 'generated', NULL, ?, ?, NOW(), NOW())
+                 ON DUPLICATE KEY UPDATE status='generated', expires_at=VALUES(expires_at), generated_by=VALUES(generated_by), updated_at=NOW()",
+                [$staffId, $number, $data['expires_at'] ?? date('Y-m-d', strtotime('+2 years')), $this->access->userId()]
+            );
+            $this->access->audit('generate_id_card', 'staff', $staffId, null, ['card_number' => $number]);
+            return $this->success(['card_number' => $number, 'document' => $card], 'Staff ID card generated');
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to generate staff ID card', $e->getMessage());
+        }
+    }
+
+    /** POST /api/staff/id-cards/issue */
+    public function postIdCardsIssue($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId = (int)($data['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('staff_id is required');
+        $this->db->query("UPDATE staff_id_cards SET status='issued', issued_at=NOW(), issued_by=?, updated_at=NOW() WHERE staff_id=?", [$this->access->userId(), $staffId]);
+        $this->access->audit('issue_id_card', 'staff', $staffId, null, ['status' => 'issued']);
+        return $this->success(null, 'Staff ID card issued');
+    }
+
+    /** GET /api/staff/leave-requests — admin scope or own records */
+    public function getLeaveRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $filters = $_GET;
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher','director'])) {
+            $filters['staff_id'] = $this->access->staffId();
+        }
+        return $this->handleResponse($this->leaveManager->getLeaveHistory($filters));
+    }
+
+    /** POST /api/staff/leave-requests */
+    public function postLeaveRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $ownId = $this->access->staffId();
+        if (!$ownId) return $this->forbidden('No staff profile is linked to this account');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) {
+            $data['staff_id'] = $ownId;
+        }
+        $result = $this->leaveManager->createLeaveRequest($data);
+        $this->access->audit('create_leave_request', 'staff', (int)$data['staff_id'], null, $data);
+        return $this->handleResponse($result);
+    }
+
+    /** PUT /api/staff/leave-requests/{id}/status */
+    public function putLeaveRequestsStatus($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.leave.approve', ['director','headteacher','school administrator'])) return $denied;
+        $leaveId = (int)($id ?? $data['id'] ?? 0);
+        if (!$leaveId) return $this->badRequest('Leave request ID is required');
+        $data['approved_by'] = $this->access->userId();
+        $result = $this->leaveManager->updateLeaveStatus($leaveId, $data);
+        $this->access->audit('update_leave_status', 'leave_request', $leaveId, null, $data);
+        return $this->handleResponse($result);
+    }
+
+
+    /** GET /api/staff/performance-reviews */
+    public function getPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $where=['1=1'];$params=[];
+            if($id){$where[]='pr.id=?';$params[]=(int)$id;}
+            if(!empty($_GET['staff_id'])){$where[]='pr.staff_id=?';$params[]=(int)$_GET['staff_id'];}
+            if(!empty($_GET['academic_year_id'])){$where[]='pr.academic_year_id=?';$params[]=(int)$_GET['academic_year_id'];}
+            if(!empty($_GET['status'])){$where[]='pr.status=?';$params[]=$_GET['status'];}
+            $rows=$this->db->query("SELECT pr.*,CONCAT(s.first_name,' ',s.last_name) teacher_name,
+                    CONCAT(r.first_name,' ',r.last_name) reviewer_name,ay.year_name academic_year
+                FROM staff_performance_reviews pr JOIN staff s ON s.id=pr.staff_id
+                LEFT JOIN staff r ON r.id=pr.reviewer_id LEFT JOIN academic_years ay ON ay.id=pr.academic_year_id
+                WHERE ".implode(' AND ',$where)." ORDER BY pr.review_date DESC,pr.id DESC",$params)->fetchAll(\PDO::FETCH_ASSOC);
+            if($id) return $rows ? $this->success($rows[0]) : $this->notFound('Performance review not found');
+            return $this->success($rows);
+        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews',$e->getMessage());}
+    }
+
+    /** POST /api/staff/performance-reviews */
+    public function postPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        $staffId=(int)($data['staff_id']??0);$yearId=(int)($data['academic_year_id']??0);
+        if(!$staffId||!$yearId)return $this->badRequest('staff_id and academic_year_id are required');
+        $reviewerStaffId=(int)($data['reviewer_id']??$this->access->staffId()??0);
+        if(!$reviewerStaffId)return $this->badRequest('reviewer_id is required');
+        $this->db->query("INSERT INTO staff_performance_reviews(staff_id,academic_year_id,term_id,review_period,review_type,reviewer_id,review_date,overall_score,performance_grade,overall_rating,strengths,areas_for_improvement,recommendations,action_plan,follow_up_date,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),NOW())",[
+            $staffId,$yearId,$data['term_id']??null,$data['review_period']??null,$data['review_type']??'annual',$reviewerStaffId,$data['review_date']??date('Y-m-d'),$data['overall_score']??null,$data['performance_grade']??null,$data['overall_rating']??null,$data['strengths']??null,$data['areas_for_improvement']??null,$data['recommendations']??null,$data['action_plan']??null,$data['follow_up_date']??null,$data['status']??'draft'
+        ]);
+        $newId=(int)$this->db->lastInsertId();$this->access->audit('create_performance_review','staff_performance_review',$newId,null,$data);
+        return $this->created(['id'=>$newId],'Performance review created');
+    }
+
+    /** PUT /api/staff/performance-reviews/{id} */
+    public function putPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        if(!$id)return $this->badRequest('Review ID is required');
+        $before=$this->db->query('SELECT * FROM staff_performance_reviews WHERE id=?',[(int)$id])->fetch(\PDO::FETCH_ASSOC);
+        if(!$before)return $this->notFound('Performance review not found');
+        $allowed=['review_period','review_type','review_date','overall_score','performance_grade','overall_rating','strengths','areas_for_improvement','recommendations','action_plan','follow_up_date','status','term_id'];
+        $sets=[];$params=[];foreach($allowed as $field){if(array_key_exists($field,$data)){$sets[]="$field=?";$params[]=$data[$field];}}
+        if(!$sets)return $this->badRequest('No supported fields supplied');$params[]=(int)$id;
+        $this->db->query('UPDATE staff_performance_reviews SET '.implode(',',$sets).',updated_at=NOW() WHERE id=?',$params);
+        $this->access->audit('update_performance_review','staff_performance_review',(int)$id,$before,$data);
+        return $this->success(['id'=>(int)$id],'Performance review updated');
+    }
+
+    /** DELETE /api/staff/performance-reviews/{id} — drafts only */
+    public function deletePerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        if(!$id)return $this->badRequest('Review ID is required');
+        $before=$this->db->query('SELECT * FROM staff_performance_reviews WHERE id=?',[(int)$id])->fetch(\PDO::FETCH_ASSOC);
+        if(!$before)return $this->notFound('Performance review not found');
+        if(($before['status']??'')!=='draft')return $this->conflict('Only draft reviews can be deleted');
+        $this->db->query('DELETE FROM staff_performance_reviews WHERE id=?',[(int)$id]);
+        $this->access->audit('delete_performance_review','staff_performance_review',(int)$id,$before,null);
+        return $this->success(null,'Performance review deleted');
+    }
+
+
+    /** GET /api/staff/leave-types */
+    public function getLeaveTypes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $rows=$this->db->query("SELECT id,code,name,description,days_allowed,requires_approval,is_paid,applicable_to FROM leave_types WHERE status='active' ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->success($rows);
+    }
+
+    /** GET /api/staff/available-roles */
+    public function getAvailableRoles($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        $rows=$this->db->query("SELECT id,name,description,scope,is_system FROM roles WHERE is_active=1 ORDER BY name")->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->success($rows);
+    }
+
+    /** GET /api/staff/role-assignments?staff_id=X */
+    public function getRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId=(int)($_GET['staff_id']??$data['staff_id']??$id??0);
+        if(!$staffId)return $this->badRequest('staff_id is required');
+        $rows=$this->db->query("SELECT r.id role_id,r.name,r.description,ur.created_at FROM staff s JOIN user_roles ur ON ur.user_id=s.user_id JOIN roles r ON r.id=ur.role_id WHERE s.id=? ORDER BY r.name",[$staffId])->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->success($rows);
+    }
+
 }

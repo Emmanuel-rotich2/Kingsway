@@ -1,16 +1,12 @@
 <?php
 /**
- * All Teachers Page
- * 
- * Purpose: View all teaching staff
- * Features:
- * - List all teachers
- * - Subject assignments
- * - Performance overview
+ * All Teachers Page - Pure UI/UX Layout
+ * Controller: all_teachers.js
+ * Authentication: JWT via api.js + backend middleware
+ * Role-based access: JavaScript AuthContext + permission system
  */
 ?>
-
-<div>
+<div class="teachers-container">
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
@@ -19,7 +15,7 @@
                     <h4 class="mb-1"><i class="fas fa-chalkboard-teacher me-2"></i>All Teachers</h4>
                     <p class="text-muted mb-0">View and manage teaching staff</p>
                 </div>
-                <a href="home.php?route=manage_staff" class="btn btn-primary">
+                <a href="home.php?route=manage_staff" class="btn btn-primary" data-permission-module="staff" data-permission-action="create">
                     <i class="fas fa-plus me-1"></i> Add Teacher
                 </a>
             </div>
@@ -72,7 +68,7 @@
                     </select>
                 </div>
                 <div class="col-md-2">
-                    <button class="btn btn-outline-secondary w-100" id="exportTeachers">
+                    <button class="btn btn-outline-secondary w-100" id="exportTeachers" data-permission-module="staff" data-permission-action="export">
                         <i class="fas fa-download"></i> Export
                     </button>
                 </div>

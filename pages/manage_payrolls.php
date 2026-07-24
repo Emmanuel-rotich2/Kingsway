@@ -1160,4 +1160,5 @@
     }
 })();
 </script>
+<script src="js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/payroll_manager.js?v=<?= time() ?>"></script>

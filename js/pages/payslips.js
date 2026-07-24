@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.payslip.manage'); });
 /**
  * Payslips Controller
  * Shows the logged-in staff member's own payslip history.

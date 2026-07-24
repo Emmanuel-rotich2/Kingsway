@@ -2,6 +2,7 @@
 
 namespace App\API\Middleware;
 
+use App\API\Services\AuthSessionService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -31,8 +32,9 @@ class AuthMiddleware
             'auth/session',
             'auth/refresh-session',
             'auth/validate-token',
-            // SessionController (no AuthController exists; routes resolve to /api/session/*)
-            'session',
+            // SessionController routes only. Keep the /api/ boundary so this
+            // exemption cannot also match protected /system/active-sessions.
+            '/api/session',
             'session/refresh',
             'session/validate-token',
             'users/login',
@@ -179,7 +181,8 @@ class AuthMiddleware
             self::deny(401, 'Missing Authorization header. Please ensure you are logged in and the token is being sent.');
         }
 
-        error_log('AuthMiddleware: Authorization header found: ' . substr($authHeader, 0, 20) . '...');
+        // Never log any part of an access token.
+        error_log('AuthMiddleware: Authorization header found');
         $token = str_replace('Bearer ', '', $authHeader);
         try {
             $decoded = JWT::decode(
@@ -187,8 +190,36 @@ class AuthMiddleware
                 new Key(JWT_SECRET, 'HS256')
             );
 
-            // Attach user info to $_SERVER for later use
-            $_SERVER['auth_user'] = self::normalizeDecodedUser((array) $decoded);
+            $authUser = self::normalizeDecodedUser((array) $decoded);
+            $userId = (int) (
+                $authUser['user_id'] ?? $authUser['id'] ?? 0
+            );
+
+            try {
+                $session = (new AuthSessionService())
+                    ->validateAccessToken($token, $userId);
+            } catch (\Throwable $error) {
+                error_log(
+                    'AuthMiddleware: Session validation failed: ' .
+                    $error->getMessage()
+                );
+                self::deny(
+                    503,
+                    'Session validation is temporarily unavailable'
+                );
+            }
+
+            if (!$session) {
+                self::deny(
+                    401,
+                    'This authenticated session is no longer active'
+                );
+            }
+
+            // Attach the verified user and canonical session ID for controller
+            // authorization and current-session protection.
+            $_SERVER['auth_user'] = $authUser;
+            $_SERVER['auth_session_id'] = (int) $session['id'];
 
         } catch (\Exception $e) {
             self::deny(401, 'Invalid or expired token: ' . $e->getMessage());

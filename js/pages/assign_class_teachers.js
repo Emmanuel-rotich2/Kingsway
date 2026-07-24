@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.teaching_assignments.view'); });
 /**
  * Assign Class Teachers Controller
  * Page: assign_class_teachers.php
@@ -389,7 +390,10 @@ const AssignClassTeachersController = {
       let csv = headers.join(',') + '\n' + 
         rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
       
-      KingswayFileLifecycle.exportText(csv, 'class_teacher_assignments.csv', 'text/csv');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = 'class_teacher_assignments.csv';
+      a.click();
     }
   },
 

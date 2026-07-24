@@ -5,6 +5,8 @@ use App\API\Modules\finance\FinanceAPI;
 use App\API\Modules\finance\PaymentReconciliationAPI;
 use App\API\Modules\finance\ExpenseManager;
 use App\API\Modules\finance\AllowanceTemplateAPI;
+use App\API\Services\StaffDomainAccessService;
+use RuntimeException;
 use Exception;
 use App\Database\Database;
 
@@ -21,17 +23,44 @@ class FinanceController extends BaseController
     private FinanceAPI $api;
     private ExpenseManager $expenseManager;
     private AllowanceTemplateAPI $allowanceTemplateApi;
+    private $staffAccess;
 
     public function __construct() {
         parent::__construct();
         $this->api = new FinanceAPI();
         $this->expenseManager = new ExpenseManager();
         $this->allowanceTemplateApi = new AllowanceTemplateAPI();
+        $this->staffAccess = new StaffDomainAccessService($this->user);
     }
 
     public function index()
     {
         return $this->success(['message' => 'Finance API is running']);
+    }
+
+    private function requirePayrollPermission(string $permission, array $roles = []): ?array
+    {
+        try {
+            $this->staffAccess->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
+        }
+    }
+
+    private function validatePayrollPayloadEligibility(array $payload): ?array
+    {
+        $staffIds = [];
+        if (!empty($payload['staff_id'])) $staffIds[] = (int)$payload['staff_id'];
+        foreach ((array)($payload['staff_ids'] ?? []) as $sid) $staffIds[] = (int)$sid;
+        foreach ((array)($payload['staff'] ?? $payload['records'] ?? $payload['payroll_items'] ?? []) as $row) {
+            if (is_array($row) && !empty($row['staff_id'])) $staffIds[] = (int)$row['staff_id'];
+        }
+        foreach (array_unique(array_filter($staffIds)) as $staffId) {
+            try { $this->staffAccess->assertPayrollEligible($staffId); }
+            catch (RuntimeException $e) { return $this->unprocessable($e->getMessage(), ['staff_id'=>$staffId]); }
+        }
+        return null;
     }
 
     /**
@@ -40,7 +69,8 @@ class FinanceController extends BaseController
      */
     private function requireApprovalAccess(string $action = 'perform this approval'): ?array
     {
-        if ($this->userHasAny(['finance_approve', 'payroll_approve', 'budget_approve',
+        if ($this->staffAccess->allows('staff.payroll.approve', ['director']) ||
+            $this->userHasAny(['finance_approve', 'payroll_approve', 'budget_approve',
                                'fee_structure_approve', 'expense_approve', 'finance.approve'],
                               [3], ['director'])) {
             return null;
@@ -246,6 +276,7 @@ class FinanceController extends BaseController
      */
     public function getPayrolls($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         return $this->getPayrollsList($id, $data, $segments);
     }
 
@@ -254,6 +285,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsList($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->listPayrolls($data);
         return $this->handleResponse($result);
     }
@@ -263,6 +295,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsGet($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         if ($id === null && isset($data['id'])) {
             $id = $data['id'];
         }
@@ -280,6 +313,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsStaffPayments($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         if ($id === null && isset($data['payroll_id'])) {
             $id = $data['payroll_id'];
         }
@@ -297,6 +331,9 @@ class FinanceController extends BaseController
      */
     public function postPayrollsCreateDraft($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $result = $this->api->createPayrollDraft($data);
         return $this->handleResponse($result);
     }
@@ -306,6 +343,9 @@ class FinanceController extends BaseController
      */
     public function postPayrollsCalculate($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $result = $this->api->calculatePayroll($data);
         return $this->handleResponse($result);
     }
@@ -315,6 +355,9 @@ class FinanceController extends BaseController
      */
     public function postPayrollsRecalculate($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $result = $this->api->recalculatePayroll($data);
         return $this->handleResponse($result);
     }
@@ -324,6 +367,9 @@ class FinanceController extends BaseController
      */
     public function postPayrollsVerify($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $result = $this->api->verifyPayroll($data);
         return $this->handleResponse($result);
     }
@@ -356,6 +402,7 @@ class FinanceController extends BaseController
      */
     public function postPayrollsProcess($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
         $result = $this->api->processPayroll($data);
         return $this->handleResponse($result);
     }
@@ -365,6 +412,7 @@ class FinanceController extends BaseController
      */
     public function postPayrollsDisburse($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
         $result = $this->api->disbursePayroll($data);
         return $this->handleResponse($result);
     }
@@ -374,6 +422,7 @@ class FinanceController extends BaseController
      */
     public function postPayrollsCancel($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
         if ($id === null && isset($data['payroll_id'])) {
             $id = $data['payroll_id'];
         }
@@ -391,6 +440,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsStatus($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         if ($id === null && isset($data['payroll_id'])) {
             $id = $data['payroll_id'];
         }
@@ -408,6 +458,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsStaffPaymentsGet($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getStaffPayments($data);
         return $this->handleResponse($result);
     }
@@ -417,6 +468,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsSummary($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getPayrollSummary($data);
         return $this->handleResponse($result);
     }
@@ -426,6 +478,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollsHistory($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getPayrollHistory($data);
         return $this->handleResponse($result);
     }
@@ -440,6 +493,7 @@ class FinanceController extends BaseController
      */
     public function getStaffForPayroll($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $result = $this->api->getStaffForPayroll();
         return $this->handleResponse($result);
     }
@@ -450,6 +504,7 @@ class FinanceController extends BaseController
      */
     public function getStaffPayrollDetails($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? $id ?? null;
 
         if (!$staffId) {
@@ -466,6 +521,7 @@ class FinanceController extends BaseController
      */
     public function getBulkPayrollPreview($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $month = $_GET['month'] ?? $data['month'] ?? date('n');
         $year = $_GET['year'] ?? $data['year'] ?? date('Y');
         $result = $this->api->getBulkPayrollPreview($month, $year);
@@ -478,6 +534,9 @@ class FinanceController extends BaseController
      */
     public function postProcessBulkPayroll($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $payload = $data ?: $this->getRequestData();
         $result = $this->api->processBulkPayroll($payload);
         return $this->handleResponse($result);
@@ -489,6 +548,7 @@ class FinanceController extends BaseController
      */
     public function postApprovePayroll($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.approve', ['director'])) return $denied;
         $payload = $data ?: $this->getRequestData();
         $payrollId = $payload['payroll_id'] ?? null;
         if (!$payrollId) {
@@ -505,6 +565,9 @@ class FinanceController extends BaseController
      */
     public function postProcessPayrollWithDeductions($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $eligibilityPayload = $data ?: $this->getRequestData();
+        if ($invalid = $this->validatePayrollPayloadEligibility($eligibilityPayload)) return $invalid;
         $result = $this->api->processPayrollWithDeductions($data);
         return $this->handleResponse($result);
     }
@@ -515,6 +578,7 @@ class FinanceController extends BaseController
      */
     public function getDetailedPayslip($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $payrollId = $_GET['payroll_id'] ?? $data['payroll_id'] ?? $id ?? null;
 
         if (!$payrollId) {
@@ -531,6 +595,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollStats($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $month = $_GET['month'] ?? $data['month'] ?? date('n');
         $year = $_GET['year'] ?? $data['year'] ?? date('Y');
 
@@ -544,6 +609,7 @@ class FinanceController extends BaseController
      */
     public function getPayrollList($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.manage', ['system administrator','school administrator','accountant','director'])) return $denied;
         $filters = array_merge($_GET, $data);
         $result = $this->api->getPayrollList($filters);
         return $this->handleResponse($result);
@@ -555,6 +621,7 @@ class FinanceController extends BaseController
      */
     public function postMarkPayrollPaid($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->requirePayrollPermission('staff.payroll.process', ['system administrator','accountant'])) return $denied;
         $payrollId = $data['payroll_id'] ?? $id ?? null;
 
         if (!$payrollId) {

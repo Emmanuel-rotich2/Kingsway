@@ -24,7 +24,10 @@ class UsersController extends BaseController
 
     public function index()
     {
-        return $this->success(['message' => 'Users API is running']);
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
+        return $this->handleResponse($this->api->list());
     }
 
 
@@ -33,11 +36,14 @@ class UsersController extends BaseController
     // ========================================
 
     /**
-     * GET /api/users - List all users
+     * GET /api/users/all - List all users
      * GET /api/users/{id} - Get single user
      */
     public function getUser($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
             return $this->handleResponse($result);
@@ -57,6 +63,9 @@ class UsersController extends BaseController
      */
     public function postUser($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if ($id !== null) {
             $data['id'] = $id;
         }
@@ -84,6 +93,9 @@ class UsersController extends BaseController
      */
     public function putUser($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if ($id === null) {
             return $this->badRequest('User ID is required for update');
         }
@@ -102,12 +114,36 @@ class UsersController extends BaseController
      */
     public function deleteUser($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if ($id === null) {
             return $this->badRequest('User ID is required for deletion');
         }
         
         $result = $this->api->delete($id);
         return $this->handleResponse($result);
+    }
+
+    /**
+     * User Accounts is a System Domain workflow. School staff records are
+     * provisioned through their own lifecycle services, not this controller.
+     */
+    private function ensureUserManagementAccess()
+    {
+        if (!$this->user) {
+            return $this->unauthorized('Authentication required');
+        }
+
+        if (
+            $this->userHasRole('System Administrator') ||
+            $this->userHasPermission('*') ||
+            $this->userHasPermission('system.users.manage')
+        ) {
+            return null;
+        }
+
+        return $this->forbidden('System Administrator access required');
     }
 
     // ========================================

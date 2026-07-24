@@ -4,6 +4,9 @@ namespace App\API\Controllers;
 
 use App\API\Modules\academic\AcademicAPI;
 use App\API\Services\DirectorAnalyticsService;
+use App\API\Services\StaffDomainAccessService;
+use App\API\Services\StaffTeachingAssignmentService;
+use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use Exception;
@@ -108,6 +111,8 @@ use Exception;
 
 class AcademicController extends BaseController
 {
+    private $staffAccess;
+    private $teachingAssignments;
     private $api;
     private $contextService;
     private $cohortProjectionService;
@@ -116,6 +121,8 @@ class AcademicController extends BaseController
     {
         parent::__construct();
         $this->api = new AcademicAPI();
+        $this->staffAccess = new StaffDomainAccessService($this->user);
+        $this->teachingAssignments = new StaffTeachingAssignmentService();
 
         // Initialize Academic Context Service
         require_once __DIR__ . '/../services/AcademicContextService.php';
@@ -328,16 +335,23 @@ class AcademicController extends BaseController
             return $this->error('Unsupported file type.');
         }
 
-        try {
-            $stored = $this->uploadManaged($f, 'teaching_material', [
-                'prefix' => 'resource',
-                'preferred_name' => $title,
-            ]);
-        } catch (\Throwable $exception) {
-            return $this->error($exception->getMessage());
+        // UPLOAD_PATH may be an absolute path or a relative one; normalize to
+        // absolute against the application base so mkdir is CWD-independent.
+        $base = defined('UPLOAD_PATH') ? UPLOAD_PATH : __DIR__ . '/../../uploads';
+        if (!preg_match('#^(/|\\\\|[A-Za-z]:\\\\)#', $base)) {
+            $base = dirname(__DIR__, 2) . '/' . $base;
         }
-        $safeName = $stored['storage_filename'];
-        $relPath = $stored['application_path'] ?? $stored['relative_path'];
+        $destDir = $base . '/teaching_materials';
+        if (!is_dir($destDir) && !@mkdir($destDir, 0775, true) && !is_dir($destDir)) {
+            return $this->error('Could not create upload directory: ' . $destDir);
+        }
+        $safeName = bin2hex(random_bytes(12)) . '.' . $ext;
+        $destPath = $destDir . '/' . $safeName;
+        if (!move_uploaded_file($f['tmp_name'], $destPath)) {
+            return $this->error('Failed to save uploaded file.');
+        }
+
+        $relPath = 'uploads/teaching_materials/' . $safeName;
         $db = \App\Database\Database::getInstance();
         $userId = $this->user['id'] ?? null;
 
@@ -377,9 +391,9 @@ class AcademicController extends BaseController
                 !empty($_POST['class']) ? (int) $_POST['class'] : null,
                 !empty($_POST['term']) ? (int) $_POST['term'] : null,
                 $relPath,
-                $stored['original_filename'],
-                $stored['mime_type'],
-                $stored['file_size_bytes'],
+                $f['name'],
+                $f['type'] ?: $ext,
+                $f['size'],
                 $resourceType,
             ]
         );
@@ -404,9 +418,10 @@ class AcademicController extends BaseController
         if (!$row || empty($row['file_path'])) {
             return $this->error('Resource not found.', 404);
         }
-        try {
-            $abs = $this->uploads()->absolutePath((string) $row['file_path']);
-        } catch (\Throwable $exception) {
+        $abs = (strpos($row['file_path'], '/') === 0)
+            ? $row['file_path']
+            : __DIR__ . '/../../' . $row['file_path'];
+        if (!is_file($abs)) {
             return $this->error('File is missing on the server.', 404);
         }
 
@@ -420,12 +435,11 @@ class AcademicController extends BaseController
             [$id]
         );
 
-        $this->streamManagedFile(
-            $abs,
-            (string) ($row['file_name'] ?: 'download'),
-            (string) ($row['file_type'] ?: 'application/octet-stream'),
-            'inline'
-        );
+        header('Content-Type: ' . ($row['file_type'] ?: 'application/octet-stream'));
+        header('Content-Disposition: inline; filename="' . basename($row['file_name'] ?: 'download') . '"');
+        header('Content-Length: ' . filesize($abs));
+        readfile($abs);
+        exit;
     }
 
 
@@ -4276,4 +4290,124 @@ class AcademicController extends BaseController
             return $this->serverError($e->getMessage());
         }
     }
+
+    // ========================================================================
+    // STAFF TEACHING ASSIGNMENTS — CHECKPOINT 2
+    // ========================================================================
+    private function guardTeachingAssignments(string $permission = 'staff.teaching_assignments.manage')
+    {
+        try {
+            $roles = $permission === 'staff.teaching_assignments.view'
+                ? ['system administrator','school administrator','director','headteacher','deputy head - academic','class teacher','subject teacher']
+                : ['system administrator','school administrator','headteacher','deputy head - academic'];
+            $this->staffAccess->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
+        }
+    }
+
+    /** GET /api/academic/class-teachers or /{id} */
+    public function getClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
+        try {
+            if ($id !== null) {
+                $row = $this->teachingAssignments->getClassTeacher((int)$id);
+                return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
+            }
+            return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
+        } catch (RuntimeException $e) {
+            return $this->unprocessable($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load class teacher assignments', $e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/class-teachers */
+    public function postClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        try {
+            $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
+            $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
+            return $this->created(['id'=>$newId], 'Class teacher assigned');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to assign class teacher', $e->getMessage());
+        }
+    }
+
+    /** PUT /api/academic/class-teachers/{id} */
+    public function putClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $before = $this->teachingAssignments->getClassTeacher((int)$id);
+            $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
+            $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
+            return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/academic/class-teachers/{id} */
+    public function deleteClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        $before = $this->teachingAssignments->getClassTeacher((int)$id);
+        $this->teachingAssignments->remove((int)$id);
+        $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
+        return $this->success(null, 'Class teacher assignment removed');
+    }
+
+    /** GET /api/academic/subject-assignments or /{id} */
+    public function getSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
+        try {
+            if ($id !== null) {
+                $row = $this->teachingAssignments->getSubjectAssignment((int)$id);
+                return $row ? $this->success($row) : $this->notFound('Subject assignment not found');
+            }
+            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, $data)));
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load subject assignments', $e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/subject-assignments */
+    public function postSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        try {
+            $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
+            $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
+            return $this->created(['id'=>$newId],'Subject assignment created');
+        } catch (RuntimeException $e) {
+            return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());
+        }
+    }
+
+    /** PUT /api/academic/subject-assignments/{id} */
+    public function putSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if(!$id)return $this->badRequest('Assignment ID is required');
+        try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
+        catch(RuntimeException $e){return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());}
+    }
+
+    /** DELETE /api/academic/subject-assignments/{id} */
+    public function deleteSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if(!$id)return $this->badRequest('Assignment ID is required');
+        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->remove((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
+    }
+
 }

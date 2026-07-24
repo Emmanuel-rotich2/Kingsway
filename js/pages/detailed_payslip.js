@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.payslip.self'); });
 /**
  * Detailed Payslip Page Controller
  * Shows comprehensive payslip with all deductions including staff children fees
