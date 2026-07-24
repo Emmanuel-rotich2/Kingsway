@@ -1,0 +1,103 @@
+/* ==========================================================================
+   Direct CR80 Student ID-card printing
+   ========================================================================== */
+
+@page {
+  size: 85.60mm 53.98mm;
+  margin: 0;
+}
+
+html,
+body,
+.id-print-body {
+  width: 85.60mm;
+  height: 53.98mm;
+
+  margin: 0;
+  padding: 0;
+
+  background: #ffffff;
+}
+
+.id-cr80-document {
+  width: 85.60mm;
+
+  margin: 0;
+  padding: 0;
+}
+
+.id-cr80-page {
+  position: relative;
+  display: block;
+
+  width: 85.60mm;
+  height: 53.98mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+
+  page-break-before: auto;
+  page-break-after: always;
+  page-break-inside: avoid;
+
+  break-before: auto;
+  break-after: page;
+  break-inside: avoid;
+}
+
+.id-cr80-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
+.id-cr80-page > .id-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  width: 85.20mm;
+  height: 53.58mm;
+  min-height: 53.58mm;
+  max-height: 53.58mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+}
+
+.id-cr80-page .id-front-layout,
+.id-cr80-page .id-back-layout,
+.id-cr80-page .id-front-layout tbody,
+.id-cr80-page .id-back-layout tbody,
+.id-cr80-page .id-front-layout tr,
+.id-cr80-page .id-back-layout tr,
+.id-cr80-page .id-front-layout td,
+.id-cr80-page .id-back-layout td {
+  page-break-before: auto;
+  page-break-after: auto;
+  page-break-inside: auto;
+
+  break-before: auto;
+  break-after: auto;
+  break-inside: auto;
+}
+
+@media print {
+  html,
+  body,
+  .id-print-body {
+    margin: 0 !important;
+    padding: 0 !important;
+
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .id-card {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

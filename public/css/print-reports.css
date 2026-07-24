@@ -45,18 +45,18 @@ body {
 }
 
 .server-print-header-logo-cell {
-    width: 25mm;
-    padding: 2.5mm 1mm;
+    width: 27mm;
+    padding: 1.5mm 1mm;
     text-align: center;
     vertical-align: middle;
 }
 
 .server-print-logo-frame {
-    width: 21mm;
-    height: 21mm;
+    width: 25mm;
+    height: 25mm;
     margin: 0 auto;
     padding: 1mm;
-    border: 0.6mm solid #d3ad24;
+    border: none;
     border-radius: 50%;
     background: #ffffff;
     text-align: center;
@@ -64,9 +64,9 @@ body {
 
 .server-print-logo {
     display: block;
-    width: 18.5mm;
-    height: 18.5mm;
-    margin: 0 auto;
+    width: 100%;
+    height: 100%;
+    margin: auto;
 }
 
 .server-print-logo-fallback {

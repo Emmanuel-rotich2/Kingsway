@@ -1,0 +1,191 @@
+/* ==========================================================================
+   A4 Student ID-card sheet layout
+   Loaded after student-id-card.css
+   ========================================================================== */
+
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+html,
+body {
+  width: 210mm;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+.id-print-body {
+  width: 210mm;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+/* ==========================================================================
+   A4 document and physical page
+   ========================================================================== */
+
+.id-a4-document {
+  width: 210mm;
+  margin: 0;
+  padding: 0;
+}
+
+.id-a4-page {
+  position: relative;
+
+  width: 210mm;
+  height: 297mm;
+  min-height: 297mm;
+  max-height: 297mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+
+  page-break-before: auto;
+  page-break-after: always;
+  page-break-inside: avoid;
+
+  break-before: auto;
+  break-after: page;
+  break-inside: avoid;
+}
+
+.id-a4-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+
+/* ==========================================================================
+   Printable sheet area
+   ========================================================================== */
+
+.id-a4-sheet {
+  position: absolute;
+
+  /*
+   * 18.4 + 173.2 + 18.4 = 210mm
+   */
+  top: 8mm;
+  left: 18.4mm;
+
+  width: 173.2mm;
+  height: 248mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: visible;
+}
+
+/* ==========================================================================
+   Card rows
+   ========================================================================== */
+
+.id-a4-card-row {
+  position: relative;
+
+  width: 173.2mm;
+  height: 60mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: visible;
+
+  page-break-before: auto;
+  page-break-after: auto;
+  page-break-inside: avoid;
+
+  break-before: auto;
+  break-after: auto;
+  break-inside: avoid;
+}
+
+/*
+ * Cards are placed explicitly rather than allowing Dompdf to calculate
+ * table-column widths.
+ */
+.id-a4-card-position {
+  position: absolute;
+  top: 0;
+
+  width: 85.6mm;
+  height: 53.98mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: visible;
+}
+
+.id-a4-card-left {
+  left: 0;
+}
+
+.id-a4-card-right {
+  /*
+   * 85.6mm card + 2mm gap
+   */
+  left: 87.6mm;
+}
+
+/* ==========================================================================
+   Card sizing inside A4 slots
+   ========================================================================== */
+
+.id-a4-card-position > .id-card {
+  position: relative;
+
+  width: 85.6mm;
+  height: 53.98mm;
+  min-width: 85.6mm;
+  max-width: 85.6mm;
+  min-height: 53.98mm;
+  max-height: 53.98mm;
+
+  margin: 0;
+  padding: 0;
+
+  overflow: hidden;
+}
+
+/* ==========================================================================
+   Dompdf pagination protection
+   ========================================================================== */
+
+.id-a4-page,
+.id-a4-sheet,
+.id-a4-card-row,
+.id-a4-card-position,
+.id-a4-card-position > .id-card {
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+/* ==========================================================================
+   Browser print handling
+   ========================================================================== */
+
+@media print {
+  html,
+  body,
+  .id-print-body {
+    margin: 0 !important;
+    padding: 0 !important;
+
+    background: #ffffff !important;
+
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .id-card {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

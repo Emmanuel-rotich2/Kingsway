@@ -249,14 +249,32 @@ class StudentIDCardGenerator extends BaseAPI
             $statement = $this->db->prepare(
                 "SELECT
                     s.*,
+                    ce.academic_year_id,
+                    ce.class_id AS enrollment_class_id,
+                    ce.stream_id AS enrollment_stream_id,
                     c.name AS class_name,
                     cs.stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
+                 LEFT JOIN class_enrollments ce
+                    ON ce.id = (
+                        SELECT ce_current.id
+                        FROM class_enrollments ce_current
+                        INNER JOIN academic_years ay_current
+                            ON ay_current.id = ce_current.academic_year_id
+                        WHERE ce_current.student_id = s.id
+                          AND ce_current.enrollment_status = 'active'
+                        ORDER BY ay_current.is_current DESC,
+                                 ay_current.start_date DESC,
+                                 ce_current.id DESC
+                        LIMIT 1
+                    )
+                 LEFT JOIN class_streams cs
+                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN classes c
+                    ON c.id = COALESCE(ce.class_id, cs.class_id)
                  LEFT JOIN academic_years ay
-                    ON ay.id = s.academic_year_id
+                    ON ay.id = ce.academic_year_id
                  WHERE s.id IN ({$placeholders})
                    AND s.status = 'active'
                  ORDER BY c.level_id, c.name, cs.stream_name,
@@ -292,6 +310,24 @@ class StudentIDCardGenerator extends BaseAPI
                     ?? $student['qr_code_url']
                     ?? ''
                 );
+
+                if (trim($student['qr_code_url']) === '') {
+                    $qrResponse = $this->generateEnhancedQRCode(
+                        (int) $student['id']
+                    );
+
+                    if (($qrResponse['status'] ?? '') === 'success') {
+                        $generatedQrPath = (string) (
+                            $qrResponse['data']['qr_code_path']
+                            ?? ''
+                        );
+
+                        if ($generatedQrPath !== '') {
+                            $student['qr_code_path'] = $generatedQrPath;
+                            $student['qr_code_url'] = $generatedQrPath;
+                        }
+                    }
+                }
             }
             unset($student);
 
@@ -385,14 +421,32 @@ class StudentIDCardGenerator extends BaseAPI
             $statement = $this->db->prepare(
                 "SELECT
                     s.*,
+                    ce.academic_year_id,
+                    ce.class_id AS enrollment_class_id,
+                    ce.stream_id AS enrollment_stream_id,
                     c.name AS class_name,
                     cs.stream_name,
                     ay.year_name AS academic_year
                  FROM students s
-                 LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                 LEFT JOIN classes c ON c.id = cs.class_id
+                 LEFT JOIN class_enrollments ce
+                    ON ce.id = (
+                        SELECT ce_current.id
+                        FROM class_enrollments ce_current
+                        INNER JOIN academic_years ay_current
+                            ON ay_current.id = ce_current.academic_year_id
+                        WHERE ce_current.student_id = s.id
+                          AND ce_current.enrollment_status = 'active'
+                        ORDER BY ay_current.is_current DESC,
+                                 ay_current.start_date DESC,
+                                 ce_current.id DESC
+                        LIMIT 1
+                    )
+                 LEFT JOIN class_streams cs
+                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN classes c
+                    ON c.id = COALESCE(ce.class_id, cs.class_id)
                  LEFT JOIN academic_years ay
-                    ON ay.id = s.academic_year_id
+                    ON ay.id = ce.academic_year_id
                  WHERE s.id = ?
                  LIMIT 1"
             );
@@ -425,6 +479,24 @@ class StudentIDCardGenerator extends BaseAPI
                 ?? $student['qr_code_url']
                 ?? ''
             );
+
+            if (trim($student['qr_code_url']) === '') {
+                $qrResponse = $this->generateEnhancedQRCode(
+                    (int) $student['id']
+                );
+
+                if (($qrResponse['status'] ?? '') === 'success') {
+                    $generatedQrPath = (string) (
+                        $qrResponse['data']['qr_code_path']
+                        ?? ''
+                    );
+
+                    if ($generatedQrPath !== '') {
+                        $student['qr_code_path'] = $generatedQrPath;
+                        $student['qr_code_url'] = $generatedQrPath;
+                    }
+                }
+            }
 
             $printerMode = in_array(
                 strtolower((string) $printMode),

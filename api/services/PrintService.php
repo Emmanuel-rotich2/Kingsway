@@ -20,6 +20,8 @@ use Throwable;
  *
  * - public/css/print-reports.css
  * - public/css/student-id-card.css
+ * - public/css/student-id-card-a4.css
+ * - public/css/student-id-card-cr80.css
  * - templates/print/server/report_header.php
  * - templates/print/server/report_footer.php
  * - templates/certificates/academic_excellence.php
@@ -37,7 +39,9 @@ final class PrintService
     private string $certificatesPath;
     private string $printCssPath;
     private string $idCardTemplatesPath;
-    private string $idCardCssPath;
+    private string $idCardSharedCssPath;
+    private string $idCardA4CssPath;
+    private string $idCardCr80CssPath;
     private string $outputPath;
 
     /** @var array<string, mixed> */
@@ -92,14 +96,22 @@ final class PrintService
             . DIRECTORY_SEPARATOR
             . 'print-reports.css';
 
-        $this->idCardCssPath =
+        $idCardCssDirectory =
             $projectRoot
             . DIRECTORY_SEPARATOR
             . 'public'
             . DIRECTORY_SEPARATOR
             . 'css'
-            . DIRECTORY_SEPARATOR
-            . 'student-id-card.css';
+            . DIRECTORY_SEPARATOR;
+
+        $this->idCardSharedCssPath =
+            $idCardCssDirectory . 'student-id-card.css';
+
+        $this->idCardA4CssPath =
+            $idCardCssDirectory . 'student-id-card-a4.css';
+
+        $this->idCardCr80CssPath =
+            $idCardCssDirectory . 'student-id-card-cr80.css';
 
         $this->outputPath =
             rtrim((string) PRINT_OUTPUT_PATH, DIRECTORY_SEPARATOR)
@@ -317,7 +329,7 @@ final class PrintService
      *
      * printerMode:
      * - direct_card: CR80 printer, one side per 85.60 x 53.98 mm page.
-     * - a4_pdf: browser/PDF printing, three back/front pairs per A4 page.
+     * - a4_pdf: browser/PDF printing, four back/front pairs per A4 page.
      *
      * The service deliberately does not attempt to detect a physical printer.
      * Browsers do not reliably expose printer hardware. The controller must
@@ -425,7 +437,7 @@ final class PrintService
         }
 
         $totalCards = count($normalizedCards);
-        $cardsPerA4Page = $side === 'both' ? 3 : 6;
+        $cardsPerA4Page = $side === 'both' ? 4 : 8;
 
         $estimatedPages = $printerMode === 'direct_card'
             ? $totalCards * ($side === 'both' ? 2 : 1)
@@ -668,11 +680,7 @@ final class PrintService
             ]
         );
 
-        $css = $this->loadStudentIdCardStyles();
-
-        $pageCss = $printerMode === 'direct_card'
-            ? '@page { size: 85.60mm 53.98mm; margin: 0; }'
-            : '@page { size: A4 portrait; margin: 10mm; }';
+        $css = $this->loadStudentIdCardStyles($printerMode);
 
         $html = '<!DOCTYPE html>
 <html lang="en">
@@ -681,7 +689,6 @@ final class PrintService
     <title>Student ID Cards</title>
     <style>
         ' . $css . '
-        ' . $pageCss . '
     </style>
 </head>
 <body class="id-print-body id-print-' . $this->escape($printerMode) . '">
@@ -846,11 +853,50 @@ final class PrintService
         return date('d M Y', $timestamp);
     }
 
-    private function loadStudentIdCardStyles(): string
-    {
+    private function loadStudentIdCardStyles(
+        string $printerMode
+    ): string {
+        if (!in_array(
+            $printerMode,
+            ['direct_card', 'a4_pdf'],
+            true
+        )) {
+            throw new InvalidArgumentException(
+                'Invalid student ID-card printer mode.'
+            );
+        }
+
+        $layoutFilename = $printerMode === 'direct_card'
+            ? 'student-id-card-cr80.css'
+            : 'student-id-card-a4.css';
+
+        $layoutConfiguredPath = $printerMode === 'direct_card'
+            ? $this->idCardCr80CssPath
+            : $this->idCardA4CssPath;
+
+        $sharedCss = $this->loadRequiredStylesheet(
+            'student-id-card.css',
+            $this->idCardSharedCssPath
+        );
+
+        $layoutCss = $this->loadRequiredStylesheet(
+            $layoutFilename,
+            $layoutConfiguredPath
+        );
+
+        return $sharedCss
+            . PHP_EOL
+            . PHP_EOL
+            . $layoutCss;
+    }
+
+    private function loadRequiredStylesheet(
+        string $filename,
+        string $configuredPath
+    ): string {
         $possiblePaths = array_filter(
             [
-                $this->idCardCssPath,
+                $configuredPath,
                 defined('PUBLIC_PATH')
                     ? rtrim(
                         (string) PUBLIC_PATH,
@@ -859,7 +905,7 @@ final class PrintService
                         . DIRECTORY_SEPARATOR
                         . 'css'
                         . DIRECTORY_SEPARATOR
-                        . 'student-id-card.css'
+                        . $filename
                     : null,
                 isset($_SERVER['DOCUMENT_ROOT'])
                     ? rtrim(
@@ -869,24 +915,41 @@ final class PrintService
                         . DIRECTORY_SEPARATOR
                         . 'css'
                         . DIRECTORY_SEPARATOR
-                        . 'student-id-card.css'
+                        . $filename
+                    : null,
+                isset($_SERVER['DOCUMENT_ROOT'])
+                    ? rtrim(
+                        (string) $_SERVER['DOCUMENT_ROOT'],
+                        DIRECTORY_SEPARATOR
+                    )
+                        . DIRECTORY_SEPARATOR
+                        . 'Kingsway'
+                        . DIRECTORY_SEPARATOR
+                        . 'public'
+                        . DIRECTORY_SEPARATOR
+                        . 'css'
+                        . DIRECTORY_SEPARATOR
+                        . $filename
                     : null,
             ]
         );
 
-        foreach ($possiblePaths as $path) {
-            if (is_file($path) && is_readable($path)) {
-                $css = file_get_contents($path);
+        foreach (array_unique($possiblePaths) as $path) {
+            if (!is_file($path) || !is_readable($path)) {
+                continue;
+            }
 
-                if ($css !== false && trim($css) !== '') {
-                    return $css;
-                }
+            $css = file_get_contents($path);
+
+            if ($css !== false && trim($css) !== '') {
+                return $css;
             }
         }
 
         throw new RuntimeException(
             'The student ID stylesheet could not be loaded. '
-            . 'Expected: public/css/student-id-card.css'
+            . 'Expected: public/css/'
+            . $filename
         );
     }
 
@@ -1591,8 +1654,14 @@ final class PrintService
             return '';
         }
 
-        if (str_starts_with($asset, 'data:') || str_starts_with($asset, 'file://')) {
+        if (str_starts_with($asset, 'data:')) {
             return $asset;
+        }
+
+        if (str_starts_with($asset, 'file://')) {
+            $localPath = substr($asset, 7);
+
+            return $this->localAssetDataUri($localPath);
         }
 
         $projectRoot = $this->resolveProjectRoot();
@@ -1603,43 +1672,119 @@ final class PrintService
             $pathPart = is_string($parsedPath) ? $parsedPath : '';
         }
 
-        $relative = ltrim(
-            str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $pathPart),
-            DIRECTORY_SEPARATOR
+        $normalizedPath = str_replace('\\', '/', trim($pathPart));
+        $relative = ltrim($normalizedPath, '/');
+
+        /*
+         * Database and configuration values may contain the application base,
+         * Resolve from canonical public roots.
+         */
+        $publicMarkers = ['uploads/', 'images/', 'public/'];
+        $relativeCandidates = [$relative];
+
+        foreach ($publicMarkers as $marker) {
+            $position = stripos($relative, $marker);
+
+            if ($position !== false) {
+                $relativeCandidates[] = substr($relative, $position);
+            }
+        }
+
+        $relativeCandidates = array_values(
+            array_unique(
+                array_filter(
+                    $relativeCandidates,
+                    static fn (string $value): bool => $value !== ''
+                )
+            )
         );
 
         $candidates = [];
 
-        if (defined('UPLOAD_PATH')) {
-            $uploadRoot = rtrim((string) UPLOAD_PATH, DIRECTORY_SEPARATOR);
-            $uploadRelative = preg_replace(
-                '#^uploads[\\\\/]#i',
-                '',
-                $relative
-            ) ?? $relative;
-            $candidates[] = $uploadRoot . DIRECTORY_SEPARATOR . $uploadRelative;
+        foreach ($relativeCandidates as $candidateRelative) {
+            $filesystemRelative = str_replace(
+                '/',
+                DIRECTORY_SEPARATOR,
+                $candidateRelative
+            );
+
+            if (defined('UPLOAD_PATH')) {
+                $uploadRoot = rtrim(
+                    (string) UPLOAD_PATH,
+                    DIRECTORY_SEPARATOR
+                );
+                $uploadRelative = preg_replace(
+                    '#^uploads[\\/]#i',
+                    '',
+                    $filesystemRelative
+                ) ?? $filesystemRelative;
+                $candidates[] = $uploadRoot
+                    . DIRECTORY_SEPARATOR
+                    . $uploadRelative;
+            }
+
+            $candidates[] = $projectRoot
+                . DIRECTORY_SEPARATOR
+                . $filesystemRelative;
+
+            $candidates[] = $projectRoot
+                . DIRECTORY_SEPARATOR
+                . 'public'
+                . DIRECTORY_SEPARATOR
+                . $filesystemRelative;
         }
 
-        $candidates[] = $projectRoot . DIRECTORY_SEPARATOR . $relative;
-        $candidates[] = $projectRoot
-            . DIRECTORY_SEPARATOR
-            . 'public'
-            . DIRECTORY_SEPARATOR
-            . $relative;
-
-        foreach ($candidates as $candidate) {
+        foreach (array_unique($candidates) as $candidate) {
             if (is_file($candidate) && is_readable($candidate)) {
-                $realPath = realpath($candidate);
-                return 'file://' . ($realPath !== false ? $realPath : $candidate);
+                return $this->localAssetDataUri($candidate);
             }
         }
 
-        // Keep genuinely remote assets as a final Dompdf fallback.
+        /*
+         * A remote URL is retained only as a last resort. Local Kingsway URLs
+         * should have resolved above, avoiding Dompdf remote-access and TLS
+         * restrictions.
+         */
         if (preg_match('#^https?://#i', $asset) === 1) {
             return $asset;
         }
 
         return '';
+    }
+
+    private function localAssetDataUri(string $path): string
+    {
+        $path = trim($path);
+
+        if ($path === '' || !is_file($path) || !is_readable($path)) {
+            return '';
+        }
+
+        $contents = file_get_contents($path);
+
+        if ($contents === false) {
+            return '';
+        }
+
+        $mimeType = function_exists('mime_content_type')
+            ? mime_content_type($path)
+            : false;
+
+        if (!is_string($mimeType) || $mimeType === '') {
+            $extension = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
+            $mimeType = match ($extension) {
+                'jpg', 'jpeg' => 'image/jpeg',
+                'gif' => 'image/gif',
+                'svg' => 'image/svg+xml',
+                'webp' => 'image/webp',
+                default => 'image/png',
+            };
+        }
+
+        return 'data:'
+            . $mimeType
+            . ';base64,'
+            . base64_encode($contents);
     }
 
     private function ensureDirectory(string $path): void
