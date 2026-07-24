@@ -73,7 +73,7 @@ class SystemAPI extends BaseAPI
         $logDir = __DIR__ . '/../../../logs/';
         $logs = [];
         foreach (glob($logDir . '*.log') as $file) {
-            $logs[basename($file)] = file_get_contents($file);
+            $logs[basename($file)] = $this->readManagedFile($file);
         }
         return ['success' => true, 'data' => $logs];
     }
@@ -83,7 +83,7 @@ class SystemAPI extends BaseAPI
     {
         $logDir = __DIR__ . '/../../../logs/';
         foreach (glob($logDir . '*.log') as $file) {
-            file_put_contents($file, '');
+            $this->writeManagedFile($file, '');
         }
         return ['success' => true, 'message' => 'All logs cleared'];
     }
@@ -93,12 +93,10 @@ class SystemAPI extends BaseAPI
     {
         $logDir = __DIR__ . '/../../../logs/';
         $archiveDir = $logDir . 'archive/';
-        if (!is_dir($archiveDir)) {
-            mkdir($archiveDir, 0777, true);
-        }
+        $this->ensureManagedDirectory($archiveDir);
         foreach (glob($logDir . '*.log') as $file) {
             $newName = $archiveDir . basename($file, '.log') . '_' . date('Ymd_His') . '.log';
-            rename($file, $newName);
+            $this->moveManagedFile($file, $newName);
         }
         return ['success' => true, 'message' => 'All logs archived'];
     }

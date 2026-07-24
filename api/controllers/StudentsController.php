@@ -8,6 +8,9 @@ use App\API\Modules\students\StudentsAPI;
 use App\API\Modules\students\StudentService;
 use App\API\Modules\system\MediaManager;
 use App\API\Modules\students\FamilyGroupsManager;
+use App\API\Modules\students\PromotionManager;
+use App\API\Modules\students\StudentInsightsService;
+use App\API\Modules\academic\AcademicYearManager;
 use Exception;
 
 /**
@@ -19,6 +22,9 @@ class StudentsController extends BaseController
     private MediaManager $mediaManager;
     private StudentsAPI $api;
     private StudentService $studentService;
+    private FamilyGroupsManager $familyGroupsManager;
+    private PromotionManager $promotionManager;
+    private StudentInsightsService $studentInsightsService;
     private const STUDENT_VIEW_PERMS = [
         'students_view',
         'students_view_all',
@@ -115,6 +121,9 @@ class StudentsController extends BaseController
         $connection = $this->db->getConnection();
         $this->mediaManager = new MediaManager($connection);
         $this->studentService = new StudentService($connection);
+        $this->familyGroupsManager = new FamilyGroupsManager();
+        $this->promotionManager = new PromotionManager($connection, new AcademicYearManager($connection));
+        $this->studentInsightsService = new StudentInsightsService($connection, $this->studentService);
         $this->api = new StudentsAPI();
     }
 
@@ -593,6 +602,50 @@ class StudentsController extends BaseController
         return $this->success($result, 'Card marked as lost');
     }
 
+
+    /**
+     * POST /api/students/id-cards/print
+     * Canonical single and bulk student ID-card PDF endpoint.
+     */
+    public function postIdCardsPrint(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
+        if ($auth = $this->authorizeStudents(
+            self::STUDENT_ID_CARD_GENERATE_PERMS,
+            'Insufficient permission to print student ID cards'
+        )) {
+            return $auth;
+        }
+
+        $studentIds = $data['student_ids'] ?? [];
+
+        if (!is_array($studentIds) || $studentIds === []) {
+            return $this->badRequest(
+                'Select at least one student before printing.'
+            );
+        }
+
+        $printerMode = $data['printer_mode'] ?? 'a4_pdf';
+        $side = strtolower((string) ($data['side'] ?? 'both'));
+
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            return $this->badRequest(
+                'Card side must be front, back or both.'
+            );
+        }
+
+        $result = $this->api->generateBulkIDCardsPDF(
+            $studentIds,
+            $printerMode,
+            $side !== 'back',
+            $side !== 'front'
+        );
+
+        return $this->handleResponse($result);
+    }
+
     /**
      * POST /api/students/id-card/generate
      * Enhanced to generate unique card numbers (KPA-ID-YYYY-000001 format), QR tokens, expiry years
@@ -706,7 +759,7 @@ class StudentsController extends BaseController
 
         $side = $data['side'] ?? 'both';
         $printMode = $data['print_mode'] ?? 'direct_card';
-        $format = $data['format'] ?? 'html';
+        $format = 'pdf';
 
         $result = $this->api->generatePrintableSingle((int) $studentId, $side, $printMode, $format);
         return $this->handleResponse($result);
@@ -1358,7 +1411,7 @@ class StudentsController extends BaseController
         $parentId = $data['parent_id'] ?? null;
         if ($parentId !== null) {
             return $this->handleResponse(
-                (new FamilyGroupsManager())->getParentDetails((int) $parentId)
+                $this->familyGroupsManager->getParentDetails((int) $parentId)
             );
         }
 
@@ -1382,7 +1435,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->getParents($data)
+            $this->familyGroupsManager->getParents($data)
         );
     }
 
@@ -1400,7 +1453,7 @@ class StudentsController extends BaseController
             return $this->badRequest('Parent ID is required');
         }
 
-        $result = (new FamilyGroupsManager())->getParentDetails((int) $parentId);
+        $result = $this->familyGroupsManager->getParentDetails((int) $parentId);
         if (is_array($result) && ($result['success'] ?? false)) {
             $result['data'] = $result['data']['children'] ?? [];
         }
@@ -1431,7 +1484,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->createParent($data)
+            $this->familyGroupsManager->createParent($data)
         );
     }
 
@@ -1450,7 +1503,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->updateParent((int) $parentId, $data)
+            $this->familyGroupsManager->updateParent((int) $parentId, $data)
         );
     }
 
@@ -1501,7 +1554,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->deleteParent((int) $parentId)
+            $this->familyGroupsManager->deleteParent((int) $parentId)
         );
     }
 
@@ -1525,7 +1578,7 @@ class StudentsController extends BaseController
         unset($linkData['parent_id'], $linkData['student_id']);
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->linkParentToStudent((int) $parentId, (int) $studentId, $linkData)
+            $this->familyGroupsManager->linkParentToStudent((int) $parentId, (int) $studentId, $linkData)
         );
     }
 
@@ -1546,7 +1599,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->unlinkParentFromStudent((int) $parentId, (int) $studentId)
+            $this->familyGroupsManager->unlinkParentFromStudent((int) $parentId, (int) $studentId)
         );
     }
 
@@ -1561,7 +1614,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->getAvailableStudentsForParent((int) $parentId)
+            $this->familyGroupsManager->getAvailableStudentsForParent((int) $parentId)
         );
     }
 
@@ -1575,7 +1628,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->getStudentsWithoutParents()
+            $this->familyGroupsManager->getStudentsWithoutParents()
         );
     }
 
@@ -1706,18 +1759,12 @@ class StudentsController extends BaseController
             return $this->success([], 'No linked student profiles found for the current user');
         }
 
-        $placeholders = implode(',', array_fill(0, count($parentIds), '?'));
-        $stmt = $this->db->query(
-            "SELECT DISTINCT sp.student_id
-             FROM student_parents sp
-             JOIN students s ON s.id = sp.student_id
-             WHERE sp.parent_id IN ({$placeholders})
-               AND s.status = 'active'
-             ORDER BY sp.student_id ASC",
-            $parentIds
-        );
+        $children = $this->familyGroupsManager->getChildrenForParentIds($parentIds);
+        if (empty($children['success'])) {
+            return $this->badRequest($children['message'] ?? 'Failed to load linked student profiles');
+        }
 
-        $studentIds = array_map('intval', array_column($stmt->fetchAll(\PDO::FETCH_ASSOC), 'student_id'));
+        $studentIds = $children['data'] ?? [];
         if (empty($studentIds)) {
             return $this->success([], 'No linked student profiles found for the current user');
         }
@@ -1857,7 +1904,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->getParentDetails((int) $id)
+            $this->familyGroupsManager->getParentDetails((int) $id)
         );
     }
 
@@ -1872,7 +1919,7 @@ class StudentsController extends BaseController
         }
 
         return $this->handleResponse(
-            (new FamilyGroupsManager())->updateParent((int) $id, $data)
+            $this->familyGroupsManager->updateParent((int) $id, $data)
         );
     }
 
@@ -2134,52 +2181,7 @@ class StudentsController extends BaseController
     public function getSpecialNeeds($id = null, $data = [], $segments = [])
     {
         try {
-            $page   = max(1, (int) ($_GET['page']  ?? $data['page']  ?? 1));
-            $limit  = max(1, min(200, (int) ($_GET['limit'] ?? $data['limit'] ?? 20)));
-            $offset = ($page - 1) * $limit;
-            $search = trim($_GET['search'] ?? $data['search'] ?? '');
-
-            $where  = ["(hr.disability_notes IS NOT NULL AND hr.disability_notes != ''
-                         OR hr.chronic_conditions IS NOT NULL AND hr.chronic_conditions != ''
-                         OR hr.allergies IS NOT NULL AND hr.allergies != '')"];
-            $params = [];
-
-            if ($search !== '') {
-                $like = '%' . $search . '%';
-                $where[] = "(s.first_name LIKE ? OR s.last_name LIKE ? OR s.admission_no LIKE ?)";
-                $params  = array_merge($params, [$like, $like, $like]);
-            }
-
-            $whereClause = implode(' AND ', $where);
-
-            $sql = "SELECT
-                        s.id, s.admission_no,
-                        CONCAT(s.first_name, ' ', COALESCE(s.middle_name,''), ' ', s.last_name) AS full_name,
-                        s.first_name, s.last_name, s.gender, s.date_of_birth, s.status,
-                        st.name AS stream_name,
-                        hr.disability_notes, hr.chronic_conditions, hr.allergies,
-                        hr.special_diet, hr.blood_group, hr.notes AS health_notes
-                    FROM students s
-                    LEFT JOIN streams st ON st.id = s.stream_id
-                    LEFT JOIN student_health_records hr ON hr.student_id = s.id
-                    WHERE s.status = 'active' AND $whereClause
-                    ORDER BY s.first_name, s.last_name
-                    LIMIT ? OFFSET ?";
-
-            $rows = $this->db->query($sql, array_merge($params, [$limit, $offset]))->fetchAll();
-
-            $countSql = "SELECT COUNT(*) FROM students s
-                         LEFT JOIN student_health_records hr ON hr.student_id = s.id
-                         WHERE s.status = 'active' AND $whereClause";
-            $total = (int) $this->db->query($countSql, $params)->fetchColumn();
-
-            return $this->success([
-                'data'        => $rows,
-                'total'       => $total,
-                'page'        => $page,
-                'per_page'    => $limit,
-                'total_pages' => (int) ceil($total / $limit),
-            ]);
+            return $this->success($this->studentInsightsService->listHealthSpecialNeeds(array_merge($_GET, $data)));
         } catch (\Exception $e) {
             return $this->error('Failed to fetch special needs records: ' . $e->getMessage());
         }
@@ -2201,35 +2203,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            // Classes
-            $classesStmt = $db->query("SELECT id, name FROM classes ORDER BY name ASC");
-            $classes = $classesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Streams
-            $streamsStmt = $db->query("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC");
-            $streams = $streamsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Academic Years
-            $yearsStmt = $db->query("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC");
-            $years = $yearsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Terms
-            $termsStmt = $db->query("SELECT id, academic_year_id, name, term_number, status FROM academic_terms ORDER BY term_number ASC");
-            $terms = $termsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Assessments
-            $assessmentsStmt = $db->query("SELECT DISTINCT title AS name, id FROM assessments ORDER BY title ASC");
-            $assessments = $assessmentsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'classes' => $classes,
-                'streams' => $streams,
-                'academic_years' => $years,
-                'terms' => $terms,
-                'assessments' => $assessments
-            ]);
+            return $this->success($this->studentInsightsService->getPerformanceMeta());
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load metadata: ' . $e->getMessage());
         }
@@ -2249,298 +2223,13 @@ class StudentsController extends BaseController
         if (!$contextRes['allowed']) {
             return $this->forbidden($contextRes['message'] ?? 'Forbidden');
         }
-        $context = $contextRes['context'];
-
-        $scope = $this->studentService->scopeService->buildScope($context, $this->user);
-        [$scopeConditions, $scopeBindings] = $this->studentService->scopeService->whereClause($scope);
-
-        $viewMode = strtolower((string) ($_GET['view_mode'] ?? $data['view_mode'] ?? 'students'));
-        $classId = !empty($_GET['class_id']) ? (int)$_GET['class_id'] : (!empty($data['class_id']) ? (int)$data['class_id'] : null);
-        $streamId = !empty($_GET['stream_id']) ? (int)$_GET['stream_id'] : (!empty($data['stream_id']) ? (int)$data['stream_id'] : null);
-        $gender = !empty($_GET['gender']) ? $_GET['gender'] : (!empty($data['gender']) ? $data['gender'] : null);
-        $academicYearVal = !empty($_GET['academic_year']) ? $_GET['academic_year'] : (!empty($data['academic_year']) ? $data['academic_year'] : null);
-        $termId = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : (!empty($data['term_id']) ? (int)$data['term_id'] : null);
-        $search = !empty($_GET['search']) ? trim((string)$_GET['search']) : (!empty($data['search']) ? trim((string)$data['search']) : '');
 
         try {
-            $db = $this->db->getConnection();
-
-            // Resolve Academic Year ID and Year Code
-            $yearId = null;
-            $yearCode = null;
-            if ($academicYearVal !== null) {
-                if (is_numeric($academicYearVal)) {
-                    if ((int)$academicYearVal > 2000 && (int)$academicYearVal < 2100) {
-                        $yearCode = (string)$academicYearVal;
-                        $stmt = $db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
-                        $stmt->execute([$yearCode]);
-                        $yearId = $stmt->fetchColumn() ?: null;
-                    } else {
-                        $yearId = (int)$academicYearVal;
-                        $stmt = $db->prepare("SELECT year_code FROM academic_years WHERE id = ? LIMIT 1");
-                        $stmt->execute([$yearId]);
-                        $yearCode = $stmt->fetchColumn() ?: null;
-                    }
-                } else {
-                    $yearCode = (string)$academicYearVal;
-                    $stmt = $db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
-                    $stmt->execute([$yearCode]);
-                    $yearId = $stmt->fetchColumn() ?: null;
-                }
-            } else {
-                $stmt = $db->query("SELECT id, year_code FROM academic_years WHERE is_current = 1 OR status = 'active' ORDER BY is_current DESC, id DESC LIMIT 1");
-                $res = $stmt->fetch(\PDO::FETCH_ASSOC);
-                if ($res) {
-                    $yearId = (int)$res['id'];
-                    $yearCode = $res['year_code'];
-                }
-            }
-
-            $conditions = ["s.status = 'active'"];
-            $bindings = [];
-
-            if ($classId !== null) {
-                $conditions[] = "cs.class_id = ?";
-                $bindings[] = $classId;
-            }
-            if ($streamId !== null) {
-                $conditions[] = "s.stream_id = ?";
-                $bindings[] = $streamId;
-            }
-            if ($gender !== null) {
-                $conditions[] = "s.gender = ?";
-                $bindings[] = $gender;
-            }
-            if ($search !== '') {
-                $conditions[] = "(s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) LIKE ?)";
-                $term = '%' . $search . '%';
-                array_push($bindings, $term, $term, $term, $term);
-            }
-
-            if (!empty($scopeConditions)) {
-                foreach ($scopeConditions as $scCond) {
-                    $conditions[] = $scCond;
-                }
-                $bindings = array_merge($bindings, $scopeBindings);
-            }
-
-            $whereClause = 'WHERE ' . implode(' AND ', $conditions);
-
-            $sql = "
-                SELECT
-                    s.id AS student_id,
-                    s.admission_no AS admission_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                    c.name AS class_name,
-                    cs.stream_name AS stream_name,
-                    s.gender AS gender,
-
-                    COALESCE(
-                        (
-                            SELECT ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2)
-                            FROM assessment_results ar
-                            JOIN assessments a ON a.id = ar.assessment_id
-                            WHERE ar.student_id = s.id
-                              AND (? IS NULL OR a.term_id = ?)
-                        ),
-                        0.00
-                    ) AS average_score,
-
-                    COALESCE(
-                        (
-                            SELECT ROUND(COUNT(CASE WHEN status IN ('present', 'late') THEN 1 END) / COUNT(*) * 100, 2)
-                            FROM student_attendance
-                            WHERE student_id = s.id
-                              AND (? IS NULL OR academic_year_id = ?)
-                        ),
-                        100.00
-                    ) AS attendance_rate,
-
-                    COALESCE(
-                        (
-                            SELECT SUM(balance)
-                            FROM student_fee_obligations
-                            WHERE student_id = s.id
-                              AND (? IS NULL OR academic_year = ?)
-                        ),
-                        0.00
-                    ) AS fee_balance,
-
-                    (
-                        SELECT COUNT(*)
-                        FROM student_discipline
-                        WHERE student_id = s.id
-                    ) AS discipline_cases,
-
-                    (
-                        SELECT COUNT(*)
-                        FROM activity_participants
-                        WHERE student_id = s.id
-                    ) AS activities_count,
-
-                    '-' AS position
-                FROM students s
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                {$whereClause}
-            ";
-
-            $queryBindings = array_merge(
-                [$termId, $termId],       // First subquery (assessment_results term filter)
-                [$yearId, $yearId],       // Second subquery (attendance year filter)
-                [$yearCode, $yearCode],   // Third subquery (fee balance year filter)
-                $bindings                 // WHERE clause bindings
-            );
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($queryBindings);
-            $studentRows = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Add grades to each student row
-            foreach ($studentRows as &$row) {
-                $row['grade'] = $this->deriveGradeFromPercentage($row['average_score']);
-            }
-            unset($row);
-
-            // Grouping and aggregating depending on view_mode
-            if ($viewMode === 'class') {
-                $classes = [];
-                foreach ($studentRows as $row) {
-                    $className = $row['class_name'] ?? 'Unassigned';
-                    if (!isset($classes[$className])) {
-                        $classes[$className] = [
-                            'class_name' => $className,
-                            'total_students' => 0,
-                            'average_score_sum' => 0,
-                            'average_score_count' => 0,
-                            'attendance_sum' => 0,
-                            'attendance_count' => 0,
-                            'fee_balance' => 0,
-                            'discipline_cases' => 0,
-                            'activities_count' => 0
-                        ];
-                    }
-                    $classes[$className]['total_students']++;
-                    if ($row['average_score'] !== null) {
-                        $classes[$className]['average_score_sum'] += (float)$row['average_score'];
-                        $classes[$className]['average_score_count']++;
-                    }
-                    if ($row['attendance_rate'] !== null) {
-                        $classes[$className]['attendance_sum'] += (float)$row['attendance_rate'];
-                        $classes[$className]['attendance_count']++;
-                    }
-                    $classes[$className]['fee_balance'] += (float)$row['fee_balance'];
-                    $classes[$className]['discipline_cases'] += (int)$row['discipline_cases'];
-                    $classes[$className]['activities_count'] += (int)$row['activities_count'];
-                }
-                $resultRows = [];
-                foreach ($classes as $className => $c) {
-                    $avgScore = $c['average_score_count'] > 0 ? round($c['average_score_sum'] / $c['average_score_count'], 2) : 0;
-                    $resultRows[] = [
-                        'class_name' => $c['class_name'],
-                        'total_students' => $c['total_students'],
-                        'average_score' => $avgScore,
-                        'grade' => $this->deriveGradeFromPercentage($avgScore),
-                        'attendance_rate' => $c['attendance_count'] > 0 ? round($c['attendance_sum'] / $c['attendance_count'], 2) : 100,
-                        'fee_balance' => $c['fee_balance'],
-                        'discipline_cases' => $c['discipline_cases'],
-                        'activities_count' => $c['activities_count']
-                    ];
-                }
-                return $this->success($resultRows);
-            }
-
-            if ($viewMode === 'stream') {
-                $streams = [];
-                foreach ($studentRows as $row) {
-                    $className = $row['class_name'] ?? 'Unassigned';
-                    $streamName = $row['stream_name'] ?? 'Unassigned';
-                    $key = $className . ' - ' . $streamName;
-                    if (!isset($streams[$key])) {
-                        $streams[$key] = [
-                            'class_name' => $className,
-                            'stream_name' => $streamName,
-                            'total_students' => 0,
-                            'average_score_sum' => 0,
-                            'average_score_count' => 0,
-                            'attendance_sum' => 0,
-                            'attendance_count' => 0,
-                            'fee_balance' => 0,
-                            'discipline_cases' => 0,
-                            'activities_count' => 0
-                        ];
-                    }
-                    $streams[$key]['total_students']++;
-                    if ($row['average_score'] !== null) {
-                        $streams[$key]['average_score_sum'] += (float)$row['average_score'];
-                        $streams[$key]['average_score_count']++;
-                    }
-                    if ($row['attendance_rate'] !== null) {
-                        $streams[$key]['attendance_sum'] += (float)$row['attendance_rate'];
-                        $streams[$key]['attendance_count']++;
-                    }
-                    $streams[$key]['fee_balance'] += (float)$row['fee_balance'];
-                    $streams[$key]['discipline_cases'] += (int)$row['discipline_cases'];
-                    $streams[$key]['activities_count'] += (int)$row['activities_count'];
-                }
-                $resultRows = [];
-                foreach ($streams as $key => $s) {
-                    $avgScore = $s['average_score_count'] > 0 ? round($s['average_score_sum'] / $s['average_score_count'], 2) : 0;
-                    $resultRows[] = [
-                        'class_name' => $s['class_name'],
-                        'stream_name' => $s['stream_name'],
-                        'total_students' => $s['total_students'],
-                        'average_score' => $avgScore,
-                        'grade' => $this->deriveGradeFromPercentage($avgScore),
-                        'attendance_rate' => $s['attendance_count'] > 0 ? round($s['attendance_sum'] / $s['attendance_count'], 2) : 100,
-                        'fee_balance' => $s['fee_balance'],
-                        'discipline_cases' => $s['discipline_cases'],
-                        'activities_count' => $s['activities_count']
-                    ];
-                }
-                return $this->success($resultRows);
-            }
-
-            if ($viewMode === 'school') {
-                $totalStudents = count($studentRows);
-                $avgScoreSum = 0;
-                $avgScoreCount = 0;
-                $attendanceSum = 0;
-                $attendanceCount = 0;
-                $feeBalance = 0;
-                $disciplineCases = 0;
-                $activitiesCount = 0;
-
-                foreach ($studentRows as $row) {
-                    if ($row['average_score'] !== null) {
-                        $avgScoreSum += (float)$row['average_score'];
-                        $avgScoreCount++;
-                    }
-                    if ($row['attendance_rate'] !== null) {
-                        $attendanceSum += (float)$row['attendance_rate'];
-                        $attendanceCount++;
-                    }
-                    $feeBalance += (float)$row['fee_balance'];
-                    $disciplineCases += (int)$row['discipline_cases'];
-                    $activitiesCount += (int)$row['activities_count'];
-                }
-
-                $avgScore = $avgScoreCount > 0 ? round($avgScoreSum / $avgScoreCount, 2) : 0;
-                $resultRows = [[
-                    'scope' => 'Whole School',
-                    'total_students' => $totalStudents,
-                    'average_score' => $avgScore,
-                    'grade' => $this->deriveGradeFromPercentage($avgScore),
-                    'attendance_rate' => $attendanceCount > 0 ? round($attendanceSum / $attendanceCount, 2) : 100,
-                    'fee_balance' => $feeBalance,
-                    'discipline_cases' => $disciplineCases,
-                    'activities_count' => $activitiesCount
-                ]];
-                return $this->success($resultRows);
-            }
-
-            return $this->success($studentRows);
-
+            return $this->success($this->studentInsightsService->getPerformanceOverview(
+                $this->user,
+                $contextRes['context'],
+                array_merge($_GET, $data)
+            ));
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load performance overview: ' . $e->getMessage());
         }
@@ -2560,280 +2249,34 @@ class StudentsController extends BaseController
             return $this->badRequest('Student ID is required');
         }
 
-        $db = $this->db->getConnection();
-
-        // 1. Context and Permission check
         $requestedContext = $_GET['context'] ?? null;
         $contextRes = $this->studentService->resolveContext($this->user, $requestedContext);
         if (!$contextRes['allowed']) {
             return $this->forbidden($contextRes['message'] ?? 'Forbidden');
         }
-        $context = $contextRes['context'];
 
-        // 2. Scope check to see if the user can access this specific student
-        $scope = $this->studentService->scopeService->buildScope($context, $this->user);
-        if (!$this->studentService->scopeService->canAccessStudent($studentId, $scope)) {
-            return $this->forbidden('You do not have permission to view this student.');
-        }
-
-        // 3. Fetch student profile
-        $studentStmt = $db->prepare("
-            SELECT
-                s.id,
-                s.admission_no,
-                s.first_name,
-                s.middle_name,
-                s.last_name,
-                CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                s.gender,
-                s.photo_url,
-                c.name AS class_name,
-                cs.stream_name AS stream_name
-            FROM students s
-            LEFT JOIN class_streams cs ON cs.id = s.stream_id
-            LEFT JOIN classes c ON c.id = cs.class_id
-            WHERE s.id = ?
-            LIMIT 1
-        ");
-        $studentStmt->execute([$studentId]);
-        $student = $studentStmt->fetch(\PDO::FETCH_ASSOC);
-
-        if (!$student) {
-            return $this->notFound('Student not found');
-        }
-
-        // Filters
-        $academicYearVal = $_GET['academic_year'] ?? $_GET['academic_year_id'] ?? null;
-        $termId = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : null;
-        $assessmentId = !empty($_GET['assessment_id']) ? (int)$_GET['assessment_id'] : null;
-
-        // Resolve Academic Year ID and Year Code
-        $yearId = null;
-        $yearCode = null;
-        if ($academicYearVal !== null) {
-            if (is_numeric($academicYearVal)) {
-                if ((int)$academicYearVal > 2000 && (int)$academicYearVal < 2100) {
-                    $yearCode = (string)$academicYearVal;
-                    $stmt = $db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
-                    $stmt->execute([$yearCode]);
-                    $yearId = $stmt->fetchColumn() ?: null;
-                } else {
-                    $yearId = (int)$academicYearVal;
-                    $stmt = $db->prepare("SELECT year_code FROM academic_years WHERE id = ? LIMIT 1");
-                    $stmt->execute([$yearId]);
-                    $yearCode = $stmt->fetchColumn() ?: null;
-                }
-            } else {
-                $yearCode = (string)$academicYearVal;
-                $stmt = $db->prepare("SELECT id FROM academic_years WHERE year_code = ? LIMIT 1");
-                $stmt->execute([$yearCode]);
-                $yearId = $stmt->fetchColumn() ?: null;
+        try {
+            $payload = $this->studentInsightsService->getPerformanceFull(
+                $studentId,
+                $this->user,
+                $contextRes['context'],
+                array_merge($_GET, $data)
+            );
+            if (!$payload) {
+                return $this->notFound('Student not found');
             }
-        }
 
-        // 4. Fetch subject performance
-        $subjects = [];
-        if ($termId !== null) {
-            $scoresSql = "
-                SELECT
-                    tss.subject_id,
-                    COALESCE(la.name, cu.name, CONCAT('Subject ', tss.subject_id)) AS subject,
-                    tss.overall_percentage AS score,
-                    tss.overall_grade AS grade,
-                    class_subject_avg.class_average AS classAverage,
-                    NULL AS position,
-                    NULL AS teacher,
-                    NULL AS remarks
-                FROM term_subject_scores tss
-                LEFT JOIN learning_areas la ON la.id = tss.subject_id
-                LEFT JOIN curriculum_units cu ON cu.id = tss.subject_id
-                LEFT JOIN (
-                    SELECT
-                        subject_id,
-                        ROUND(AVG(overall_percentage), 2) AS class_average
-                    FROM term_subject_scores
-                    WHERE term_id = ?
-                    GROUP BY subject_id
-                ) class_subject_avg ON class_subject_avg.subject_id = tss.subject_id
-                WHERE tss.student_id = ? AND tss.term_id = ?
-                ORDER BY subject ASC
-            ";
-            $scoresStmt = $db->prepare($scoresSql);
-            $scoresStmt->execute([$termId, $studentId, $termId]);
-            $subjects = $scoresStmt->fetchAll(\PDO::FETCH_ASSOC);
-        }
-
-        if (empty($subjects)) {
-            // Fallback to assessment_results
-            $fallbackSql = "
-                SELECT
-                    a.subject_id,
-                    COALESCE(la.name, cu.name, CONCAT('Subject ', a.subject_id)) AS subject,
-                    ROUND(AVG(ar.marks_obtained / a.max_marks * 100), 2) AS score,
-                    NULL AS grade,
-                    NULL AS classAverage,
-                    NULL AS position,
-                    NULL AS teacher,
-                    MIN(ar.remarks) AS remarks
-                FROM assessment_results ar
-                JOIN assessments a ON a.id = ar.assessment_id
-                LEFT JOIN learning_areas la ON la.id = a.subject_id
-                LEFT JOIN curriculum_units cu ON cu.id = a.subject_id
-                WHERE ar.student_id = ?
-            ";
-            $fallbackBindings = [$studentId];
-            if ($termId !== null) {
-                $fallbackSql .= " AND a.term_id = ?";
-                $fallbackBindings[] = $termId;
+            return $this->success($payload);
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            if (strpos($message, 'forbidden:') === 0) {
+                return $this->forbidden(substr($message, 10));
             }
-            if ($yearId !== null) {
-                $fallbackSql .= " AND a.academic_year_id = ?";
-                $fallbackBindings[] = $yearId;
-            }
-            $fallbackSql .= " GROUP BY a.subject_id ORDER BY subject ASC";
 
-            $fallbackStmt = $db->prepare($fallbackSql);
-            $fallbackStmt->execute($fallbackBindings);
-            $subjects = $fallbackStmt->fetchAll(\PDO::FETCH_ASSOC);
+            return $this->badRequest('Failed to load performance details: ' . $message);
+        } catch (\Exception $e) {
+            return $this->badRequest('Failed to load performance details: ' . $e->getMessage());
         }
-
-        // Populate grade if null
-        foreach ($subjects as &$sub) {
-            if ($sub['grade'] === null && $sub['score'] !== null) {
-                $sub['grade'] = $this->deriveGradeFromPercentage($sub['score']);
-            }
-        }
-        unset($sub);
-
-        // 5. Fetch Attendance summary
-        $attConditions = ["student_id = ?"];
-        $attBindings = [$studentId];
-        if ($termId !== null) {
-            $attConditions[] = "term_id = ?";
-            $attBindings[] = $termId;
-        }
-        if ($yearId !== null) {
-            $attConditions[] = "academic_year_id = ?";
-            $attBindings[] = $yearId;
-        }
-        $attWhere = implode(' AND ', $attConditions);
-
-        $attStmt = $db->prepare("
-            SELECT
-                COUNT(CASE WHEN status = 'present' THEN 1 END) as days_present,
-                COUNT(CASE WHEN status = 'absent' THEN 1 END) as days_absent,
-                COUNT(CASE WHEN status = 'late' THEN 1 END) as days_late,
-                ROUND(
-                    (COUNT(CASE WHEN status = 'present' OR status = 'late' THEN 1 END) / COUNT(*)) * 100,
-                    2
-                ) as attendance_rate
-            FROM student_attendance
-            WHERE {$attWhere}
-        ");
-        $attStmt->execute($attBindings);
-        $attendance = $attStmt->fetch(\PDO::FETCH_ASSOC) ?: [
-            'days_present' => 0,
-            'days_absent' => 0,
-            'days_late' => 0,
-            'attendance_rate' => 100.00
-        ];
-
-        // 6. Fetch Discipline summary
-        $dispStmt = $db->prepare("
-            SELECT id, incident_date AS date, description AS case_title, severity, status, action_taken
-            FROM student_discipline
-            WHERE student_id = ?
-            ORDER BY incident_date DESC
-        ");
-        $dispStmt->execute([$studentId]);
-        $disciplineRecords = $dispStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-        $disciplineSummary = [
-            'count' => count($disciplineRecords),
-            'records' => $disciplineRecords
-        ];
-
-        // 7. Fetch Activities (co-curricular)
-        $actStmt = $db->prepare("
-            SELECT ap.activity_id as id, ac.name as title, ap.joined_at
-            FROM activity_participants ap
-            LEFT JOIN activity_categories ac ON ac.id = ap.activity_id
-            WHERE ap.student_id = ?
-            ORDER BY ap.joined_at DESC
-        ");
-        $actStmt->execute([$studentId]);
-        $activities = $actStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-        // 8. Fetch Finance summary
-        $finStmt = $db->prepare("
-            SELECT
-                COALESCE(SUM(amount_due), 0) as total_due,
-                COALESCE(SUM(amount_paid), 0) as total_paid,
-                COALESCE(SUM(amount_waived), 0) as total_waived,
-                COALESCE(SUM(balance), 0) as balance
-            FROM student_fee_obligations
-            WHERE student_id = ?
-        ");
-        $finStmt->execute([$studentId]);
-        $finance = $finStmt->fetch(\PDO::FETCH_ASSOC) ?: [
-            'total_due' => 0,
-            'total_paid' => 0,
-            'total_waived' => 0,
-            'balance' => 0
-        ];
-
-        // 9. Fetch Teacher comments
-        $enrollmentStmt = $db->prepare("
-            SELECT teacher_comments, head_teacher_comments, special_notes
-            FROM class_enrollments
-            WHERE student_id = ?
-            ORDER BY id DESC
-            LIMIT 1
-        ");
-        $enrollmentStmt->execute([$studentId]);
-        $enrollment = $enrollmentStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-
-        $comments = [];
-        if (!empty($enrollment['teacher_comments'])) {
-            $comments[] = [
-                'teacher' => 'Class Teacher',
-                'comment' => $enrollment['teacher_comments']
-            ];
-        }
-        if (!empty($enrollment['head_teacher_comments'])) {
-            $comments[] = [
-                'teacher' => 'Head Teacher',
-                'comment' => $enrollment['head_teacher_comments']
-            ];
-        }
-
-        $recommendations = [];
-        if (!empty($enrollment['special_notes'])) {
-            $recommendations[] = $enrollment['special_notes'];
-        }
-
-        $responsePayload = [
-            'student' => $student,
-            'performance' => $subjects,
-            'attendance_summary' => $attendance,
-            'discipline_summary' => $disciplineSummary,
-            'activities' => $activities,
-            'finance_summary' => $finance,
-            'teacher_comments' => $comments,
-            'recommendations' => $recommendations
-        ];
-
-        return $this->success($responsePayload);
-    }
-
-    private function deriveGradeFromPercentage($score)
-    {
-        if ($score === null) return '-';
-        $score = (float)$score;
-        if ($score >= 80) return 'A';
-        if ($score >= 70) return 'B';
-        if ($score >= 60) return 'C';
-        if ($score >= 50) return 'D';
-        return 'E';
     }
 
     /**
@@ -2858,32 +2301,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            // Classes
-            $classesStmt = $db->query("SELECT id, name FROM classes ORDER BY name ASC");
-            $classes = $classesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Streams
-            $streamsStmt = $db->query("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC");
-            $streams = $streamsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Academic Years
-            $yearsStmt = $db->query("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC");
-            $years = $yearsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Terms
-            $termsStmt = $db->query("SELECT id, academic_year_id, name, term_number, status FROM academic_terms ORDER BY term_number ASC");
-            $terms = $termsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'classes' => $classes,
-                'streams' => $streams,
-                'academic_years' => $years,
-                'terms' => $terms,
-                'statuses' => ['pending', 'resolved', 'escalated'],
-                'severities' => ['low', 'medium', 'high']
-            ]);
+            return $this->success($this->studentInsightsService->getDisciplineMeta());
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load discipline metadata: ' . $e->getMessage());
         }
@@ -2899,75 +2317,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            $academicYearVal = $_GET['academic_year'] ?? null;
-            $termId = !empty($_GET['term_id']) ? (int)$_GET['term_id'] : null;
-            $classId = !empty($_GET['class_id']) ? (int)$_GET['class_id'] : null;
-            $streamId = !empty($_GET['stream_id']) ? (int)$_GET['stream_id'] : null;
-            $status = $_GET['status'] ?? null;
-            $severity = $_GET['severity'] ?? null;
-            $search = !empty($_GET['search']) ? trim((string)$_GET['search']) : '';
-
-            // Build query
-            $sql = "
-                SELECT
-                    sd.id,
-                    sd.student_id,
-                    sd.incident_date,
-                    sd.description,
-                    sd.severity,
-                    sd.status,
-                    sd.action_taken,
-                    sd.resolution_date,
-                    sd.created_at,
-                    s.admission_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                    c.name AS class_name,
-                    cs.stream_name,
-                    s.photo_url
-                FROM student_discipline sd
-                JOIN students s ON s.id = sd.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                WHERE s.status = 'active'
-            ";
-
-            $bindings = [];
-
-            if ($status) {
-                $sql .= " AND sd.status = ?";
-                $bindings[] = $status;
-            }
-
-            if ($severity) {
-                $sql .= " AND sd.severity = ?";
-                $bindings[] = $severity;
-            }
-
-            if ($search) {
-                $sql .= " AND (s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR sd.description LIKE ?)";
-                $term = '%' . $search . '%';
-                array_push($bindings, $term, $term, $term, $term);
-            }
-
-            if ($classId) {
-                $sql .= " AND cs.class_id = ?";
-                $bindings[] = $classId;
-            }
-
-            if ($streamId) {
-                $sql .= " AND s.stream_id = ?";
-                $bindings[] = $streamId;
-            }
-
-            $sql .= " ORDER BY sd.incident_date DESC, sd.created_at DESC";
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($bindings);
-            $cases = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success($cases);
+            return $this->success($this->studentInsightsService->listDisciplineCases(array_merge($_GET, $data)));
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load discipline cases: ' . $e->getMessage());
         }
@@ -2988,46 +2338,12 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            // Get case details
-            $caseStmt = $db->prepare("
-                SELECT
-                    sd.*,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    s.admission_no,
-                    s.photo_url,
-                    c.name AS class_name,
-                    cs.stream_name,
-                    CONCAT_WS(' ', res.first_name, res.last_name) AS resolved_by_name
-                FROM student_discipline sd
-                JOIN students s ON s.id = sd.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN users res ON res.id = sd.resolved_by
-                WHERE sd.id = ?
-                LIMIT 1
-            ");
-            $caseStmt->execute([$caseId]);
-            $case = $caseStmt->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$case) {
+            $payload = $this->studentInsightsService->getDisciplineCase($caseId);
+            if (!$payload) {
                 return $this->notFound('Discipline case not found');
             }
 
-            return $this->success([
-                'case' => $case,
-                'student' => [
-                    'first_name' => $case['student_name'] ?? '',
-                    'last_name' => '',
-                    'admission_no' => $case['admission_no'] ?? '',
-                    'photo_url' => $case['photo_url'] ?? '',
-                ],
-                'class_name' => $case['class_name'] ?? '',
-                'stream_name' => $case['stream_name'] ?? '',
-                'reported_by_name' => $case['reported_by_name'] ?? 'System',
-                'resolved_by_name' => $case['resolved_by_name'] ?? ''
-            ]);
+            return $this->success($payload);
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load discipline case: ' . $e->getMessage());
         }
@@ -3048,39 +2364,15 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            $updates = [];
-            $bindings = [];
-            $userId = $this->user['id'];
-
-            if (!empty($data['status'])) {
-                $updates[] = "status = ?";
-                $bindings[] = $data['status'];
-            }
-
-            if (!empty($data['action_taken'])) {
-                $updates[] = "action_taken = ?";
-                $bindings[] = $data['action_taken'];
-            }
-
-            if ($data['status'] === 'resolved') {
-                $updates[] = "resolution_date = CURDATE()";
-                $updates[] = "resolved_by = ?";
-                $bindings[] = $userId;
-            }
-
-            if (empty($updates)) {
-                return $this->badRequest('No valid fields to update');
-            }
-
-            $sql = "UPDATE student_discipline SET " . implode(', ', $updates) . " WHERE id = ?";
-            $bindings[] = $caseId;
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($bindings);
-
+            $this->studentInsightsService->updateDisciplineCase($caseId, $data, (int)$this->user['id']);
             return $this->success(['message' => 'Discipline case updated successfully']);
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            if (strpos($message, 'bad_request:') === 0) {
+                return $this->badRequest(substr($message, 12));
+            }
+
+            return $this->badRequest('Failed to update discipline case: ' . $message);
         } catch (\Exception $e) {
             return $this->badRequest('Failed to update discipline case: ' . $e->getMessage());
         }
@@ -3100,32 +2392,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            // Classes
-            $classesStmt = $db->query("SELECT id, name FROM classes ORDER BY name ASC");
-            $classes = $classesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Streams
-            $streamsStmt = $db->query("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC");
-            $streams = $streamsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Academic Years
-            $yearsStmt = $db->query("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC");
-            $years = $yearsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Dormitories (for boarding role)
-            $dormStmt = $db->query("SELECT id, name AS dormitory_name, gender FROM dormitories WHERE status = 'active' ORDER BY name ASC");
-            $dormitories = $dormStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'classes' => $classes,
-                'streams' => $streams,
-                'academic_years' => $years,
-                'dormitories' => $dormitories,
-                'statuses' => ['draft', 'active', 'completed', 'archived'],
-                'iep_types' => ['learning', 'behavioral', 'physical', 'medical', 'other']
-            ]);
+            return $this->success($this->studentInsightsService->getSpecialNeedsMeta());
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load special needs metadata: ' . $e->getMessage());
         }
@@ -3142,85 +2409,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            $academicYearVal = $_GET['academic_year'] ?? null;
-            $classId = !empty($_GET['class_id']) ? (int)$_GET['class_id'] : null;
-            $streamId = !empty($_GET['stream_id']) ? (int)$_GET['stream_id'] : null;
-            $dormitoryId = !empty($_GET['dormitory_id']) ? (int)$_GET['dormitory_id'] : null;
-            $status = $_GET['status'] ?? null;
-            $search = !empty($_GET['search']) ? trim((string)$_GET['search']) : '';
-
-            // Build query
-            $sql = "
-                SELECT
-                    i.id,
-                    i.student_id,
-                    i.academic_year,
-                    i.iep_type,
-                    i.special_needs_category,
-                    i.goals_summary,
-                    i.strategies,
-                    i.accommodations,
-                    i.progress_monitoring_plan,
-                    i.status,
-                    i.approved_date,
-                    i.created_at,
-                    s.admission_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                    c.name AS class_name,
-                    cs.stream_name,
-                    d.name AS dormitory_name,
-                    s.photo_url
-                FROM ieps i
-                JOIN students s ON s.id = i.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN dormitory_assignments da ON da.student_id = s.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
-                LEFT JOIN dormitories d ON d.id = da.dormitory_id
-                WHERE s.status = 'active'
-            ";
-
-            $bindings = [];
-
-            if ($status) {
-                $sql .= " AND i.status = ?";
-                $bindings[] = $status;
-            }
-
-            if ($search) {
-                $sql .= " AND (s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ? OR i.iep_type LIKE ? OR i.special_needs_category LIKE ?)";
-                $term = '%' . $search . '%';
-                array_push($bindings, $term, $term, $term, $term, $term);
-            }
-
-            if ($classId) {
-                $sql .= " AND cs.class_id = ?";
-                $bindings[] = $classId;
-            }
-
-            if ($streamId) {
-                $sql .= " AND s.stream_id = ?";
-                $bindings[] = $streamId;
-            }
-
-            if ($dormitoryId) {
-                $sql .= " AND d.id = ?";
-                $bindings[] = $dormitoryId;
-            }
-
-            if ($academicYearVal) {
-                $sql .= " AND i.academic_year = ?";
-                $bindings[] = $academicYearVal;
-            }
-
-            $sql .= " ORDER BY i.created_at DESC";
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($bindings);
-            $ieps = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success($ieps);
+            return $this->success($this->studentInsightsService->listSpecialNeedsIEPs(array_merge($_GET, $data)));
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load special needs records: ' . $e->getMessage());
         }
@@ -3241,51 +2430,12 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            // Get IEP details
-            $iepStmt = $db->prepare("
-                SELECT
-                    i.*,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS student_name,
-                    s.admission_no,
-                    s.photo_url,
-                    c.name AS class_name,
-                    cs.stream_name,
-                    d.name AS dormitory_name,
-                    CONCAT_WS(' ', cb.first_name, cb.last_name) AS created_by_name,
-                    CONCAT_WS(' ', ab.first_name, ab.last_name) AS approved_by_name
-                FROM ieps i
-                JOIN students s ON s.id = i.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN dormitory_assignments da ON da.student_id = s.id AND da.status = 'active' AND (da.end_date IS NULL OR da.end_date >= CURDATE())
-                LEFT JOIN dormitories d ON d.id = da.dormitory_id
-                LEFT JOIN users cb ON cb.id = i.created_by
-                LEFT JOIN users ab ON ab.id = i.approved_by
-                WHERE i.id = ?
-                LIMIT 1
-            ");
-            $iepStmt->execute([$iepId]);
-            $iep = $iepStmt->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$iep) {
+            $payload = $this->studentInsightsService->getSpecialNeedsIepDetail($iepId);
+            if (!$payload) {
                 return $this->notFound('IEP not found');
             }
 
-            return $this->success([
-                'iep' => $iep,
-                'student' => [
-                    'first_name' => $iep['student_name'] ?? '',
-                    'last_name' => '',
-                    'admission_no' => $iep['admission_no'] ?? '',
-                    'photo_url' => $iep['photo_url'] ?? '',
-                ],
-                'class_name' => $iep['class_name'] ?? '',
-                'stream_name' => $iep['stream_name'] ?? '',
-                'created_by_name' => $iep['created_by_name'] ?? 'System',
-                'approved_by_name' => $iep['approved_by_name'] ?? ''
-            ]);
+            return $this->success($payload);
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load IEP details: ' . $e->getMessage());
         }
@@ -3304,25 +2454,7 @@ class StudentsController extends BaseController
             return $this->unauthorized('Authentication required');
         }
 
-        try {
-            $db = $this->db->getConnection();
-
-            // Classes
-            $classesStmt = $db->query("SELECT id, name FROM classes ORDER BY name ASC");
-            $classes = $classesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Streams
-            $streamsStmt = $db->query("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC");
-            $streams = $streamsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'classes' => $classes,
-                'streams' => $streams,
-                'relationship_types' => ['father', 'mother', 'guardian', 'step_father', 'step_mother', 'grandparent', 'uncle', 'aunt', 'sibling', 'other']
-            ]);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load family groups metadata: ' . $e->getMessage());
-        }
+        return $this->handleResponse($this->familyGroupsManager->getFamilyGroupsMeta());
     }
 
     /**
@@ -3334,48 +2466,7 @@ class StudentsController extends BaseController
             return $this->unauthorized('Authentication required');
         }
 
-        try {
-            $db = $this->db->getConnection();
-
-            $classId = !empty($_GET['class_id']) ? (int)$_GET['class_id'] : null;
-            $streamId = !empty($_GET['stream_id']) ? (int)$_GET['stream_id'] : null;
-            $search = !empty($_GET['search']) ? trim((string)$_GET['search']) : '';
-
-            // Build query using existing parents and student_parents tables
-            $sql = "
-                SELECT
-                    p.id AS parent_id,
-                    CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS parent_name,
-                    p.phone_1,
-                    p.email,
-                    p.status AS parent_status,
-                    COUNT(sp.student_id) AS students_count,
-                    GROUP_CONCAT(CONCAT(s.first_name, ' ', s.last_name) ORDER BY s.first_name SEPARATOR ', ') AS student_names
-                FROM parents p
-                LEFT JOIN student_parents sp ON sp.parent_id = p.id
-                LEFT JOIN students s ON s.id = sp.student_id
-                WHERE p.status = 'active'
-            ";
-
-            $bindings = [];
-
-            if ($search) {
-                $sql .= " AND (p.first_name LIKE ? OR p.last_name LIKE ? OR p.phone_1 LIKE ?)";
-                $term = '%' . $search . '%';
-                array_push($bindings, $term, $term, $term);
-            }
-
-            $sql .= " GROUP BY p.id, p.first_name, p.middle_name, p.last_name, p.phone_1, p.email, p.status";
-            $sql .= " ORDER BY p.first_name, p.last_name";
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($bindings);
-            $families = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success($families);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load family groups: ' . $e->getMessage());
-        }
+        return $this->handleResponse($this->familyGroupsManager->getFamilyGroups(array_merge($_GET, $data)));
     }
 
     /**
@@ -3392,44 +2483,14 @@ class StudentsController extends BaseController
             return $this->badRequest('Parent ID is required');
         }
 
-        try {
-            $db = $this->db->getConnection();
-
-            // Get parent details
-            $parentStmt = $db->prepare("SELECT * FROM parents WHERE id = ?");
-            $parentStmt->execute([$parentId]);
-            $parent = $parentStmt->fetch(\PDO::FETCH_ASSOC);
-
-            if (!$parent) {
-                return $this->notFound('Parent not found');
-            }
-
-            // Get linked students
-            $studentsStmt = $db->prepare("
-                SELECT
-                    s.*,
-                    sp.relationship,
-                    sp.is_primary_contact,
-                    sp.is_emergency_contact,
-                    sp.financial_responsibility,
-                    c.name AS class_name,
-                    cs.stream_name
-                FROM student_parents sp
-                JOIN students s ON s.id = sp.student_id
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                WHERE sp.parent_id = ?
-            ");
-            $studentsStmt->execute([$parentId]);
-            $students = $studentsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'parent' => $parent,
-                'students' => $students
-            ]);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load family group details: ' . $e->getMessage());
+        $result = $this->familyGroupsManager->getParentDetails($parentId);
+        if (is_array($result) && ($result['success'] ?? false)) {
+            $result['data'] = [
+                'parent' => $result['data']['parent'] ?? null,
+                'students' => $result['data']['children'] ?? [],
+            ];
         }
+        return $this->handleResponse($result);
     }
 
     /**
@@ -3446,45 +2507,7 @@ class StudentsController extends BaseController
             return $this->badRequest('Parent ID is required');
         }
 
-        try {
-            $db = $this->db->getConnection();
-
-            $studentId = !empty($data['student_id']) ? (int)$data['student_id'] : null;
-            $relationship = $data['relationship'] ?? 'guardian';
-            $isPrimary = !empty($data['is_primary_contact']) ? 1 : 0;
-            $isEmergency = !empty($data['is_emergency_contact']) ? 1 : 0;
-            $financialResp = $data['financial_responsibility'] ?? 100.00;
-
-            if (!$studentId) {
-                return $this->badRequest('Student ID is required');
-            }
-
-            // Check if link already exists
-            $checkStmt = $db->prepare("SELECT id FROM student_parents WHERE parent_id = ? AND student_id = ?");
-            $checkStmt->execute([$parentId, $studentId]);
-            $existing = $checkStmt->fetch();
-
-            if ($existing) {
-                // Update existing
-                $updateStmt = $db->prepare("
-                    UPDATE student_parents
-                    SET relationship = ?, is_primary_contact = ?, is_emergency_contact = ?, financial_responsibility = ?
-                    WHERE parent_id = ? AND student_id = ?
-                ");
-                $updateStmt->execute([$relationship, $isPrimary, $isEmergency, $financialResp, $parentId, $studentId]);
-            } else {
-                // Insert new
-                $insertStmt = $db->prepare("
-                    INSERT INTO student_parents (parent_id, student_id, relationship, is_primary_contact, is_emergency_contact, financial_responsibility)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ");
-                $insertStmt->execute([$parentId, $studentId, $relationship, $isPrimary, $isEmergency, $financialResp]);
-            }
-
-            return $this->success(['message' => 'Student linked to parent successfully']);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to link student: ' . $e->getMessage());
-        }
+        return $this->handleResponse($this->familyGroupsManager->linkStudentToFamilyGroup($parentId, $data));
     }
 
     /* =====================================================
@@ -3500,36 +2523,7 @@ class StudentsController extends BaseController
             return $this->unauthorized('Authentication required');
         }
 
-        try {
-            $db = $this->db->getConnection();
-
-            // Academic Years
-            $yearsStmt = $db->query("SELECT id, year_code, year_name, is_current FROM academic_years ORDER BY is_current DESC, year_code DESC");
-            $years = $yearsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Classes
-            $classesStmt = $db->query("SELECT id, name FROM classes ORDER BY name ASC");
-            $classes = $classesStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Streams
-            $streamsStmt = $db->query("SELECT id, class_id, stream_name FROM class_streams ORDER BY stream_name ASC");
-            $streams = $streamsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            // Terms
-            $termsStmt = $db->query("SELECT id, name FROM academic_terms ORDER BY start_date ASC");
-            $terms = $termsStmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success([
-                'academic_years' => $years,
-                'classes' => $classes,
-                'streams' => $streams,
-                'terms' => $terms,
-                'promotion_rules' => ['promote_all', 'promote_passed', 'repeat_failed', 'custom'],
-                'statuses' => ['pending_approval', 'approved', 'rejected', 'transferred', 'retained', 'graduated']
-            ]);
-        } catch (\Exception $e) {
-            return $this->badRequest('Failed to load promotion metadata: ' . $e->getMessage());
-        }
+        return $this->success($this->promotionManager->getPromotionMeta());
     }
 
     /**
@@ -3542,64 +2536,7 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
-
-            $fromYearId = !empty($_GET['from_academic_year_id']) ? (int)$_GET['from_academic_year_id'] : null;
-            $fromTermId = !empty($_GET['from_term_id']) ? (int)$_GET['from_term_id'] : null;
-            $fromClassId = !empty($_GET['from_class_id']) ? (int)$_GET['from_class_id'] : null;
-            $fromStreamId = !empty($_GET['from_stream_id']) ? (int)$_GET['from_stream_id'] : null;
-            $toClassId = !empty($_GET['to_class_id']) ? (int)$_GET['to_class_id'] : null;
-            $search = !empty($_GET['search']) ? trim((string)$_GET['search']) : '';
-
-            // Build query to get students for promotion
-            $sql = "
-                SELECT
-                    s.id,
-                    s.admission_no,
-                    CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
-                    c.name AS current_class,
-                    cs.stream_name AS current_stream,
-                    s.stream_id,
-                    ay.year_code AS current_year,
-                    s.status AS student_status
-                FROM students s
-                LEFT JOIN class_streams cs ON cs.id = s.stream_id
-                LEFT JOIN classes c ON c.id = cs.class_id
-                LEFT JOIN class_enrollments ce ON ce.student_id = s.id
-                LEFT JOIN academic_years ay ON ay.id = ce.academic_year_id
-                WHERE s.status = 'active'
-            ";
-
-            $bindings = [];
-
-            if ($fromClassId) {
-                $sql .= " AND c.id = ?";
-                $bindings[] = $fromClassId;
-            }
-
-            if ($fromStreamId) {
-                $sql .= " AND s.stream_id = ?";
-                $bindings[] = $fromStreamId;
-            }
-
-            if ($fromYearId) {
-                $sql .= " AND ay.id = ?";
-                $bindings[] = $fromYearId;
-            }
-
-            if ($search) {
-                $sql .= " AND (s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
-                $term = '%' . $search . '%';
-                array_push($bindings, $term, $term, $term);
-            }
-
-            $sql .= " ORDER BY s.first_name, s.last_name";
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($bindings);
-            $students = $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
-
-            return $this->success($students);
+            return $this->success($this->promotionManager->getPromotionCandidates(array_merge($_GET, $data)));
         } catch (\Exception $e) {
             return $this->badRequest('Failed to load promotion candidates: ' . $e->getMessage());
         }
@@ -3615,212 +2552,13 @@ class StudentsController extends BaseController
         }
 
         try {
-            $db = $this->db->getConnection();
             $userId = (int)($this->user['id'] ?? $this->user['user_id'] ?? 0);
             if ($userId <= 0) {
                 return $this->unauthorized('Authenticated user ID could not be resolved');
             }
 
-            $fromYearId = !empty($data['from_academic_year_id']) ? (int)$data['from_academic_year_id'] : null;
-            $toYearId = !empty($data['to_academic_year_id']) ? (int)$data['to_academic_year_id'] : null;
-            $fromTermId = !empty($data['from_term_id']) ? (int)$data['from_term_id'] : null;
-            $fromClassId = !empty($data['from_class_id']) ? (int)$data['from_class_id'] : null;
-            $toClassId = !empty($data['to_class_id']) ? (int)$data['to_class_id'] : null;
-            $fromStreamId = !empty($data['from_stream_id']) ? (int)$data['from_stream_id'] : null;
-            $toStreamId = !empty($data['to_stream_id']) ? (int)$data['to_stream_id'] : null;
-            $students = !empty($data['students']) ? (array)$data['students'] : [];
-            $notes = $data['notes'] ?? null;
-
-            if (!$fromYearId || !$toYearId || empty($students)) {
-                return $this->badRequest('Required fields: from_academic_year_id, to_academic_year_id, students');
-            }
-
-            $yearStmt = $db->prepare("SELECT id, year_code FROM academic_years WHERE id IN (?, ?)");
-            $yearStmt->execute([$fromYearId, $toYearId]);
-            $yearRows = $yearStmt->fetchAll(\PDO::FETCH_KEY_PAIR);
-
-            $extractYear = static function ($value) {
-                if (preg_match('/^\d{4}/', (string)$value, $matches)) {
-                    return (int)$matches[0];
-                }
-                return null;
-            };
-
-            $fromYear = $extractYear($yearRows[$fromYearId] ?? null);
-            $toYear = $extractYear($yearRows[$toYearId] ?? null);
-
-            if (!$fromYear || !$toYear) {
-                return $this->badRequest('Selected academic years do not contain valid YEAR values');
-            }
-
-            if (!$fromTermId) {
-                $termStmt = $db->query("
-                    SELECT id
-                    FROM academic_terms
-                    WHERE status IN ('current', 'active') OR CURDATE() BETWEEN start_date AND end_date
-                    ORDER BY
-                        CASE status WHEN 'current' THEN 0 WHEN 'active' THEN 1 ELSE 2 END,
-                        start_date DESC
-                    LIMIT 1
-                ");
-                $fromTermId = (int)($termStmt->fetchColumn() ?: 0);
-            }
-
-            if (!$fromTermId) {
-                return $this->badRequest('Current academic term could not be resolved');
-            }
-
-            // Start transaction
-            $db->beginTransaction();
-
-            // Create promotion batch
-            $insertBatchStmt = $db->prepare("
-                INSERT INTO promotion_batches (from_academic_year, to_academic_year, batch_type, status, created_by, notes)
-                VALUES (?, ?, 'manual', 'in_progress', ?, ?)
-            ");
-            $insertBatchStmt->execute([$fromYear, $toYear, $userId, $notes]);
-            $batchId = $db->lastInsertId();
-
-            $promoted = 0;
-            $retained = 0;
-            $processed = 0;
-            foreach ($students as $studentData) {
-                $studentId = (int)$studentData['student_id'];
-                $finalAction = $studentData['final_action'] ?? 'promote';
-                $studentNotes = $studentData['notes'] ?? null;
-
-                // Get current enrollment
-                $enrollStmt = $db->prepare("
-                    SELECT id, class_id, stream_id, academic_year_id
-                    FROM class_enrollments
-                    WHERE student_id = ? AND academic_year_id = ?
-                    LIMIT 1
-                ");
-                $enrollStmt->execute([$studentId, $fromYearId]);
-                $enrollment = $enrollStmt->fetch(\PDO::FETCH_ASSOC);
-
-                if (!$enrollment) {
-                    continue;
-                }
-
-                $targetClassId = $toClassId ?: (int)$enrollment['class_id'];
-                $targetStreamId = $toStreamId ?: (int)$enrollment['stream_id'];
-                $toEnrollmentId = null;
-                $promotionStatus = $finalAction === 'retain' ? 'retained' : 'approved';
-
-                if ($finalAction === 'promote') {
-                    // Update or create new enrollment for next year
-                    $checkNewEnrollStmt = $db->prepare("
-                        SELECT id FROM class_enrollments
-                        WHERE student_id = ? AND academic_year_id = ?
-                    ");
-                    $checkNewEnrollStmt->execute([$studentId, $toYearId]);
-                    $newEnrollment = $checkNewEnrollStmt->fetch();
-
-                    if ($newEnrollment) {
-                        // Update existing
-                        $updateEnrollStmt = $db->prepare("
-                            UPDATE class_enrollments
-                            SET class_id = ?, stream_id = ?, enrollment_status = 'active'
-                            WHERE id = ?
-                        ");
-                        $updateEnrollStmt->execute([$targetClassId, $targetStreamId, $newEnrollment['id']]);
-                        $toEnrollmentId = (int)$newEnrollment['id'];
-                    } else {
-                        // Create new
-                        $insertEnrollStmt = $db->prepare("
-                            INSERT INTO class_enrollments
-                                (student_id, class_id, stream_id, academic_year_id, enrollment_date, enrollment_status)
-                            VALUES (?, ?, ?, ?, CURDATE(), 'active')
-                        ");
-                        $insertEnrollStmt->execute([$studentId, $targetClassId, $targetStreamId, $toYearId]);
-                        $toEnrollmentId = (int)$db->lastInsertId();
-                    }
-
-                    // Update student stream if needed
-                    if ($toStreamId) {
-                        $updateStudentStmt = $db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
-                        $updateStudentStmt->execute([$toStreamId, $studentId]);
-                    }
-
-                    $updateOldEnrollStmt = $db->prepare("
-                        UPDATE class_enrollments
-                        SET promotion_status = 'promoted',
-                            promoted_to_class_id = ?,
-                            promoted_to_stream_id = ?,
-                            promotion_date = CURDATE(),
-                            completed_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ");
-                    $updateOldEnrollStmt->execute([$targetClassId, $targetStreamId, $enrollment['id']]);
-
-                    $promoted++;
-                } else {
-                    $updateOldEnrollStmt = $db->prepare("
-                        UPDATE class_enrollments
-                        SET promotion_status = 'retained',
-                            promotion_date = CURDATE()
-                        WHERE id = ?
-                    ");
-                    $updateOldEnrollStmt->execute([$enrollment['id']]);
-                    $retained++;
-                }
-
-                // Record in student_promotions
-                $insertPromoStmt = $db->prepare("
-                    INSERT INTO student_promotions
-                    (batch_id, from_enrollment_id, to_enrollment_id, from_academic_year_id, to_academic_year_id,
-                     student_id, current_class_id, current_stream_id, promoted_to_class_id, promoted_to_stream_id,
-                     from_academic_year, to_academic_year, from_term_id, promotion_status, overall_score,
-                     promotion_reason, approved_by, approval_date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NOW())
-                ");
-                $insertPromoStmt->execute([
-                    $batchId,
-                    $enrollment['id'],
-                    $toEnrollmentId,
-                    $fromYearId,
-                    $toYearId,
-                    $studentId,
-                    $enrollment['class_id'],
-                    $enrollment['stream_id'],
-                    $targetClassId,
-                    $targetStreamId,
-                    $fromYear,
-                    $toYear,
-                    $fromTermId,
-                    $promotionStatus,
-                    $studentNotes,
-                    $userId
-                ]);
-                $processed++;
-            }
-
-            // Update batch
-            $updateBatchStmt = $db->prepare("
-                UPDATE promotion_batches
-                SET status = 'completed',
-                    total_students_processed = ?,
-                    total_promoted = ?,
-                    total_rejected = ?,
-                    completed_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ");
-            $updateBatchStmt->execute([$processed, $promoted, $retained, $batchId]);
-
-            $db->commit();
-
-            return $this->success([
-                'message' => "Promotion completed successfully. {$promoted} promoted, {$retained} retained.",
-                'batch_id' => $batchId,
-                'processed' => $processed,
-                'promoted' => $promoted,
-                'retained' => $retained
-            ]);
+            return $this->success($this->promotionManager->executePromotionV2($data, $userId));
         } catch (\Exception $e) {
-            if (isset($db) && $db->inTransaction()) {
-                $db->rollBack();
-            }
             return $this->badRequest('Failed to execute promotion: ' . $e->getMessage());
         }
     }

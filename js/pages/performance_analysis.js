@@ -251,10 +251,7 @@ const PerformanceAnalysisController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "performance_analysis.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "performance_analysis.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

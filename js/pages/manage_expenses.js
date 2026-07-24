@@ -342,12 +342,7 @@
         .map((row) => row.map((v) => `"${String(v || "").replace(/"/g, '""')}"`).join(","))
         .join("\n");
 
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "expenses.csv";
-      link.click();
-      URL.revokeObjectURL(link.href);
+      KingswayFileLifecycle.exportText(csv, "expenses.csv", "text/csv;charset=utf-8;");
     },
 
     normalizePaymentMethod: function (method) {

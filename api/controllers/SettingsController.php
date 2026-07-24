@@ -160,16 +160,14 @@ class SettingsController extends BaseController
     {
         $dbName = $this->db->query("SELECT DATABASE() AS db")->fetch(\PDO::FETCH_ASSOC)['db'] ?? 'kingsway';
         $backupDir = dirname(__DIR__, 2) . '/storage/backups';
-        if (!is_dir($backupDir)) {
-            @mkdir($backupDir, 0755, true);
-        }
+        $this->ensureManagedDirectory($backupDir);
         $backupFile = $backupDir . '/backup_' . date('Ymd_His') . '.sql';
         $errorFile = $backupDir . '/.last_backup_error';
 
         // Locate mysqldump; fall back gracefully if unavailable.
         $mysqldump = $this->findMysqldump();
         if (!$mysqldump) {
-            @file_put_contents($errorFile, date('c') . " mysqldump not found\n");
+            @$this->writeManagedFile($errorFile, date('c') . " mysqldump not found\n");
             return $this->success(
                 ['backup_file' => null, 'note' => 'mysqldump unavailable on this host'],
                 'Backup skipped'
@@ -187,7 +185,7 @@ class SettingsController extends BaseController
         exec($cmd, $out, $code);
 
         if ($code !== 0 || !file_exists($backupFile) || filesize($backupFile) === 0) {
-            @file_put_contents($errorFile, date('c') . " backup exit code $code\n");
+            @$this->writeManagedFile($errorFile, date('c') . " backup exit code $code\n");
             return $this->success(
                 ['backup_file' => null, 'note' => 'Backup command failed'],
                 'Backup not created'

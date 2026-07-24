@@ -1,107 +1,213 @@
 <?php
 /**
- * Manage Staff Page - JWT-Based Client-Side Router
- *
- * STATELESS ARCHITECTURE:
- * - NO PHP sessions (compatible with load balancing)
- * - User role determined from JWT token via JavaScript AuthContext
- * - Access level set client-side; staffManagementController enforces it
+ * Manage Staff Page - Pure UI/UX Layout
+ * Controller: staff_production_ui.js
+ * Authentication: JWT via api.js + backend middleware
+ * Role-based access: JavaScript AuthContext + permission system
  */
+if (!isset($staffPageTitle)) {
+    $staffPageTitle = 'Staff Management';
+}
+if (!isset($staffPageDescription)) {
+    $staffPageDescription = 'Manage all staff members and their assignments';
+}
+if (!isset($staffPageIcon)) {
+    $staffPageIcon = 'fas fa-chalkboard-teacher';
+}
+if (isset($staffPageContext) && is_array($staffPageContext)) {
+    echo '<script>window.STAFF_PAGE_CONTEXT = ' .
+        json_encode($staffPageContext, JSON_UNESCAPED_SLASHES) .
+        ';</script>' . PHP_EOL;
+}
 ?>
-
-<div id="staff-loading" style="padding: 40px; text-align: center;">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
+    <div class="staff-management-container" data-staff-directory-page>
+    <!-- Page Header -->
+    <div class="page-header mb-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h4 class="mb-1"><i class="<?= htmlspecialchars($staffPageIcon, ENT_QUOTES, 'UTF-8') ?> me-2"></i><?= htmlspecialchars($staffPageTitle, ENT_QUOTES, 'UTF-8') ?></h4>
+                <p class="text-muted mb-0"><?= htmlspecialchars($staffPageDescription, ENT_QUOTES, 'UTF-8') ?></p>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" id="addStaffBtn" data-permission-module="staff" data-permission-action="create">
+                    <i class="fas fa-plus me-1"></i>Add Staff
+                </button>
+                <button class="btn btn-outline-secondary" id="exportStaffBtn" data-permission-module="staff" data-permission-action="export">
+                    <i class="fas fa-download me-1"></i>Export
+                </button>
+            </div>
+        </div>
     </div>
-    <p class="mt-3">Loading staff management...</p>
+
+    <!-- Stats Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3" data-staff-card="total">
+            <div class="card bg-primary text-white">
+                <div class="card-body text-center">
+                    <h3 id="totalStaff">--</h3>
+                    <p class="mb-0">Total Staff</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3" data-staff-card="active">
+            <div class="card bg-success text-white">
+                <div class="card-body text-center">
+                    <h3 id="activeStaff">--</h3>
+                    <p class="mb-0">Active</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3" data-staff-card="teaching">
+            <div class="card bg-info text-white">
+                <div class="card-body text-center">
+                    <h3 id="teachingStaff">--</h3>
+                    <p class="mb-0">Teaching</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3" data-staff-card="non_teaching">
+            <div class="card bg-warning text-dark">
+                <div class="card-body text-center">
+                    <h3 id="nonTeachingStaff">--</h3>
+                    <p class="mb-0">Non-Teaching</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <input type="text" class="form-control" id="searchStaff" placeholder="Search staff...">
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="filterDepartment">
+                        <option value="">All Departments</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="filterStaffType">
+                        <option value="">All Types</option>
+                        <option value="1">Teaching</option>
+                        <option value="2">Non-Teaching</option>
+                        <option value="3">Admin</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select" id="filterStatus">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="on_leave">On Leave</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-secondary w-100" id="resetFilters">
+                        <i class="fas fa-redo me-1"></i>Reset Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Staff Table -->
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover" id="staffTable">
+                    <thead>
+	                        <tr>
+	                            <th data-staff-column="staff_no">Staff No</th>
+	                            <th data-staff-column="name">Name</th>
+	                            <th data-staff-column="department">Department</th>
+	                            <th data-staff-column="type">Type</th>
+	                            <th data-staff-column="position">Position</th>
+	                            <th data-staff-column="status">Status</th>
+	                            <th data-staff-column="actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="staffTableBody">
+                        <tr>
+                            <td colspan="7" class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
 
-<div id="staff-content" style="display: none;">
-    <?php
-    $templatePath = __DIR__ . '/staff/manage_staff_production.php';
-    if (file_exists($templatePath)) {
-        include $templatePath;
-    } else {
-        include __DIR__ . '/staff/manage_staff_base.php';
-    }
-    ?>
+<!-- Staff Modal -->
+<div class="modal fade" id="staffModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="staffModalTitle">Add Staff</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="staffForm">
+                    <input type="hidden" id="staffId">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">First Name *</label>
+                            <input type="text" class="form-control" id="firstName" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Last Name *</label>
+                            <input type="text" class="form-control" id="lastName" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Email</label>
+                            <input type="email" class="form-control" id="email">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Phone</label>
+                            <input type="text" class="form-control" id="phone">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Department</label>
+                            <select class="form-select" id="department">
+                                <option value="">Select Department</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Staff Type</label>
+                            <select class="form-select" id="staff_type_id">
+                                <option value="">Select Type</option>
+                                <option value="1">Teaching</option>
+                                <option value="2">Non-Teaching</option>
+                                <option value="3">Admin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Position</label>
+                            <input type="text" class="form-control" id="position">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Status</label>
+                            <select class="form-select" id="status">
+                                <option value="active">Active</option>
+                                <option value="inactive">Inactive</option>
+                                <option value="on_leave">On Leave</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveStaffBtn">Save</button>
+            </div>
+        </div>
+    </div>
 </div>
 
-<!-- Load Staff Management Controller -->
-<script src="<?= $appBase ?>/js/pages/staff_production_ui.js?v=<?= time() ?>"></script>
-
-<script>
-(function () {
-    function showAuthError() {
-        var el = document.getElementById('staff-loading');
-        var div = document.createElement('div');
-        div.className = 'alert alert-danger';
-        div.textContent = 'Authentication required. Please log in again.';
-        el.replaceChildren(div);
-    }
-
-    function initStaffPage() {
-        if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) {
-            showAuthError();
-            return;
-        }
-
-        var user = AuthContext.getUser();
-        var roleId = (user && user.role_id) ? user.role_id : 0;
-        var roles  = (user && user.roles) ? user.roles : [];
-
-        var firstRoleName = '';
-        if (roles.length > 0) {
-            var r = roles[0];
-            firstRoleName = (typeof r === 'string' ? r : (r.name || '')).toLowerCase().replace(/\s+/g, '_').replace(/\//g, '_');
-        }
-
-        var accessLevel = 'viewer';
-        if (roleId === 1 || roleId === 4 ||
-            ['system_administrator', 'school_administrator'].indexOf(firstRoleName) !== -1) {
-            accessLevel = 'admin';
-        } else if (roleId === 3 || ['director', 'director_owner'].indexOf(firstRoleName) !== -1) {
-            accessLevel = 'viewer';
-        } else if (roleId === 5 || firstRoleName === 'headteacher') {
-            accessLevel = 'manager';
-        } else if (firstRoleName === 'deputy_head_discipline' || firstRoleName === 'deputy_head_academic') {
-            accessLevel = 'operator';
-        } else if (AuthContext.hasPermission('staff_view') || AuthContext.hasPermission('manage_staff_view')) {
-            accessLevel = 'viewer';
-        }
-
-        window.currentUserRole   = firstRoleName;
-        window.currentUserId     = (user && user.id) ? user.id : 0;
-        window.staffAccessLevel  = accessLevel;
-
-        console.log('[Manage Staff] role:', firstRoleName, '| accessLevel:', accessLevel);
-
-        document.getElementById('staff-loading').style.display = 'none';
-        document.getElementById('staff-content').style.display = 'block';
-
-        if (window.StaffProductionUI) {
-            setTimeout(function() { StaffProductionUI.init(); }, 300);
-        }
-    }
-
-    // AuthContext is defined in api.js which loads AFTER this script.
-    // Wait for it to become available via DOMContentLoaded + polling.
-    document.addEventListener('DOMContentLoaded', function () {
-        if (typeof AuthContext !== 'undefined' && AuthContext.isAuthenticated()) {
-            initStaffPage();
-        } else {
-            var attempts = 0;
-            var waitForAuth = setInterval(function () {
-                attempts++;
-                if (typeof AuthContext !== 'undefined' && AuthContext.isAuthenticated()) {
-                    clearInterval(waitForAuth);
-                    initStaffPage();
-                } else if (attempts > 20) {
-                    clearInterval(waitForAuth);
-                    showAuthError();
-                }
-            }, 250);
-        }
-    });
-})();
-</script>
+<script src="<?= $appBase ?>/js/pages/staff_access.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_production_ui.js"></script>

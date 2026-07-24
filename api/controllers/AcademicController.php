@@ -4,6 +4,9 @@ namespace App\API\Controllers;
 
 use App\API\Modules\academic\AcademicAPI;
 use App\API\Services\DirectorAnalyticsService;
+use App\API\Services\StaffDomainAccessService;
+use App\API\Services\StaffTeachingAssignmentService;
+use RuntimeException;
 use function App\API\Includes\errorResponse;
 use function App\API\Includes\successResponse;
 use Exception;
@@ -108,6 +111,8 @@ use Exception;
 
 class AcademicController extends BaseController
 {
+    private $staffAccess;
+    private $teachingAssignments;
     private $api;
     private $contextService;
     private $cohortProjectionService;
@@ -116,6 +121,8 @@ class AcademicController extends BaseController
     {
         parent::__construct();
         $this->api = new AcademicAPI();
+        $this->staffAccess = new StaffDomainAccessService($this->user);
+        $this->teachingAssignments = new StaffTeachingAssignmentService();
 
         // Initialize Academic Context Service
         require_once __DIR__ . '/../services/AcademicContextService.php';
@@ -4283,4 +4290,124 @@ class AcademicController extends BaseController
             return $this->serverError($e->getMessage());
         }
     }
+
+    // ========================================================================
+    // STAFF TEACHING ASSIGNMENTS — CHECKPOINT 2
+    // ========================================================================
+    private function guardTeachingAssignments(string $permission = 'staff.teaching_assignments.manage')
+    {
+        try {
+            $roles = $permission === 'staff.teaching_assignments.view'
+                ? ['system administrator','school administrator','director','headteacher','deputy head - academic','class teacher','subject teacher']
+                : ['system administrator','school administrator','headteacher','deputy head - academic'];
+            $this->staffAccess->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage());
+        }
+    }
+
+    /** GET /api/academic/class-teachers or /{id} */
+    public function getClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
+        try {
+            if ($id !== null) {
+                $row = $this->teachingAssignments->getClassTeacher((int)$id);
+                return $row ? $this->success($row) : $this->notFound('Class teacher assignment not found');
+            }
+            return $this->success($this->teachingAssignments->listClassTeachers(array_merge($_GET, $data)));
+        } catch (RuntimeException $e) {
+            return $this->unprocessable($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load class teacher assignments', $e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/class-teachers */
+    public function postClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        try {
+            $newId = $this->teachingAssignments->saveClassTeacher($data, null, $this->staffAccess->userId());
+            $this->staffAccess->audit('create_class_teacher_assignment', 'staff_class_assignment', $newId, null, $data);
+            return $this->created(['id'=>$newId], 'Class teacher assigned');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to assign class teacher', $e->getMessage());
+        }
+    }
+
+    /** PUT /api/academic/class-teachers/{id} */
+    public function putClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        try {
+            $before = $this->teachingAssignments->getClassTeacher((int)$id);
+            $this->teachingAssignments->saveClassTeacher($data, (int)$id, $this->staffAccess->userId());
+            $this->staffAccess->audit('update_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, $data);
+            return $this->success(['id'=>(int)$id], 'Class teacher assignment updated');
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 409 ? $this->conflict($e->getMessage()) : $this->unprocessable($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/academic/class-teachers/{id} */
+    public function deleteClassTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if (!$id) return $this->badRequest('Assignment ID is required');
+        $before = $this->teachingAssignments->getClassTeacher((int)$id);
+        $this->teachingAssignments->remove((int)$id);
+        $this->staffAccess->audit('remove_class_teacher_assignment', 'staff_class_assignment', (int)$id, $before, ['status'=>'completed']);
+        return $this->success(null, 'Class teacher assignment removed');
+    }
+
+    /** GET /api/academic/subject-assignments or /{id} */
+    public function getSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments('staff.teaching_assignments.view')) return $denied;
+        try {
+            if ($id !== null) {
+                $row = $this->teachingAssignments->getSubjectAssignment((int)$id);
+                return $row ? $this->success($row) : $this->notFound('Subject assignment not found');
+            }
+            return $this->success($this->teachingAssignments->listSubjectAssignments(array_merge($_GET, $data)));
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to load subject assignments', $e->getMessage());
+        }
+    }
+
+    /** POST /api/academic/subject-assignments */
+    public function postSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        try {
+            $newId=$this->teachingAssignments->saveSubjectAssignment($data,null,$this->staffAccess->userId());
+            $this->staffAccess->audit('create_subject_assignment','staff_class_assignment',$newId,null,$data);
+            return $this->created(['id'=>$newId],'Subject assignment created');
+        } catch (RuntimeException $e) {
+            return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());
+        }
+    }
+
+    /** PUT /api/academic/subject-assignments/{id} */
+    public function putSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if(!$id)return $this->badRequest('Assignment ID is required');
+        try{$before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->saveSubjectAssignment($data,(int)$id,$this->staffAccess->userId());$this->staffAccess->audit('update_subject_assignment','staff_class_assignment',(int)$id,$before,$data);return $this->success(['id'=>(int)$id],'Subject assignment updated');}
+        catch(RuntimeException $e){return $e->getCode()===409?$this->conflict($e->getMessage()):$this->unprocessable($e->getMessage());}
+    }
+
+    /** DELETE /api/academic/subject-assignments/{id} */
+    public function deleteSubjectAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardTeachingAssignments()) return $denied;
+        if(!$id)return $this->badRequest('Assignment ID is required');
+        $before=$this->teachingAssignments->getSubjectAssignment((int)$id);$this->teachingAssignments->remove((int)$id);$this->staffAccess->audit('remove_subject_assignment','staff_class_assignment',(int)$id,$before,['status'=>'completed']);return $this->success(null,'Subject assignment removed');
+    }
+
 }

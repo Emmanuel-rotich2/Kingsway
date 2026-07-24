@@ -3,8 +3,6 @@ namespace App\API\Modules\students;
 
 use App\Config;
 use App\API\Includes\BaseAPI;
-use App\API\Services\IDCardTemplateRenderer;
-use App\API\Services\PrintService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -25,18 +23,14 @@ class StudentIDCardGenerator extends BaseAPI
     private $uploadsPath;
     private $qrCodesPath;
     private $templatesPath;
-    private $renderer;
-    private $printService;
 
     public function __construct()
     {
         parent::__construct('student_id_cards');
         // Use Config constants for paths - environment-aware
-        $this->uploadsPath = STUDENT_PHOTOS;
+        $this->uploadsPath = STUDENT_IMAGES;
         $this->qrCodesPath = STUDENT_QR_CODES;
         $this->templatesPath = ID_CARD_TEMPLATES;
-        $this->renderer = new IDCardTemplateRenderer($this->db);
-        $this->printService = new PrintService();
     }
 
     /**
@@ -48,85 +42,56 @@ class StudentIDCardGenerator extends BaseAPI
     public function uploadStudentPhoto($studentId, $fileData)
     {
         try {
-            // Validate student exists
-            $stmt = $this->db->prepare("SELECT id, admission_no FROM students WHERE id = ?");
-            $stmt->execute([$studentId]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+            $statement = $this->db->prepare(
+                "SELECT id, admission_no FROM students WHERE id = ?"
+            );
+            $statement->execute([$studentId]);
+            $student = $statement->fetch(PDO::FETCH_ASSOC);
 
             if (!$student) {
                 return formatResponse(false, null, 'Student not found');
             }
 
-            // Validate file
-            $allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
-            $maxSize = 5 * 1024 * 1024; // 5MB
+            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaId = $mediaManager->upload(
+                $fileData,
+                'students/images',
+                $studentId,
+                null,
+                $this->user_id,
+                'student profile photo',
+                '',
+                'photo_student_' . $studentId
+            );
+            $photoUrl = $mediaManager->getFileUrl($mediaId)
+                ?: $mediaManager->getPreviewUrl($mediaId);
 
-            if (!isset($fileData['tmp_name']) || !is_uploaded_file($fileData['tmp_name'])) {
-                return formatResponse(false, null, 'No file uploaded');
+            if (!$photoUrl) {
+                return formatResponse(false, null, 'Uploaded photo could not be resolved');
             }
 
-            $fileType = mime_content_type($fileData['tmp_name']);
-            if (!in_array($fileType, $allowedTypes)) {
-                return formatResponse(false, null, 'Invalid file type. Only JPG, JPEG, and PNG are allowed');
-            }
+            $statement = $this->db->prepare(
+                "UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?"
+            );
+            $statement->execute([$photoUrl, $studentId]);
 
-            if ($fileData['size'] > $maxSize) {
-                return formatResponse(false, null, 'File size exceeds 5MB limit');
-            }
+            $this->logAction(
+                'update',
+                $studentId,
+                'Uploaded student photo through canonical UploadService'
+            );
 
-            // Create student-specific directory: uploads/students/images/{student_id}/
-            $studentImageDir = STUDENT_IMAGES . '/' . $studentId . '/';
-            if (!is_dir($studentImageDir)) {
-                @mkdir($studentImageDir, 0755, true);
-            }
-
-            // Generate unique filename: photo_{YYYYMMDD}_{HHMMSS}.{ext}
-            $extension = strtolower(pathinfo($fileData['name'], PATHINFO_EXTENSION)) ?: 'jpg';
-            $filename = 'photo_' . date('Ymd_His') . '.' . $extension;
-            $filepath = $studentImageDir . $filename;
-
-            // Resize and optimize image
-            $this->resizeImage($fileData['tmp_name'], $filepath, 400, 500);
-
-            // Web-accessible path
-            $webPath = '/uploads/students/images/' . $studentId . '/' . $filename;
-
-            // Import into MediaManager
-            try {
-                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                $projectRoot = defined('UPLOAD_PATH') ? dirname(UPLOAD_PATH) : __DIR__ . '/../../..';
-                $fullSource = $projectRoot . '/' . ltrim($webPath, '/');
-                $mediaId = null;
-                if (file_exists($fullSource)) {
-                    $mediaId = $mediaManager->import($fullSource, 'students/images', $studentId, $filename, null, 'student photo');
-                }
-                $dbPath = $mediaId ? ($mediaManager->getFileUrl($mediaId) ?: $mediaManager->getPreviewUrl($mediaId)) : null;
-                $dbPath = $dbPath ?? $webPath;
-
-                $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$dbPath, $studentId]);
-
-                $this->logAction('update', $studentId, "Uploaded student photo: {$filename}");
-
-                return formatResponse(true, [
-                    'photo_url' => $dbPath,
-                    'filename' => $filename,
-                    'media_id' => $mediaId
-                ], 'Photo uploaded successfully');
-            } catch (\Exception $e) {
-                // Fallback: record the web path
-                $stmt = $this->db->prepare("UPDATE students SET photo_url = ?, updated_at = NOW() WHERE id = ?");
-                $stmt->execute([$webPath, $studentId]);
-                $this->logAction('update', $studentId, "Uploaded student photo (fallback): {$filename}");
-                return formatResponse(true, [
-                    'photo_url' => $webPath,
-                    'filename' => $filename
-                ], 'Photo uploaded (fallback)');
-            }
-
-        } catch (Exception $e) {
-            $this->logError('uploadStudentPhoto', $e->getMessage());
-            return formatResponse(false, null, 'Failed to upload photo: ' . $e->getMessage());
+            return formatResponse(true, [
+                'photo_url' => $photoUrl,
+                'media_id' => $mediaId,
+            ], 'Photo uploaded successfully');
+        } catch (Exception $exception) {
+            $this->logError('uploadStudentPhoto', $exception->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to upload photo: ' . $exception->getMessage()
+            );
         }
     }
 
@@ -145,21 +110,6 @@ class StudentIDCardGenerator extends BaseAPI
 
             if (!$student) {
                 return formatResponse(false, null, 'Student not found');
-            }
-
-            // Per-student QR storage: uploads/students/images/{student_id}/qr_codes/
-            // Mirrors the photo layout (uploadStudentPhoto) so every artifact for a student
-            // is co-located and easy to manage/regenerate. The save dir and the web-accessible
-            // path are derived from the SAME $studentQrDir, so they can never drift apart.
-            //
-            // NOTE: STUDENT_IMAGES is derived from a RELATIVE UPLOAD_PATH (config/../uploads).
-            // Inside the framework the CWD may differ from the project root, so a relative
-            // path would mkdir in the wrong (unwritable) location. Anchor it to an ABSOLUTE
-            // root via realpath() so the save path is CWD-independent and reproducible.
-            $uploadRoot = realpath(UPLOAD_PATH) ?: UPLOAD_PATH;
-            $studentQrDir = rtrim($uploadRoot, '/') . '/students/images/' . $studentId . '/qr_codes/';
-            if (!is_dir($studentQrDir)) {
-                mkdir($studentQrDir, 0755, true);
             }
 
             // Check if QR library exists
@@ -185,16 +135,21 @@ class StudentIDCardGenerator extends BaseAPI
             $writer = new \Endroid\QrCode\Writer\PngWriter();
             $result = $writer->write($qrCode);
 
-            // Save QR code with timestamp
+            // Persist through the inherited UploadService gateway.
             $filename = 'qr_code_' . date('Ymd_His') . '.png';
-            $filepath = $studentQrDir . $filename;
-            $result->saveToFile($filepath);
-
-            // Web-accessible path (mirrors $studentQrDir: {student_id}/qr_codes/).
-            // Prefixed with BASE_URL so the stored link is portable across environments
-            // (localhost vs production) instead of a bare /uploads path that only resolves
-            // when the project sits at the web root.
-            $webPath = rtrim(BASE_URL, '/') . '/uploads/students/images/' . $studentId . '/qr_codes/' . $filename;
+            $filepath = $this->managedPath(
+                'student_photo',
+                (string) $studentId,
+                'qr_codes',
+                $filename
+            );
+            $this->writeManagedFile($filepath, $result->getString());
+            $webPath = $this->managedPublicUrl(
+                'student_photo',
+                (string) $studentId,
+                'qr_codes',
+                $filename
+            );
 
             // Update student record with QR code path
             $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?");
@@ -221,95 +176,17 @@ class StudentIDCardGenerator extends BaseAPI
      * @param string $side 'front', 'back', or 'both'
      * @return array Response
      */
-    public function generateIDCard($studentId, $format = 'html', $side = 'both')
-    {
-        try {
-            // Get student details
-            $stmt = $this->db->prepare("
-                SELECT
-                    s.*,
-                    c.name as class_name, c.level_id,
-                    cs.stream_name,
-                    YEAR(s.admission_date) as year_joined,
-                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
-                FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                WHERE s.id = ?
-            ");
-            $stmt->execute([$studentId]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$student) {
-                return formatResponse(false, null, 'Student not found');
-            }
-
-            // Ensure photo exists
-            $defaultAvatar = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
-            if (empty($student['photo_url']) || !file_exists('.' . $student['photo_url'])) {
-                $student['photo_url'] = '/' . ltrim($defaultAvatar, '/');
-            }
-
-            // Get school configuration
-            $schoolConfig = $this->getSchoolConfig();
-
-            // Generate card data
-            $card = [
-                'card_number' => $student['card_number'] ?? $student['admission_no'],
-                'issue_date' => $student['card_issue_date'] ?? date('Y-m-d'),
-                'expiry_date' => $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
-            ];
-
-            // Ensure QR codes directory exists (for backward compatibility)
-            if (!is_dir($this->qrCodesPath)) {
-                @mkdir($this->qrCodesPath, 0755, true);
-            }
-
-            // Generate HTML using shared renderer (includes QR as data URI)
-            $html = $this->renderer->renderDirectCard($student, 'student', $side, $schoolConfig);
-
-            if ($format === 'pdf') {
-                // Generate PDF
-                $pdfPath = $this->printService->generatePDFFromHtml($html, [
-                    'orientation' => 'landscape',
-                    'paperSize' => 'A4',
-                    'filename' => 'id_card_' . $student['admission_no'] . '_' . time()
-                ]);
-
-                // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
-                $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
-                $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
-
-                $this->logAction('create', $studentId, "Generated ID card PDF: {$pdfPath}");
-
-                return formatResponse(true, [
-                    'file_path' => $webPath,
-                    'view_url' => $webPath,
-                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
-                    'admission_no' => $student['admission_no'],
-                    'format' => 'pdf'
-                ], 'ID card PDF generated successfully');
-            } else {
-                // Save HTML version
-                $filename = "id_card_{$student['admission_no']}_" . time() . ".html";
-                $filepath = $this->templatesPath . $filename;
-                file_put_contents($filepath, $html);
-
-                $this->logAction('create', $studentId, "Generated ID card HTML: {$filename}");
-
-                return formatResponse(true, [
-                    'file_path' => '/templates/id_cards/' . $filename,
-                    'view_url' => '/templates/id_cards/' . $filename,
-                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
-                    'admission_no' => $student['admission_no'],
-                    'format' => 'html'
-                ], 'ID card generated successfully');
-            }
-
-        } catch (Exception $e) {
-            $this->logError('generateIDCard', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate ID card: ' . $e->getMessage());
-        }
+    public function generateIDCard(
+        $studentId,
+        $format = 'pdf',
+        $side = 'both'
+    ) {
+        return $this->generatePrintableSingle(
+            (int) $studentId,
+            (string) $side,
+            'direct_card',
+            'pdf'
+        );
     }
 
     /**
@@ -320,78 +197,195 @@ class StudentIDCardGenerator extends BaseAPI
      * @param bool $includeBack Include back side
      * @return array Response
      */
-    public function generateBulkIDCardsPDF($studentIds, $printMode = 'a4_sheet', $includeFront = true, $includeBack = true)
-    {
+    public function generateBulkIDCardsPDF(
+        $studentIds,
+        $printMode = 'a4_pdf',
+        $includeFront = true,
+        $includeBack = true
+    ) {
         try {
-            if (empty($studentIds)) {
-                return formatResponse(false, null, 'No student IDs provided');
+            $studentIds = array_values(
+                array_unique(
+                    array_filter(
+                        array_map('intval', (array) $studentIds),
+                        static fn (int $id): bool => $id > 0
+                    )
+                )
+            );
+
+            if ($studentIds === []) {
+                return formatResponse(
+                    false,
+                    null,
+                    'Select at least one student before printing.'
+                );
             }
 
-            // Get student details
-            $placeholders = str_repeat('?,', count($studentIds) - 1) . '?';
-            $stmt = $this->db->prepare("
-                SELECT 
+            if (!$includeFront && !$includeBack) {
+                return formatResponse(
+                    false,
+                    null,
+                    'Select at least one ID-card side.'
+                );
+            }
+
+            $side = $includeFront && $includeBack
+                ? 'both'
+                : ($includeFront ? 'front' : 'back');
+
+            $printerMode = in_array(
+                strtolower((string) $printMode),
+                ['direct_card', 'direct'],
+                true
+            )
+                ? 'direct_card'
+                : 'a4_pdf';
+
+            $placeholders = implode(
+                ',',
+                array_fill(0, count($studentIds), '?')
+            );
+
+            $statement = $this->db->prepare(
+                "SELECT
                     s.*,
-                    c.name as class_name, c.level_id,
+                    ce.academic_year_id,
+                    ce.class_id AS enrollment_class_id,
+                    ce.stream_id AS enrollment_stream_id,
+                    c.name AS class_name,
                     cs.stream_name,
-                    YEAR(s.admission_date) as year_joined,
-                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
-                FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                WHERE s.id IN ({$placeholders}) AND s.status = 'active'
-            ");
-            $stmt->execute($studentIds);
-            $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    ay.year_name AS academic_year
+                 FROM students s
+                 LEFT JOIN class_enrollments ce
+                    ON ce.id = (
+                        SELECT ce_current.id
+                        FROM class_enrollments ce_current
+                        INNER JOIN academic_years ay_current
+                            ON ay_current.id = ce_current.academic_year_id
+                        WHERE ce_current.student_id = s.id
+                          AND ce_current.enrollment_status = 'active'
+                        ORDER BY ay_current.is_current DESC,
+                                 ay_current.start_date DESC,
+                                 ce_current.id DESC
+                        LIMIT 1
+                    )
+                 LEFT JOIN class_streams cs
+                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN classes c
+                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                 LEFT JOIN academic_years ay
+                    ON ay.id = ce.academic_year_id
+                 WHERE s.id IN ({$placeholders})
+                   AND s.status = 'active'
+                 ORDER BY c.level_id, c.name, cs.stream_name,
+                          s.first_name, s.last_name"
+            );
+            $statement->execute($studentIds);
+            $students = $statement->fetchAll(PDO::FETCH_ASSOC);
 
-            if (empty($students)) {
-                return formatResponse(false, null, 'No active students found');
+            if ($students === []) {
+                return formatResponse(
+                    false,
+                    null,
+                    'No active students were found for printing.'
+                );
             }
 
-            // Add card data to each student
             foreach ($students as &$student) {
-                $student['card_number'] = $student['card_number'] ?? $student['admission_no'];
-                $student['issue_date'] = $student['card_issue_date'] ?? date('Y-m-d');
-                $student['expiry_date'] = $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31';
-                $student['academic_year'] = $this->getAcademicYearForStudent($student['id']);
+                $student['card_number'] = (string) (
+                    $student['card_number']
+                    ?? $student['admission_no']
+                    ?? ''
+                );
+                $student['issue_date'] = (string) (
+                    $student['card_issue_date']
+                    ?? date('Y-m-d')
+                );
+                $student['expiry_date'] = (string) (
+                    $student['card_expiry_date']
+                    ?? (date('Y') + 1) . '-12-31'
+                );
+                $student['qr_code_url'] = (string) (
+                    $student['qr_code_path']
+                    ?? $student['qr_code_url']
+                    ?? ''
+                );
+
+                if (trim($student['qr_code_url']) === '') {
+                    $qrResponse = $this->generateEnhancedQRCode(
+                        (int) $student['id']
+                    );
+
+                    if (($qrResponse['status'] ?? '') === 'success') {
+                        $generatedQrPath = (string) (
+                            $qrResponse['data']['qr_code_path']
+                            ?? ''
+                        );
+
+                        if ($generatedQrPath !== '') {
+                            $student['qr_code_path'] = $generatedQrPath;
+                            $student['qr_code_url'] = $generatedQrPath;
+                        }
+                    }
+                }
             }
+            unset($student);
 
-            // Get school configuration
-            $schoolConfig = $this->getSchoolConfig();
+            $result = $this->prints()->printStudentIdCards(
+                $students,
+                [
+                    'printerMode' => $printerMode,
+                    'side' => $side,
+                    'chunkSize' => 100,
+                    'filename' => 'student_id_cards_'
+                        . date('Y-m-d_His'),
+                ]
+            );
 
-            if ($printMode === 'a4_sheet') {
-                // Generate bulk A4 sheet
-                $html = $this->renderer->renderBulkA4Sheet($students, 'student', $schoolConfig);
-                
-                $pdfPath = $this->printService->generatePDFFromHtml($html, [
-                    'orientation' => 'landscape',
-                    'paperSize' => 'A4',
-                    'filename' => 'id_cards_bulk_' . time()
-                ]);
-            } else {
-                // Direct card mode - generate one PDF per card
-                // For now, return error as this requires different handling
-                return formatResponse(false, null, 'Direct card mode not yet implemented for bulk generation');
-            }
+            $files = array_map(
+                fn (string $path): array => $this->buildPrintFile($path),
+                $result['files']
+            );
 
-            // Convert to web-accessible path (env-agnostic, BASE_URL-rooted).
-            $webPath = str_replace($this->printService->getOutputPath(), '', $pdfPath);
-            $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
+            $payload = array_merge(
+                $result,
+                [
+                    'student_count' => count($students),
+                    'files' => $files,
+                    'file' => $files[0] ?? null,
+                    'pdf_url' => $files[0]['download_url'] ?? null,
+                    'download_url' =>
+                        $files[0]['download_url'] ?? null,
+                ]
+            );
 
-            $this->logAction('create', 0, "Generated bulk ID cards PDF: " . count($students) . " students");
+            $this->logAction(
+                'create',
+                0,
+                sprintf(
+                    'Generated %s student ID-card PDF for %d students.',
+                    $printerMode,
+                    count($students)
+                )
+            );
 
-            return formatResponse(true, [
-                'pdf_url' => $webPath,
-                'file_name' => basename($pdfPath),
-                'student_count' => count($students),
-                'card_sides' => count($students) * ($includeFront && $includeBack ? 2 : 1),
-                'layout' => 'front_back_row',
-                'print_mode' => $printMode
-            ], 'Bulk ID cards PDF generated successfully');
+            return formatResponse(
+                true,
+                $payload,
+                'Student ID-card PDF generated successfully.'
+            );
+        } catch (Exception $exception) {
+            $this->logError(
+                'generateBulkIDCardsPDF',
+                $exception->getMessage()
+            );
 
-        } catch (Exception $e) {
-            $this->logError('generateBulkIDCardsPDF', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate bulk ID cards: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to generate student ID cards: '
+                    . $exception->getMessage()
+            );
         }
     }
 
@@ -407,79 +401,174 @@ class StudentIDCardGenerator extends BaseAPI
      * @param string $printMode 'a4_sheet'|'direct_card'
      * @return array Response with 'html' key
      */
-    public function generatePrintableSingle($studentId, $side = 'both', $printMode = 'direct_card', $format = 'html')
-    {
+    public function generatePrintableSingle(
+        $studentId,
+        $side = 'both',
+        $printMode = 'direct_card',
+        $format = 'pdf'
+    ) {
         try {
-            $stmt = $this->db->prepare("
-                SELECT
+            $studentId = (int) $studentId;
+
+            if ($studentId <= 0) {
+                return formatResponse(
+                    false,
+                    null,
+                    'A valid student ID is required.'
+                );
+            }
+
+            $statement = $this->db->prepare(
+                "SELECT
                     s.*,
-                    c.name as class_name, c.level_id,
+                    ce.academic_year_id,
+                    ce.class_id AS enrollment_class_id,
+                    ce.stream_id AS enrollment_stream_id,
+                    c.name AS class_name,
                     cs.stream_name,
-                    YEAR(s.admission_date) as year_joined,
-                    (YEAR(s.admission_date) + c.level_id) as expected_graduation_year
-                FROM students s
-                LEFT JOIN class_streams cs ON s.stream_id = cs.id
-                LEFT JOIN classes c ON cs.class_id = c.id
-                WHERE s.id = ?
-            ");
-            $stmt->execute([$studentId]);
-            $student = $stmt->fetch(PDO::FETCH_ASSOC);
+                    ay.year_name AS academic_year
+                 FROM students s
+                 LEFT JOIN class_enrollments ce
+                    ON ce.id = (
+                        SELECT ce_current.id
+                        FROM class_enrollments ce_current
+                        INNER JOIN academic_years ay_current
+                            ON ay_current.id = ce_current.academic_year_id
+                        WHERE ce_current.student_id = s.id
+                          AND ce_current.enrollment_status = 'active'
+                        ORDER BY ay_current.is_current DESC,
+                                 ay_current.start_date DESC,
+                                 ce_current.id DESC
+                        LIMIT 1
+                    )
+                 LEFT JOIN class_streams cs
+                    ON cs.id = COALESCE(ce.stream_id, s.stream_id)
+                 LEFT JOIN classes c
+                    ON c.id = COALESCE(ce.class_id, cs.class_id)
+                 LEFT JOIN academic_years ay
+                    ON ay.id = ce.academic_year_id
+                 WHERE s.id = ?
+                 LIMIT 1"
+            );
+            $statement->execute([$studentId]);
+            $student = $statement->fetch(PDO::FETCH_ASSOC);
 
             if (!$student) {
-                return formatResponse(false, null, 'Student not found');
+                return formatResponse(
+                    false,
+                    null,
+                    'Student not found.'
+                );
             }
 
-            $defaultAvatar = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
-            if (empty($student['photo_url']) || !file_exists('.' . $student['photo_url'])) {
-                $student['photo_url'] = '/' . ltrim($defaultAvatar, '/');
+            $student['card_number'] = (string) (
+                $student['card_number']
+                ?? $student['admission_no']
+                ?? ''
+            );
+            $student['issue_date'] = (string) (
+                $student['card_issue_date']
+                ?? date('Y-m-d')
+            );
+            $student['expiry_date'] = (string) (
+                $student['card_expiry_date']
+                ?? (date('Y') + 1) . '-12-31'
+            );
+            $student['qr_code_url'] = (string) (
+                $student['qr_code_path']
+                ?? $student['qr_code_url']
+                ?? ''
+            );
+
+            if (trim($student['qr_code_url']) === '') {
+                $qrResponse = $this->generateEnhancedQRCode(
+                    (int) $student['id']
+                );
+
+                if (($qrResponse['status'] ?? '') === 'success') {
+                    $generatedQrPath = (string) (
+                        $qrResponse['data']['qr_code_path']
+                        ?? ''
+                    );
+
+                    if ($generatedQrPath !== '') {
+                        $student['qr_code_path'] = $generatedQrPath;
+                        $student['qr_code_url'] = $generatedQrPath;
+                    }
+                }
             }
 
-            $card = [
-                'card_number' => $student['card_number'] ?? $student['admission_no'],
-                'issue_date' => $student['card_issue_date'] ?? date('Y-m-d'),
-                'expiry_date' => $student['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
-            ];
-            $student['academic_year'] = $this->getAcademicYearForStudent($student['id']);
+            $printerMode = in_array(
+                strtolower((string) $printMode),
+                ['a4_pdf', 'a4_sheet', 'a4'],
+                true
+            )
+                ? 'a4_pdf'
+                : 'direct_card';
 
-            $schoolConfig = $this->getSchoolConfig();
+            $result = $this->prints()->printSingleStudentIdCard(
+                $student,
+                [
+                    'printerMode' => $printerMode,
+                    'side' => (string) $side,
+                    'filename' => 'student_id_'
+                        . preg_replace(
+                            '/[^A-Za-z0-9_-]+/',
+                            '_',
+                            (string) $student['admission_no']
+                        )
+                        . '_'
+                        . date('Y-m-d_His'),
+                ]
+            );
 
-            if ($printMode === 'a4_sheet') {
-                // One A4 landscape page with front and back side-by-side.
-                $html = $this->renderer->renderBulkA4Sheet([$student], 'student', $schoolConfig);
-            } else {
-                // Exact CR80 page guided by @page in renderer CSS.
-                $html = $this->renderer->renderDirectCard($student, 'student', $side, $schoolConfig);
-            }
+            $files = array_map(
+                fn (string $path): array => $this->buildPrintFile($path),
+                $result['files']
+            );
 
-            // PDF mode: produce a real CR80 page-sized PDF (85.60 x 53.98 mm)
-            // so a direct PVC/CR80 printer can be fed one side per physical page.
-            if ($format === 'pdf') {
-                $pdfPath = $this->printService->generatePDFFromHtml($html, [
-                    'cr80' => true,
-                    'orientation' => 'landscape',
-                    'filename' => 'id_card_' . $student['admission_no'] . '_' . time()
-                ]);
-                $pdfUrl = rtrim(BASE_URL ?? '', '/') . '/temp/print/' . basename($pdfPath);
-                return formatResponse(true, [
-                    'pdf_url' => $pdfUrl,
-                    'file_path' => $pdfPath,
-                    'side' => $side,
-                    'student_name' => $student['first_name'] . ' ' . $student['last_name'],
-                    'admission_no' => $student['admission_no']
-                ], 'ID card PDF generated');
-            }
+            $payload = array_merge(
+                $result,
+                [
+                    'student_name' => trim(
+                        implode(
+                            ' ',
+                            array_filter(
+                                [
+                                    $student['first_name'] ?? '',
+                                    $student['middle_name'] ?? '',
+                                    $student['last_name'] ?? '',
+                                ]
+                            )
+                        )
+                    ),
+                    'admission_no' =>
+                        $student['admission_no'] ?? '',
+                    'files' => $files,
+                    'file' => $files[0] ?? null,
+                    'pdf_url' => $files[0]['download_url'] ?? null,
+                    'download_url' =>
+                        $files[0]['download_url'] ?? null,
+                ]
+            );
 
-            return formatResponse(true, [
-                'html' => $html,
-                'student_name' => $student['first_name'] . ' ' . $student['last_name'],
-                'admission_no' => $student['admission_no'],
-                'side' => $side,
-                'print_mode' => $printMode
-            ], 'ID card printable HTML generated');
+            return formatResponse(
+                true,
+                $payload,
+                'Student ID-card PDF generated successfully.'
+            );
+        } catch (Exception $exception) {
+            $this->logError(
+                'generatePrintableSingle',
+                $exception->getMessage()
+            );
 
-        } catch (Exception $e) {
-            $this->logError('generatePrintableSingle', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate printable card: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to generate student ID card: '
+                    . $exception->getMessage()
+            );
         }
     }
 
@@ -489,38 +578,76 @@ class StudentIDCardGenerator extends BaseAPI
      * @param int $streamId Stream ID (optional)
      * @return array Response
      */
-    public function generateBulkIDCards($classId, $streamId = null)
-    {
+    public function generateBulkIDCards(
+        $classId,
+        $streamId = null
+    ) {
         try {
-            $sql = "SELECT id FROM students WHERE stream_id IN (
-                SELECT id FROM class_streams WHERE class_id = ?
-            ) AND status = 'active'";
+            $sql = "SELECT s.id
+                    FROM students s
+                    INNER JOIN class_streams cs
+                        ON cs.id = s.stream_id
+                    WHERE cs.class_id = ?
+                      AND s.status = 'active'";
+            $params = [(int) $classId];
 
-            $params = [$classId];
-
-            if ($streamId) {
-                $sql = "SELECT id FROM students WHERE stream_id = ? AND status = 'active'";
-                $params = [$streamId];
+            if ($streamId !== null) {
+                $sql .= " AND s.stream_id = ?";
+                $params[] = (int) $streamId;
             }
 
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $sql .= " ORDER BY s.first_name, s.last_name";
 
-            $studentIds = array_column($students, 'id');
-            
-            // Use new bulk PDF generation
-            return $this->generateBulkIDCardsPDF($studentIds, 'a4_sheet', true, true);
+            $statement = $this->db->prepare($sql);
+            $statement->execute($params);
 
-        } catch (Exception $e) {
-            $this->logError('generateBulkIDCards', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate bulk ID cards: ' . $e->getMessage());
+            $studentIds = array_map(
+                'intval',
+                $statement->fetchAll(PDO::FETCH_COLUMN)
+            );
+
+            return $this->generateBulkIDCardsPDF(
+                $studentIds,
+                'a4_pdf',
+                true,
+                true
+            );
+        } catch (Exception $exception) {
+            $this->logError(
+                'generateBulkIDCards',
+                $exception->getMessage()
+            );
+
+            return formatResponse(
+                false,
+                null,
+                'Failed to generate class ID cards: '
+                    . $exception->getMessage()
+            );
         }
     }
 
     // ========================================================================
     // HELPER METHODS
     // ========================================================================
+
+    /**
+     * Convert a generated private filesystem path into the canonical
+     * browser-facing print-file descriptor.
+     *
+     * @return array{filename:string,download_url:string,url:string}
+     */
+    private function buildPrintFile(string $path): array
+    {
+        $filename = basename($path);
+        $url = $this->generatedDownloadUrl($path, true);
+
+        return [
+            'filename' => $filename,
+            'download_url' => $url,
+            'url' => $url,
+        ];
+    }
 
     private function resizeImage($source, $destination, $maxWidth, $maxHeight)
     {
@@ -616,7 +743,7 @@ class StudentIDCardGenerator extends BaseAPI
                 'authorized_signature' => $settings['authorized_signature'] ?? '',
                 // Logo resolution mirrors the browser preview (resolveAssetUrl
                 // fallback to the on-disk official logo).
-                'school_logo' => '/uploads/school_assets/official_school_logo.png'
+                'school_logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png')
             ];
         } catch (Exception $e) {
             return [
@@ -628,7 +755,7 @@ class StudentIDCardGenerator extends BaseAPI
                 'school_motto' => 'In God We Soar',
                 'headteacher_name' => '',
                 'authorized_signature' => '',
-                'school_logo' => '/uploads/school_assets/official_school_logo.png'
+                'school_logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png')
             ];
         }
     }

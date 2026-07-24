@@ -3,17 +3,33 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\attendance\AttendanceAPI;
+use App\API\Services\StaffDomainAccessService;
+use RuntimeException;
 use Exception;
 
 class AttendanceController extends BaseController
 {
     private $api;
+    private $staffAccess;
 
     public function __construct()
     {
         parent::__construct();
         $this->api = new AttendanceAPI();
+        $this->staffAccess = new StaffDomainAccessService($this->user);
     }
+    private function guardStaffAttendance(string $permission, array $roles = [])
+    {
+        try {
+            $this->staffAccess->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401
+                ? $this->unauthorized($e->getMessage())
+                : $this->forbidden($e->getMessage());
+        }
+    }
+
     public function index()
     {
         return $this->success(['message' => 'Attendance API is running']);
@@ -188,6 +204,12 @@ class AttendanceController extends BaseController
 
     public function getStaffHistory($staffId = null, $data = [], $segments = [])
     {
+        if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
+        $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
+        if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
+        try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
+        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+
         $staffId = $staffId ?? ($data['staffId'] ?? null);
         $scope = $this->getAccessibleStaffScope();
         if (!$this->isStaffInScope($staffId ? (int) $staffId : null, $scope)) {
@@ -199,6 +221,12 @@ class AttendanceController extends BaseController
 
     public function getStaffSummary($staffId = null, $data = [], $segments = [])
     {
+        if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
+        $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
+        if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
+        try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
+        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+
         $staffId = $staffId ?? ($data['staffId'] ?? null);
         $scope = $this->getAccessibleStaffScope();
         if (!$this->isStaffInScope($staffId ? (int) $staffId : null, $scope)) {
@@ -218,6 +246,12 @@ class AttendanceController extends BaseController
 
     public function getStaffPercentage($staffId = null, $data = [], $segments = [])
     {
+        if (!$this->staffAccess->authenticated()) return $this->unauthorized('Authentication required');
+        $requested = (int)($staffId ?? $data['staff_id'] ?? $_GET['staff_id'] ?? 0);
+        if (!$requested) $requested = (int)($this->staffAccess->staffId() ?? 0);
+        try { $staffId = $this->staffAccess->requireSelfOr('staff.attendance.view', $requested, ['system administrator','school administrator','headteacher','director']); }
+        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
+
         $termId = $data['termId'] ?? $data['term_id'] ?? $_GET['termId'] ?? $_GET['term_id'] ?? null;
         $yearId = $data['yearId'] ?? $data['year_id'] ?? $_GET['yearId'] ?? $_GET['year_id'] ?? null;
         $result = $this->api->getStaffAttendancePercentage($staffId, $termId, $yearId);
@@ -1494,6 +1528,7 @@ class AttendanceController extends BaseController
      */
     public function getStaffToday($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
         try {
             $date = $data['date'] ?? $_GET['date'] ?? date('Y-m-d');
             $departmentId = $data['department_id'] ?? $_GET['department_id'] ?? null;
@@ -1601,6 +1636,7 @@ class AttendanceController extends BaseController
      */
     public function postMarkStaff($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance('staff.attendance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
         try {
             $date        = $data['date']       ?? date('Y-m-d');
             $shift       = $data['shift']      ?? 'full_day';
@@ -1742,6 +1778,7 @@ class AttendanceController extends BaseController
      */
     public function getStaffRegisterContext($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
         try {
             $date         = $_GET['date']          ?? date('Y-m-d');
             $departmentId = $_GET['department_id'] ?? null;
@@ -1871,6 +1908,7 @@ class AttendanceController extends BaseController
      */
     public function getDutyTypes($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
         try {
             $sql = "SELECT id, code as duty_code, name as duty_name, description, color,
                            (status = 'active') AS is_active
@@ -1892,6 +1930,7 @@ class AttendanceController extends BaseController
      */
     public function getStaffReport($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance('staff.attendance.view', ['system administrator','school administrator','headteacher','director'])) return $denied;
         try {
             $dateFrom = $data['date_from'] ?? $_GET['date_from'] ?? date('Y-m-01');
             $dateTo = $data['date_to'] ?? $_GET['date_to'] ?? date('Y-m-d');

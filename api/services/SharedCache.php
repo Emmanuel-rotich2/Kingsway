@@ -28,14 +28,14 @@ class SharedCache
     private const DEFAULT_TTL = 300; // 5 minutes
 
     private string $dir;
+    private UploadService $storage;
 
     public function __construct(?string $dir = null)
     {
+        $this->storage = new UploadService();
         $this->dir = $dir
             ?? (sys_get_temp_dir() . '/kingsway_cache');
-        if (!is_dir($this->dir)) {
-            @mkdir($this->dir, 0775, true);
-        }
+        $this->storage->ensureDirectoryPath($this->dir);
     }
 
     /**
@@ -61,7 +61,7 @@ class SharedCache
     {
         $path = $this->pathFor($key);
         if (is_file($path)) {
-            @unlink($path);
+            $this->storage->deleteFile($path);
         }
     }
 
@@ -80,7 +80,7 @@ class SharedCache
             }
             $p = $this->dir . '/' . $f;
             if (is_file($p)) {
-                @unlink($p);
+                $this->storage->deleteFile($p);
             }
         }
         closedir($dh);
@@ -114,30 +114,13 @@ class SharedCache
 
     private function write(string $path, mixed $value, int $expires): void
     {
-        $tmp = $path . '.' . getmypid() . '.' . mt_rand(0, 9999999) . '.tmp';
         $payload = json_encode([
             'expires' => $expires,
-            'value'   => $value,
+            'value' => $value,
         ], JSON_UNESCAPED_UNICODE);
-        if ($payload === false) {
-            return;
-        }
-        $fh = @fopen($tmp, 'w');
-        if (!$fh) {
-            return;
-        }
-        if (!flock($fh, LOCK_EX)) {
-            fclose($fh);
-            return;
-        }
-        fwrite($fh, $payload);
-        fflush($fh);
-        flock($fh, LOCK_UN);
-        fclose($fh);
-        // Atomic replace so concurrent readers never see a partial file.
-        @rename($tmp, $path);
-        if (is_file($tmp)) {
-            @unlink($tmp);
+
+        if ($payload !== false) {
+            $this->storage->atomicWrite($path, $payload);
         }
     }
 

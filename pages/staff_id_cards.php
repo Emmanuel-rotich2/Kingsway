@@ -1,0 +1,21 @@
+<?php /** Staff ID Cards — canonical administrative workspace */ ?>
+<div class="container-fluid py-4" data-staff-page data-required-permission="staff.id_cards.view">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div><h3 class="mb-1"><i class="bi bi-person-vcard me-2"></i>Staff ID Cards</h3><p class="text-muted mb-0">Generate, preview, issue and track staff identity cards.</p></div>
+    <button class="btn btn-primary" id="newStaffCardBtn" data-permission="staff.id_cards.manage"><i class="bi bi-plus-lg me-1"></i>Generate Card</button>
+  </div>
+  <div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="card shadow-sm border-0"><div class="card-body"><small class="text-muted">Total Cards</small><h3 id="cardTotal">0</h3></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0"><div class="card-body"><small class="text-muted">Generated</small><h3 id="cardGenerated">0</h3></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0"><div class="card-body"><small class="text-muted">Issued</small><h3 id="cardIssued">0</h3></div></div></div>
+    <div class="col-md-3"><div class="card shadow-sm border-0"><div class="card-body"><small class="text-muted">Expired</small><h3 id="cardExpired">0</h3></div></div></div>
+  </div>
+  <div class="card shadow-sm border-0">
+    <div class="card-header bg-white"><div class="row g-2"><div class="col-md-5"><input class="form-control" id="cardSearch" placeholder="Search staff number, name or card number"></div><div class="col-md-3"><select class="form-select" id="cardStatus"><option value="">All statuses</option><option value="generated">Generated</option><option value="issued">Issued</option><option value="expired">Expired</option><option value="revoked">Revoked</option></select></div><div class="col-md-2"><button class="btn btn-outline-secondary w-100" id="refreshCardsBtn"><i class="bi bi-arrow-clockwise"></i> Refresh</button></div></div></div>
+    <div class="table-responsive"><table class="table table-hover mb-0"><thead class="table-light"><tr><th>Staff</th><th>Staff No.</th><th>Department</th><th>Card No.</th><th>Expires</th><th>Status</th><th class="text-end">Actions</th></tr></thead><tbody id="staffCardsBody"><tr><td colspan="7" class="text-center py-4">Loading…</td></tr></tbody></table></div>
+  </div>
+</div>
+<div class="modal fade" id="generateStaffCardModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Generate Staff ID Card</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-3"><label class="form-label">Staff member</label><select class="form-select" id="cardStaffId" required><option value="">Select staff</option></select></div><div class="mb-3"><label class="form-label">Expiry date</label><input type="date" class="form-control" id="cardExpiry"></div><div class="row g-2"><div class="col"><label class="form-label">Format</label><select id="cardFormat" class="form-select"><option value="html">HTML preview</option><option value="pdf">PDF</option></select></div><div class="col"><label class="form-label">Side</label><select id="cardSide" class="form-select"><option value="both">Front & back</option><option value="front">Front</option><option value="back">Back</option></select></div></div></div><div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="generateStaffCardSubmit">Generate</button></div></div></div></div>
+<div class="modal fade" id="staffCardPreviewModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Staff ID Card Preview</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="staffCardPreviewBody"></div><div class="modal-footer"><button class="btn btn-outline-secondary" id="printStaffCardBtn"><i class="bi bi-printer"></i> Print</button><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div></div></div></div>
+<script src="<?= $appBase ?>/js/pages/staff_access.js"></script>
+<script src="<?= $appBase ?>/js/pages/staff_id_cards.js"></script>

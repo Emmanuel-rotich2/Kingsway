@@ -19,7 +19,7 @@
  *   GET  /api/attendance/staff-report
  *   GET  /api/attendance/duty-types
  *   POST /api/attendance/mark-staff
- *   GET  /api/staff/departments/get
+ *   GET  /api/staff/departments-get
  */
 ?>
 
@@ -516,4 +516,5 @@
      SCRIPTS
 ========================================================= -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/staff_attendance.js?v=<?= time() ?>"></script>

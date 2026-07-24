@@ -1,22 +1,25 @@
 <?php
 /**
- * Staff Performance Page
- * HTML structure only - logic will be in js/pages/staff_performance.js
- * Embedded in app_layout.php
+ * Staff Performance Page - Pure UI/UX Layout
+ * Controller: staff_performance.js
+ * Authentication: JWT via api.js + backend middleware
+ * Role-based access: JavaScript AuthContext + permission system
  */
 ?>
-
-<div class="card shadow-sm">
-    <div class="card-header bg-gradient bg-dark text-white">
-        <div class="d-flex justify-content-between align-items-center">
-            <h4 class="mb-0"><i class="fas fa-user-tie"></i> Staff Performance Reports</h4>
-            <div class="btn-group">
-                <button class="btn btn-light btn-sm" id="exportBtn">
-                    <i class="bi bi-download"></i> Export
-                </button>
-                <button class="btn btn-outline-light btn-sm" id="printBtn">
-                    <i class="bi bi-printer"></i> Print
-                </button>
+<div class="staff-performance-container">
+    <!-- Page Header -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-header bg-dark text-white">
+            <div class="d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-user-tie"></i> Staff Performance Reports</h4>
+                <div class="btn-group">
+                    <button class="btn btn-light btn-sm" id="exportBtn" data-permission-module="staff" data-permission-action="export">
+                        <i class="bi bi-download"></i> Export
+                    </button>
+                    <button class="btn btn-outline-light btn-sm" id="printBtn" data-permission-module="staff" data-permission-action="print">
+                        <i class="bi bi-printer"></i> Print
+                    </button>
+                </div>
             </div>
         </div>
     </div>

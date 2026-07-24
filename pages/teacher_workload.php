@@ -1,16 +1,12 @@
 <?php
 /**
- * Teacher Workload Page
- * 
- * Purpose: View and manage teacher workload distribution
- * Features:
- * - Lessons per teacher
- * - Subject assignments
- * - Workload balancing
+ * Teacher Workload Page - Pure UI/UX Layout
+ * Controller: teacher_workload.js
+ * Authentication: JWT via api.js + backend middleware
+ * Role-based access: JavaScript AuthContext + permission system
  */
 ?>
-
-<div>
+<div class="teacher-workload-container">
     <!-- Page Header -->
     <div class="row mb-4">
         <div class="col-12">
@@ -19,7 +15,7 @@
                     <h4 class="mb-1"><i class="fas fa-tasks me-2"></i>Teacher Workload</h4>
                     <p class="text-muted mb-0">View and balance teacher workload across subjects and classes</p>
                 </div>
-                <button class="btn btn-outline-primary" id="exportWorkload">
+                <button class="btn btn-outline-primary" id="exportWorkload" data-permission-module="staff" data-permission-action="export">
                     <i class="fas fa-download me-1"></i> Export Report
                 </button>
             </div>

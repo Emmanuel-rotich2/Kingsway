@@ -5,6 +5,11 @@ namespace App\API\Controllers;
 use App\API\Modules\staff\StaffAPI;
 use App\API\Modules\staff\StaffPayrollManager;
 use App\API\Modules\staff\StaffIDCardGenerator;
+use App\API\Modules\staff\StaffLeaveManager;
+use App\API\Modules\staff\StaffOnboardingManager;
+use App\API\Services\StaffDomainAccessService;
+use App\API\Services\StaffLifecycleService;
+use App\API\Services\StaffRecordsService;
 use RuntimeException;
 use Exception;
 
@@ -19,6 +24,11 @@ class StaffController extends BaseController
     private $api;
     private $payroll;
     private $idCardGenerator;
+    private $leaveManager;
+    private $onboardingManager;
+    private $access;
+    private $lifecycleService;
+    private $recordsService;
 
     public function __construct()
     {
@@ -26,6 +36,11 @@ class StaffController extends BaseController
         $this->api = new StaffAPI();
         $this->payroll = new StaffPayrollManager();
         $this->idCardGenerator = new StaffIDCardGenerator();
+        $this->leaveManager = new StaffLeaveManager();
+        $this->onboardingManager = new StaffOnboardingManager();
+        $this->access = new StaffDomainAccessService($this->user);
+        $this->lifecycleService = new StaffLifecycleService();
+        $this->recordsService = new StaffRecordsService($this->db);
     }
 
     public function index()
@@ -41,65 +56,7 @@ class StaffController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
-        try {
-            $db = $this->db;
-
-            // Get total staff count by type
-            $totalResult = $db->query(
-                "SELECT COUNT(*) as total FROM staff WHERE status = 'active'"
-            );
-            $totalRow = $totalResult->fetch();
-            $totalStaff = (int) ($totalRow['total'] ?? 0);
-
-            // Get teacher count
-            $teachersResult = $db->query(
-                "SELECT COUNT(*) as count FROM staff WHERE status = 'active' AND staff_type_id = 1"
-            );
-            $teachersRow = $teachersResult->fetch();
-            $teacherCount = (int) ($teachersRow['count'] ?? 0);
-
-            // Get staff present today
-            $today = date('Y-m-d');
-            $presentResult = $db->query(
-                "SELECT COUNT(DISTINCT staff_id) as present FROM staff_attendance 
-                 WHERE DATE(date) = ? AND status = 'present'",
-                [$today]
-            );
-            $presentRow = $presentResult->fetch();
-            $staffPresentToday = (int) ($presentRow['present'] ?? 0);
-
-            // Department distribution
-            $deptResult = $db->query(
-                "SELECT d.name as department, COUNT(s.id) as count 
-                 FROM staff s
-                 LEFT JOIN departments d ON s.department_id = d.id
-                 WHERE s.status = 'active'
-                 GROUP BY s.department_id, d.name
-                 ORDER BY count DESC"
-            );
-            $departmentDistribution = [];
-            while ($row = $deptResult->fetch()) {
-                $departmentDistribution[] = [
-                    'department' => $row['department'] ?? 'Unassigned',
-                    'count' => (int) $row['count']
-                ];
-            }
-
-            $percentage = $totalStaff > 0 ? round(($staffPresentToday / $totalStaff) * 100, 2) : 100;
-
-            return $this->success([
-                'total_staff' => $totalStaff,
-                'teacher_count' => $teacherCount,
-                'staff_present_today' => $staffPresentToday,
-                'attendance_percentage' => (float) $percentage,
-                'department_distribution' => $departmentDistribution,
-                'date' => $today,
-                'timestamp' => date('Y-m-d H:i:s')
-            ], 'Staff statistics');
-
-        } catch (Exception $e) {
-            return $this->error('Failed to fetch staff statistics: ' . $e->getMessage());
-        }
+        return $this->handleResponse($this->api->stats());
     }
 
 
@@ -111,6 +68,7 @@ class StaffController extends BaseController
      */
     public function get($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
             return $this->handleResponse($result);
@@ -139,6 +97,7 @@ class StaffController extends BaseController
      */
     public function post($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator'])) return $denied;
         if ($id !== null) {
             $data['id'] = $id;
         }
@@ -179,6 +138,121 @@ class StaffController extends BaseController
     public function postUploadDocument($id = null, $data = [], $segments = [])
     {
         return $this->handleStaffUpload($id, $data, $segments, 'document');
+    }
+
+    // ==================== NEW ENDPOINTS FOR STAFF UI CONTROLLERS ====================
+
+    /**
+     * GET /api/staff/academic-kpi-summary/{staffId} - Get academic KPI summary
+     */
+    public function getAcademicKPISummary($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        try {
+            $params = array_merge($_GET ?? [], $data);
+            return $this->handleResponse($this->api->getAcademicKPISummary(
+                (int)$id,
+                isset($params['academic_year_id']) ? (int)$params['academic_year_id'] : null
+            ));
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/assign-role - Assign role to staff
+     */
+    public function postAssignRole($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        try {
+            $staffId = (int)($data['staff_id'] ?? 0);
+            $roleId = (int)($data['role_id'] ?? 0);
+            $result = $this->recordsService->assignRole($staffId, $roleId);
+            $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
+            return $this->success($result + ['assigned' => true], 'Role assigned successfully');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * DELETE /api/staff/revoke-role/{staffId}/{roleId} - Revoke role from staff
+     */
+    public function deleteRevokeRole($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        try {
+            $staffId = (int)$id;
+            $roleId = (int)($segments[0] ?? 0);
+            $this->recordsService->revokeRole($staffId, $roleId);
+            $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
+            return $this->success(['revoked' => true], 'Role revoked successfully');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    // ==================== ADDITIONAL STAFF MANAGEMENT ENDPOINTS ====================
+
+    /**
+     * GET /api/staff/lifecycle - Get staff lifecycle records
+     */
+    public function getLifecycle($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        try {
+            $params = array_merge($_GET ?? [], $data);
+            return $this->success(
+                !empty($params['staff_id'])
+                    ? $this->lifecycleService->timeline((int)$params['staff_id'])
+                    : $this->lifecycleService->dashboard($params),
+                'Staff lifecycle records retrieved'
+            );
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * POST /api/staff/lifecycle - Create lifecycle action
+     */
+    public function postLifecycle($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.manage', ['system administrator','school administrator','director','deputy head discipline'])) return $denied;
+        try {
+            $actionId = $this->lifecycleService->createAction($data, $this->access->userId());
+            return $this->created(['id' => $actionId], 'Lifecycle action created successfully');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /**
+     * GET /api/staff/appointments - Get staff appointments
+     */
+    public function getAppointments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.appointments.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        return $this->success($this->recordsService->appointmentSummary(), 'Staff appointments retrieved');
+    }
+
+    /**
+     * POST /api/staff/appointments - Create appointment
+     */
+    public function postAppointments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.appointments.manage', ['system administrator','school administrator','director'])) return $denied;
+        return $this->badRequest('Use /api/staff-appointments/internal or /api/staff-appointments/new for appointment creation.');
+    }
+
+    /**
+     * POST /api/staff/import-existing - Import existing staff records
+     */
+    public function postImportExisting($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.import.manage', ['system administrator','school administrator'])) return $denied;
+        return $this->badRequest('Use /api/staff-migration/stage and /api/staff-migration/commit for existing staff imports.');
     }
 
     private function handleStaffUpload($id = null, $data = [], $segments = [], $forcedType = 'document')
@@ -239,6 +313,7 @@ class StaffController extends BaseController
      */
     public function put($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.manage', ['system administrator','school administrator'])) return $denied;
         if ($id === null) {
             return $this->badRequest('Staff ID is required for update');
         }
@@ -260,6 +335,7 @@ class StaffController extends BaseController
      */
     public function delete($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.directory.delete', ['system administrator'])) return $denied;
         if ($id === null) {
             return $this->badRequest('Staff ID is required for deletion');
         }
@@ -283,7 +359,7 @@ class StaffController extends BaseController
      */
     public function getProfileGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getProfile($staffId);
         return $this->handleResponse($result);
     }
@@ -293,7 +369,7 @@ class StaffController extends BaseController
      */
     public function getScheduleGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getSchedule($staffId);
         return $this->handleResponse($result);
     }
@@ -357,10 +433,7 @@ class StaffController extends BaseController
         $childId = $id ?? $data['id'] ?? null;
         $staffId = $_GET['staff_id'] ?? $data['staff_id'] ?? null;
         if (!$staffId && $childId) {
-            // Fallback: resolve staff_id from child record
-            $stmt = $this->db->getConnection()->prepare("SELECT staff_id FROM staff_children WHERE id = ?");
-            $stmt->execute([$childId]);
-            $staffId = $stmt->fetchColumn() ?: null;
+            $staffId = $this->recordsService->staffIdForChild((int)$childId);
         }
         if (!$staffId || !$childId) {
             return $this->badRequest('staff_id and child id are required');
@@ -447,7 +520,9 @@ class StaffController extends BaseController
      */
     public function getPayrollList($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
         $filters = array_merge($_GET, $data);
+        if (!$this->access->allows('staff.payroll.manage', ['system administrator','accountant','director'])) { $filters['staff_id'] = $this->access->staffId(); }
         $result = $this->api->listPayroll($filters);
         return $this->handleResponse($result);
     }
@@ -457,6 +532,7 @@ class StaffController extends BaseController
      */
     public function getPayrollSummary($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.payroll.manage', ['system administrator','accountant','director'])) return $denied;
         $filters = array_merge($_GET, $data);
         $result = $this->api->getPayrollSummary($filters);
         return $this->handleResponse($result);
@@ -473,8 +549,11 @@ class StaffController extends BaseController
         $year    = (int) ($params['year']  ?? date('Y'));
 
         if (!$staffId) {
-            return $this->badRequest('Staff ID is required');
+            $staffId = $this->access->staffId();
         }
+        if (!$staffId) return $this->badRequest('Staff ID is required');
+        try { $this->access->requireSelfOr('staff.payslip.manage', (int)$staffId, ['system administrator','accountant']); }
+        catch (RuntimeException $e) { return $e->getCode() === 401 ? $this->unauthorized($e->getMessage()) : $this->forbidden($e->getMessage()); }
 
         $result = $this->api->generateDetailedPayslip((int) $staffId, $month, $year, $this->getUserId());
         return $this->handleResponse($result);
@@ -487,6 +566,7 @@ class StaffController extends BaseController
      */
     public function postAssignClass($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? null;
         if (!$staffId) {
             return $this->badRequest('Staff ID is required');
@@ -501,6 +581,7 @@ class StaffController extends BaseController
      */
     public function postAssignSubject($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? null;
         if (!$staffId) {
             return $this->badRequest('Staff ID is required');
@@ -515,7 +596,7 @@ class StaffController extends BaseController
      */
     public function getAssignmentsGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         $includeHistory = $data['include_history'] ?? false;
         
@@ -528,7 +609,7 @@ class StaffController extends BaseController
      */
     public function getAssignmentsCurrent($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getCurrentAssignments($staffId);
         return $this->handleResponse($result);
     }
@@ -538,7 +619,7 @@ class StaffController extends BaseController
      */
     public function getWorkloadGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
         $result = $this->api->getStaffWorkload($staffId, $academicYearId);
@@ -550,6 +631,7 @@ class StaffController extends BaseController
      */
     public function postAssignmentInitiate($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic'])) return $denied;
         $staffId = $data['staff_id'] ?? null;
         $classStreamId = $data['class_stream_id'] ?? null;
         $academicYearId = $data['academic_year_id'] ?? null;
@@ -569,6 +651,8 @@ class StaffController extends BaseController
      */
     public function getAttendanceGet($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        try { $data = $this->access->forceSelfScope(array_merge($_GET, $data)); } catch (RuntimeException $e) { return $this->forbidden($e->getMessage()); }
         $result = $this->api->getAttendance($data);
         return $this->handleResponse($result);
     }
@@ -578,6 +662,7 @@ class StaffController extends BaseController
      */
     public function postAttendanceMark($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.attendance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
         $result = $this->api->markAttendance($data);
         return $this->handleResponse($result);
     }
@@ -589,6 +674,8 @@ class StaffController extends BaseController
      */
     public function getLeavesList($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher','director'])) { $data['staff_id'] = $this->access->staffId(); }
         $result = $this->api->getLeaves($data);
         return $this->handleResponse($result);
     }
@@ -598,6 +685,9 @@ class StaffController extends BaseController
      */
     public function postLeavesApply($id = null, $data = [], $segments = [])
     {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) { $data['staff_id'] = $this->access->staffId(); }
+        if (empty($data['staff_id'])) return $this->forbidden('No staff profile is linked to this account');
         $result = $this->api->applyLeave($data);
         return $this->handleResponse($result);
     }
@@ -607,6 +697,7 @@ class StaffController extends BaseController
      */
     public function putLeavesUpdateStatus($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.leave.approve', ['director','headteacher','school administrator'])) return $denied;
         $leaveId = $id ?? $data['leave_id'] ?? null;
         if (!$leaveId) {
             return $this->badRequest('Leave ID is required');
@@ -638,7 +729,8 @@ class StaffController extends BaseController
      */
     public function getPayrollPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $month = $data['month'] ?? date('m');
         $year = $data['year'] ?? date('Y');
         
@@ -651,7 +743,8 @@ class StaffController extends BaseController
      */
     public function getPayrollHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
         
@@ -664,7 +757,8 @@ class StaffController extends BaseController
      */
     public function getPayrollAllowances($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->viewAllowances($staffId);
         return $this->handleResponse($result);
     }
@@ -674,7 +768,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDeductions($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->viewDeductions($staffId);
         return $this->handleResponse($result);
     }
@@ -684,7 +779,8 @@ class StaffController extends BaseController
      */
     public function getPayrollLoanDetails($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $loanId = $data['loan_id'] ?? null;
         
         $result = $this->api->getLoanDetails($staffId, $loanId);
@@ -696,7 +792,7 @@ class StaffController extends BaseController
      */
     public function postPayrollRequestAdvance($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->requestAdvance($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
@@ -706,7 +802,7 @@ class StaffController extends BaseController
      */
     public function postPayrollApplyLoan($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->applyForLoan($staffId, $this->getUserId(), $data);
         return $this->handleResponse($result);
     }
@@ -716,7 +812,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadP9($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $year = $data['year'] ?? date('Y');
         
         $result = $this->api->downloadP9Form($staffId, $year);
@@ -728,7 +825,8 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadPayslip($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $month = $data['month'] ?? date('m');
         $year = $data['year'] ?? date('Y');
         
@@ -741,7 +839,8 @@ class StaffController extends BaseController
      */
     public function getPayrollExportHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $startDate = $data['start_date'] ?? null;
         $endDate = $data['end_date'] ?? null;
         
@@ -756,7 +855,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceReviewHistory($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $result = $this->api->getReviewHistory($staffId);
         return $this->handleResponse($result);
     }
@@ -780,7 +879,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceAcademicKpiSummary($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->getUserId();
+        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
         $result = $this->api->getAcademicKPISummary($staffId, $academicYearId);
@@ -884,39 +983,7 @@ class StaffController extends BaseController
     public function getPromotions($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
-
-            $where = ['1=1'];
-            $params = [];
-            if (!empty($data['staff_id'])) {
-                $where[] = 'sp.staff_id=:sid';
-                $params[':sid'] = (int)$data['staff_id'];
-            }
-            if (!empty($data['status'])) {
-                $where[] = 'sp.status=:status';
-                $params[':status'] = $data['status'];
-            }
-
-            $stmt = $db->query(
-                "SELECT sp.*,
-                        CONCAT(s.first_name,' ',s.last_name) AS staff_name,
-                        s.staff_no,
-                        fd.name AS from_department,
-                        td.name AS to_department,
-                        r.name AS approved_by_name,
-                        c.name AS created_by_name
-                 FROM staff_promotions sp
-                 JOIN staff s ON s.id = sp.staff_id
-                 LEFT JOIN departments fd ON fd.id = sp.from_department_id
-                 LEFT JOIN departments td ON td.id = sp.to_department_id
-                 LEFT JOIN staff r ON r.id = sp.approved_by
-                 JOIN staff c ON c.id = sp.created_by
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY sp.created_at DESC
-                 LIMIT 200",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            return $this->success($this->recordsService->promotions($data));
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
         }
@@ -928,39 +995,8 @@ class StaffController extends BaseController
     public function postPromotions($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
-
-            $staffId = (int)($data['staff_id'] ?? 0);
-            if (!$staffId) return $this->badRequest('staff_id is required');
-
-            $staff = $db->query("SELECT * FROM staff WHERE id=?", [$staffId])->fetch();
-            if (!$staff) return $this->badRequest('Staff member not found');
-
-            $effectiveDate = $data['effective_date'] ?? null;
-            if (!$effectiveDate) return $this->badRequest('effective_date is required');
-
-            $db->query(
-                "INSERT INTO staff_promotions
-                  (staff_id, promotion_type, from_position, to_position,
-                   from_department_id, to_department_id, from_salary, to_salary,
-                   effective_date, status, reason, letter_url, created_by)
-                 VALUES (:sid, :ptype, :fpos, :tpos, :fdept, :tdept, :fsal, :tsal, :edate, 'pending', :reason, :lurl, :cby)",
-                [
-                    ':sid'   => $staffId,
-                    ':ptype' => $data['promotion_type'] ?? 'substantive',
-                    ':fpos'  => $staff['position'],
-                    ':tpos'  => $data['to_position'] ?? $staff['position'],
-                    ':fdept' => $staff['department_id'],
-                    ':tdept' => $data['to_department_id'] ?? $staff['department_id'],
-                    ':fsal'  => $staff['salary'],
-                    ':tsal'  => isset($data['to_salary']) ? (float)$data['to_salary'] : null,
-                    ':edate' => $effectiveDate,
-                    ':reason'=> $data['reason'] ?? null,
-                    ':lurl'  => $data['letter_url'] ?? null,
-                    ':cby'   => $this->user['user_id'] ?? null,
-                ]
-            );
-            return $this->created(['id' => (int)$db->lastInsertId()], 'Promotion submitted for approval');
+            $id = $this->recordsService->createPromotion($data, $this->access->userId());
+            return $this->created(['id' => $id], 'Promotion submitted for approval');
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
         }
@@ -972,42 +1008,10 @@ class StaffController extends BaseController
     public function putPromotionsApprove($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
             $promotionId = (int)($id ?? $data['id'] ?? 0);
             if (!$promotionId) return $this->badRequest('Promotion ID is required');
-
             $action = $data['action'] ?? '';
-            if (!in_array($action, ['approve', 'reject'])) {
-                return $this->badRequest('action must be approve or reject');
-            }
-
-            $promo = $db->query("SELECT * FROM staff_promotions WHERE id=?", [$promotionId])->fetch();
-            if (!$promo) return $this->badRequest('Promotion not found');
-
-            $newStatus = $action === 'approve' ? 'approved' : 'rejected';
-            $db->query(
-                "UPDATE staff_promotions
-                 SET status=:status, approved_by=:aby, approved_at=NOW(),
-                     rejected_reason=:rj, updated_at=NOW()
-                 WHERE id=:id",
-                [
-                    ':status' => $newStatus,
-                    ':aby'    => $this->user['user_id'] ?? null,
-                    ':rj'     => $action === 'reject' ? ($data['reason'] ?? null) : null,
-                    ':id'     => $promotionId,
-                ]
-            );
-
-            if ($action === 'approve') {
-                $db->query(
-                    "UPDATE staff SET position=:pos, salary=:sal, updated_at=NOW() WHERE id=:sid",
-                    [':pos' => $promo['to_position'], ':sal' => $promo['to_salary'], ':sid' => $promo['staff_id']]
-                );
-                if ($promo['effective_date'] <= date('Y-m-d')) {
-                    $db->query("UPDATE staff_promotions SET status='effective' WHERE id=?", [$promotionId]);
-                }
-            }
-
+            $this->recordsService->decidePromotion($promotionId, $action, $this->access->userId(), $data['reason'] ?? null);
             return $this->success(null, "Promotion {$action}d");
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
@@ -1024,39 +1028,7 @@ class StaffController extends BaseController
     public function getOffboarding($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
-
-            $where = ['1=1'];
-            $params = [];
-            if (!empty($data['staff_id'])) {
-                $where[] = 'so.staff_id=:sid';
-                $params[':sid'] = (int)$data['staff_id'];
-            }
-            if (!empty($data['status'])) {
-                $where[] = 'so.status=:status';
-                $params[':status'] = $data['status'];
-            }
-            if (!empty($data['type'])) {
-                $where[] = 'so.offboarding_type=:type';
-                $params[':type'] = $data['type'];
-            }
-
-            $stmt = $db->query(
-                "SELECT so.*,
-                        CONCAT(s.first_name,' ',s.last_name) AS staff_name,
-                        s.staff_no,
-                        p.name AS processed_by_name,
-                        c.name AS created_by_name
-                 FROM staff_offboarding so
-                 JOIN staff s ON s.id = so.staff_id
-                 LEFT JOIN staff p ON p.id = so.processed_by
-                 JOIN staff c ON c.id = so.created_by
-                 WHERE " . implode(' AND ', $where) . "
-                 ORDER BY so.created_at DESC
-                 LIMIT 200",
-                $params
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            return $this->success($this->recordsService->offboarding($data));
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
         }
@@ -1068,55 +1040,8 @@ class StaffController extends BaseController
     public function postOffboarding($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
-
-            $staffId = (int)($data['staff_id'] ?? 0);
-            if (!$staffId) return $this->badRequest('staff_id is required');
-
-            $staff = $db->query("SELECT * FROM staff WHERE id=?", [$staffId])->fetch();
-            if (!$staff) return $this->badRequest('Staff member not found');
-
-            $lastWorkingDay = $data['last_working_day'] ?? null;
-            if (!$lastWorkingDay) return $this->badRequest('last_working_day is required');
-
-            $db->query(
-                "INSERT INTO staff_offboarding
-                  (staff_id, offboarding_type, last_working_day,
-                   exit_interview_date, exit_interview_notes,
-                   asset_return_complete, clearance_form_complete, handover_report_complete,
-                   final_pay_calculated, outstanding_leave_days, outstanding_salary,
-                   leave_pay_amount, final_settlement_amount,
-                   nssf_clearance, paye_clearance, documents_url,
-                   notify_hr, notify_finance, notify_it, status, processed_by, created_by)
-                 VALUES
-                  (:sid, :otype, :lwd,
-                   :eid, :ein, :arc, :cfc, :hrc, :fpc, :old, :osal, :lpa, :fsa,
-                   :nssf, :paye, :doc, :nhr, :nfin, :nit, 'initiated', :pby, :cby)",
-                [
-                    ':sid'   => $staffId,
-                    ':otype' => $data['offboarding_type'] ?? 'retirement',
-                    ':lwd'   => $lastWorkingDay,
-                    ':eid'   => $data['exit_interview_date'] ?? null,
-                    ':ein'   => $data['exit_interview_notes'] ?? null,
-                    ':arc'   => (int)($data['asset_return_complete'] ?? false),
-                    ':cfc'   => (int)($data['clearance_form_complete'] ?? false),
-                    ':hrc'   => (int)($data['handover_report_complete'] ?? false),
-                    ':fpc'   => (int)($data['final_pay_calculated'] ?? false),
-                    ':old'   => $data['outstanding_leave_days'] ?? null,
-                    ':osal'  => $data['outstanding_salary'] ?? null,
-                    ':lpa'   => $data['leave_pay_amount'] ?? null,
-                    ':fsa'   => $data['final_settlement_amount'] ?? null,
-                    ':nssf'  => (int)($data['nssf_clearance'] ?? false),
-                    ':paye'  => (int)($data['paye_clearance'] ?? false),
-                    ':doc'   => $data['documents_url'] ?? null,
-                    ':nhr'   => (int)($data['notify_hr'] ?? true),
-                    ':nfin'  => (int)($data['notify_finance'] ?? true),
-                    ':nit'   => (int)($data['notify_it'] ?? false),
-                    ':pby'   => $this->user['user_id'] ?? null,
-                    ':cby'   => $this->user['user_id'] ?? null,
-                ]
-            );
-            return $this->created(['id' => (int)$db->lastInsertId()], 'Offboarding initiated');
+            $id = $this->recordsService->createOffboarding($data, $this->access->userId());
+            return $this->created(['id' => $id], 'Offboarding initiated');
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
         }
@@ -1128,46 +1053,9 @@ class StaffController extends BaseController
     public function putOffboarding($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
             $offId = (int)($id ?? $data['id'] ?? 0);
             if (!$offId) return $this->badRequest('Offboarding ID is required');
-
-            $off = $db->query("SELECT * FROM staff_offboarding WHERE id=?", [$offId])->fetch();
-            if (!$off) return $this->badRequest('Offboarding record not found');
-
-            $allowed = [
-                'exit_interview_date', 'exit_interview_notes',
-                'asset_return_complete', 'clearance_form_complete',
-                'handover_report_complete', 'final_pay_calculated',
-                'outstanding_leave_days', 'outstanding_salary',
-                'leave_pay_amount', 'final_settlement_amount',
-                'nssf_clearance', 'paye_clearance',
-                'documents_url', 'notify_hr', 'notify_finance', 'notify_it', 'status',
-            ];
-
-            $fields = [];
-            $vals = [];
-            foreach ($allowed as $f) {
-                if (array_key_exists($f, $data)) {
-                    $fields[] = "$f = :$f";
-                    $vals[":$f"] = $data[$f];
-                }
-            }
-
-            if (!empty($fields)) {
-                $fields[] = "updated_at = NOW()";
-                $vals[':id'] = $offId;
-                $db->query("UPDATE staff_offboarding SET " . implode(', ', $fields) . " WHERE id=:id", $vals);
-            }
-
-            if (($data['status'] ?? '') === 'completed') {
-                $db->query("UPDATE staff SET status='inactive', updated_at=NOW() WHERE id=?", [$off['staff_id']]);
-                $db->query(
-                    "UPDATE staff_offboarding SET processed_by=:pby, processed_at=NOW() WHERE id=:id",
-                    [':pby' => $this->user['user_id'] ?? null, ':id' => $offId]
-                );
-            }
-
+            $this->recordsService->updateOffboarding($offId, $data, $this->access->userId());
             return $this->success(null, 'Offboarding updated');
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
@@ -1180,27 +1068,7 @@ class StaffController extends BaseController
     public function getUpcomingRetirements($id = null, $data = [], $segments = [])
     {
         try {
-            $db = \App\Database\Database::getInstance();
-            $months = max(1, (int)($data['months'] ?? 12));
-            $cutoff = date('Y-m-d', strtotime("+{$months} months"));
-
-            $stmt = $db->query(
-                "SELECT s.id, s.staff_no, s.first_name, s.last_name,
-                        s.position, s.employment_date, s.date_of_birth,
-                        d.name AS department,
-                        TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) AS age,
-                        DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) AS retirement_date,
-                        DATEDIFF(DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR), CURDATE()) AS days_remaining,
-                        s.status
-                 FROM staff s
-                 LEFT JOIN departments d ON d.id = s.department_id
-                 WHERE s.status = 'active'
-                   AND TIMESTAMPDIFF(YEAR, s.date_of_birth, CURDATE()) >= 55
-                   AND DATE_ADD(s.date_of_birth, INTERVAL 60 YEAR) <= :cutoff
-                 ORDER BY days_remaining ASC",
-                [':cutoff' => $cutoff]
-            );
-            return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
+            return $this->success($this->recordsService->upcomingRetirements((int)($data['months'] ?? 12)));
         } catch (\Exception $e) {
             return $this->serverError($e->getMessage());
         }
@@ -1216,33 +1084,7 @@ class StaffController extends BaseController
         if (!$userId) {
             return $this->success([]);
         }
-        try {
-            $db = \App\Database\Database::getInstance();
-            // Try timetable_entries first
-            $stmt = $db->prepare("
-                SELECT te.*, s.name AS subject_name, c.name AS class_name
-                FROM timetable_entries te
-                LEFT JOIN subjects s ON s.id = te.subject_id
-                LEFT JOIN classes c ON c.id = te.class_id
-                WHERE te.staff_id = :uid
-                ORDER BY te.day_of_week, te.start_time
-            ");
-            $stmt->execute([':uid' => $userId]);
-            $entries = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($entries ?: []);
-        } catch (\Exception $e) {
-            try {
-                $db = \App\Database\Database::getInstance();
-                $stmt = $db->prepare("
-                    SELECT * FROM staff_schedules WHERE staff_id = :uid ORDER BY day_of_week, start_time
-                ");
-                $stmt->execute([':uid' => $userId]);
-                $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-                return $this->success($rows ?: []);
-            } catch (\Exception $e2) {
-                return $this->success([]);
-            }
-        }
+        return $this->success($this->recordsService->scheduleForUser((int)$userId));
     }
 
     // =========================================================================
@@ -1255,75 +1097,10 @@ class StaffController extends BaseController
      */
     public function getOnboarding($id = null, $data = [], $segments = [])
     {
-        $db = \App\Database\Database::getInstance();
-        try {
-            if ($id) {
-                $row = $db->query(
-                    "SELECT * FROM vw_onboarding_dashboard WHERE onboarding_id = ?", [$id]
-                )->fetch(\PDO::FETCH_ASSOC);
-                if (!$row) return $this->error('Not found', 404);
-
-                $tasks = $db->query(
-                    "SELECT ot.*, u.name AS assigned_to_name, cb.name AS completed_by_name
-                     FROM onboarding_tasks ot
-                     LEFT JOIN users u  ON u.id  = ot.assigned_to
-                     LEFT JOIN users cb ON cb.id = ot.completed_by
-                     WHERE ot.onboarding_id = ?
-                     ORDER BY ot.sequence ASC, ot.due_date ASC",
-                    [$id]
-                )->fetchAll(\PDO::FETCH_ASSOC);
-
-                $docs = $db->query(
-                    "SELECT * FROM onboarding_documents WHERE onboarding_id = ?", [$id]
-                )->fetchAll(\PDO::FETCH_ASSOC);
-
-                $reviews = $db->query(
-                    "SELECT pr.*, CONCAT(r.first_name,' ',r.last_name) AS reviewer_name
-                     FROM staff_probation_reviews pr
-                     LEFT JOIN staff r ON r.id = pr.reviewer_id
-                     WHERE pr.onboarding_id = ? ORDER BY pr.review_month ASC",
-                    [$id]
-                )->fetchAll(\PDO::FETCH_ASSOC);
-
-                return $this->success([
-                    'onboarding' => $row,
-                    'tasks'      => $tasks,
-                    'documents'  => $docs,
-                    'reviews'    => $reviews,
-                ]);
-            }
-
-            // List view
-            $status     = $_GET['status']      ?? null;
-            $staffId    = $_GET['staff_id']    ?? null;
-            $deptId     = $_GET['department_id'] ?? null;
-            $where = ['1=1']; $params = [];
-            if ($status)  { $where[] = 'status = ?';      $params[] = $status; }
-            if ($staffId) { $where[] = 'staff_id = ?';    $params[] = $staffId; }
-            if ($deptId)  {
-                // Join through staff table — use subquery
-                $where[] = 'staff_id IN (SELECT id FROM staff WHERE department_id = ?)';
-                $params[] = $deptId;
-            }
-
-            $rows = $db->query(
-                "SELECT * FROM vw_onboarding_dashboard WHERE " . implode(' AND ', $where) .
-                " ORDER BY start_date DESC LIMIT 200",
-                $params
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $stats = [
-                'total'       => count($rows),
-                'in_progress' => count(array_filter($rows, fn($r) => $r['status'] === 'in_progress')),
-                'completed'   => count(array_filter($rows, fn($r) => $r['status'] === 'completed')),
-                'overdue'     => count(array_filter($rows, fn($r) => ($r['overdue_tasks'] ?? 0) > 0)),
-                'pending'     => count(array_filter($rows, fn($r) => $r['status'] === 'pending')),
-            ];
-
-            return $this->success(['onboardings' => $rows, 'stats' => $stats]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $result = $id
+            ? $this->onboardingManager->getOnboardingDetail((int)$id)
+            : $this->onboardingManager->listOnboardings(array_merge($_GET ?? [], $data));
+        return $this->handleResponse($result);
     }
 
     /**
@@ -1332,108 +1109,8 @@ class StaffController extends BaseController
      */
     public function postOnboarding($id = null, $data = [], $segments = [])
     {
-        $staffId = $data['staff_id'] ?? null;
-        if (!$staffId) return $this->error('staff_id required');
-
-        $db = \App\Database\Database::getInstance();
-        try {
-            // Check staff exists and get their type
-            $staff = $db->query(
-                "SELECT s.*, sc.id AS staff_category_id, st.id AS staff_type_id
-                 FROM staff s
-                 LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
-                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
-                 WHERE s.id = ?",
-                [$staffId]
-            )->fetch(\PDO::FETCH_ASSOC);
-            if (!$staff) return $this->error('Staff not found', 404);
-
-            // Check no active onboarding already running
-            $existing = $db->query(
-                "SELECT id FROM staff_onboarding WHERE staff_id = ? AND status IN ('pending','in_progress')",
-                [$staffId]
-            )->fetch();
-            if ($existing) return $this->error('Staff already has an active onboarding record', 409);
-
-            $startDate  = $data['start_date']   ?? date('Y-m-d');
-            $probMonths = (int)($data['probation_months'] ?? 3);
-            $target     = date('Y-m-d', strtotime($startDate . " +$probMonths months"));
-            $mentorId   = $data['mentor_id']    ?? null;
-            $contractType = $data['contract_type'] ?? 'probation';
-
-            // Create onboarding record
-            $db->query(
-                "INSERT INTO staff_onboarding
-                 (staff_id, mentor_id, contract_type, probation_months, start_date,
-                  target_completion, expected_end_date, status, progress_percent,
-                  initiated_by, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)",
-                [
-                    $staffId, $mentorId, $contractType, $probMonths,
-                    $startDate, $target, $target,
-                    $this->user['id'] ?? null,
-                    $data['notes'] ?? null,
-                ]
-            );
-            $onboardingId = $db->lastInsertId();
-
-            // Auto-generate tasks from templates
-            $staffTypeId  = (int)($staff['staff_type_id'] ?? 0);
-            $templates = $db->query(
-                "SELECT * FROM onboarding_task_templates WHERE status = 'active' ORDER BY display_order"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-
-            $tasksCreated = 0;
-            foreach ($templates as $t) {
-                // Check if this template applies to this staff type
-                $appliesToTypes = json_decode($t['applies_to_type_ids'] ?? 'null', true);
-                if ($appliesToTypes !== null && $staffTypeId && !in_array($staffTypeId, $appliesToTypes)) {
-                    continue; // Skip — not applicable to this staff type
-                }
-
-                $dueDate = date('Y-m-d', strtotime($startDate . " +" . $t['days_from_start'] . " days"));
-
-                $db->query(
-                    "INSERT INTO onboarding_tasks
-                     (onboarding_id, task_name, description, category,
-                      due_date, priority, sequence, status)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')",
-                    [
-                        $onboardingId,
-                        $t['task_name'],
-                        $t['description'],
-                        $t['category'],
-                        $dueDate,
-                        $t['priority'],
-                        $t['display_order'],
-                    ]
-                );
-                $tasksCreated++;
-            }
-
-            // Update status to in_progress
-            $db->query("UPDATE staff_onboarding SET status = 'in_progress' WHERE id = ?", [$onboardingId]);
-
-            // Also auto-create contract record
-            $db->query(
-                "INSERT INTO staff_contracts (staff_id, contract_type, start_date, end_date, salary, status, created_by)
-                 VALUES (?, ?, ?, ?, ?, 'active', ?)",
-                [
-                    $staffId, $contractType, $startDate, $target,
-                    $staff['salary'] ?? 0,
-                    $this->user['id'] ?? null,
-                ]
-            );
-
-            return $this->success([
-                'onboarding_id' => (int)$onboardingId,
-                'tasks_created' => $tasksCreated,
-                'start_date'    => $startDate,
-                'target_date'   => $target,
-            ], 201);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $data['initiated_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
+        return $this->handleResponse($this->onboardingManager->createOnboarding($data));
     }
 
     /**
@@ -1443,28 +1120,7 @@ class StaffController extends BaseController
     public function putOnboarding($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->error('onboarding id required');
-        $db = \App\Database\Database::getInstance();
-        try {
-            $allowed = ['status','mentor_id','target_completion','probation_outcome','notes'];
-            $set = []; $params = [];
-            foreach ($allowed as $f) {
-                if (array_key_exists($f, $data)) {
-                    $set[] = "$f = ?"; $params[] = $data[$f];
-                }
-            }
-            // If completing, record completion date
-            if (($data['status'] ?? '') === 'completed') {
-                $set[] = 'actual_completion = ?'; $params[] = date('Y-m-d');
-                $set[] = 'completion_date = ?';   $params[] = date('Y-m-d');
-                $set[] = 'progress_percent = ?';  $params[] = 100;
-            }
-            if (empty($set)) return $this->error('Nothing to update');
-            $params[] = $id;
-            $db->query("UPDATE staff_onboarding SET " . implode(', ', $set) . " WHERE id = ?", $params);
-            return $this->success(['updated' => true]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->onboardingManager->updateOnboarding((int)$id, $data));
     }
 
     /**
@@ -1474,32 +1130,7 @@ class StaffController extends BaseController
     public function putOnboardingTask($id = null, $data = [], $segments = [])
     {
         if (!$id) return $this->error('task id required');
-        $db = \App\Database\Database::getInstance();
-        try {
-            $newStatus = $data['status'] ?? 'completed';
-            $notes     = $data['notes'] ?? null;
-            $userId    = $this->user['id'] ?? null;
-
-            $set = "status = ?, notes = ?, updated_at = NOW()";
-            $params = [$newStatus, $notes];
-
-            if ($newStatus === 'completed') {
-                $set .= ", completed_date = NOW(), completed_by = ?";
-                $params[] = $userId;
-            }
-            $params[] = $id;
-            $db->query("UPDATE onboarding_tasks SET $set WHERE id = ?", $params);
-
-            // Recalculate onboarding progress %
-            $task = $db->query("SELECT onboarding_id FROM onboarding_tasks WHERE id = ?", [$id])->fetch();
-            if ($task) {
-                $this->_recalcOnboardingProgress((int)$task['onboarding_id'], $db);
-            }
-
-            return $this->success(['updated' => true]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->onboardingManager->updateTaskStatus((int)$id, $data));
     }
 
     /**
@@ -1508,44 +1139,8 @@ class StaffController extends BaseController
      */
     public function postOnboardingDocument($id = null, $data = [], $segments = [])
     {
-        $onboardingId = $data['onboarding_id'] ?? null;
-        $staffId      = $data['staff_id']      ?? null;
-        $docType      = $data['document_type'] ?? null;
-        if (!$onboardingId || !$staffId || !$docType) return $this->error('onboarding_id, staff_id, document_type required');
-
-        $db = \App\Database\Database::getInstance();
-        try {
-            $db->query(
-                "INSERT INTO onboarding_documents
-                 (onboarding_id, staff_id, document_type, document_name,
-                  is_original_seen, is_copy_filed, verified_by, verified_at, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
-                [
-                    $onboardingId, $staffId, $docType,
-                    $data['document_name'] ?? null,
-                    $data['is_original_seen'] ?? 0,
-                    $data['is_copy_filed']    ?? 0,
-                    $this->user['id'] ?? null,
-                    $data['notes']    ?? null,
-                ]
-            );
-            // Auto-complete the matching documentation task
-            $db->query(
-                "UPDATE onboarding_tasks
-                 SET status = 'completed', completed_date = NOW()
-                 WHERE onboarding_id = ?
-                   AND category = 'documentation'
-                   AND LOWER(task_name) LIKE ?
-                   AND status != 'completed'
-                 LIMIT 1",
-                [$onboardingId, '%' . strtolower(str_replace('_', ' ', $docType)) . '%']
-            );
-            $task = $db->query("SELECT id FROM onboarding_tasks WHERE onboarding_id = ? LIMIT 1", [$onboardingId])->fetch();
-            if ($task) $this->_recalcOnboardingProgress((int)$onboardingId, $db);
-            return $this->success(['id' => (int)$db->lastInsertId()], 201);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $data['verified_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
+        return $this->handleResponse($this->onboardingManager->recordDocument($data));
     }
 
     /**
@@ -1554,65 +1149,8 @@ class StaffController extends BaseController
      */
     public function postProbationReview($id = null, $data = [], $segments = [])
     {
-        $onboardingId = $data['onboarding_id'] ?? null;
-        $staffId      = $data['staff_id']      ?? null;
-        if (!$onboardingId || !$staffId) return $this->error('onboarding_id and staff_id required');
-
-        $db = \App\Database\Database::getInstance();
-        try {
-            $db->query(
-                "INSERT INTO staff_probation_reviews
-                 (onboarding_id, staff_id, review_month, review_date, reviewer_id,
-                  overall_rating, attendance_score, performance_score, conduct_score,
-                  strengths, areas_to_improve, outcome, outcome_notes, next_review_date)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [
-                    $onboardingId, $staffId,
-                    $data['review_month']       ?? 1,
-                    $data['review_date']        ?? date('Y-m-d'),
-                    $this->user['id']           ?? null,
-                    $data['overall_rating']     ?? 'satisfactory',
-                    $data['attendance_score']   ?? null,
-                    $data['performance_score']  ?? null,
-                    $data['conduct_score']      ?? null,
-                    $data['strengths']          ?? null,
-                    $data['areas_to_improve']   ?? null,
-                    $data['outcome']            ?? 'continue',
-                    $data['outcome_notes']      ?? null,
-                    $data['next_review_date']   ?? null,
-                ]
-            );
-
-            // Handle outcome
-            if (($data['outcome'] ?? '') === 'confirm_permanent') {
-                $db->query(
-                    "UPDATE staff_onboarding SET probation_outcome='confirmed', status='completed', actual_completion=? WHERE id=?",
-                    [date('Y-m-d'), $onboardingId]
-                );
-                // Update staff contract to permanent
-                $db->query(
-                    "UPDATE staff_contracts SET contract_type='permanent', status='active', end_date=NULL WHERE staff_id=? AND status='active'",
-                    [$staffId]
-                );
-            } elseif (($data['outcome'] ?? '') === 'extend_probation') {
-                $extendMonths = (int)($data['extend_months'] ?? 3);
-                $newTarget = date('Y-m-d', strtotime(date('Y-m-d') . " +$extendMonths months"));
-                $db->query(
-                    "UPDATE staff_onboarding SET probation_outcome='extended', target_completion=?, expected_end_date=? WHERE id=?",
-                    [$newTarget, $newTarget, $onboardingId]
-                );
-            } elseif (($data['outcome'] ?? '') === 'terminate') {
-                $db->query(
-                    "UPDATE staff_onboarding SET probation_outcome='terminated', status='terminated' WHERE id=?",
-                    [$onboardingId]
-                );
-                $db->query("UPDATE staff SET status='inactive' WHERE id=?", [$staffId]);
-            }
-
-            return $this->success(['id' => (int)$db->lastInsertId()]);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        $data['reviewer_id'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
+        return $this->handleResponse($this->onboardingManager->recordProbationReview($data));
     }
 
     /**
@@ -1621,15 +1159,7 @@ class StaffController extends BaseController
      */
     public function getOnboardingTemplates($id = null, $data = [], $segments = [])
     {
-        $db = \App\Database\Database::getInstance();
-        try {
-            $rows = $db->query(
-                "SELECT * FROM onboarding_task_templates WHERE status='active' ORDER BY display_order"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
+        return $this->handleResponse($this->onboardingManager->getActiveTemplates());
     }
 
     /**
@@ -1638,34 +1168,7 @@ class StaffController extends BaseController
      */
     public function getOnboardingPending($id = null, $data = [], $segments = [])
     {
-        $db = \App\Database\Database::getInstance();
-        try {
-            $rows = $db->query(
-                "SELECT * FROM vw_onboarding_pending_by_role ORDER BY is_overdue DESC, due_date ASC LIMIT 100"
-            )->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows);
-        } catch (\Exception $e) {
-            return $this->serverError($e->getMessage());
-        }
-    }
-
-    private function _recalcOnboardingProgress(int $onboardingId, $db): void
-    {
-        $counts = $db->query(
-            "SELECT COUNT(*) AS total,
-                    SUM(status='completed') AS done,
-                    SUM(status='skipped')   AS skipped
-             FROM onboarding_tasks WHERE onboarding_id = ?",
-            [$onboardingId]
-        )->fetch(\PDO::FETCH_ASSOC);
-
-        $active = (int)$counts['total'] - (int)$counts['skipped'];
-        $pct    = $active > 0 ? round((int)$counts['done'] * 100 / $active) : 0;
-
-        $db->query(
-            "UPDATE staff_onboarding SET progress_percent = ? WHERE id = ?",
-            [$pct, $onboardingId]
-        );
+        return $this->handleResponse($this->onboardingManager->getPendingTasks());
     }
 
     // ========================================================================
@@ -1761,4 +1264,275 @@ class StaffController extends BaseController
         $result = $this->idCardGenerator->uploadStaffPhoto((int) $staffId, $_FILES['photo']);
         return $this->handleResponse($result);
     }
+
+    // ========================================================================
+    // CHECKPOINT 2 — CANONICAL STAFF DOMAIN ENDPOINTS
+    // ========================================================================
+
+    private function guardStaffDomain(string $permission, array $roles = [])
+    {
+        try {
+            $this->access->require($permission, $roles);
+            return null;
+        } catch (RuntimeException $e) {
+            return $e->getCode() === 401
+                ? $this->unauthorized($e->getMessage())
+                : $this->forbidden($e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/access-context */
+    public function getAccessContext($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) {
+            return $this->unauthorized('Authentication required');
+        }
+        return $this->success([
+            'user_id' => $this->access->userId(),
+            'staff_id' => $this->access->staffId(),
+            'permissions' => $this->access->permissions(),
+            'roles' => $this->access->roles(),
+            'capabilities' => [
+                'staff_directory_view' => $this->access->allows('staff.directory.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_directory_manage' => $this->access->allows('staff.directory.manage', ['system administrator','school administrator']),
+                'teachers_view' => $this->access->allows('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic']),
+                'non_teaching_view' => $this->access->allows('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher']),
+                'attendance_manage' => $this->access->allows('staff.attendance.manage', ['system administrator','school administrator','headteacher']),
+                'attendance_self' => $this->access->allows('staff.attendance.self', ['staff','class teacher','subject teacher','accountant']),
+                'leave_manage' => $this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher']),
+                'leave_approve' => $this->access->allows('staff.leave.approve', ['director','headteacher','school administrator']),
+                'payroll_manage' => $this->access->allows('staff.payroll.manage', ['system administrator','accountant']),
+                'payroll_approve' => $this->access->allows('staff.payroll.approve', ['director']),
+                'payslip_self' => $this->access->allows('staff.payslip.self', ['staff','class teacher','subject teacher','accountant']),
+                'id_cards_manage' => $this->access->allows('staff.id_cards.manage', ['system administrator','school administrator']),
+                'role_assignments_manage' => $this->access->allows('staff.roles.manage', ['system administrator','school administrator']),
+                'teaching_assignments_manage' => $this->access->allows('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+            ],
+        ]);
+    }
+
+    /** GET /api/staff/teachers */
+    public function getTeachers($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        return $this->handleResponse($this->api->listTeachers($_GET ?? []));
+    }
+
+    /** GET /api/staff/non-teaching */
+    public function getNonTeaching($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        return $this->handleResponse($this->api->listNonTeaching($_GET ?? []));
+    }
+
+    /** Alias required by all_teachers.js: GET /api/staff/departments */
+    public function getDepartments($id = null, $data = [], $segments = [])
+    {
+        return $this->getDepartmentsGet($id, $data, $segments);
+    }
+
+    /** GET /api/staff/payroll-eligibility/{staffId} */
+    public function getPayrollEligibility($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.payroll.eligibility.view', ['system administrator','school administrator','accountant','director'])) return $denied;
+        $staffId = (int)($id ?? $_GET['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('Staff ID is required');
+        return $this->success($this->access->payrollEligibility($staffId));
+    }
+
+    /** POST /api/staff/payroll-eligibility/validate */
+    public function postPayrollEligibilityValidate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.payroll.eligibility.manage', ['system administrator','school administrator','accountant'])) return $denied;
+        $staffIds = array_values(array_unique(array_map('intval', (array)($data['staff_ids'] ?? []))));
+        if (!$staffIds && !empty($data['staff_id'])) $staffIds = [(int)$data['staff_id']];
+        if (!$staffIds) return $this->badRequest('staff_id or staff_ids is required');
+        $results = [];
+        foreach ($staffIds as $staffId) $results[] = $this->access->payrollEligibility($staffId);
+        return $this->success($results);
+    }
+
+    /** POST /api/staff/role-assignments */
+    public function postRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        try {
+            $staffId = (int)($data['staff_id'] ?? 0);
+            $roleId = (int)($data['role_id'] ?? 0);
+            $result = $this->recordsService->assignRole($staffId, $roleId);
+            $this->access->audit('assign_role', 'staff', $staffId, null, ['role_id' => $roleId]);
+            return $this->success($result, 'Role assigned');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/staff/role-assignments/{roleId}?staff_id=X */
+    public function deleteRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        try {
+            $roleId = (int)($id ?? $data['role_id'] ?? 0);
+            $staffId = (int)($_GET['staff_id'] ?? $data['staff_id'] ?? 0);
+            $this->recordsService->revokeRole($staffId, $roleId);
+            $this->access->audit('remove_role', 'staff', $staffId, ['role_id' => $roleId], null);
+            return $this->success(null, 'Role removed');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** GET /api/staff/id-cards */
+    public function getIdCards($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        return $this->success($this->recordsService->idCards($_GET ?? []));
+    }
+
+    /** POST /api/staff/id-cards/generate */
+    public function postIdCardsGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId = (int)($data['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('staff_id is required');
+        try {
+            $card = $this->idCardGenerator->generateIDCard($staffId, $data['format'] ?? 'html', $data['side'] ?? 'both');
+            $number = 'KWA-S-' . str_pad((string)$staffId, 6, '0', STR_PAD_LEFT);
+            $this->recordsService->persistGeneratedIdCard($staffId, $number, $data['expires_at'] ?? date('Y-m-d', strtotime('+2 years')), $this->access->userId());
+            $this->access->audit('generate_id_card', 'staff', $staffId, null, ['card_number' => $number]);
+            return $this->success(['card_number' => $number, 'document' => $card], 'Staff ID card generated');
+        } catch (\Throwable $e) {
+            return $this->serverError('Failed to generate staff ID card', $e->getMessage());
+        }
+    }
+
+    /** POST /api/staff/id-cards/issue */
+    public function postIdCardsIssue($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+        $staffId = (int)($data['staff_id'] ?? 0);
+        if (!$staffId) return $this->badRequest('staff_id is required');
+        $this->recordsService->issueIdCard($staffId, $this->access->userId());
+        $this->access->audit('issue_id_card', 'staff', $staffId, null, ['status' => 'issued']);
+        return $this->success(null, 'Staff ID card issued');
+    }
+
+    /** GET /api/staff/leave-requests — admin scope or own records */
+    public function getLeaveRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $filters = $_GET;
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher','director'])) {
+            $filters['staff_id'] = $this->access->staffId();
+        }
+        return $this->handleResponse($this->leaveManager->getLeaveHistory($filters));
+    }
+
+    /** POST /api/staff/leave-requests */
+    public function postLeaveRequests($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        $ownId = $this->access->staffId();
+        if (!$ownId) return $this->forbidden('No staff profile is linked to this account');
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) {
+            $data['staff_id'] = $ownId;
+        }
+        $result = $this->leaveManager->createLeaveRequest($data);
+        $this->access->audit('create_leave_request', 'staff', (int)$data['staff_id'], null, $data);
+        return $this->handleResponse($result);
+    }
+
+    /** PUT /api/staff/leave-requests/{id}/status */
+    public function putLeaveRequestsStatus($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.leave.approve', ['director','headteacher','school administrator'])) return $denied;
+        $leaveId = (int)($id ?? $data['id'] ?? 0);
+        if (!$leaveId) return $this->badRequest('Leave request ID is required');
+        $data['approved_by'] = $this->access->userId();
+        $result = $this->leaveManager->updateLeaveStatus($leaveId, $data);
+        $this->access->audit('update_leave_status', 'leave_request', $leaveId, null, $data);
+        return $this->handleResponse($result);
+    }
+
+
+    /** GET /api/staff/performance-reviews */
+    public function getPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        try {
+            $rows = $this->recordsService->performanceReviews($_GET ?? [], $id ? (int)$id : null);
+            if($id) return $rows ? $this->success($rows[0]) : $this->notFound('Performance review not found');
+            return $this->success($rows);
+        } catch(\Throwable $e){return $this->serverError('Failed to load performance reviews',$e->getMessage());}
+    }
+
+    /** POST /api/staff/performance-reviews */
+    public function postPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        try {
+            $data['reviewer_id'] = $data['reviewer_id'] ?? $this->access->staffId();
+            $newId = $this->recordsService->createPerformanceReview($data);
+            $this->access->audit('create_performance_review','staff_performance_review',$newId,null,$data);
+            return $this->created(['id'=>$newId],'Performance review created');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** PUT /api/staff/performance-reviews/{id} */
+    public function putPerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        if(!$id)return $this->badRequest('Review ID is required');
+        try {
+            $before = $this->recordsService->updatePerformanceReview((int)$id, $data);
+            $this->access->audit('update_performance_review','staff_performance_review',(int)$id,$before,$data);
+            return $this->success(['id'=>(int)$id],'Performance review updated');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+    /** DELETE /api/staff/performance-reviews/{id} — drafts only */
+    public function deletePerformanceReviews($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.performance.manage', ['system administrator','school administrator','headteacher'])) return $denied;
+        if(!$id)return $this->badRequest('Review ID is required');
+        try {
+            $before = $this->recordsService->deletePerformanceReview((int)$id);
+            $this->access->audit('delete_performance_review','staff_performance_review',(int)$id,$before,null);
+            return $this->success(null,'Performance review deleted');
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
+
+    /** GET /api/staff/leave-types */
+    public function getLeaveTypes($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
+        return $this->success($this->recordsService->leaveTypes());
+    }
+
+    /** GET /api/staff/available-roles */
+    public function getAvailableRoles($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        return $this->success($this->recordsService->availableRoles());
+    }
+
+    /** GET /api/staff/role-assignments?staff_id=X */
+    public function getRoleAssignments($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.roles.manage', ['system administrator','school administrator'])) return $denied;
+        try {
+            $staffId=(int)($_GET['staff_id']??$data['staff_id']??$id??0);
+            return $this->success($this->recordsService->roleAssignments($staffId));
+        } catch (\Throwable $e) {
+            return $this->badRequest($e->getMessage());
+        }
+    }
+
 }

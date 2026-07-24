@@ -367,15 +367,7 @@ const StudentHealthController = {
     ]);
 
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `health_records_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, `health_records_${new Date().toISOString().slice(0, 10)}.csv`, "text/csv");
   },
 
   setLoading(loading) {

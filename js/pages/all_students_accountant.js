@@ -721,15 +721,11 @@ const studentFeeTracker = {
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.href = url;
-    link.download = `students_export_${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(
+      csv,
+      `students_export_${new Date().toISOString().slice(0, 10)}.csv`,
+      "text/csv;charset=utf-8;",
+    );
   },
 
   renderError: function (message) {

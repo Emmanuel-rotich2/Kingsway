@@ -412,13 +412,7 @@ const BalancesByClassController = {
     const csv = [headers, ...rows]
       .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))
       .join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'balances_by_class.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, 'balances_by_class.csv', 'text/csv');
   },
 
   showTableLoading() {

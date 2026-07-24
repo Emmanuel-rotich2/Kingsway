@@ -440,13 +440,7 @@ const managePaymentsController = {
       .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `payments_${this.formatDateForInput(new Date())}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    KingswayFileLifecycle.exportText(csv, `payments_${this.formatDateForInput(new Date())}.csv`, "text/csv;charset=utf-8;");
   },
 
   clearFilters: function () {

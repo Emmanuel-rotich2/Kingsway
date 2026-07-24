@@ -543,22 +543,38 @@ function kw_gallery(int $limit = 6): array {
 /* ── Downloads ───────────────────────────────────────────────────────────── */
 
 function kw_downloads(): array {
-    $rows = kw_table('page_downloads');
-    if (!empty($rows)) {
+    $db = kw_db();
+    if (!$db) return [];
+
+    try {
+        $statement = $db->query(
+            "SELECT id, title, description, file_type, file_size,
+                    category, icon, color, public_token
+             FROM page_downloads
+             WHERE is_active = 1
+               AND token_revoked_at IS NULL
+               AND public_token IS NOT NULL
+               AND public_token <> ''
+             ORDER BY category, display_order ASC"
+        );
+
         $grouped = [];
-        foreach ($rows as $r) { $grouped[$r['category']][] = $r; }
+        $baseUrl = defined('BASE_URL')
+            ? rtrim((string) BASE_URL, '/')
+            : '';
+
+        foreach ($statement->fetchAll() as $row) {
+            $row['download_url'] = $baseUrl
+                . '/api/download/public?token='
+                . rawurlencode((string) $row['public_token']);
+            unset($row['public_token']);
+            $grouped[$row['category']][] = $row;
+        }
+
         return $grouped;
+    } catch (\Throwable $exception) {
+        return [];
     }
-    return [
-        'Admissions' => [
-            ['title'=>'Admission Application Form','file_url'=>'downloads/admission_form.pdf','file_type'=>'PDF','file_size'=>'245 KB','icon'=>'bi-file-earmark-pdf-fill','color'=>'#e91e63'],
-            ['title'=>'School Prospectus',          'file_url'=>'downloads/prospectus.pdf',   'file_type'=>'PDF','file_size'=>'2.4 MB','icon'=>'bi-file-earmark-pdf-fill','color'=>'#e91e63'],
-        ],
-        'Academic' => [
-            ['title'=>'School Calendar','file_url'=>'downloads/calendar.pdf','file_type'=>'PDF','file_size'=>'310 KB','icon'=>'bi-file-earmark-pdf-fill','color'=>'#1976d2'],
-            ['title'=>'CBC Curriculum Guide','file_url'=>'downloads/cbc_guide.pdf','file_type'=>'PDF','file_size'=>'890 KB','icon'=>'bi-file-earmark-pdf-fill','color'=>'#1976d2'],
-        ],
-    ];
 }
 
 /* ── News Categories ─────────────────────────────────────────────────────── */

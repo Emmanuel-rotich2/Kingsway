@@ -13,6 +13,21 @@ $staffStats = [
     [kw_school_stat('careers_stat_cpd','100%'),       'CPD Participation'],
 ];
 
+final class PublicCareerUploadAdapter extends \App\API\Includes\BaseAPI
+{
+    public function storeCv(array $file, string $candidateName): ?string
+    {
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+            return null;
+        }
+        $stored = $this->uploadManaged($file, 'career_cv', [
+            'prefix' => 'candidate_cv',
+            'preferred_name' => $candidateName,
+        ]);
+        return (string) $stored['storage_filename'];
+    }
+}
+
 /* ── Handle application POST ── */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['apply_first_name'])) {
     header('Content-Type: application/json');
@@ -23,16 +38,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['apply_first_name']))
     $tsc   = trim($_POST['apply_tsc'] ?? '');
     $jobId = (int)($_POST['apply_job_id'] ?? 0);
 
-    // Handle CV upload
+    // Handle CV upload through the inherited canonical service.
     $cvFilename = null;
-    if (!empty($_FILES['apply_cv']['name']) && $_FILES['apply_cv']['error'] === UPLOAD_ERR_OK) {
-        $ext = strtolower(pathinfo($_FILES['apply_cv']['name'], PATHINFO_EXTENSION));
-        if (in_array($ext, ['pdf','doc','docx'])) {
-            $safeName = preg_replace('/[^a-zA-Z0-9_\-]/', '_', "$first-$last-CV.".date('Ymd'));
-            $dest = __DIR__ . '/uploads/cvs/' . $safeName;
-            if (move_uploaded_file($_FILES['apply_cv']['tmp_name'], $dest)) {
-                $cvFilename = $safeName;
-            }
+    if (!empty($_FILES['apply_cv'])) {
+        try {
+            $cvFilename = (new PublicCareerUploadAdapter('careers'))->storeCv(
+                $_FILES['apply_cv'],
+                trim($first . '-' . $last . '-CV')
+            );
+        } catch (\Throwable $exception) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ]);
+            exit;
         }
     }
 

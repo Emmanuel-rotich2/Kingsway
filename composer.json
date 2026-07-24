@@ -11,6 +11,7 @@
         "dompdf/dompdf": "^3.1",
         "phpoffice/phpword": "^1.4",
         "africastalking/africastalking": "^3.0"
+
     },
     "autoload": {
         "psr-4": {
@@ -19,6 +20,7 @@
             "App\\API\\Modules\\": "api/modules/",           
             "App\\API\\Includes\\": "api/includes/",
             "App\\API\\Middleware\\": "api/middleware/",
+            "App\\API\\Core\\": "api/core/",
             "App\\Config\\": "config/",
             "App\\Database\\": "database/",
             "App\\API\\Services\\": "api/services/",

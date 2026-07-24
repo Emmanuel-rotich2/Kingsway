@@ -1,9 +1,10 @@
 <?php
 namespace App\API\Modules\communications;
 
+use App\API\Core\FileLifecycleBase;
 use PDO;
 
-class CommunicationsManager
+class CommunicationsManager extends FileLifecycleBase
 {
     /**
      * Update delivery status for a recipient (used for SMS/MMS/WhatsApp/Email delivery callbacks)
@@ -362,7 +363,7 @@ class CommunicationsManager
         $stmt->execute([
             ':communication_id' => $communicationId,
             ':file_name' => $fileName ?? 'unnamed_file',
-            ':file_path' => $filePath ?? '/uploads/communications/unnamed_file'
+            ':file_path' => $filePath ?? $this->publicUploadAssetUrl('communications', 'unnamed_file')
         ]);
         return $this->getAttachment($this->db->lastInsertId());
     }
@@ -481,7 +482,7 @@ class CommunicationsManager
                 'details' => $data['details'] ?? null
             ];
             $logFile = dirname(__DIR__) . '/logs/communications.log';
-            @file_put_contents($logFile, json_encode($logData) . "\n", FILE_APPEND);
+            @(new \App\API\Services\UploadService())->writeFile($logFile, json_encode($logData) . "\n", FILE_APPEND);
             return ['status' => 'logged', 'type' => 'file'];
         }
 

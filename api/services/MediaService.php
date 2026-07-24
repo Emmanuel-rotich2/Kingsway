@@ -1,340 +1,325 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\API\Services;
 
 use PDO;
-use Exception;
 
-class MediaService
+/**
+ * Media metadata adapter.
+ *
+ * This class deliberately contains no upload validation, path construction,
+ * filesystem move/copy/delete logic, thumbnail generation or public URL
+ * construction. All of that is owned by UploadService.
+ */
+final class MediaService
 {
-    private $db;
-    private $uploadBase;
+    private UploadService $uploads;
 
-    public function __construct(PDO $db, $uploadBase = null)
-    {
-        $this->db = $db;
-        $this->uploadBase = $uploadBase ? $uploadBase : (__DIR__ . '/../../uploads');
+    public function __construct(
+        private PDO $db,
+        mixed $legacyUploadBase = null
+    ) {
+        $this->uploads = new UploadService();
     }
 
-    // 1. Upload Media
-    public function uploadMedia($file, $context, $entityId = null, $albumId = null, $uploaderId = null, $description = '', $tags = '', $preferredBaseName = null)
-    {
-        $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv', 'zip', 'mp3', 'mp4', 'avi', 'mov'];
-        $maxSize = 20 * 1024 * 1024; // 20MB
-        if (!isset($file['error']) || is_array($file['error']))
-            throw new Exception('Invalid file params');
-        if ($file['error'] !== UPLOAD_ERR_OK)
-            throw new Exception('File upload error');
-        if ($file['size'] > $maxSize)
-            throw new Exception('File too large');
-        $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-        if (!in_array($ext, $allowedTypes))
-            throw new Exception('File type not allowed');
-        $dir = $this->uploadBase . "/$context" . ($entityId ? "/$entityId" : '') . ($albumId ? "/album_$albumId" : '');
-        $this->ensureWritableDirectory($dir);
-        $baseName = $preferredBaseName
-            ? $this->sanitizeFilenameBase($preferredBaseName)
-            : uniqid('media_') . '_' . time();
-        $filename = $this->uniqueFilename($dir, $baseName, $ext);
-        $path = "$dir/$filename";
-        if (!move_uploaded_file($file['tmp_name'], $path)) {
-            throw new Exception('Failed to move file into upload directory: ' . $dir);
-        }
-        // Save metadata
-        $stmt = $this->db->prepare("INSERT INTO media_files (filename, original_name, file_type, file_size, uploader_id, context, entity_id, album_id, description, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$filename, $file['name'], $ext, $file['size'], $uploaderId, $context, $entityId, $albumId, $description, $tags]);
+    public function uploadMedia(
+        array $file,
+        string $context,
+        int|string|null $entityId = null,
+        int|string|null $albumId = null,
+        int|string|null $uploaderId = null,
+        string $description = '',
+        string $tags = '',
+        ?string $preferredBaseName = null
+    ): string|int {
+        $stored = $this->uploads->storeMedia(
+            $file,
+            $context,
+            $entityId,
+            $albumId,
+            $preferredBaseName
+        );
+
+        $statement = $this->db->prepare(
+            'INSERT INTO media_files (
+                filename,
+                original_name,
+                file_type,
+                file_size,
+                uploader_id,
+                context,
+                entity_id,
+                album_id,
+                description,
+                tags
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $statement->execute([
+            $stored['storage_filename'],
+            $stored['original_filename'],
+            $stored['file_type'],
+            $stored['file_size_bytes'],
+            $uploaderId,
+            $context,
+            $entityId,
+            $albumId,
+            $description,
+            $tags,
+        ]);
+
         return $this->db->lastInsertId();
     }
 
-    // Import an existing file on disk into managed uploads and register metadata
-    public function importFile($sourcePath, $context, $entityId = null, $originalName = null, $uploaderId = null, $description = '', $tags = '')
-    {
-        if (!file_exists($sourcePath)) {
-            throw new Exception('Source file does not exist: ' . $sourcePath);
-        }
-        $ext = strtolower(pathinfo($sourcePath, PATHINFO_EXTENSION));
-        $allowedTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'txt', 'csv', 'zip', 'mp3', 'mp4', 'avi', 'mov'];
-        if (!in_array($ext, $allowedTypes)) {
-            throw new Exception('File type not allowed for import');
-        }
+    public function importFile(
+        string $sourcePath,
+        string $context,
+        int|string|null $entityId = null,
+        ?string $originalName = null,
+        int|string|null $uploaderId = null,
+        string $description = '',
+        string $tags = ''
+    ): string|int {
+        $stored = $this->uploads->importMedia(
+            $sourcePath,
+            $context,
+            $entityId,
+            $originalName
+        );
 
-        $dir = $this->uploadBase . "/$context" . ($entityId ? "/$entityId" : '');
-        $this->ensureWritableDirectory($dir);
-        $filename = uniqid('media_') . '_' . time() . ".{$ext}";
-        $path = "$dir/$filename";
-        if (!@copy($sourcePath, $path)) {
-            throw new Exception('Failed to copy file to uploads');
-        }
+        $statement = $this->db->prepare(
+            'INSERT INTO media_files (
+                filename,
+                original_name,
+                file_type,
+                file_size,
+                uploader_id,
+                context,
+                entity_id,
+                album_id,
+                description,
+                tags
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)'
+        );
+        $statement->execute([
+            $stored['storage_filename'],
+            $stored['original_filename'],
+            $stored['file_type'],
+            $stored['file_size_bytes'],
+            $uploaderId,
+            $context,
+            $entityId,
+            $description,
+            $tags,
+        ]);
 
-        $filesize = filesize($path);
-        $origName = $originalName ?? basename($sourcePath);
-
-        $stmt = $this->db->prepare("INSERT INTO media_files (filename, original_name, file_type, file_size, uploader_id, context, entity_id, album_id, description, tags) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$filename, $origName, $ext, $filesize, $uploaderId, $context, $entityId, null, $description, $tags]);
         return $this->db->lastInsertId();
     }
 
-    // 2. Create Album
-    public function createAlbum($name, $description = '', $coverImage = null, $createdBy = null)
-    {
-        $stmt = $this->db->prepare("INSERT INTO albums (name, description, cover_image, created_by) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$name, $description, $coverImage, $createdBy]);
+    public function createAlbum(
+        string $name,
+        string $description = '',
+        ?string $coverImage = null,
+        int|string|null $createdBy = null
+    ): string|int {
+        $statement = $this->db->prepare(
+            'INSERT INTO albums (name, description, cover_image, created_by)
+             VALUES (?, ?, ?, ?)'
+        );
+        $statement->execute([
+            $name,
+            $description,
+            $coverImage,
+            $createdBy,
+        ]);
         return $this->db->lastInsertId();
     }
 
-    // 3. List Albums
-    public function listAlbums($filters = [])
+    public function listAlbums(array $filters = []): array
     {
-        $sql = "SELECT * FROM albums WHERE 1=1";
+        $sql = 'SELECT * FROM albums WHERE 1=1';
         $params = [];
         if (!empty($filters['created_by'])) {
-            $sql .= " AND created_by = ?";
+            $sql .= ' AND created_by = ?';
             $params[] = $filters['created_by'];
         }
-        $sql .= " ORDER BY created_at DESC";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $sql .= ' ORDER BY created_at DESC';
+        $statement = $this->db->prepare($sql);
+        $statement->execute($params);
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // 4. List Media
-    public function listMedia($filters = [])
+    public function listMedia(array $filters = []): array
     {
-        $sql = "SELECT * FROM media_files WHERE is_active = 1";
+        $sql = 'SELECT * FROM media_files WHERE is_active = 1';
         $params = [];
-        if (!empty($filters['context'])) {
-            $sql .= " AND context = ?";
-            $params[] = $filters['context'];
-        }
-        if (!empty($filters['entity_id'])) {
-            $sql .= " AND entity_id = ?";
-            $params[] = $filters['entity_id'];
-        }
-        if (!empty($filters['album_id'])) {
-            $sql .= " AND album_id = ?";
-            $params[] = $filters['album_id'];
-        }
-        if (!empty($filters['uploader_id'])) {
-            $sql .= " AND uploader_id = ?";
-            $params[] = $filters['uploader_id'];
-        }
-        if (!empty($filters['type'])) {
-            $sql .= " AND file_type = ?";
-            $params[] = $filters['type'];
+        foreach ([
+            'context',
+            'entity_id',
+            'album_id',
+            'uploader_id',
+            'type' => 'file_type',
+        ] as $filter => $column) {
+            if (is_int($filter)) {
+                $filter = $column;
+            }
+            if (!empty($filters[$filter])) {
+                $sql .= " AND {$column} = ?";
+                $params[] = $filters[$filter];
+            }
         }
         if (!empty($filters['search'])) {
-            $sql .= " AND (original_name LIKE ? OR description LIKE ? OR tags LIKE ?)";
-            $params[] = "%{$filters['search']}%";
-            $params[] = "%{$filters['search']}%";
-            $params[] = "%{$filters['search']}%";
+            $sql .= ' AND (original_name LIKE ? OR description LIKE ? OR tags LIKE ?)';
+            $term = '%' . $filters['search'] . '%';
+            array_push($params, $term, $term, $term);
         }
-        $sql .= " ORDER BY upload_date DESC";
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $sql .= ' ORDER BY upload_date DESC';
+        $statement = $this->db->prepare($sql);
+        $statement->execute($params);
+        return $statement->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    // 5. Update Media Metadata
-    public function updateMedia($mediaId, $fields)
+    public function updateMedia(int|string $mediaId, array $fields): bool
     {
+        $allowed = ['description', 'tags', 'album_id', 'is_active'];
         $set = [];
         $params = [];
-        foreach ($fields as $k => $v) {
-            $set[] = "$k = ?";
-            $params[] = $v;
+        foreach ($fields as $field => $value) {
+            if (!in_array($field, $allowed, true)) {
+                continue;
+            }
+            $set[] = "{$field} = ?";
+            $params[] = $value;
+        }
+        if ($set === []) {
+            return true;
         }
         $params[] = $mediaId;
-        $sql = "UPDATE media_files SET " . implode(", ", $set) . ", upload_date = upload_date WHERE id = ?";
-        $stmt = $this->db->prepare($sql);
-        return $stmt->execute($params);
+        $statement = $this->db->prepare(
+            'UPDATE media_files SET ' . implode(', ', $set) . ' WHERE id = ?'
+        );
+        return $statement->execute($params);
     }
 
-    // 6. Delete Media
-    public function deleteMedia($mediaId)
+    public function deleteMedia(int|string $mediaId): bool
     {
-        $stmt = $this->db->prepare("SELECT filename, context, entity_id, album_id FROM media_files WHERE id = ?");
-        $stmt->execute([$mediaId]);
-        $media = $stmt->fetch(PDO::FETCH_ASSOC);
-        if ($media) {
-            $filePath = $this->uploadBase . "/{$media['context']}" . ($media['entity_id'] ? "/{$media['entity_id']}" : '') . ($media['album_id'] ? "/album_{$media['album_id']}" : '') . "/{$media['filename']}";
-            if (file_exists($filePath))
-                unlink($filePath);
-        }
-        $stmt = $this->db->prepare("UPDATE media_files SET is_active = 0 WHERE id = ?");
-        return $stmt->execute([$mediaId]);
-    }
-
-    // 7. Delete Album
-    public function deleteAlbum($albumId)
-    {
-        $stmt = $this->db->prepare("UPDATE media_files SET album_id = NULL WHERE album_id = ?");
-        $stmt->execute([$albumId]);
-        $stmt = $this->db->prepare("DELETE FROM albums WHERE id = ?");
-        return $stmt->execute([$albumId]);
-    }
-
-    // 8. Permissions (stub)
-    public function canAccess($userId, $mediaId, $action = 'view')
-    {
-        // Example role-based access logic
-        // You may want to replace this with your actual user/role system
-        $stmt = $this->db->prepare("SELECT uploader_id, context FROM media_files WHERE id = ?");
-        $stmt->execute([$mediaId]);
-        $media = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$media) return false;
-
-        // Example: get user role (replace with your actual user system)
-        $userRole = isset($_REQUEST['user']['role']) ? $_REQUEST['user']['role'] : 'guest';
-
-        // Admins can do anything
-        if ($userRole === 'admin') return true;
-
-        // Uploader can update/delete their own media
-        if (in_array($action, ['update', 'delete']) && $media['uploader_id'] == $userId) return true;
-
-        // Public context: allow view
-        if ($action === 'view' && $media['context'] === 'public') return true;
-
-        // Owner can view
-        if ($action === 'view' && $media['uploader_id'] == $userId) return true;
-
-        // Otherwise deny
-        return false;
-    }
-
-    // 9. Usage Tracking (stub)
-    public function trackUsage($mediaId, $context)
-    {
-        $stmt = $this->db->prepare("UPDATE media_files SET usage_context = ? WHERE id = ?");
-        return $stmt->execute([$context, $mediaId]);
-    }
-
-    // 10. Generate Preview (stub)
-    public function getPreviewUrl($mediaId)
-    {
-        // Only generate previews for images
-        $stmt = $this->db->prepare("SELECT filename, context, entity_id, album_id, file_type FROM media_files WHERE id = ?");
-        $stmt->execute([$mediaId]);
-        $media = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$media)
-            return null;
-        $imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp'];
-        if (!in_array(strtolower($media['file_type']), $imageTypes))
-            return null;
-
-        $baseDir = $this->uploadBase . "/{$media['context']}" . ($media['entity_id'] ? "/{$media['entity_id']}" : '') . ($media['album_id'] ? "/album_{$media['album_id']}" : '');
-        $filePath = $baseDir . "/{$media['filename']}";
-        $thumbDir = $baseDir . '/thumbnails';
-        $this->ensureWritableDirectory($thumbDir);
-        $thumbPath = $thumbDir . "/thumb_{$media['filename']}";
-
-        // Generate thumbnail if it doesn't exist
-        if (!file_exists($thumbPath) && file_exists($filePath)) {
-            $this->generateThumbnail($filePath, $thumbPath, 200, 200);
-        }
-        // Return relative path for web access (adjust as needed for your routing)
-        $relativeThumb = str_replace($this->uploadBase, '/uploads', $thumbPath);
-        return file_exists($thumbPath) ? $relativeThumb : null;
-    }
-
-    public function getFileUrl($mediaId)
-    {
-        $stmt = $this->db->prepare("SELECT filename, context, entity_id, album_id FROM media_files WHERE id = ?");
-        $stmt->execute([$mediaId]);
-        $media = $stmt->fetch(PDO::FETCH_ASSOC);
-        if (!$media) {
-            return null;
+        $media = $this->findMedia($mediaId);
+        if ($media !== null) {
+            $path = $this->uploads->mediaAbsolutePath(
+                (string) $media['context'],
+                $media['entity_id'] ?? null,
+                $media['album_id'] ?? null,
+                (string) $media['filename']
+            );
+            $this->uploads->deleteFile($path);
         }
 
-        $filePath = $this->uploadBase . "/{$media['context']}"
-            . ($media['entity_id'] ? "/{$media['entity_id']}" : '')
-            . ($media['album_id'] ? "/album_{$media['album_id']}" : '')
-            . "/{$media['filename']}";
-
-        return file_exists($filePath) ? str_replace($this->uploadBase, '/uploads', $filePath) : null;
+        $statement = $this->db->prepare(
+            'UPDATE media_files SET is_active = 0 WHERE id = ?'
+        );
+        return $statement->execute([$mediaId]);
     }
 
-    private function sanitizeFilenameBase($value)
+    public function deleteAlbum(int|string $albumId): bool
     {
-        $base = preg_replace('/[^a-zA-Z0-9]+/', '_', trim((string) $value));
-        $base = trim($base, '_');
-        return $base !== '' ? substr($base, 0, 140) : uniqid('media_') . '_' . time();
+        $statement = $this->db->prepare(
+            'UPDATE media_files SET album_id = NULL WHERE album_id = ?'
+        );
+        $statement->execute([$albumId]);
+        $statement = $this->db->prepare('DELETE FROM albums WHERE id = ?');
+        return $statement->execute([$albumId]);
     }
 
-    private function ensureWritableDirectory($dir)
-    {
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            throw new Exception('Upload directory could not be created: ' . $dir);
-        }
-
-        if (!is_writable($dir)) {
-            throw new Exception('Upload directory is not writable: ' . $dir);
-        }
-    }
-
-    private function uniqueFilename($dir, $baseName, $ext)
-    {
-        $filename = "{$baseName}.{$ext}";
-        if (!file_exists("{$dir}/{$filename}")) {
-            return $filename;
-        }
-
-        $suffix = date('YmdHis');
-        $filename = "{$baseName}_{$suffix}.{$ext}";
-        $counter = 2;
-        while (file_exists("{$dir}/{$filename}")) {
-            $filename = "{$baseName}_{$suffix}_{$counter}.{$ext}";
-            $counter++;
-        }
-
-        return $filename;
-    }
-
-    // Helper: Generate thumbnail for images
-    private function generateThumbnail($src, $dest, $width, $height)
-    {
-        $info = getimagesize($src);
-        if (!$info)
+    public function canAccess(
+        int|string|null $userId,
+        int|string $mediaId,
+        string $action = 'view'
+    ): bool {
+        $media = $this->findMedia($mediaId);
+        if ($media === null) {
             return false;
-        $type = $info[2];
-        switch ($type) {
-            case IMAGETYPE_JPEG:
-                $img = imagecreatefromjpeg($src);
-                break;
-            case IMAGETYPE_PNG:
-                $img = imagecreatefrompng($src);
-                break;
-            case IMAGETYPE_GIF:
-                $img = imagecreatefromgif($src);
-                break;
-            case IMAGETYPE_BMP:
-                $img = imagecreatefrombmp($src);
-                break;
-            default:
-                return false;
         }
-        $origWidth = imagesx($img);
-        $origHeight = imagesy($img);
-        $ratio = min($width / $origWidth, $height / $origHeight);
-        $newWidth = (int) ($origWidth * $ratio);
-        $newHeight = (int) ($origHeight * $ratio);
-        $thumb = imagecreatetruecolor($newWidth, $newHeight);
-        imagecopyresampled($thumb, $img, 0, 0, 0, 0, $newWidth, $newHeight, $origWidth, $origHeight);
-        switch ($type) {
-            case IMAGETYPE_JPEG:
-                imagejpeg($thumb, $dest, 85);
-                break;
-            case IMAGETYPE_PNG:
-                imagepng($thumb, $dest, 8);
-                break;
-            case IMAGETYPE_GIF:
-                imagegif($thumb, $dest);
-                break;
-            case IMAGETYPE_BMP:
-                imagebmp($thumb, $dest);
-                break;
+        $role = $_REQUEST['user']['role'] ?? 'guest';
+        if ($role === 'admin') {
+            return true;
         }
-        imagedestroy($img);
-        imagedestroy($thumb);
-        return true;
+        if (
+            in_array($action, ['update', 'delete'], true)
+            && (string) ($media['uploader_id'] ?? '') === (string) $userId
+        ) {
+            return true;
+        }
+        if ($action === 'view' && ($media['context'] ?? '') === 'public') {
+            return true;
+        }
+        return $action === 'view'
+            && (string) ($media['uploader_id'] ?? '') === (string) $userId;
+    }
+
+    public function trackUsage(int|string $mediaId, string $context): bool
+    {
+        $statement = $this->db->prepare(
+            'UPDATE media_files SET usage_context = ? WHERE id = ?'
+        );
+        return $statement->execute([$context, $mediaId]);
+    }
+
+    public function getPreviewUrl(int|string $mediaId): ?string
+    {
+        $media = $this->findMedia($mediaId);
+        if ($media === null) {
+            return null;
+        }
+        if (!in_array(
+            strtolower((string) $media['file_type']),
+            ['jpg', 'jpeg', 'png', 'gif', 'bmp'],
+            true
+        )) {
+            return null;
+        }
+        return $this->uploads->mediaThumbnailUrl(
+            (string) $media['context'],
+            $media['entity_id'] ?? null,
+            $media['album_id'] ?? null,
+            (string) $media['filename']
+        );
+    }
+
+    public function getFileUrl(int|string $mediaId): ?string
+    {
+        $media = $this->findMedia($mediaId);
+        if ($media === null) {
+            return null;
+        }
+        $path = $this->uploads->mediaAbsolutePath(
+            (string) $media['context'],
+            $media['entity_id'] ?? null,
+            $media['album_id'] ?? null,
+            (string) $media['filename']
+        );
+        if (!is_file($path)) {
+            return null;
+        }
+        return $this->uploads->mediaPublicUrl(
+            (string) $media['context'],
+            $media['entity_id'] ?? null,
+            $media['album_id'] ?? null,
+            (string) $media['filename']
+        );
+    }
+
+    private function findMedia(int|string $mediaId): ?array
+    {
+        $statement = $this->db->prepare(
+            'SELECT filename, original_name, file_type, file_size, uploader_id,
+                    context, entity_id, album_id, description, tags, is_active
+             FROM media_files
+             WHERE id = ?
+             LIMIT 1'
+        );
+        $statement->execute([$mediaId]);
+        $row = $statement->fetch(PDO::FETCH_ASSOC);
+        return is_array($row) ? $row : null;
     }
 }

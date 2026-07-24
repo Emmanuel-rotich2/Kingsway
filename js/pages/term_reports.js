@@ -392,15 +392,7 @@ const termReportsCtrl = (() => {
             ]
         ];
         const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `term_report_${student.admission_no || student.id}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(csv, `term_report_${student.admission_no || student.id}.csv`, 'text/csv;charset=utf-8;');
         toast('Report exported', 'success');
     }
 
@@ -473,15 +465,7 @@ const termReportsCtrl = (() => {
             })
         ];
         const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `term_reports_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(csv, `term_reports_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8;');
         toast('Exported to CSV', 'success');
     }
 

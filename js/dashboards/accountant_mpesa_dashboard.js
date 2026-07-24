@@ -170,13 +170,12 @@ const accountantMpesaDashboardController = Object.assign(
       if (printBtn) {
         printBtn.addEventListener("click", function () {
           if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
-            window.PrintManager.printElement({
-              elementId: 'dashboardContent',
+            window.PrintManager.printElement('dashboardContent', {
               title: 'M-Pesa & Mobile Money Dashboard',
               subtitle: 'Mobile Payment Transactions'
             });
           } else {
-            window.print();
+            console.error("PrintManager is unavailable.");
           }
         });
       }
@@ -224,13 +223,7 @@ const accountantMpesaDashboardController = Object.assign(
           dashboard: "M-Pesa & Mobile Money Dashboard",
           timestamp: new Date().toISOString(),
         };
-        var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "mpesa-dashboard-" + Date.now() + ".json";
-        link.click();
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(JSON.stringify(data, null, 2), "mpesa-dashboard-" + Date.now() + ".json", "application/json");
       } catch (e) {
         console.error("Export failed:", e);
       }

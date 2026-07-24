@@ -404,10 +404,7 @@
                 ];
             });
             const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            a.download = `inventory_${new Date().toISOString().split("T")[0]}.csv`;
-            a.click();
+            KingswayFileLifecycle.exportText(csv, `inventory_${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
         },
 
         // ── Event bindings ─────────────────────────────────────────────────────

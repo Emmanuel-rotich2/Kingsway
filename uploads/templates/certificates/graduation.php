@@ -1103,7 +1103,7 @@ $courseClass = $courseLength > 60
 
                     window.setTimeout(function () {
                         window.focus();
-                        window.print();
+                        window.opener?.postMessage({ type: "kingsway-print-ready" }, window.location.origin);
                     }, 350);
                 },
                 { once: true }

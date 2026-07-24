@@ -75,7 +75,7 @@ function printQRCode() {
                 <h2>${schoolName}</h2>
                 <p>${schoolMotto}</p>
             </div>
-            <img src="${qrCode}" onload="window.print(); window.close();">
+            <img src="${qrCode}" onload="window.opener?.PrintManager?.printElement?.('qrCodeModal'); window.close();">
             <div class="details">
                 <h3>${studentName}</h3>
                 <p>${admNo}</p>

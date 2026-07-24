@@ -216,9 +216,7 @@ const pettyCashController = {
       `"${t.category_name||''}"`, t.type, t.amount||0, t.balance_after||0,
       `"${t.recorded_by_name||''}"`
     ].join(','));
-    const blob = new Blob([[h.join(','), ...rows].join('\n')], {type: 'text/csv'});
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-    a.download = 'petty_cash_' + new Date().toISOString().slice(0,10) + '.csv'; a.click();
+    KingswayFileLifecycle.exportText([h.join(','), ...rows].join('\n'), 'petty_cash_' + new Date().toISOString().slice(0,10) + '.csv', 'text/csv');
   },
 
   _set: (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; },

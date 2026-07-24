@@ -115,12 +115,7 @@ const classParentContactsController = {
         `"${c.last_contacted || ''}"`,
       ].join(',')),
     ];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `parent_contacts_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(rows.join('\n'), `parent_contacts_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   _show: function (id) {

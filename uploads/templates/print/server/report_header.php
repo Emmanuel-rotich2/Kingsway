@@ -15,6 +15,7 @@
  * - array  $filters
  */
 
+
 declare(strict_types=1);
 
 if (!function_exists('serverPrintEscape')) {
@@ -39,6 +40,24 @@ if (!function_exists('serverPrintValue')) {
     }
 }
 
+if (!function_exists('serverPrintDate')) {
+    function serverPrintDate(mixed $value): string
+    {
+        $text = trim((string) ($value ?? ''));
+
+        if ($text === '') {
+            return date('d F Y, h:i A');
+        }
+
+        try {
+            $date = new DateTimeImmutable($text);
+            return $date->format('d F Y, h:i A');
+        } catch (Throwable) {
+            return $text;
+        }
+    }
+}
+
 $schoolConfig = isset($schoolConfig) && is_array($schoolConfig)
     ? $schoolConfig
     : [];
@@ -54,7 +73,7 @@ $schoolMotto = serverPrintValue(
 );
 
 $schoolLogo = serverPrintValue(
-    $schoolConfig['logo'] ?? null
+    $schoolLogo ?? ($schoolConfig['logo'] ?? null)
 );
 
 $schoolAddress = serverPrintValue(
@@ -96,9 +115,8 @@ $generatedBy = serverPrintValue(
     'System User'
 );
 
-$generatedAt = serverPrintValue(
-    $generatedAt ?? null,
-    date('d F Y, H:i')
+$generatedAt = serverPrintDate(
+    $generatedAt ?? null
 );
 
 $filters = isset($filters) && is_array($filters)
@@ -121,15 +139,19 @@ $filters = isset($filters) && is_array($filters)
     >
         <tr>
             <td class="server-print-header-logo-cell">
-                <?php if ($schoolLogo !== ''): ?>
-                        <div class="server-print-logo-frame">
+                <div class="server-print-logo-frame">
+                    <?php if ($schoolLogo !== ''): ?>
                             <img
                                 src="<?= serverPrintEscape($schoolLogo) ?>"
                                 alt="<?= serverPrintEscape($schoolName) ?> logo"
                                 class="server-print-logo"
                             >
-                        </div>
-                <?php endif; ?>
+                    <?php else: ?>
+                            <div class="server-print-logo-fallback">
+                                KPS
+                            </div>
+                    <?php endif; ?>
+                </div>
             </td>
 
             <td class="server-print-school-cell">

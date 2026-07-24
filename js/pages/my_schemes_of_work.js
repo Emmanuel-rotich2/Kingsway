@@ -252,10 +252,7 @@ const MySchemesOfWorkController = {
       let csv = headers.join(',') + '\n' + 
         rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
       
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'my_schemes_of_work.csv';
-      a.click();
+      KingswayFileLifecycle.exportText(csv, 'my_schemes_of_work.csv', 'text/csv');
     }
   },
 

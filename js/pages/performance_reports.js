@@ -328,15 +328,7 @@ const performanceReportsCtrl = (() => {
             ])
         ];
         const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `performance_report_${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(csv, `performance_report_${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8;');
     }
 
     function printReport() {
@@ -363,31 +355,38 @@ const performanceReportsCtrl = (() => {
         });
 
         const columns = [
-            { key: 'admission_no', label: 'Adm No' },
-            { key: 'student_name', label: 'Student Name' },
-            { key: 'class_name', label: 'Class' },
-            { key: 'subject_name', label: 'Subject' },
-            { key: 'score', label: 'Score' },
-            { key: 'grade', label: 'Grade' },
-            { key: 'remarks', label: 'Remarks' }
+            { key: 'admission_no', label: 'Admission No.', width: '13%', cellClassName: 'print-cell-code' },
+            { key: 'student_name', label: 'Student Name', width: '23%', cellClassName: 'print-cell-strong' },
+            { key: 'class_name', label: 'Class', width: '10%' },
+            { key: 'subject_name', label: 'Learning Area', width: '18%' },
+            { key: 'score', label: 'Score', type: 'percentage', width: '10%', formatter: value => `${Number(value || 0).toFixed(1)}%` },
+            { key: 'grade', label: 'Grade', width: '9%', cellClassName: 'print-cell-grade' },
+            { key: 'remarks', label: 'Remarks', width: '17%' }
         ];
 
+        const scoredRows = reportData.filter(row => Number.isFinite(Number(row.score)));
+        const averageScore = scoredRows.length
+            ? scoredRows.reduce((sum, row) => sum + Number(row.score), 0) / scoredRows.length
+            : 0;
+
         window.PrintManager.printTable({
-            title: 'Performance Report',
-            subtitle: 'Student Academic Performance',
-            columns: columns,
+            title: 'Academic Performance Report',
+            subtitle: 'Student performance by class and learning area',
+            description: 'Official consolidated academic performance report.',
+            columns,
             rows: reportData,
             summary: {
-                'Total Students': reportData.length,
-                'Generated Date': new Date().toLocaleDateString()
+                'Records Included': reportData.length,
+                'Average Score': `${averageScore.toFixed(1)}%`
             },
-            filters: filters,
+            filters,
             orientation: 'landscape',
             paperSize: 'A4',
+            filename: `academic_performance_${new Date().toISOString().slice(0, 10)}`,
             reportCode: 'PER-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
             signatureSection: [
-                { label: 'Class Teacher' },
-                { label: 'Principal' }
+                { label: 'Class Teacher', dateLine: true },
+                { label: 'Headteacher', dateLine: true }
             ]
         });
     }

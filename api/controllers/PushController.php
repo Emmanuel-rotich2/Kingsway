@@ -91,8 +91,10 @@ class PushController extends BaseController
             sys_get_temp_dir(),
         ];
         foreach ($candidates as $dir) {
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0755, true);
+            try {
+                $this->ensureManagedDirectory($dir);
+            } catch (\Throwable $exception) {
+                continue;
             }
             if (is_dir($dir) && is_writable($dir)) {
                 return $dir;
@@ -125,7 +127,7 @@ class PushController extends BaseController
                 return ($r['subscription']['endpoint'] ?? null) !== $endpoint;
             });
             $all[] = $record;
-            @file_put_contents($this->storeFile(), json_encode(array_values($all), JSON_UNESCAPED_SLASHES), LOCK_EX);
+            @$this->writeManagedFile($this->storeFile(), json_encode(array_values($all), JSON_UNESCAPED_SLASHES), LOCK_EX);
         } catch (\Throwable $e) {
             error_log('PushController appendSubscription failed: ' . $e->getMessage());
         }
@@ -147,7 +149,7 @@ class PushController extends BaseController
                 }
             }
             if ($removed > 0) {
-                @file_put_contents($this->storeFile(), json_encode($kept, JSON_UNESCAPED_SLASHES), LOCK_EX);
+                @$this->writeManagedFile($this->storeFile(), json_encode($kept, JSON_UNESCAPED_SLASHES), LOCK_EX);
             }
             return $removed;
         } catch (\Throwable $e) {

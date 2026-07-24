@@ -407,7 +407,7 @@ const StudentIdCardsController = {
             return `
                 <tr>
                     <td><input type="checkbox" class="student-checkbox" data-id="${studentId}"></td>
-                    <td><img src="${student.photo_url || (window.APP_BASE + '/uploads/students/avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
+                    <td><img src="${student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')}" class="rounded" style="width:40px;height:40px;object-fit:cover;"></td>
                     <td><strong>${this.escapeHtml(student.admission_no || '—')}</strong></td>
                     <td>${this.escapeHtml(fullName)}</td>
                     <td>${this.escapeHtml(student.class_name || '—')}</td>
@@ -1005,100 +1005,95 @@ const StudentIdCardsController = {
         if (Number.isNaN(date.getTime())) return String(value);
         return date.toLocaleDateString("en-KE", { year: "numeric", month: "short", day: "2-digit" });
     },
-
     printSingleCard: async function() {
-        // Print the currently displayed card by fetching server-rendered HTML.
         if (!this.currentPreviewStudentId) {
-            this.notify("warning", "No card preview available");
+            this.notify("warning", "No card preview is available.");
             return;
         }
 
-        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
-        const side = document.getElementById('printSideSelect')?.value || 'both';
-        await this.openServerPrintHtml(
-            '/students/id-card/print-single',
-            {
-                student_id: this.currentPreviewStudentId,
-                side: side,
-                print_mode: printMode
-            },
-            `ID Card - ${this.currentPreviewStudentId}`
-        );
-    },
-
-    downloadSingleCard: async function() {
-        // Generate a true CR80-sized (85.60 x 53.98 mm) PDF for a single card so a
-        // direct PVC/CR80 printer is fed one side per physical page (no A4 stretch).
-        if (!this.currentPreviewStudentId) {
-            this.notify("warning", "No card preview available");
-            return;
-        }
-
-        const printMode = document.getElementById('printModeDirect')?.value || 'direct_card';
-        const side = document.getElementById('printSideSelect')?.value || 'both';
+        const selectedMode =
+            document.getElementById("printModeDirect")?.value
+            || "direct_card";
+        const side =
+            document.getElementById("printSideSelect")?.value
+            || "both";
+        const printerMode = selectedMode === "a4_sheet"
+            ? "a4_pdf"
+            : selectedMode;
 
         try {
-            this.notify("info", "Generating single card PDF...");
-            const response = await this.apiCall('/students/id-card/print-single', 'POST', {
-                student_id: this.currentPreviewStudentId,
-                side: side,
-                print_mode: printMode,
-                format: 'pdf'
-            });
-            const data = this.unwrapPayload(response);
-            if (data && data.pdf_url) {
-                window.open(data.pdf_url, '_blank');
-                this.notify("success", "Single card PDF ready");
-            } else {
-                this.notify("error", response.message || "Failed to generate PDF");
-            }
+            await window.PrintManager.printSingleStudentIdCard(
+                this.currentPreviewStudentId,
+                {
+                    printerMode,
+                    side,
+                    filename: `student_id_${this.currentPreviewStudentId}`,
+                },
+            );
+            this.notify("success", "Student ID-card PDF is ready.");
         } catch (error) {
-            console.error('Failed to download single card:', error);
-            this.notify("error", error.message || "Failed to generate PDF");
+            console.error("Student ID-card printing failed:", error);
+            this.notify(
+                "error",
+                error.message || "Unable to print the student ID card.",
+            );
         }
     },
-
+    downloadSingleCard: async function() {
+        return this.printSingleCard();
+    },
     printSelected: async function() {
-        // Collect selected students and produce ONE combined A4/PDF sheet via
-        // the server renderer (front | back per row, table layout, QR as data URI).
-        const selectedStudentIds = Array.from(this.selectedStudents);
-        if (selectedStudentIds.length === 0) {
-            this.notify("warning", "Please select students first");
+        const studentIds = Array.from(this.selectedStudents);
+
+        if (!studentIds.length) {
+            this.notify("warning", "Select at least one student.");
             return;
         }
 
-        const includeFront = document.getElementById('bulkIncludeFront')?.checked ?? true;
-        const includeBack = document.getElementById('bulkIncludeBack')?.checked ?? true;
-        const printMode = document.getElementById('bulkPrintMode')?.value || 'a4_sheet';
+        const includeFront =
+            document.getElementById("bulkIncludeFront")?.checked
+            ?? true;
+        const includeBack =
+            document.getElementById("bulkIncludeBack")?.checked
+            ?? true;
 
         if (!includeFront && !includeBack) {
-            this.notify("warning", "Please select at least one card side");
+            this.notify("warning", "Select at least one card side.");
             return;
         }
 
+        const selectedMode =
+            document.getElementById("bulkPrintMode")?.value
+            || "a4_sheet";
+        const printerMode = selectedMode === "a4_sheet"
+            ? "a4_pdf"
+            : selectedMode;
+        const side = includeFront && includeBack
+            ? "both"
+            : (includeFront ? "front" : "back");
+
         try {
-            this.notify("info", `Generating print file for ${selectedStudentIds.length} student(s)...`);
-
-            // Direct-card mode: each card is a separate CR80 page. Fetch the
-            // server-rendered HTML once per student would be heavy; instead the
-            // bulk PDF endpoint already supports direct_card. Use it.
-            const response = await this.apiCall('/students/id-card/generate-bulk-pdf', 'POST', {
-                student_ids: selectedStudentIds,
-                print_mode: printMode,
-                include_front: includeFront,
-                include_back: includeBack
-            });
-
-            const data = this.unwrapPayload(response);
-            if (data && data.pdf_url) {
-                window.open(data.pdf_url, '_blank');
-                this.notify("success", `Print file ready for ${data.student_count} student(s)`);
-            } else {
-                this.notify("error", response.message || "Failed to generate print file");
-            }
+            await window.PrintManager.printBulkStudentIdCards(
+                studentIds,
+                {
+                    printerMode,
+                    side,
+                    chunkSize: 100,
+                    filename: `student_id_cards_${new Date()
+                        .toISOString()
+                        .slice(0, 10)}`,
+                },
+            );
+            this.notify(
+                "success",
+                `ID-card PDF ready for ${studentIds.length} student(s).`,
+            );
         } catch (error) {
-            console.error('Failed to print selected:', error);
-            this.notify("error", error.message || "Failed to generate print file");
+            console.error("Bulk ID-card printing failed:", error);
+            this.notify(
+                "error",
+                error.message || "Unable to generate ID cards.",
+            );
         }
     },
 
@@ -1107,36 +1102,6 @@ const StudentIdCardsController = {
      * the browser/system print dialog. The OS printer driver handles the job,
      * including any installed ID-card printer selected by the user.
      */
-    openServerPrintHtml: async function(endpoint, body, docTitle) {
-        try {
-            this.notify("info", "Preparing print-ready card...");
-            const response = await this.apiCall(endpoint, 'POST', body);
-            const data = this.unwrapPayload(response);
-
-            if (!data || !data.html) {
-                this.notify("error", response.message || "Failed to generate print card");
-                return;
-            }
-
-            const printWindow = window.open('', '_blank');
-            if (!printWindow) {
-                this.notify("warning", "Please allow popups to print ID cards");
-                return;
-            }
-
-            printWindow.document.open();
-            printWindow.document.write(data.html);
-            printWindow.document.close();
-            printWindow.document.title = docTitle || 'ID Card';
-
-            printWindow.onload = function () {
-                setTimeout(() => printWindow.print(), 300);
-            };
-        } catch (error) {
-            console.error('Failed to open print HTML:', error);
-            this.notify("error", error.message || "Failed to open print view");
-        }
-    },
 
     exportData: function() {
         if (!this.students.length) {

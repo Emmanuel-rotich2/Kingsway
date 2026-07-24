@@ -952,7 +952,5 @@ document.addEventListener("DOMContentLoaded", function () {
     staffAttendanceController.init();
   } else if (currentRoute === "manage_teachers") {
     manageTeachersController.init();
-  } else if (currentRoute === "manage_non_teaching_staff") {
-    manageNonTeachingStaffController.init();
   }
 });

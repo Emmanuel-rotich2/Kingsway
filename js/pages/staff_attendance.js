@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.attendance.view'); });
 const StaffAttendanceController = {
   departments: [],
   dutyTypes: [],
@@ -65,7 +66,7 @@ const StaffAttendanceController = {
     try {
       // Reference data: cache 7d (rarely changes) to skip DB re-query.
       const response = await DataStore.fetchPage('departments', {
-        endpoint: '/staff/departments/get', storeName: 'reference_departments',
+        endpoint: '/staff/departments-get', storeName: 'reference_departments',
         ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
       });
       this.departments = Array.isArray(response) ? response : [];
@@ -819,16 +820,16 @@ const StaffAttendanceController = {
     }
 
     const columns = [
-      { key: 'staff_name', label: 'Staff Name' },
-      { key: 'staff_no', label: 'Staff No' },
-      { key: 'department_name', label: 'Department' },
-      { key: 'duty_type', label: 'Duty Type' },
-      { key: 'present', label: 'Present' },
-      { key: 'absent', label: 'Absent' },
-      { key: 'late', label: 'Late' },
-      { key: 'on_leave', label: 'On Leave' },
-      { key: 'off_days', label: 'Off Days' },
-      { key: 'attendance_rate', label: 'Attendance Rate' }
+      { key: 'staff_name', label: 'Staff Name', width: '19%', cellClassName: 'print-cell-strong' },
+      { key: 'staff_no', label: 'Staff No.', width: '10%', cellClassName: 'print-cell-code' },
+      { key: 'department_name', label: 'Department', width: '14%' },
+      { key: 'duty_type', label: 'Duty Type', width: '11%' },
+      { key: 'present', label: 'Present', type: 'integer', width: '7%' },
+      { key: 'absent', label: 'Absent', type: 'integer', width: '7%' },
+      { key: 'late', label: 'Late', type: 'integer', width: '7%' },
+      { key: 'on_leave', label: 'On Leave', type: 'integer', width: '8%' },
+      { key: 'off_days', label: 'Off Days', type: 'integer', width: '8%' },
+      { key: 'attendance_rate', label: 'Rate', type: 'percentage', width: '9%' }
     ];
 
     const processedRows = rows.map(staff => {
@@ -902,21 +903,22 @@ const StaffAttendanceController = {
 
     window.PrintManager.printTable({
       title: 'Staff Attendance Report',
-      subtitle: 'Attendance Summary',
-      columns: columns,
+      subtitle: 'Staff Attendance Summary',
+      description: 'Official staff attendance and duty report.',
+      columns,
       rows: processedRows,
       summary: {
         'Total Staff': rows.length,
-        'Report Period': `${startDate} to ${endDate}`,
-        'Generated Date': new Date().toLocaleDateString()
+        'Report Period': `${startDate} to ${endDate}`
       },
       filters: filters,
       orientation: 'landscape',
       paperSize: 'A4',
-      reportCode: 'STA-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      filename: `staff_attendance_${startDate || 'start'}_${endDate || 'end'}`,
+      reportCode: 'STF-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
       signatureSection: [
-        { label: 'HR Manager' },
-        { label: 'Principal' }
+        { label: 'HR Manager', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   },

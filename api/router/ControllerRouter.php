@@ -290,7 +290,7 @@ class ControllerRouter
         }
         try {
             $entry = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n";
-            @file_put_contents($this->ensureLogDir() . '/router_debug.log', $entry, FILE_APPEND | LOCK_EX);
+            @(new \App\API\Services\UploadService())->writeFile($this->ensureLogDir() . '/router_debug.log', $entry, FILE_APPEND | LOCK_EX);
         } catch (\Throwable $e) {
             // Silently ignore log failures in production
         }

@@ -60,7 +60,7 @@ const staffOnboardingController = {
     try {
       // Reference data: cache 7d (stale-while-revalidate) to skip DB re-query.
       const r = await DataStore.fetchPage('departments', {
-        endpoint: '/staff/departments/get', storeName: 'reference_departments',
+        endpoint: '/staff/departments-get', storeName: 'reference_departments',
         ttl: DataStore.DEFAULT_TTL.LONG, strategy: 'stale-while-revalidate'
       });
       const list = r?.data || r || [];
@@ -72,7 +72,7 @@ const staffOnboardingController = {
 
   _loadStaffList: async function () {
     try {
-      const r = await callAPI('/staff/all', 'GET');
+      const r = await callAPI('/staff', 'GET');
       const list = r?.data || r || [];
       const staffOpts = list.map(s =>
         `<option value="${s.id}">${this._esc(s.full_name||(s.first_name+' '+s.last_name))} (${s.staff_no||'—'})</option>`

@@ -714,12 +714,7 @@ class FeeStructureController {
    */
   downloadCSV(data) {
     const csv = this.convertToCSV(data);
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "fee-structures.csv";
-    a.click();
+    KingswayFileLifecycle.exportText(csv, "fee-structures.csv", "text/csv");
   }
 
   /**

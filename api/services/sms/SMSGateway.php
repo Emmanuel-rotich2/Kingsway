@@ -231,7 +231,7 @@ class AfricasTalkingProvider implements SMSProvider
         }
 
         $logMessage = "[$timestamp] To: $to | Response: " . $resultStr . "\n";
-        @file_put_contents($logFile, $logMessage, FILE_APPEND);
+        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }
 
     private function logSmsRequest($to, $message, $options, $attempt = "")
@@ -240,7 +240,7 @@ class AfricasTalkingProvider implements SMSProvider
         $timestamp = date('Y-m-d H:i:s');
         $attemptStr = !empty($attempt) ? " | $attempt" : "";
         $logMessage = "[$timestamp] REQUEST - To: $to | Options: " . json_encode($options) . " | Message: " . substr($message, 0, 50) . "...$attemptStr\n";
-        @file_put_contents($logFile, $logMessage, FILE_APPEND);
+        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }
 
     /**

@@ -223,10 +223,7 @@ const VendorsController = (() => {
     const headers = ['Name','Contact Person','Phone','Email','Category','Status','Balance'];
     const rows    = _vendors.map(v => [v.name, v.contact_person, v.phone, v.email, v.category, v.status, v.balance || 0]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c || ''}"`).join(',')).join('\n');
-    const a   = document.createElement('a');
-    a.href    = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download= 'vendors_export.csv';
-    a.click();
+    KingswayFileLifecycle.exportText(csv, 'vendors_export.csv', 'text/csv');
   }
 
   // ── UTILS ──────────────────────────────────────────────────────────────

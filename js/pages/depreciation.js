@@ -138,12 +138,7 @@ const depreciationController = {
       return [`"${a.asset_code||''}"`,`"${a.name||''}"`,`"${a.category||''}"`,`"${a.purchase_date||''}"`,
         cost, Number(a.depreciation_rate||20), annual.toFixed(0), bv.toFixed(0), pct].join(',');
     })];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `depreciation_schedule_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(rows.join('\n'), `depreciation_schedule_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   _extract: function (settled) {

@@ -30,15 +30,15 @@ $side = $side ?? 'both';
         ?>
 
         <?php if ($side === 'front' || $side === 'both'): ?>
-            <section class="id-cr80-page">
+            <div class="id-cr80-page">
                 <?php require $frontTemplatePath; ?>
-            </section>
+            </div>
         <?php endif; ?>
 
         <?php if ($side === 'back' || $side === 'both'): ?>
-            <section class="id-cr80-page">
+            <div class="id-cr80-page">
                 <?php require $backTemplatePath; ?>
-            </section>
+            </div>
         <?php endif; ?>
     <?php endforeach; ?>
 </div>

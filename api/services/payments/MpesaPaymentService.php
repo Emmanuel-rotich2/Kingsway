@@ -388,14 +388,13 @@ class MpesaPaymentService
             $logFile = __DIR__ . '/../../../../logs/mpesa_callbacks.log';
             $logDir = dirname($logFile);
 
-            if (!is_dir($logDir)) {
-                mkdir($logDir, 0755, true);
-            }
+            $storage = new \App\API\Services\UploadService();
+            $storage->ensureDirectoryPath($logDir);
 
             $timestamp = date('Y-m-d H:i:s');
             $logEntry = "[$timestamp] " . json_encode($callbackData, JSON_PRETTY_PRINT) . "\n\n";
 
-            file_put_contents($logFile, $logEntry, FILE_APPEND);
+            $storage->writeFile($logFile, $logEntry, FILE_APPEND);
 
         } catch (Exception $e) {
             error_log("Failed to log M-Pesa callback: " . $e->getMessage());

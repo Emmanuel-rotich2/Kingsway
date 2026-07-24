@@ -491,11 +491,7 @@
             c.class_name || '', c.category || '', c.severity || '', c.status || '', c.reported_by_name || '',
         ]));
         const csv  = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const a    = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'discipline_cases_' + new Date().toISOString().slice(0,10) + '.csv';
-        a.click();
+        KingswayFileLifecycle.exportText(csv, 'discipline_cases_' + new Date().toISOString().slice(0,10) + '.csv', 'text/csv');
     }
 
     function formatDate(d) { return d ? new Date(d).toLocaleDateString() : '-'; }

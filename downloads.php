@@ -52,7 +52,7 @@ $categories = kw_downloads();
                 <?php if (!empty($doc['file_size'])): ?><span><?= htmlspecialchars($doc['file_size']) ?></span><?php endif; ?>
               </div>
             </div>
-            <a href="<?= $appBase ?>/<?= htmlspecialchars($doc['file_url']) ?>" download class="download-btn" title="Download <?= htmlspecialchars($doc['title']) ?>">
+            <a href="<?= htmlspecialchars($doc['download_url']) ?>" class="download-btn" title="Download <?= htmlspecialchars($doc['title']) ?>">
               <i class="bi bi-download"></i>
             </a>
           </div>

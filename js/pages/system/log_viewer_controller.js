@@ -122,11 +122,7 @@ class LogViewerController {
         const headers = this.config.columns;
         const rows = this.allData.map(item => Object.values(item).slice(0, headers.length));
         const csv = headers.join(',') + '\n' + rows.map(row => row.map(value => this.csv(value)).join(',')).join('\n');
-        const link = document.createElement('a');
-
-        link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-        link.download = this.config.title.toLowerCase().replace(/\s+/g, '_') + '.csv';
-        link.click();
+        KingswayFileLifecycle.exportText(csv, this.config.title.toLowerCase().replace(/\s+/g, '_') + '.csv', 'text/csv');
     }
 
     unwrapList(response) {

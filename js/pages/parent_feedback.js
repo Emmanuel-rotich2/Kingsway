@@ -166,10 +166,7 @@ const ParentFeedbackController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "parent_feedback.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "parent_feedback.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

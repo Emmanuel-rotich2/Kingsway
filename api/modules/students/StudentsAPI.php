@@ -2601,43 +2601,26 @@ class StudentsAPI extends BaseAPI
             // Generate QR code image
             $result = $writer->write($qrCode);
 
-            // Save QR code to uploads/students/images/{student_id}/qr_codes/ (absolute, per-student).
-            // Anchored to the ABSOLUTE UPLOAD_PATH so the path is CWD-independent. Mirrors the
-            // enhanced generator (StudentIDCardGenerator::generateEnhancedQRCode) so both routes
-            // store QR codes in the same, co-located, easy-to-manage location.
-            $uploadRoot = realpath(UPLOAD_PATH) ?: UPLOAD_PATH;
-            $studentQrDir = rtrim($uploadRoot, '/') . '/students/images/' . $id . '/qr_codes/';
-            if (!is_dir($studentQrDir)) {
-                mkdir($studentQrDir, 0755, true);
-            }
+            // Persist through the inherited UploadService gateway.
             $qrFilename = $student['admission_no'] . '.png';
-            $qrPath = $studentQrDir . $qrFilename;
-            $result->saveToFile($qrPath);
+            $qrPath = $this->managedPath(
+                'student_photo',
+                (string) $id,
+                'qr_codes',
+                $qrFilename
+            );
+            $this->writeManagedFile($qrPath, $result->getString());
+            $webQrPath = $this->managedPublicUrl(
+                'student_photo',
+                (string) $id,
+                'qr_codes',
+                $qrFilename
+            );
 
-            // Web-relative path (mirrors the enhanced generator's layout so the stored
-            // value is always UI-displayable regardless of the MediaManager fallback).
-            $webQrPath = rtrim(BASE_URL, '/') . '/uploads/students/images/' . $id . '/qr_codes/' . $qrFilename;
-
-            // Import generated QR into MediaManager so it's managed under uploads/students/{id}
-            try {
-                $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
-                if (file_exists($qrPath)) {
-                    $mediaId = $mediaManager->import($qrPath, 'students', $id, basename($qrPath), null, 'student qr code');
-                    $preview = $mediaManager->getPreviewUrl($mediaId);
-                    // Update student record with managed preview URL if available
-                    if ($preview) {
-                        $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                        $stmt->execute([$preview, $id]);
-                    } else {
-                        $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                        $stmt->execute([$webQrPath, $id]);
-                    }
-                }
-            } catch (\Exception $e) {
-                // Fallback: store the web-relative local path
-                $stmt = $this->db->prepare("UPDATE students SET qr_code_path = ? WHERE id = ?");
-                $stmt->execute([$webQrPath, $id]);
-            }
+            $stmt = $this->db->prepare(
+                "UPDATE students SET qr_code_path = ?, updated_at = NOW() WHERE id = ?"
+            );
+            $stmt->execute([$webQrPath, $id]);
 
             return $this->response([
                 'status' => 'success',
@@ -5200,7 +5183,7 @@ class StudentsAPI extends BaseAPI
 
             if (empty($payload['photo_url'])) {
                 $payload['photo_url'] = $this->normalizePublicAssetPath(
-                    defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg'
+                    defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : $this->publicUploadAssetUrl('students', 'avatar.jpg')
                 );
             }
 
@@ -5285,7 +5268,7 @@ class StudentsAPI extends BaseAPI
         if ($value === '' || $value === 'NULL') {
             // No photo on record: fall back to the canonical default avatar so the
             // frontend never references a missing path.
-            $value = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : 'uploads/students/avatar.jpg';
+            $value = defined('STUDENT_AVATAR_DEFAULT') ? STUDENT_AVATAR_DEFAULT : $this->publicUploadAssetUrl('students', 'avatar.jpg');
         }
 
         if (preg_match('#^https?://#i', $value) || str_starts_with($value, 'data:')) {

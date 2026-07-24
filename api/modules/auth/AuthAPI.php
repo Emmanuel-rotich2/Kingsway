@@ -9,6 +9,7 @@ use App\API\Modules\users\PermissionManager;
 use App\API\Modules\users\UserRoleManager;
 use App\API\Modules\users\UserPermissionManager;
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\AuthSessionService;
 use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
 use App\Services\PolicyEngine;
@@ -25,6 +26,7 @@ class AuthAPI extends BaseAPI
     private $userRoleManager;
     private $userPermissionManager;
     private $communicationsApi;
+    private AuthSessionService $authSessionService;
 
     // New database-driven services
     private ?SystemConfigService $configService = null;
@@ -42,6 +44,7 @@ class AuthAPI extends BaseAPI
         $this->userRoleManager = new UserRoleManager($this->db);
         $this->userPermissionManager = new UserPermissionManager($this->db);
         $this->communicationsApi = new CommunicationsAPI();
+        $this->authSessionService = new AuthSessionService($this->db);
 
         // Check if database-driven config is available
         // DISABLED: $this->useDatabaseConfig = $this->checkDatabaseConfigAvailable();
@@ -85,16 +88,10 @@ class AuthAPI extends BaseAPI
         }
         return $this->configService;
     }
-    // Logout user (invalidate session/token as needed)
+    // Logout user through the same canonical refresh/session revocation path.
     public function logout($data)
     {
-        // Example: Invalidate token on client side, optionally log event
-        // If using server-side sessions, destroy session here
-        // For JWT, usually just instruct client to delete token
-        return [
-            'success' => true,
-            'message' => 'Logged out successfully.'
-        ];
+        return $this->revokeRefreshToken($data);
     }
 
     public function forgotPassword($data)
@@ -278,42 +275,6 @@ class AuthAPI extends BaseAPI
         }
     }
 
-    // Refresh JWT token (issue new token if refresh token is valid)
-    public function refreshToken($data)
-    {
-        $refreshToken = $data['refresh_token'] ?? null;
-        if (!$refreshToken) {
-            return [
-                'success' => false,
-                'message' => 'Refresh token is required.'
-            ];
-        }
-        // Validate refresh token (pseudo, implement as needed)
-        // $userData = $this->validateRefreshToken($refreshToken);
-        $userData = [
-            'user_id' => 1,
-            'username' => 'demo',
-            'email' => 'demo@example.com',
-            'roles' => [],
-            'display_name' => 'Demo User',
-            'permissions' => []
-        ]; // For demo
-        if (!$userData) {
-            return [
-                'success' => false,
-                'message' => 'Invalid refresh token.'
-            ];
-        }
-        $token = $this->generateToken($userData);
-        return [
-            'success' => true,
-            'message' => 'Token refreshed successfully.',
-            'data' => [
-                'token' => $token
-            ]
-        ];
-    }
-
     private function hashResetToken(string $token): string
     {
         return hash('sha256', $token);
@@ -333,8 +294,9 @@ class AuthAPI extends BaseAPI
     // Login user
     public function login($data)
     {
-        // Delegate to UsersAPI for authentication and user info
-        $result = $this->usersApi->login($data);
+        // UsersAPI owns credential verification and telemetry. AuthAPI remains
+        // the single token/session issuer for the canonical /auth/login path.
+        $result = $this->usersApi->login($data, false);
         if ($result['success']) {
             // Extract user data - it's nested in $result['data']['user']
             $userData = $result['data']['user'] ?? $result['data'];
@@ -386,7 +348,11 @@ class AuthAPI extends BaseAPI
                     $userData,
                     $primaryRoleId,
                     $roleIds,
-                    $token
+                    $token,
+                    filter_var(
+                        $data['remember_me'] ?? false,
+                        FILTER_VALIDATE_BOOLEAN
+                    )
                 );
             } else {
                 $loginData = $this->buildLoginResponseFromFiles(
@@ -399,7 +365,39 @@ class AuthAPI extends BaseAPI
                 );
             }
 
-            return $loginData;
+            try {
+                return $this->attachTrackedSession(
+                    $loginData,
+                    (int) $userData['id'],
+                    $token
+                );
+            } catch (\Throwable $error) {
+                error_log(
+                    'Authenticated session creation failed: ' .
+                    $error->getMessage()
+                );
+                $issuedRefreshToken = (string) (
+                    $loginData['data']['refresh_token'] ?? ''
+                );
+                if ($issuedRefreshToken !== '') {
+                    try {
+                        $this->authSessionService->revokeByRefreshToken(
+                            $issuedRefreshToken
+                        );
+                    } catch (\Throwable $cleanupError) {
+                        error_log(
+                            'Failed to clean up refresh token after session ' .
+                            'creation error: ' .
+                            $cleanupError->getMessage()
+                        );
+                    }
+                }
+                return [
+                    'status' => 'error',
+                    'message' => 'The authenticated session could not be established',
+                    'data' => null,
+                ];
+            }
         }
         // If not successful, return error (include debug info in dev)
         return [
@@ -418,7 +416,9 @@ class AuthAPI extends BaseAPI
         array $userData,
         ?int $primaryRoleId,
         array $roleIds,
-        string $token
+        string $token,
+        bool $rememberMe = false,
+        ?string $existingRefreshToken = null
     ): array {
         $userId = $userData['id'];
 
@@ -433,6 +433,40 @@ class AuthAPI extends BaseAPI
             error_log("DEBUG: Fetched permissions for user $userId: " . count($userData['permissions']) . " items");
             error_log("DEBUG: First permission: " . json_encode($userData['permissions'][0] ?? 'EMPTY'));
         }
+
+        $userRoles = $userData['roles'] ?? [];
+        $primaryRole = null;
+        if (!empty($userRoles)) {
+            $firstRole = $userRoles[0];
+            if (is_array($firstRole)) {
+                $primaryRoleId = $primaryRoleId
+                    ?? (isset($firstRole['id'])
+                        ? (int) $firstRole['id']
+                        : (isset($firstRole['role_id'])
+                            ? (int) $firstRole['role_id']
+                            : null));
+                $primaryRole = $firstRole['name'] ?? null;
+            } elseif (is_string($firstRole)) {
+                $primaryRole = $firstRole;
+            } elseif (is_numeric($firstRole)) {
+                $primaryRoleId = $primaryRoleId ?? (int) $firstRole;
+            }
+        }
+        if (empty($roleIds)) {
+            foreach ($userRoles as $role) {
+                $roleId = is_array($role)
+                    ? ($role['id'] ?? $role['role_id'] ?? null)
+                    : (is_numeric($role) ? $role : null);
+                if ($roleId) {
+                    $roleIds[] = (int) $roleId;
+                }
+            }
+            $roleIds = array_values(array_unique($roleIds));
+        }
+
+        // Per-item delegation tables have been retired. Keep the response
+        // contract explicit without consulting a second permission source.
+        $delegatedPermissions = [];
 
         // Extract permission codes - handle both 'code' and 'permission_code' field names
         $userPermissions = [];
@@ -534,12 +568,18 @@ class AuthAPI extends BaseAPI
             $userData = $this->normalizeUserPermissions($userData);
             $userData['permissions'] = array_values(array_unique(array_merge($userData['permissions'] ?? [], $delegatedPermissions)));
 
-            // Generate refresh token and set it as HttpOnly cookie.
-            // Remember me extends browser persistence; normal login is session-cookie scoped.
-            $rememberMe = filter_var($data['remember_me'] ?? false, FILTER_VALIDATE_BOOLEAN);
+            // Create a refresh token only for a new login. A refresh exchange
+            // reuses its existing token so one browser session remains one
+            // auth_sessions record instead of spawning a new row per refresh.
             $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
-            $refreshToken = $this->generateRefreshToken($userId, $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
-            if ($refreshToken) {
+            $refreshToken = $existingRefreshToken
+                ?? $this->generateRefreshToken(
+                    $userId,
+                    $maxAge > 0
+                        ? $maxAge
+                        : (7 * 24 * 60 * 60)
+                );
+            if ($refreshToken && $existingRefreshToken === null) {
                 $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
                 $expires = $rememberMe ? (time() + $maxAge) : 0;
                 setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
@@ -657,7 +697,9 @@ class AuthAPI extends BaseAPI
                 $userData['roles'][0]['name'] ?? null,
                 $primaryRoleId,
                 $roleIds,
-                $token
+                $token,
+                $rememberMe,
+                $existingRefreshToken
             );
         }
     }
@@ -735,7 +777,8 @@ class AuthAPI extends BaseAPI
         ?int $primaryRoleId,
         array $roleIds,
         string $token,
-        bool $rememberMe = false
+        bool $rememberMe = false,
+        ?string $existingRefreshToken = null
     ): array {
         // Generate sidebar menu items based on user's roles and permissions
         $dashboardManager = new \DashboardManager();
@@ -784,11 +827,16 @@ class AuthAPI extends BaseAPI
         // Normalize user permissions (effective permissions come from DB / stored procedure only)
         $userData = $this->normalizeUserPermissions($userData);
 
-        // Generate refresh token and set it as HttpOnly cookie.
-        // Remember me extends browser persistence; normal login is session-cookie scoped.
+        // Create only on login; refresh exchanges retain the current token.
         $maxAge = $rememberMe ? (30 * 24 * 60 * 60) : 0;
-        $refreshToken = $this->generateRefreshToken($userData['id'], $maxAge > 0 ? $maxAge : (7 * 24 * 60 * 60));
-        if ($refreshToken) {
+        $refreshToken = $existingRefreshToken
+            ?? $this->generateRefreshToken(
+                $userData['id'],
+                $maxAge > 0
+                    ? $maxAge
+                    : (7 * 24 * 60 * 60)
+            );
+        if ($refreshToken && $existingRefreshToken === null) {
             $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
             $expires = $rememberMe ? (time() + $maxAge) : 0;
             setcookie('refresh_token', $refreshToken, $expires, '/', '', $secure, true);
@@ -923,7 +971,8 @@ class AuthAPI extends BaseAPI
         try {
             // Find valid, non-revoked refresh token
             $stmt = $this->db->prepare('
-                SELECT rt.user_id FROM refresh_tokens rt
+                SELECT rt.id, rt.user_id, rt.expires_at
+                FROM refresh_tokens rt
                 WHERE rt.token = ? 
                 AND rt.expires_at > NOW()
                 AND rt.revoked_at IS NULL
@@ -951,6 +1000,13 @@ class AuthAPI extends BaseAPI
                     'message' => 'User not found'
                 ];
             }
+
+            $rolesResult = $this->userRoleManager->getUserRoles($userId);
+            $permissionsResult = $this->userPermissionManager
+                ->getEffectivePermissions($userId);
+            $userData['roles'] = $rolesResult['data'] ?? [];
+            $userData['permissions'] =
+                $permissionsResult['data'] ?? [];
 
             // Extract permission codes only
             $permissionCodes = [];
@@ -980,13 +1036,54 @@ class AuthAPI extends BaseAPI
             // an immediate logout — web-storage is empty, but the refresh
             // cookie is still valid, so one refresh restores everything.
             $roleIds = [];
+            $primaryRole = null;
             foreach ($userData['roles'] ?? [] as $r) {
-                $roleIds[] = is_array($r) ? ($r['id'] ?? $r['role_id'] ?? null) : $r;
+                $roleId = is_array($r)
+                    ? ($r['id'] ?? $r['role_id'] ?? null)
+                    : (is_numeric($r) ? $r : null);
+                if ($roleId !== null && (int) $roleId > 0) {
+                    $roleIds[] = (int) $roleId;
+                }
+                if ($primaryRole === null && is_array($r)) {
+                    $primaryRole = $r['name'] ?? null;
+                } elseif (
+                    $primaryRole === null &&
+                    is_string($r) &&
+                    !is_numeric($r)
+                ) {
+                    $primaryRole = $r;
+                }
             }
-            $roleIds = array_values(array_filter(array_unique($roleIds)));
+            $roleIds = array_values(array_unique($roleIds));
             $primaryRoleId = $roleIds[0] ?? null;
 
-            return $this->buildLoginResponseFromDatabase($userData, $primaryRoleId, $roleIds, $newToken);
+            if ($this->useDatabaseConfig) {
+                $loginData = $this->buildLoginResponseFromDatabase(
+                    $userData,
+                    $primaryRoleId,
+                    $roleIds,
+                    $newToken,
+                    false,
+                    $refreshToken
+                );
+            } else {
+                $loginData = $this->buildLoginResponseFromFiles(
+                    $userData,
+                    $primaryRole,
+                    $primaryRoleId,
+                    $roleIds,
+                    $newToken,
+                    false,
+                    $refreshToken
+                );
+            }
+
+            return $this->attachTrackedSession(
+                $loginData,
+                (int) $userData['id'],
+                $newToken,
+                $result
+            );
         } catch (\Exception $e) {
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [
@@ -1009,12 +1106,9 @@ class AuthAPI extends BaseAPI
         }
 
         try {
-            $stmt = $this->db->prepare('
-                UPDATE refresh_tokens 
-                SET revoked_at = NOW()
-                WHERE token = ? AND revoked_at IS NULL
-            ');
-            $stmt->execute([$refreshToken]);
+            $this->authSessionService->revokeByRefreshToken(
+                (string) $refreshToken
+            );
 
             $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
             setcookie('refresh_token', '', time() - 3600, '/', '', $secure, true);
@@ -1031,6 +1125,59 @@ class AuthAPI extends BaseAPI
                 'message' => 'Token revocation failed'
             ];
         }
+    }
+
+    /**
+     * Attach the access token to the existing canonical refresh session.
+     */
+    private function attachTrackedSession(
+        array $loginData,
+        int $userId,
+        string $accessToken,
+        ?array $refreshRecord = null
+    ): array {
+        if (
+            ($loginData['status'] ?? '') !== 'success' ||
+            !isset($loginData['data']) ||
+            !is_array($loginData['data'])
+        ) {
+            return $loginData;
+        }
+
+        $refreshToken = (string) (
+            $loginData['data']['refresh_token'] ?? ''
+        );
+        if ($refreshRecord === null && $refreshToken !== '') {
+            $stmt = $this->db->prepare(
+                'SELECT id, user_id, expires_at
+                 FROM refresh_tokens
+                 WHERE token = ?
+                   AND user_id = ?
+                   AND revoked_at IS NULL
+                 LIMIT 1'
+            );
+            $stmt->execute([$refreshToken, $userId]);
+            $resolved = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $refreshRecord = $resolved ?: null;
+        }
+
+        $refreshTokenId = isset($refreshRecord['id'])
+            ? (int) $refreshRecord['id']
+            : null;
+        $expiresAt = (string) (
+            $refreshRecord['expires_at']
+                ?? date('Y-m-d H:i:s', time() + JWT_EXPIRY)
+        );
+
+        $sessionId = $this->authSessionService->upsertAccessSession(
+            $userId,
+            $accessToken,
+            $refreshTokenId,
+            $expiresAt
+        );
+        $loginData['data']['session_id'] = $sessionId;
+
+        return $loginData;
     }
 
     // Send reset email

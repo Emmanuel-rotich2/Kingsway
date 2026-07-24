@@ -19,6 +19,7 @@ class IDCardTemplateRenderer
 {
     private $db;
     private $projectRoot;
+    private UploadService $uploads;
     
     // Standard CR80 card dimensions
     const CARD_WIDTH_MM = 85.60;
@@ -28,6 +29,7 @@ class IDCardTemplateRenderer
     {
         $this->db = $db;
         $this->projectRoot = realpath(__DIR__ . '/../..');
+        $this->uploads = new UploadService();
     }
     
     /**
@@ -117,9 +119,13 @@ class IDCardTemplateRenderer
         }
         
         // Try uploads directory
-        $uploadsPath = $this->projectRoot . '/uploads/' . $path;
-        if (file_exists($uploadsPath)) {
-            return $uploadsPath;
+        try {
+            $uploadsPath = $this->uploads->absolutePath($path);
+            if (file_exists($uploadsPath)) {
+                return $uploadsPath;
+            }
+        } catch (\Throwable $exception) {
+            // Continue through non-upload image locations.
         }
         
         // Try images directory
@@ -129,9 +135,15 @@ class IDCardTemplateRenderer
         }
         
         // Try students/images directory for new QR structure
-        $studentsImagesPath = $this->projectRoot . '/uploads/students/images/' . $path;
-        if (file_exists($studentsImagesPath)) {
-            return $studentsImagesPath;
+        try {
+            $studentsImagesPath = $this->uploads->absolutePath(
+                'students/images/' . ltrim((string) $path, '/')
+            );
+            if (file_exists($studentsImagesPath)) {
+                return $studentsImagesPath;
+            }
+        } catch (\Throwable $exception) {
+            // Return the original path below.
         }
         
         // Return original path as fallback

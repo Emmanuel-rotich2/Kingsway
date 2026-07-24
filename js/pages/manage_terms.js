@@ -239,10 +239,7 @@ const ManageTermsController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "manage_terms.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "manage_terms.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

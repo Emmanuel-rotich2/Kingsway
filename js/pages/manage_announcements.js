@@ -348,12 +348,7 @@
         .map((row) => row.map((v) => `"${String(v || "").replace(/"/g, '""')}"`).join(","))
         .join("\n");
 
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "announcements.csv";
-      link.click();
-      URL.revokeObjectURL(link.href);
+      KingswayFileLifecycle.exportText(csv, "announcements.csv", "text/csv;charset=utf-8;");
     },
 
     priorityBorder: function (priority) {

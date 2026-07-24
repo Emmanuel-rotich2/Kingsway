@@ -447,10 +447,7 @@
                 req.required_by || "",
             ]);
             const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            a.download = `requisitions_${todayStr()}.csv`;
-            a.click();
+            KingswayFileLifecycle.exportText(csv, `requisitions_${todayStr()}.csv`, "text/csv");
         },
 
         // ── Event bindings ─────────────────────────────────────────────────────

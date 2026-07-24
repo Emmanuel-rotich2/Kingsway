@@ -9,7 +9,7 @@ const KingswayDB = (function() {
   'use strict';
 
   const DB_NAME = 'KingswayDB';
-  const DB_VERSION = 6;
+  const DB_VERSION = 7;
 
   let db = null;
 

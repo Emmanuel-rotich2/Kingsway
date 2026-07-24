@@ -17,6 +17,7 @@ const PayrollManagerController = {
   perPage: 15,
   currentPayslipId: null,
   bulkPayrollRows: [],
+  accessReady: false,
 
   /**
    * Initialize controller
@@ -24,6 +25,24 @@ const PayrollManagerController = {
   init: async function () {
     try {
       console.log("🚀 Initializing Payroll Manager...");
+
+      if (window.StaffAccess) {
+        await StaffAccess.init();
+        this.accessReady = true;
+        const allowed =
+          this.canManagePayroll() ||
+          this.canApprovePayroll() ||
+          this.canProcessPayroll() ||
+          StaffAccess.can("staff.payslip.manage,staff.payslip.self");
+        if (!allowed) {
+          await StaffAccess.require("staff.payroll.manage,staff.payroll.approve,staff.payroll.process,staff.payslip.manage,staff.payslip.self");
+          return;
+        }
+        StaffAccess.apply(document);
+      }
+
+      this.applyRoleMode();
+      this.renderPayrollHeader();
 
       // Set current month in filters
       const now = new Date();
@@ -45,6 +64,104 @@ const PayrollManagerController = {
       console.error("❌ Error initializing Payroll Manager:", error);
       this.showError("Failed to initialize payroll manager");
     }
+  },
+
+  canManagePayroll: function () {
+    return !window.StaffAccess || StaffAccess.can("staff.payroll.manage");
+  },
+
+  canApprovePayroll: function () {
+    return !window.StaffAccess || StaffAccess.can("staff.payroll.approve");
+  },
+
+  canProcessPayroll: function () {
+    return !window.StaffAccess || StaffAccess.can("staff.payroll.process");
+  },
+
+  applyRoleMode: function () {
+    const title = document.querySelector(".payroll-title");
+    const subtitle = document.querySelector(".payroll-subtitle");
+    const eyebrow = document.querySelector(".payroll-eyebrow");
+    const statusFilter = document.getElementById("filterStatus");
+    const page = document.querySelector(".director-payroll-page");
+    if (page) page.dataset.payrollMode = this.getPayrollMode();
+
+    const visibleCards = new Set(this.getVisiblePayrollCards());
+    document.querySelectorAll("[data-payroll-card]").forEach((card) => {
+      card.hidden = !visibleCards.has(card.dataset.payrollCard);
+    });
+
+    if (this.canProcessPayroll() && !this.canManagePayroll()) {
+      if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-money-check-alt"></i> Accountant Payroll';
+      if (title) title.textContent = "Payroll Payment Queue";
+      if (subtitle) subtitle.textContent = "Review approved payrolls, open payslips, and release payments.";
+      if (statusFilter && !statusFilter.value) statusFilter.value = "approved";
+      return;
+    }
+
+    if (this.canApprovePayroll() && !this.canManagePayroll()) {
+      if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-shield-alt"></i> Director Payroll Control';
+      if (title) title.textContent = "Payroll Approval";
+      if (subtitle) subtitle.textContent = "Review pending payrolls and approve them for payment release.";
+      if (statusFilter && !statusFilter.value) statusFilter.value = "pending";
+      return;
+    }
+
+    if (this.canManagePayroll()) {
+      if (eyebrow) eyebrow.innerHTML = '<i class="fas fa-users-cog"></i> Payroll Operations';
+      if (title) title.textContent = "Payroll Management";
+      if (subtitle) subtitle.textContent = "Prepare staff payroll, review deductions, and track approval/payment status.";
+    }
+  },
+
+  getPayrollMode: function () {
+    if (this.canManagePayroll()) return "operations";
+    if (this.canApprovePayroll()) return "approval";
+    if (this.canProcessPayroll()) return "payment";
+    return "viewer";
+  },
+
+  getVisiblePayrollCards: function () {
+    const mode = this.getPayrollMode();
+    if (mode === "operations") return ["net", "staff", "children_staff", "children_fees"];
+    if (mode === "approval") return ["net", "staff", "children_fees"];
+    if (mode === "payment") return ["net", "staff"];
+    return ["net"];
+  },
+
+  getPayrollColumns: function () {
+    const base = {
+      staff: { label: "Staff" },
+      period: { label: "Period" },
+      basic: { label: "Basic Salary", className: "text-end" },
+      allowances: { label: "Allowances", className: "text-end" },
+      statutory: { label: "Statutory Ded.", className: "text-end" },
+      children: { label: "Children Fees", className: "text-end" },
+      other: { label: "Other Ded.", className: "text-end" },
+      net: { label: "Net Pay", className: "text-end" },
+      status: { label: "Status", className: "text-center" },
+      actions: { label: "Actions", className: "text-center" },
+    };
+
+    const byMode = {
+      operations: ["staff", "period", "basic", "allowances", "statutory", "children", "other", "net", "status", "actions"],
+      approval: ["staff", "period", "basic", "allowances", "statutory", "children", "net", "status", "actions"],
+      payment: ["staff", "period", "children", "net", "status", "actions"],
+      viewer: ["staff", "period", "net", "status", "actions"],
+    };
+
+    return (byMode[this.getPayrollMode()] || byMode.viewer).map((key) => ({
+      key,
+      ...base[key],
+    }));
+  },
+
+  renderPayrollHeader: function () {
+    const header = document.getElementById("payrollTableHeader");
+    if (!header) return;
+    header.innerHTML = this.getPayrollColumns()
+      .map((column) => `<th class="${column.className || ""}">${column.label}</th>`)
+      .join("");
   },
 
   /**
@@ -179,11 +296,13 @@ const PayrollManagerController = {
   renderTable: function () {
     const tbody = document.getElementById("payrollTableBody");
     if (!tbody) return;
+    this.renderPayrollHeader();
+    const columns = this.getPayrollColumns();
 
     if (this.filteredPayrolls.length === 0) {
       var emptyRow = document.createElement("tr");
       var emptyCell = document.createElement("td");
-      emptyCell.setAttribute("colspan", "10");
+      emptyCell.setAttribute("colspan", String(columns.length));
       emptyCell.style.textAlign = "center";
       emptyCell.style.padding = "48px 20px";
       emptyCell.style.color = "#8895a7";
@@ -210,68 +329,85 @@ const PayrollManagerController = {
 
     let html = "";
     pagePayrolls.forEach((p) => {
-      const statusBadge = this.getStatusBadge(p.status);
-      const monthNames = [
-        "",
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-      ];
-      const period = `${monthNames[p.payroll_month]} ${p.payroll_year}`;
-
-      const childrenFees = parseFloat(p.children_fees_deducted) || 0;
-      const statutoryDed =
-        (parseFloat(p.nssf_deduction) || 0) +
-        (parseFloat(p.nhif_deduction) || 0) +
-        (parseFloat(p.paye_tax) || 0) +
-        parseFloat(p.gross_salary) * 0.015;
-      const otherDed = (parseFloat(p.other_deductions) || 0) - childrenFees;
-
-      html += `
-                <tr>
-                    <td>
-                        <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
-                        <small style="color: #8895a7; font-size: 0.78rem;">${this.escapeHtml(p.position || "")}</small>
-                    </td>
-                    <td style="font-weight: 600;">${period}</td>
-                    <td class="table-amount">${this.formatCurrency(p.basic_salary)}</td>
-                    <td class="table-amount" style="color: #1a7a4c;">${this.formatCurrency(p.allowances)}</td>
-                    <td class="table-amount negative">${this.formatCurrency(statutoryDed)}</td>
-                    <td class="table-amount" style="${childrenFees > 0 ? 'color: #9a7d2e; font-weight: 700;' : 'color: #8895a7;'}">
-                        ${childrenFees > 0 ? this.formatCurrency(childrenFees) : "-"}
-                    </td>
-                    <td class="table-amount negative">${otherDed > 0 ? this.formatCurrency(otherDed) : "-"}</td>
-                    <td class="table-amount" style="font-weight: 800; color: #1a7a4c; font-size: 0.92rem;">${this.formatCurrency(p.net_salary)}</td>
-                    <td class="text-center">${statusBadge}</td>
-                    <td class="text-center">
-                        <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                        ${p.status === "pending" ? `
-                            <button class="table-action-btn approve" onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
-                                <i class="fas fa-user-check"></i>
-                            </button>
-                        ` : ""}
-                        ${p.status === "approved" ? `
-                            <button class="table-action-btn approve" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Release Payment">
-                                <i class="fas fa-check-circle"></i>
-                            </button>
-                        ` : ""}
-                    </td>
-                </tr>`;
+      const computed = this.computePayrollRow(p);
+      html += `<tr>${columns.map((column) => this.renderPayrollCell(p, computed, column.key)).join("")}</tr>`;
     });
 
     tbody.innerHTML = html;
     this.renderPagination();
+  },
+
+  computePayrollRow: function (p) {
+    const monthNames = [
+      "",
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+    const childrenFees = parseFloat(p.children_fees_deducted) || 0;
+    const statutoryDed =
+      (parseFloat(p.nssf_deduction) || 0) +
+      (parseFloat(p.nhif_deduction) || 0) +
+      (parseFloat(p.paye_tax) || 0) +
+      parseFloat(p.gross_salary) * 0.015;
+    const otherDed = (parseFloat(p.other_deductions) || 0) - childrenFees;
+    return {
+      period: `${monthNames[p.payroll_month] || ""} ${p.payroll_year || ""}`.trim(),
+      statusBadge: this.getStatusBadge(p.status),
+      childrenFees,
+      statutoryDed,
+      otherDed,
+    };
+  },
+
+  renderPayrollCell: function (p, computed, column) {
+    const cellMap = {
+      staff: `
+        <td>
+          <div style="font-weight: 700; color: var(--payroll-ink, #1a1f2e);">${this.escapeHtml(p.staff_name)}</div>
+          <small style="color: #8895a7; font-size: 0.78rem;">${this.escapeHtml(p.position || "")}</small>
+        </td>`,
+      period: `<td style="font-weight: 600;">${this.escapeHtml(computed.period || "-")}</td>`,
+      basic: `<td class="table-amount">${this.formatCurrency(p.basic_salary)}</td>`,
+      allowances: `<td class="table-amount" style="color: #1a7a4c;">${this.formatCurrency(p.allowances)}</td>`,
+      statutory: `<td class="table-amount negative">${this.formatCurrency(computed.statutoryDed)}</td>`,
+      children: `
+        <td class="table-amount" style="${computed.childrenFees > 0 ? 'color: #9a7d2e; font-weight: 700;' : 'color: #8895a7;'}">
+          ${computed.childrenFees > 0 ? this.formatCurrency(computed.childrenFees) : "-"}
+        </td>`,
+      other: `<td class="table-amount negative">${computed.otherDed > 0 ? this.formatCurrency(computed.otherDed) : "-"}</td>`,
+      net: `<td class="table-amount" style="font-weight: 800; color: #1a7a4c; font-size: 0.92rem;">${this.formatCurrency(p.net_salary)}</td>`,
+      status: `<td class="text-center">${computed.statusBadge}</td>`,
+      actions: `<td class="text-center">${this.renderPayrollActions(p)}</td>`,
+    };
+    return cellMap[column] || "";
+  },
+
+  renderPayrollActions: function (p) {
+    return `
+      <button class="table-action-btn" onclick="PayrollManagerController.viewPayslip(${p.id})" title="View Payslip">
+        <i class="fas fa-eye"></i>
+      </button>
+      ${p.status === "pending" && this.canApprovePayroll() ? `
+        <button class="table-action-btn approve" onclick="PayrollManagerController.approvePayroll(${p.id})" title="Director Approve">
+          <i class="fas fa-user-check"></i>
+        </button>
+      ` : ""}
+      ${p.status === "approved" && this.canProcessPayroll() ? `
+        <button class="table-action-btn approve" onclick="PayrollManagerController.markAsPaid(${p.id})" title="Release Payment">
+          <i class="fas fa-check-circle"></i>
+        </button>
+      ` : ""}
+    `;
   },
 
   /**
@@ -362,6 +498,10 @@ const PayrollManagerController = {
    * Show process payroll modal
    */
   showProcessPayrollModal: function () {
+    if (!this.canManagePayroll()) {
+      this.showError("You do not have permission to prepare payroll.");
+      return;
+    }
     this.resetPayrollForm();
     const modal = new bootstrap.Modal(
       document.getElementById("processPayrollModal")
@@ -373,6 +513,10 @@ const PayrollManagerController = {
    * Show bulk payroll modal
    */
   showBulkPayrollModal: async function () {
+    if (!this.canManagePayroll()) {
+      this.showError("You do not have permission to prepare payroll.");
+      return;
+    }
     const month = new Date().getMonth() + 1;
     const year = new Date().getFullYear();
     document.getElementById("bulkPayrollMonth").value = month;
@@ -383,6 +527,7 @@ const PayrollManagerController = {
   },
 
   prepareBulkPayrollRows: async function () {
+    if (!this.canManagePayroll()) return;
     const month = document.getElementById("bulkPayrollMonth").value;
     const year = document.getElementById("bulkPayrollYear").value;
     try {
@@ -501,6 +646,10 @@ const PayrollManagerController = {
   },
 
   submitBulkPayroll: async function () {
+    if (!this.canManagePayroll()) {
+      this.showError("You do not have permission to prepare payroll.");
+      return;
+    }
     const selectedRows = this.bulkPayrollRows.filter((row) => row.selected);
     if (selectedRows.length === 0) {
       this.showError("Select at least one staff member to process.");
@@ -922,6 +1071,10 @@ const PayrollManagerController = {
    * Submit payroll
    */
   submitPayroll: async function () {
+    if (!this.canManagePayroll()) {
+      this.showError("You do not have permission to prepare payroll.");
+      return;
+    }
     if (!this.selectedStaff) {
       this.showError("Please select a staff member");
       return;
@@ -1229,6 +1382,10 @@ const PayrollManagerController = {
    * Mark payroll as paid
    */
   approvePayroll: function (payrollId) {
+    if (!this.canApprovePayroll()) {
+      this.showError("You do not have permission to approve payroll.");
+      return;
+    }
     var self = this;
     self.showConfirm(
       "Approve this payroll for accountant payment release?",
@@ -1254,6 +1411,10 @@ const PayrollManagerController = {
   },
 
   markAsPaid: function (payrollId) {
+    if (!this.canProcessPayroll()) {
+      this.showError("You do not have permission to release payroll payments.");
+      return;
+    }
     var self = this;
     self.showConfirm(
       "Mark this payroll as paid? This will also record fee payments for any children deductions.",
@@ -1284,55 +1445,38 @@ const PayrollManagerController = {
   /**
    * Print payslip
    */
-  printPayslip: function () {
+  printPayslip: async function () {
     const source = document.getElementById("payslipPrintArea");
+
     if (!source) {
       this.showError("Payslip is not ready to print");
       return;
     }
 
-    const printWindow = window.open("", "_blank");
-    const doc = printWindow.document;
-    doc.title = "Payslip";
-
-    const bootstrap = doc.createElement("link");
-    bootstrap.rel = "stylesheet";
-    bootstrap.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
-    doc.head.appendChild(bootstrap);
-
-    const style = doc.createElement("style");
-    style.textContent = "body { padding: 20px; } @media print { .no-print { display: none; } }";
-    doc.head.appendChild(style);
-    doc.body.appendChild(source.cloneNode(true));
-    printWindow.focus();
-    setTimeout(() => printWindow.print(), 300);
+    await window.PrintManager.printRecord({
+      title: "Staff Payslip",
+      description: "Official payroll statement.",
+      sections: [
+        {
+          title: "Payslip Details",
+          content: source.innerHTML,
+          allowHtml: true,
+        },
+      ],
+      filename: `staff_payslip_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `PAYSLIP-${Date.now()}`,
+      signatureSection: [
+        { label: "Payroll Officer", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
+    });
   },
 
   /**
    * Download payslip as PDF (uses print dialog with auto-trigger)
    */
-  downloadPayslip: function () {
-    var source = document.getElementById("payslipPrintArea");
-    if (!source) {
-      this.showError("Payslip is not ready to download");
-      return;
-    }
-
-    var printWindow = window.open("", "_blank");
-    var doc = printWindow.document;
-    doc.title = "Payslip - Download";
-
-    var bsLink = doc.createElement("link");
-    bsLink.rel = "stylesheet";
-    bsLink.href = "https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css";
-    doc.head.appendChild(bsLink);
-
-    var style = doc.createElement("style");
-    style.textContent = "@page { margin: 15mm; } body { padding: 0; font-family: 'DM Sans', Arial, sans-serif; } @media print { .no-print { display: none; } }";
-    doc.head.appendChild(style);
-    doc.body.appendChild(source.cloneNode(true));
-    printWindow.focus();
-    setTimeout(function () { printWindow.print(); }, 500);
+  downloadPayslip: async function () {
+    return this.printPayslip();
   },
 
   /**
@@ -1340,85 +1484,127 @@ const PayrollManagerController = {
    */
   exportCsv: function () {
     const rows = this.filteredPayrolls || [];
+
     if (!rows.length) {
       this.showError("No payroll records to export");
       return;
     }
 
-    const headers = [
-      "Staff",
-      "Period",
-      "Basic Salary",
-      "Allowances",
-      "Statutory Deductions",
-      "Children Fees",
-      "Other Deductions",
-      "Net Pay",
-      "Status",
-    ];
+    const exportRows = rows.map((payroll) => ({
+      staff_name:
+        payroll.staff_name
+        || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
+      period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
+      basic_salary: Number(payroll.basic_salary || 0),
+      allowances: Number(payroll.allowances || 0),
+      statutory_deductions: Number(payroll.statutory_deductions || 0),
+      children_fee_deductions: Number(payroll.children_fee_deductions || 0),
+      other_deductions: Number(payroll.other_deductions || 0),
+      net_salary: Number(payroll.net_salary || 0),
+      status: payroll.status || "",
+    }));
 
-    const csvRows = rows.map((p) => [
-      `${p.staff_name || `${p.first_name || ""} ${p.last_name || ""}`.trim()}`,
-      `${this.getMonthName(p.payroll_month)} ${p.payroll_year}`,
-      p.basic_salary || 0,
-      p.allowances || 0,
-      p.statutory_deductions || 0,
-      p.children_fee_deductions || 0,
-      p.other_deductions || 0,
-      p.net_salary || 0,
-      p.status || "",
-    ]);
-
-    const csv = [headers, ...csvRows]
-      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `payroll-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    window.PrintManager.exportToCSV({
+      columns: [
+        { key: "staff_name", label: "Staff" },
+        { key: "period", label: "Period" },
+        { key: "basic_salary", label: "Basic Salary" },
+        { key: "allowances", label: "Allowances" },
+        { key: "statutory_deductions", label: "Statutory Deductions" },
+        { key: "children_fee_deductions", label: "Children Fees" },
+        { key: "other_deductions", label: "Other Deductions" },
+        { key: "net_salary", label: "Net Pay" },
+        { key: "status", label: "Status" },
+      ],
+      rows: exportRows,
+      filename: `payroll_report_${new Date().toISOString().slice(0, 10)}`,
+    });
   },
 
   /**
    * Print the payroll table as a PDF via the browser print dialog
    */
-  printPayrollReport: function () {
-    const table = document.getElementById("payrollTable");
-    if (!table || !(this.filteredPayrolls || []).length) {
+  printPayrollReport: async function () {
+    const rows = this.filteredPayrolls || [];
+
+    if (!rows.length) {
       this.showError("No payroll records to print");
       return;
     }
 
-    const printWindow = window.open("", "_blank");
-    const doc = printWindow.document;
-    doc.title = "Payroll Report";
+    const reportRows = rows.map((payroll) => ({
+      staff_name:
+        payroll.staff_name
+        || `${payroll.first_name || ""} ${payroll.last_name || ""}`.trim(),
+      period: `${this.getMonthName(payroll.payroll_month)} ${payroll.payroll_year}`,
+      basic_salary: Number(payroll.basic_salary || 0),
+      allowances: Number(payroll.allowances || 0),
+      deductions:
+        Number(payroll.statutory_deductions || 0)
+        + Number(payroll.children_fee_deductions || 0)
+        + Number(payroll.other_deductions || 0),
+      net_salary: Number(payroll.net_salary || 0),
+      status: payroll.status || "—",
+    }));
 
-    const style = doc.createElement("style");
-    style.textContent = `
-      body { font-family: Arial, sans-serif; padding: 24px; color: #111814; }
-      h1 { margin: 0 0 4px; font-family: Georgia, serif; }
-      p { margin: 0 0 18px; color: #536158; }
-      table { width: 100%; border-collapse: collapse; font-size: 12px; }
-      th { background: #082d21; color: #fff; text-align: left; }
-      th, td { border: 1px solid #d9e3dc; padding: 8px; }
-      .btn-group, button { display: none !important; }
-    `;
-    doc.head.appendChild(style);
+    const currency = (value) =>
+      `KSh ${Number(value || 0).toLocaleString("en-KE", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`;
 
-    const title = doc.createElement("h1");
-    title.textContent = "Payroll Report";
-    const generated = doc.createElement("p");
-    generated.textContent = `Generated ${new Date().toLocaleString()}`;
-    const clonedTable = table.cloneNode(true);
-
-    doc.body.appendChild(title);
-    doc.body.appendChild(generated);
-    doc.body.appendChild(clonedTable);
-    printWindow.focus();
-    printWindow.print();
+    await window.PrintManager.printTable({
+      title: "Payroll Report",
+      description: "Consolidated staff payroll report.",
+      columns: [
+        { key: "staff_name", label: "Staff", width: "24%" },
+        { key: "period", label: "Period", width: "14%" },
+        {
+          key: "basic_salary",
+          label: "Basic Salary",
+          type: "currency",
+          width: "15%",
+          formatter: currency,
+        },
+        {
+          key: "allowances",
+          label: "Allowances",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        {
+          key: "deductions",
+          label: "Deductions",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        {
+          key: "net_salary",
+          label: "Net Pay",
+          type: "currency",
+          width: "14%",
+          formatter: currency,
+        },
+        { key: "status", label: "Status", width: "10%" },
+      ],
+      rows: reportRows,
+      orientation: "landscape",
+      filename: `payroll_report_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `PAYROLL-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`,
+      summary: {
+        "Staff Records": reportRows.length,
+        "Total Net Pay": currency(
+          reportRows.reduce((sum, row) => sum + row.net_salary, 0)
+        ),
+      },
+      signatureSection: [
+        { label: "Payroll Officer", dateLine: true },
+        { label: "Accountant", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
+    });
   },
 
   // ========================================================================

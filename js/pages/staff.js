@@ -436,12 +436,12 @@ const staffManagementController = {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
       const photo =
-        staff.profile_pic_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
+        staff.profile_pic_url || KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg');
 
       const html = `
                 <div class="row">
                     <div class="col-md-4 text-center">
-                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=(window.APP_BASE || '') + '/uploads/staff/profile_pictures/staff_avatar.jpeg'">
+                        <img src="${photo}" class="img-fluid rounded mb-3" style="max-width: 150px" onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
                         <h5>${staff.first_name || ""} ${staff.last_name || ""}</h5>
                         <p class="text-muted">${staff.staff_no || ""}</p>
                     </div>
@@ -968,13 +968,7 @@ const staffManagementController = {
       .concat(rows.map((row) => headers.map((h) => escape(row[h])).join(",")))
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
+    KingswayFileLifecycle.exportText(csv, filename, "text/csv;charset=utf-8;");
     link.remove();
     window.URL.revokeObjectURL(url);
   },
@@ -1471,7 +1465,7 @@ const staffManagementController = {
     try {
       const resp = await window.API.staff.get(staffId);
       const staff = this.extractStaffRecord(resp);
-      const photo = staff.profile_pic_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
+      const photo = staff.profile_pic_url || KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg');
 
       // Load additional data in parallel
       let assignments = [];
@@ -1493,7 +1487,7 @@ const staffManagementController = {
       const html = `
         <div class="row">
           <div class="col-md-3 text-center border-end">
-            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=(window.APP_BASE || '') + '/uploads/staff/profile_pictures/staff_avatar.jpeg'">
+            <img src="${photo}" class="img-fluid rounded-circle mb-3" style="max-width:130px;max-height:130px;object-fit:cover" onerror="this.src=KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')">
             <h5 class="mb-0">${staff.first_name || ""} ${staff.middle_name || ""} ${staff.last_name || ""}</h5>
             <p class="text-muted mb-1">${staff.staff_no || ""}</p>
             ${this.getStatusBadge(staff.status)}
@@ -1681,7 +1675,7 @@ const staffManagementController = {
     win.document.write(content.innerHTML);
     win.document.write("</body></html>");
     win.document.close();
-    win.onload = function () { win.print(); };
+    win.onload = function () { PrintManager.printElement(content.id, { title: 'Staff Document' }); win.close(); };
   },
 
   generatePayslip: async function (staffId) {

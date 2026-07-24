@@ -1176,7 +1176,7 @@ $sportClass = $sportLength > 45
 
                     window.setTimeout(function () {
                         window.focus();
-                        window.print();
+                        window.opener?.postMessage({ type: "kingsway-print-ready" }, window.location.origin);
                     }, 350);
                 },
                 { once: true }

@@ -171,13 +171,7 @@ const atRiskController = {
       ].join(',')),
     ];
 
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `at_risk_students_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csvRows.join('\n'), `at_risk_students_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   // ── UTILS ─────────────────────────────────────────────────────────
