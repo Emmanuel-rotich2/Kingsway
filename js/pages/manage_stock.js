@@ -313,10 +313,7 @@
                 m.notes || "",
             ]);
             const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-            const a = document.createElement("a");
-            a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-            a.download = `stock_movements_${todayStr()}.csv`;
-            a.click();
+            KingswayFileLifecycle.exportText(csv, `stock_movements_${todayStr()}.csv`, "text/csv");
         },
 
         // ── Event bindings ─────────────────────────────────────────────────────

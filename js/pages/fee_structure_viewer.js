@@ -661,13 +661,14 @@ class FeeStructureViewerController {
       }
     });
 
+    const money = (value) => this.formatCurrency(value);
     const columns = [
-      { key: 'structure_name', label: 'Structure Name' },
-      { key: 'academic_year', label: 'Academic Year' },
-      { key: 'level_name', label: 'Level' },
-      { key: 'student_type', label: 'Student Type' },
-      { key: 'total_amount', label: 'Total Amount' },
-      { key: 'status', label: 'Status' }
+      { key: "structure_name", label: "Structure Name", width: "28%", cellClassName: "print-cell-strong" },
+      { key: "academic_year", label: "Academic Year", width: "14%" },
+      { key: "level_name", label: "Level", width: "14%" },
+      { key: "student_type", label: "Student Type", width: "15%" },
+      { key: "total_amount", label: "Total Amount", type: "currency", width: "18%", formatter: money },
+      { key: "status", label: "Status", width: "11%" },
     ];
 
     window.PrintManager.printTable({
@@ -677,15 +678,14 @@ class FeeStructureViewerController {
       rows: this.currentAggregated,
       summary: {
         'Total Structures': this.currentAggregated.length,
-        'Generated Date': new Date().toLocaleDateString()
-      },
+              },
       filters: filters,
       orientation: 'landscape',
       paperSize: 'A4',
       reportCode: 'FEE-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
       signatureSection: [
-        { label: 'Accountant' },
-        { label: 'Principal' }
+        { label: 'Accountant', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   }
@@ -707,7 +707,7 @@ class FeeStructureViewerController {
           { label: 'Academic Year', value: structure.academic_year || '—' },
           { label: 'Level', value: structure.level_name || '—' },
           { label: 'Student Type', value: structure.student_type || '—' },
-          { label: 'Total Amount', value: structure.total_amount || '—' },
+          { label: 'Total Amount', value: this.formatCurrency(structure.total_amount) },
           { label: 'Status', value: structure.status || '—' }
         ]
       },
@@ -716,7 +716,7 @@ class FeeStructureViewerController {
         content: feeItems.map(item => `
           <div style="display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #eee;">
             <span>${item.fee_item_name || item.name || '—'}</span>
-            <span>${item.amount || '—'}</span>
+            <span>${this.formatCurrency(item.amount)}</span>
           </div>
         `).join('')
       }
@@ -730,8 +730,8 @@ class FeeStructureViewerController {
       paperSize: 'A4',
       reportCode: 'FEE-' + (structure.id || '0'),
       signatureSection: [
-        { label: 'Accountant' },
-        { label: 'Principal' }
+        { label: 'Accountant', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   }
@@ -825,13 +825,7 @@ class FeeStructureViewerController {
       )
       .join("\n");
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
+    KingswayFileLifecycle.exportText(csv, filename, "text/csv;charset=utf-8;");
     link.remove();
     window.URL.revokeObjectURL(url);
   }

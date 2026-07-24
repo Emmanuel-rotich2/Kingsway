@@ -205,7 +205,7 @@ class AfricasTalkingWhatsAppProvider implements WhatsAppProvider
         $logMessage .= "Response: " . substr($response, 0, 500) . "\n";
         $logMessage .= "---\n";
 
-        @file_put_contents($logFile, $logMessage, FILE_APPEND);
+        @(new \App\API\Services\UploadService())->writeFile($logFile, $logMessage, FILE_APPEND);
     }
 }
 ?>

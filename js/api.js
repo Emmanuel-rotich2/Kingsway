@@ -1,6 +1,6 @@
 // Only define API_BASE_URL if not already defined
-if (typeof API_BASE_URL === 'undefined') {
-    var API_BASE_URL = (window.APP_BASE || '') + '/api';
+if (typeof API_BASE_URL === "undefined") {
+  var API_BASE_URL = (window.APP_BASE || "") + "/api";
 }
 
 // Token refresh tracking to prevent duplicate refresh requests
@@ -178,7 +178,7 @@ async function readJsonSafely(response, context = "API") {
   if (!contentType.includes("application/json")) {
     throw new Error(
       `${context} did not return JSON (${response.status}). Content-Type: ${contentType || "unknown"}. ` +
-        `Response: ${text.substring(0, 200)}`
+        `Response: ${text.substring(0, 200)}`,
     );
   }
 
@@ -187,9 +187,64 @@ async function readJsonSafely(response, context = "API") {
   } catch (error) {
     throw new Error(
       `${context} returned invalid JSON (${response.status}). ` +
-        `Response: ${text.substring(0, 200)}`
+        `Response: ${text.substring(0, 200)}`,
     );
   }
+}
+
+function fetchWithBrowserFallback(requestUrl, fetchOptions) {
+  return fetch(requestUrl, fetchOptions).catch((fetchError) => {
+    const isNetworkFailure = /Failed to fetch|NetworkError|network/i.test(
+      fetchError?.message || "",
+    );
+    if (!isNetworkFailure || typeof XMLHttpRequest === "undefined") {
+      throw fetchError;
+    }
+
+    console.warn("[api.js] fetch failed; retrying with XMLHttpRequest", {
+      url: requestUrl,
+      method: fetchOptions.method || "GET",
+      error: fetchError.message,
+    });
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open(fetchOptions.method || "GET", requestUrl, true);
+      xhr.withCredentials = fetchOptions.credentials !== "omit";
+
+      Object.entries(fetchOptions.headers || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          xhr.setRequestHeader(key, String(value));
+        }
+      });
+
+      xhr.onload = () => {
+        const rawHeaders = xhr.getAllResponseHeaders();
+        const headers = {
+          get(name) {
+            const target = String(name || "").toLowerCase();
+            const line = rawHeaders
+              .split(/\r?\n/)
+              .find((entry) => entry.toLowerCase().startsWith(target + ":"));
+            return line ? line.slice(line.indexOf(":") + 1).trim() : null;
+          },
+        };
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          headers,
+          text: async () => xhr.responseText,
+          blob: async () => new Blob([xhr.response], {
+            type: headers.get("content-type") || "application/octet-stream",
+          }),
+        });
+      };
+
+      xhr.onerror = () => reject(fetchError);
+      xhr.ontimeout = () => reject(fetchError);
+      xhr.send(fetchOptions.body || null);
+    });
+  });
 }
 
 // ============================================================================
@@ -320,16 +375,26 @@ const AuthContext = (() => {
     _bootRefreshDone = true;
     try {
       const refreshToken = getRefreshToken();
-      const url = new URL(API_BASE_URL + "/auth/refresh-token", window.location.origin);
+      const url = new URL(
+        API_BASE_URL + "/auth/refresh-token",
+        window.location.origin,
+      );
       const response = await fetch(url, {
         method: "POST",
         credentials: "include", // carries the HttpOnly refresh_token cookie
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(refreshToken ? { refresh_token: refreshToken } : {}),
+        body: JSON.stringify(
+          refreshToken ? { refresh_token: refreshToken } : {},
+        ),
       });
       if (!response.ok) return false;
       const result = await readJsonSafely(response, "Token refresh");
-      if (result && (result.status === "success" || result.success === true) && result.data && result.data.token) {
+      if (
+        result &&
+        (result.status === "success" || result.success === true) &&
+        result.data &&
+        result.data.token
+      ) {
         // Rehydrate auth state from the refreshed response. The response has the
         // full user/permissions envelope only on the auth/refresh-token endpoint.
         const full = result.data;
@@ -340,7 +405,9 @@ const AuthContext = (() => {
           // every window reads from.
           setUser(full.user, full, true);
         }
-        console.log("[AuthContext] Session restored from refresh cookie on boot");
+        console.log(
+          "[AuthContext] Session restored from refresh cookie on boot",
+        );
         _bootRefreshResult = true;
         return true;
       }
@@ -426,37 +493,37 @@ const AuthContext = (() => {
     console.log("Permissions array:", permissionsArray);
 
     // Use StorageManager for user preferences if available
-    if (typeof StorageManager !== 'undefined' && typeof StorageManager.setPreference === 'function') {
+    if (
+      typeof StorageManager !== "undefined" &&
+      typeof StorageManager.setPreference === "function"
+    ) {
       try {
-        StorageManager.setPreference('user_theme', userData.theme || 'light');
-        StorageManager.setPreference('sidebar_collapsed', false);
+        StorageManager.setPreference("user_theme", userData.theme || "light");
+        StorageManager.setPreference("sidebar_collapsed", false);
       } catch (e) {
-        console.warn('StorageManager.setPreference failed:', e);
+        console.warn("StorageManager.setPreference failed:", e);
       }
     } else {
       // Fallback to localStorage directly
       try {
-        localStorage.setItem('user_theme', userData.theme || 'light');
-        localStorage.setItem('sidebar_collapsed', JSON.stringify(false));
+        localStorage.setItem("user_theme", userData.theme || "light");
+        localStorage.setItem("sidebar_collapsed", JSON.stringify(false));
       } catch (e) {
-        console.warn('localStorage fallback failed:', e);
+        console.warn("localStorage fallback failed:", e);
       }
     }
 
     if (Array.isArray(permissionsArray) && permissionsArray.length > 0) {
       // Create Set of unique permission codes (automatically deduplicates)
       const uniquePermissions = new Set(
-        permissionsArray.map((p) => p.permission_code || p)
+        permissionsArray.map((p) => p.permission_code || p),
       );
       permissions = uniquePermissions;
 
       console.log("Unique permissions extracted:", permissions.size);
 
       // Store in current auth storage
-      setItem(
-        "user_permissions",
-        JSON.stringify(Array.from(permissions))
-      );
+      setItem("user_permissions", JSON.stringify(Array.from(permissions)));
     } else {
       console.warn("No permissions found in response");
     }
@@ -490,10 +557,7 @@ const AuthContext = (() => {
       fullResponse?.sidebar_items &&
       Array.isArray(fullResponse.sidebar_items)
     ) {
-      setItem(
-        "sidebar_items",
-        JSON.stringify(fullResponse.sidebar_items)
-      );
+      setItem("sidebar_items", JSON.stringify(fullResponse.sidebar_items));
       console.log("Sidebar items stored:", fullResponse.sidebar_items.length);
       // Trigger sidebar refresh
       if (typeof window.refreshSidebar === "function") {
@@ -550,8 +614,8 @@ const AuthContext = (() => {
       return true; // User has all permissions
     }
 
-    return PermissionContract.expandPermissionAliases(permissionCode).some((alias) =>
-      permissions.has(alias)
+    return PermissionContract.expandPermissionAliases(permissionCode).some(
+      (alias) => permissions.has(alias),
     );
   }
 
@@ -602,8 +666,9 @@ const AuthContext = (() => {
   function hasRole(roleName) {
     if (!currentUser) return false;
     const normalizedRoleName = normalizeRoleName(roleName);
-    return roles.some((role) =>
-      role === roleName || normalizeRoleName(role) === normalizedRoleName
+    return roles.some(
+      (role) =>
+        role === roleName || normalizeRoleName(role) === normalizedRoleName,
     );
   }
 
@@ -684,35 +749,57 @@ const AuthContext = (() => {
     return hasPermission(`${module}.view`) || hasPermission(`${module}_view`);
   }
   function canCreate(module) {
-    return hasPermission(`${module}.create`) || hasPermission(`${module}_create`);
+    return (
+      hasPermission(`${module}.create`) || hasPermission(`${module}_create`)
+    );
   }
   function canEdit(module) {
-    return hasPermission(`${module}.edit`) || hasPermission(`${module}_edit`) ||
-           hasPermission(`${module}.update`) || hasPermission(`${module}_update`);
+    return (
+      hasPermission(`${module}.edit`) ||
+      hasPermission(`${module}_edit`) ||
+      hasPermission(`${module}.update`) ||
+      hasPermission(`${module}_update`)
+    );
   }
   function canDelete(module) {
-    return hasPermission(`${module}.delete`) || hasPermission(`${module}_delete`);
+    return (
+      hasPermission(`${module}.delete`) || hasPermission(`${module}_delete`)
+    );
   }
   function canApprove(module) {
-    return hasPermission(`${module}.approve`) || hasPermission(`${module}_approve`);
+    return (
+      hasPermission(`${module}.approve`) || hasPermission(`${module}_approve`)
+    );
   }
   function canExport(module) {
-    return hasPermission(`${module}.export`) || hasPermission(`${module}_export`);
+    return (
+      hasPermission(`${module}.export`) || hasPermission(`${module}_export`)
+    );
   }
   function canReject(module) {
-    return hasPermission(`${module}.reject`) || hasPermission(`${module}_reject`);
+    return (
+      hasPermission(`${module}.reject`) || hasPermission(`${module}_reject`)
+    );
   }
   function canPrint(module) {
     return hasPermission(`${module}.print`) || hasPermission(`${module}_print`);
   }
   function canManage(module) {
-    return hasPermission(`${module}.manage`) || hasPermission(`${module}_manage`);
+    return (
+      hasPermission(`${module}.manage`) || hasPermission(`${module}_manage`)
+    );
   }
   function canAction(module, action) {
     return PermissionContract.aliasesFor(module, action).some((permission) =>
-      hasPermission(permission)
+      hasPermission(permission),
     );
   }
+  
+  // Staff-specific permission helpers
+  function canManageStaff() {
+    return hasPermission('staff.manage') || hasPermission('staff_manage');
+  }
+  
   function getAllowedActions(module) {
     return PermissionContract.actions.reduce((allowed, action) => {
       allowed[action] = canAction(module, action);
@@ -766,6 +853,7 @@ const AuthContext = (() => {
     canManage,
     canAction,
     getAllowedActions,
+    canManageStaff,
   };
 })();
 
@@ -847,7 +935,12 @@ const PermissionContract = (() => {
     } else if (act === "approve") {
       aliases.push(`${mod}_approve_final`, `${mod}.approve_final`);
     } else if (act === "view") {
-      aliases.push(`${mod}_view_all`, `${mod}_view_own`, `${mod}.view_all`, `${mod}.view_own`);
+      aliases.push(
+        `${mod}_view_all`,
+        `${mod}_view_own`,
+        `${mod}.view_all`,
+        `${mod}.view_own`,
+      );
     }
 
     return [...new Set(aliases)];
@@ -860,10 +953,14 @@ const PermissionContract = (() => {
     const aliases = new Set([value]);
     if (value.includes("_")) aliases.add(value.replace(/_/g, "."));
     if (value.includes(".")) aliases.add(value.replace(/\./g, "_"));
-    if (value.endsWith("_edit")) aliases.add(value.replace(/_edit$/, "_update"));
-    if (value.endsWith("_update")) aliases.add(value.replace(/_update$/, "_edit"));
-    if (value.endsWith(".edit")) aliases.add(value.replace(/\.edit$/, ".update"));
-    if (value.endsWith(".update")) aliases.add(value.replace(/\.update$/, ".edit"));
+    if (value.endsWith("_edit"))
+      aliases.add(value.replace(/_edit$/, "_update"));
+    if (value.endsWith("_update"))
+      aliases.add(value.replace(/_update$/, "_edit"));
+    if (value.endsWith(".edit"))
+      aliases.add(value.replace(/\.edit$/, ".update"));
+    if (value.endsWith(".update"))
+      aliases.add(value.replace(/\.update$/, ".edit"));
     return [...aliases];
   }
 
@@ -871,7 +968,8 @@ const PermissionContract = (() => {
     actions: PERMISSION_ACTIONS,
     normalizeModule,
     normalizeAction,
-    permissionFor: (module, action) => `${normalizeModule(module)}_${normalizeAction(action)}`,
+    permissionFor: (module, action) =>
+      `${normalizeModule(module)}_${normalizeAction(action)}`,
     aliasesFor,
     expandPermissionAliases,
   };
@@ -890,26 +988,33 @@ const AppState = (() => {
 
   function classify(input) {
     const response = input?.response || input || {};
-    const code = Number(response.code || response.status_code || input?.status || 0);
+    const code = Number(
+      response.code || response.status_code || input?.status || 0,
+    );
     const errors = response.errors || {};
 
     if (code === 401) return STATES.UNAUTHORIZED;
-    if (code === 403 || input?.code === "PERMISSION_DENIED") return STATES.FORBIDDEN;
-    if (code === 422 || (errors && Object.keys(errors).length > 0)) return STATES.VALIDATION_ERROR;
+    if (code === 403 || input?.code === "PERMISSION_DENIED")
+      return STATES.FORBIDDEN;
+    if (code === 422 || (errors && Object.keys(errors).length > 0))
+      return STATES.VALIDATION_ERROR;
     if (code >= 500) return STATES.SERVER_ERROR;
 
     const data = response.data !== undefined ? response.data : response;
     if (Array.isArray(data) && data.length === 0) return STATES.EMPTY;
-    if (data && Array.isArray(data.items) && data.items.length === 0) return STATES.EMPTY;
-    if (data && Array.isArray(data.data) && data.data.length === 0) return STATES.EMPTY;
+    if (data && Array.isArray(data.items) && data.items.length === 0)
+      return STATES.EMPTY;
+    if (data && Array.isArray(data.data) && data.data.length === 0)
+      return STATES.EMPTY;
 
     return STATES.SUCCESS;
   }
 
   function normalizeResponse(response) {
-    const success = response?.success !== undefined
-      ? Boolean(response.success)
-      : response?.status === "success";
+    const success =
+      response?.success !== undefined
+        ? Boolean(response.success)
+        : response?.status === "success";
     return {
       success,
       status: response?.status || (success ? "success" : "error"),
@@ -1015,14 +1120,34 @@ const ENDPOINT_PERMISSIONS = {
   "/students/academic-year-update-status": "students_promote",
   "/students/academic-year-archive": "students_promote",
   "/students/my-profile": ["students_view_own", "students_view"],
-  "/students/my-children": ["students_view_own", "students_view", "students_parents_view"],
-  "/students/parents-get": ["students_parents_view", "students_view", "finance_view"],
+  "/students/my-children": [
+    "students_view_own",
+    "students_view",
+    "students_parents_view",
+  ],
+  "/students/parents-get": [
+    "students_parents_view",
+    "students_view",
+    "finance_view",
+  ],
   "/students/parents-add": "students_edit",
   "/students/parents-update": "students_edit",
   "/students/parents-remove": "students_edit",
-  "/students/parents/list": ["students_parents_view", "students_view", "finance_view"],
-  "/students/parents/get": ["students_parents_view", "students_view", "finance_view"],
-  "/students/parents/children": ["students_parents_view", "students_view", "finance_view"],
+  "/students/parents/list": [
+    "students_parents_view",
+    "students_view",
+    "finance_view",
+  ],
+  "/students/parents/get": [
+    "students_parents_view",
+    "students_view",
+    "finance_view",
+  ],
+  "/students/parents/children": [
+    "students_parents_view",
+    "students_view",
+    "finance_view",
+  ],
   "/students/parents/create": "students_create",
   "/students/parents/delete": "students_edit",
   "/students/parents/link-child": "students_edit",
@@ -1122,6 +1247,31 @@ const ENDPOINT_PERMISSIONS = {
   "/staff/children-remove": "staff_update",
   "/staff/children-fee-config": "staff_view",
   "/staff/children-calculate-deductions": "staff_view",
+  
+  // New staff endpoints for UI controllers
+  "/staff/teachers": "staff_view",
+  "/staff/non-teaching": "staff_view",
+  "/staff/performance-review-history": "staff_performance_view",
+  "/staff/academic-kpi-summary": "staff_performance_view",
+  "/staff/performance-reviews": "staff_performance_view",
+  "/staff/available-roles": "staff_roles_manage",
+  "/staff/role-assignments": "staff_roles_manage",
+  "/staff/assign-role": "staff_roles_manage",
+  "/staff/revoke-role": "staff_roles_manage",
+  "/staff/onboarding": "staff_onboarding_view",
+  "/staff/lifecycle": "staff_lifecycle_view",
+  "/staff/appointments": "staff_appointments_view",
+  "/staff/import-existing": "staff_import_manage",
+  "/staff-migration/reference-data": "staff_import",
+  "/staff-migration/batches": "staff_import",
+  "/staff-migration/batch": "staff_import",
+  "/staff-migration/template": "staff_import",
+  "/staff-migration/stage": "staff_import",
+  "/staff-migration/commit": "staff_import",
+  "/staff-migration/rollback": "staff_import_rollback",
+  "/staff-migration/resend-invitation": "staff_invitation_resend",
+  "/staff-migration/onboarding": null,
+  "/staff-migration/profile": null,
 
   // Activities
   "/activities/index": "activities_view",
@@ -1198,6 +1348,39 @@ const ENDPOINT_PERMISSIONS = {
   // System
   "/system/index": "system_view",
   "/system/logs": { GET: "system_view", DELETE: "system_manage" },
+  "/system/roles": {
+    GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
+    POST: ["system.rbac.manage", "system_roles_create"],
+    PUT: ["system.rbac.manage", "system_roles_edit"],
+    DELETE: ["system.rbac.manage", "system_roles_delete"],
+  },
+  "/system/roles-toggle": [
+    "system.rbac.manage",
+    "system_roles_edit",
+  ],
+  "/system/permissions": {
+    GET: ["system.rbac.view", "system.rbac.manage", "system_roles_view"],
+    POST: "system.rbac.manage",
+    PUT: "system.rbac.manage",
+    DELETE: "system.rbac.manage",
+  },
+  "/system/resource-permissions": [
+    "system.rbac.view",
+    "system.rbac.manage",
+  ],
+  "/system/authentication-logs": "system.security.view",
+  "/system/failed-login-attempts": "system.security.view",
+  "/system/active-sessions": "system.security.view",
+  "/system/active-sessions-revoke": "system.security.manage",
+  "/system/tokens": "system.security.view",
+  "/system/tokens-revoke": "system.security.manage",
+  "/system/ip-lists": {
+    GET: "system.security.view",
+    POST: "system.security.manage",
+    PUT: "system.security.manage",
+    DELETE: "system.security.manage",
+  },
+  "/dashboard/system-admin": "system.dashboard.view",
 
   // School Config
   "/schoolconfig/index": "schoolconfig_view",
@@ -1227,7 +1410,7 @@ function getRequiredPermission(endpoint, method = "GET") {
       .filter(
         (key) =>
           normalizedEndpoint === key ||
-          normalizedEndpoint.startsWith(key + "/")
+          normalizedEndpoint.startsWith(key + "/"),
       )
       .sort((a, b) => b.length - a.length)[0];
 
@@ -1269,7 +1452,11 @@ function hasAdmissionsRouteAccessFallback() {
  * @throws {Error} If user is not authenticated or lacks permission
  */
 function validatePermission(endpoint, method) {
-  const normalizedEndpoint = "/" + String(endpoint || "").replace(/^\/+/, "").split("?")[0];
+  const normalizedEndpoint =
+    "/" +
+    String(endpoint || "")
+      .replace(/^\/+/, "")
+      .split("?")[0];
 
   // Skip permission check if user is not authenticated (will fail at backend)
   if (!AuthContext.isAuthenticated()) {
@@ -1289,7 +1476,9 @@ function validatePermission(endpoint, method) {
   }
 
   // Check exact permission and common edit/update aliases for backward compatibility.
-  const requiredPermissions = Array.isArray(requiredPermission) ? requiredPermission : [requiredPermission];
+  const requiredPermissions = Array.isArray(requiredPermission)
+    ? requiredPermission
+    : [requiredPermission];
   const aliases = new Set(requiredPermissions);
   requiredPermissions.forEach((permission) => {
     if (permission.endsWith("_edit")) {
@@ -1307,7 +1496,7 @@ function validatePermission(endpoint, method) {
   });
 
   const hasPermission = [...aliases].some((permissionCode) =>
-    AuthContext.hasPermission(permissionCode)
+    AuthContext.hasPermission(permissionCode),
   );
 
   if (!hasPermission) {
@@ -1324,7 +1513,7 @@ function validatePermission(endpoint, method) {
 
   if (!hasPermission) {
     const error = new Error(
-      `Access Denied: You do not have permission "${requiredPermissions.join(" or ")}" to ${method} ${endpoint}`
+      `Access Denied: You do not have permission "${requiredPermissions.join(" or ")}" to ${method} ${endpoint}`,
     );
     error.code = "PERMISSION_DENIED";
     error.permission = requiredPermission;
@@ -1350,7 +1539,9 @@ function applyPermissionContract(container = document) {
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => applyPermissionContract(document));
+  document.addEventListener("DOMContentLoaded", () =>
+    applyPermissionContract(document),
+  );
 } else {
   applyPermissionContract(document);
 }
@@ -1364,35 +1555,42 @@ if (document.readyState === "loading") {
  * out in the middle of boot for a single transient failure.
  */
 let _sessionExpiredEmitted = false;
-function handleSessionExpired(reason = 'refresh_rejected') {
+function handleSessionExpired(reason = "refresh_rejected") {
   // This function is called only after the refresh endpoint has explicitly
   // rejected the session with 401/403. Network failures, timeouts, 429 and 5xx
   // responses must never erase a valid local session.
-  console.warn('[API] Session expired — emitting SESSION_EXPIRED', reason);
+  console.warn("[API] Session expired — emitting SESSION_EXPIRED", reason);
 
-  if (typeof AuthContext !== 'undefined' && AuthContext.clearUser) {
+  if (typeof AuthContext !== "undefined" && AuthContext.clearUser) {
     AuthContext.clearUser();
   }
 
   // Prefer an event-driven UI (login modal) over a hard redirect.
-  if (typeof SessionManager !== 'undefined' && typeof SessionManager.onSessionExpired === 'function') {
-    try { SessionManager.onSessionExpired(); } catch (e) { console.error(e); }
+  if (
+    typeof SessionManager !== "undefined" &&
+    typeof SessionManager.onSessionExpired === "function"
+  ) {
+    try {
+      SessionManager.onSessionExpired();
+    } catch (e) {
+      console.error(e);
+    }
     return;
   }
 
   // Fallback: emit a global event other code can hook.
-  window.dispatchEvent(new CustomEvent('SESSION_EXPIRED'));
+  window.dispatchEvent(new CustomEvent("SESSION_EXPIRED"));
 
   // Last-resort redirect only if nothing handled it and we're not mid-boot.
   if (!_sessionExpiredEmitted) {
     _sessionExpiredEmitted = true;
     if (window.__APP_BOOTED__) {
       // Avoid double redirects within the same tab.
-      if (sessionStorage.getItem('_session_expired_redirect')) return;
-      sessionStorage.setItem('_session_expired_redirect', '1');
+      if (sessionStorage.getItem("_session_expired_redirect")) return;
+      sessionStorage.setItem("_session_expired_redirect", "1");
       setTimeout(function () {
-        sessionStorage.removeItem('_session_expired_redirect');
-        window.location.href = (window.APP_BASE || '') + "/index.php";
+        sessionStorage.removeItem("_session_expired_redirect");
+        window.location.href = (window.APP_BASE || "") + "/index.php";
       }, 2000);
     }
   }
@@ -1415,7 +1613,7 @@ async function refreshAccessToken() {
       const refreshToken = AuthContext.getRefreshToken();
       const url = new URL(
         API_BASE_URL + "/auth/refresh-token",
-        window.location.origin
+        window.location.origin,
       );
 
       const response = await fetch(url, {
@@ -1424,11 +1622,11 @@ async function refreshAccessToken() {
         cache: "no-store",
         headers: {
           "Content-Type": "application/json",
-          "Accept": "application/json",
+          Accept: "application/json",
           "Cache-Control": "no-store",
         },
         body: JSON.stringify(
-          refreshToken ? { refresh_token: refreshToken } : {}
+          refreshToken ? { refresh_token: refreshToken } : {},
         ),
       });
 
@@ -1436,12 +1634,12 @@ async function refreshAccessToken() {
       // is dead. Do not log users out for rate limits, backend errors or an
       // interrupted network connection.
       if (response.status === 401 || response.status === 403) {
-        handleSessionExpired('refresh_rejected_' + response.status);
+        handleSessionExpired("refresh_rejected_" + response.status);
         return false;
       }
 
       if (!response.ok) {
-        console.warn('[API] Temporary token refresh failure:', response.status);
+        console.warn("[API] Temporary token refresh failure:", response.status);
         return false;
       }
 
@@ -1450,7 +1648,7 @@ async function refreshAccessToken() {
       const token = payload && (payload.token || payload.access_token);
 
       if (!token) {
-        console.warn('[API] Refresh response did not contain an access token.');
+        console.warn("[API] Refresh response did not contain an access token.");
         return false;
       }
 
@@ -1460,10 +1658,10 @@ async function refreshAccessToken() {
         AuthContext.setUser(payload.user, payload, true);
       }
 
-      window.dispatchEvent(new CustomEvent('AUTH_TOKEN_REFRESHED'));
+      window.dispatchEvent(new CustomEvent("AUTH_TOKEN_REFRESHED"));
       return true;
     } catch (error) {
-      console.warn('[API] Token refresh temporarily unavailable:', error);
+      console.warn("[API] Token refresh temporarily unavailable:", error);
       return false;
     } finally {
       isRefreshingToken = false;
@@ -1505,11 +1703,13 @@ async function apiCall(
   method = "GET",
   data = null,
   params = {},
-  options = {}
+  options = {},
 ) {
   try {
     const queryParams =
-      params && typeof params === "object" && !Array.isArray(params) ? params : {};
+      params && typeof params === "object" && !Array.isArray(params)
+        ? params
+        : {};
 
     // If the token is about to expire, try a proactive refresh. This is
     // best-effort: a failed refresh must NOT abort the call. We let the request
@@ -1520,7 +1720,10 @@ async function apiCall(
       try {
         await refreshAccessToken();
       } catch (refreshError) {
-        console.warn("Proactive token refresh failed; continuing with current token:", refreshError && refreshError.message);
+        console.warn(
+          "Proactive token refresh failed; continuing with current token:",
+          refreshError && refreshError.message,
+        );
       }
     }
 
@@ -1535,8 +1738,11 @@ async function apiCall(
     const normalizedEndpoint = (() => {
       let value = String(endpoint || "").trim();
       if (/^https?:\/\//i.test(value)) return value;
-      const basePath = String(API_BASE_URL || "").replace(/^https?:\/\/[^/]+/i, "").replace(/\/+$/, "");
-      if (basePath.endsWith("/api") && value.startsWith("/api/")) value = value.slice(4);
+      const basePath = String(API_BASE_URL || "")
+        .replace(/^https?:\/\/[^/]+/i, "")
+        .replace(/\/+$/, "");
+      if (basePath.endsWith("/api") && value.startsWith("/api/"))
+        value = value.slice(4);
       if (!value.startsWith("/")) value = "/" + value;
       return value;
     })();
@@ -1549,10 +1755,26 @@ async function apiCall(
         url.searchParams.append(key, value);
       }
     });
+    const requestUrl = url.toString();
 
     // Check if token exists
-    const token = AuthContext.getToken();
-    if (!token) {
+    const authFreeEndpoints = new Set([
+      "/auth/login",
+      "/auth/register",
+      "/auth/forgot-password",
+      "/auth/reset-password",
+      "/auth/complete-reset",
+      "/auth/verify-reset-token",
+      "/auth/refresh-token",
+      "/auth/logout-refresh",
+      "/auth/session",
+      "/auth/refresh-session",
+      "/auth/validate-token",
+    ]);
+    const token = authFreeEndpoints.has(normalizedEndpoint)
+      ? null
+      : AuthContext.getToken();
+    if (!token && !authFreeEndpoints.has(normalizedEndpoint)) {
       console.warn("⚠️ No JWT token found - API call will fail with 401");
     }
 
@@ -1564,6 +1786,7 @@ async function apiCall(
         (window.location.hostname === "localhost" ? "same-origin" : "include"),
       headers: {
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
+        Accept: "application/json",
         ...(token && {
           Authorization: "Bearer " + token,
         }),
@@ -1580,21 +1803,39 @@ async function apiCall(
       }
     }
 
-    let response = await fetch(url, fetchOptions);
+    let response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
 
     // Handle 401 Unauthorized - token may have expired, try to refresh
     if (response.status === 401 && !options.isRefreshAttempt) {
       // [DIAG] capture auth storage state at first 401 of this session
-      if (!sessionStorage.getItem('_diag_401_dumped')) {
-        sessionStorage.setItem('_diag_401_dumped', '1');
-        const _ls = {}, _ss = {};
-        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); _ls[k] = localStorage.getItem(k); }
-        for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); _ss[k] = sessionStorage.getItem(k); }
-        console.warn('[DIAG-401] url=', url, '| hasToken=', !!AuthContext.getToken(),
-          '| ls.auth_storage_mode=', localStorage.getItem('auth_storage_mode'),
-          '| ls.token?=', !!localStorage.getItem('token'),
-          '| ss.token?=', !!sessionStorage.getItem('token'),
-          '| localStorage=', _ls, '| sessionStorage=', _ss);
+      if (!sessionStorage.getItem("_diag_401_dumped")) {
+        sessionStorage.setItem("_diag_401_dumped", "1");
+        const _ls = {},
+          _ss = {};
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          _ls[k] = localStorage.getItem(k);
+        }
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const k = sessionStorage.key(i);
+          _ss[k] = sessionStorage.getItem(k);
+        }
+        console.warn(
+          "[DIAG-401] url=",
+          url,
+          "| hasToken=",
+          !!AuthContext.getToken(),
+          "| ls.auth_storage_mode=",
+          localStorage.getItem("auth_storage_mode"),
+          "| ls.token?=",
+          !!localStorage.getItem("token"),
+          "| ss.token?=",
+          !!sessionStorage.getItem("token"),
+          "| localStorage=",
+          _ls,
+          "| sessionStorage=",
+          _ss,
+        );
       }
       console.log("Received 401 Unauthorized, attempting token refresh...");
       const refreshed = await refreshAccessToken();
@@ -1606,12 +1847,14 @@ async function apiCall(
           // Refresh reported success but no access token is available to the
           // client. Retrying would only 401 again ("Missing Authorization
           // header") silently. Fail loud so the session is treated as invalid.
-          console.error("Token refresh succeeded but no access token is available; session is invalid.");
+          console.error(
+            "Token refresh succeeded but no access token is available; session is invalid.",
+          );
           throw new Error("Authentication failed, please log in again");
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
-        response = await fetch(url, fetchOptions);
+        response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
         // Refresh failed, user is logged out and redirected
         throw new Error("Authentication failed, please log in again");
@@ -1641,9 +1884,9 @@ async function apiCall(
       const targets = options.invalidate || [inferResourceKey(endpoint)];
 
       // Use DataStore for automatic cache invalidation if available
-      if (typeof DataStore !== 'undefined') {
+      if (typeof DataStore !== "undefined") {
         DataStore.invalidateMany(targets.filter(Boolean)).catch((err) => {
-          console.warn('DataStore invalidation failed:', err);
+          console.warn("DataStore invalidation failed:", err);
         });
       }
 
@@ -1655,7 +1898,10 @@ async function apiCall(
       // Propagate the invalidation to OTHER tabs so they don't keep stale
       // IndexedDB snapshots. Server stays authoritative; this only drops the
       // local cache in sibling tabs (session_manager handles the broadcast).
-      if (typeof SessionManager !== 'undefined' && SessionManager.broadcastCacheInvalidation) {
+      if (
+        typeof SessionManager !== "undefined" &&
+        SessionManager.broadcastCacheInvalidation
+      ) {
         SessionManager.broadcastCacheInvalidation(targets.filter(Boolean));
       }
     }
@@ -1664,6 +1910,19 @@ async function apiCall(
   } catch (error) {
     error.endpoint = error.endpoint || endpoint;
     error.method = error.method || method;
+    if (/Failed to fetch|NetworkError|network/i.test(error.message || "")) {
+      console.error("[api.js] Network fetch failed", {
+        endpoint,
+        method,
+        apiBaseUrl: typeof API_BASE_URL !== "undefined" ? API_BASE_URL : null,
+        appBase: window.APP_BASE || "",
+        origin: window.location.origin,
+        href: window.location.href,
+        online: navigator.onLine,
+        serviceWorkerControlled: Boolean(navigator.serviceWorker?.controller),
+        error: error.message,
+      });
+    }
 
     // For permission denied errors, log to console instead of showing popup
     if (error.code === "PERMISSION_DENIED") {
@@ -1676,11 +1935,16 @@ async function apiCall(
     // get fed instead of sitting dormant. Only mutations are queued — a failed
     // GET is just a cache miss and the SW serves the last good response.
     const isMutation = MUTATION_METHODS.has(String(method).toUpperCase());
-    const isOffline = navigator.onLine === false ||
-      (typeof error === "object" && error !== null && /Failed to fetch|NetworkError|network/i.test(error.message || ""));
+    const isOffline =
+      navigator.onLine === false ||
+      (typeof error === "object" &&
+        error !== null &&
+        /Failed to fetch|NetworkError|network/i.test(error.message || ""));
     if (isMutation && isOffline && typeof SyncQueue !== "undefined") {
       try {
-        const module = (endpoint.split("/").filter(Boolean)[0] || "api").replace(/^api\//, "").split("/")[0];
+        const module = (endpoint.split("/").filter(Boolean)[0] || "api")
+          .replace(/^api\//, "")
+          .split("/")[0];
         await SyncQueue.addOperation({
           module,
           endpoint: (window.APP_BASE || "") + endpoint,
@@ -1690,7 +1954,10 @@ async function apiCall(
         });
         console.warn("[api.js] Offline — mutation queued for sync:", endpoint);
         // Surface a clear, non-error state so the UI knows it is pending.
-        return { status: "queued", message: "Saved offline; will sync when connection returns." };
+        return {
+          status: "queued",
+          message: "Saved offline; will sync when connection returns.",
+        };
       } catch (queueError) {
         console.error("[api.js] Failed to queue offline mutation:", queueError);
       }
@@ -1782,10 +2049,11 @@ window.API = {
         let redirectUrl;
         if (dashboardInfo && dashboardInfo.key) {
           // Use the normalized key (route name)
-          redirectUrl = (window.APP_BASE || '') + "/home.php?route=" + dashboardInfo.key;
+          redirectUrl =
+            (window.APP_BASE || "") + "/home.php?route=" + dashboardInfo.key;
         } else {
           // Fallback to home page which will redirect to appropriate dashboard
-          redirectUrl = (window.APP_BASE || '') + "/home.php";
+          redirectUrl = (window.APP_BASE || "") + "/home.php";
         }
 
         console.log("Redirecting to:", redirectUrl);
@@ -1816,13 +2084,25 @@ window.API = {
         // Clear local storage
         AuthContext.clearUser();
         // Redirect to login
-        window.location.href = (window.APP_BASE || '') + "/index.php";
+        window.location.href = (window.APP_BASE || "") + "/index.php";
       }
     },
     forgotPassword: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
+      apiCall(
+        "/auth/forgot-password",
+        "POST",
+        { email },
+        {},
+        { checkPermission: false },
+      ),
     resetPassword: async (token, password) =>
-      apiCall("/auth/reset-password", "POST", { token, password }, {}, { checkPermission: false }),
+      apiCall(
+        "/auth/reset-password",
+        "POST",
+        { token, password },
+        {},
+        { checkPermission: false },
+      ),
     refreshToken: async () => {
       const refreshToken = AuthContext.getRefreshToken();
       const response = await apiCall(
@@ -2470,7 +2750,8 @@ window.API = {
     setCurrentYear: async (id) =>
       apiCall(`/academic/years/set-current/${id}`, "PUT"),
     getCurrentYear: async () => apiCall("/academic/years/current", "GET"),
-    getCurrentAcademicYear: async () => apiCall("/academic/years/current", "GET"),
+    getCurrentAcademicYear: async () =>
+      apiCall("/academic/years/current", "GET"),
     getAcademicYear: async (id = null) =>
       id
         ? apiCall(`/academic/years/get/${id}`, "GET")
@@ -2895,7 +3176,8 @@ window.API = {
     // Get role-based notifications for dashboards
     getNotifications: async () => apiCall("/admission/notifications", "GET"),
     // Get classes for placement offer assignment
-    getPlacementClasses: async () => apiCall("/admission/placement-classes", "GET"),
+    getPlacementClasses: async () =>
+      apiCall("/admission/placement-classes", "GET"),
     // Workflow stage methods
     submitApplication: async (data) =>
       apiCall("/admission/submit-application", "POST", data),
@@ -3218,7 +3500,10 @@ window.API = {
     getStaffPayrollDetails: async (staffId) =>
       apiCall(`/finance/staff-payroll-details?staff_id=${staffId}`, "GET"),
     getBulkPayrollPreview: async (month, year) =>
-      apiCall(`/finance/bulk-payroll-preview?month=${month}&year=${year}`, "GET"),
+      apiCall(
+        `/finance/bulk-payroll-preview?month=${month}&year=${year}`,
+        "GET",
+      ),
     processBulkPayroll: async (data) =>
       apiCall("/finance/process-bulk-payroll", "POST", data),
     processPayrollWithDeductions: async (data) =>
@@ -3596,8 +3881,8 @@ window.API = {
 
   // Staff endpoints
   staff: {
-    index: async () => {
-      const data = await apiCall("/staff/index", "GET");
+    index: async (params = {}) => {
+      const data = await apiCall("/staff/index", "GET", null, params);
       // Directory data: warm the staff IndexedDB cache so reloads render
       // instantly and revalidate in the background (network-first strategy).
       if (typeof DataStore !== "undefined" && data != null) {
@@ -3627,6 +3912,7 @@ window.API = {
       id
         ? apiCall(`/staff/departments-get/${id}`, "GET")
         : apiCall("/staff/departments-get", "GET"),
+    getAll: async (params = {}) => apiCall("/staff", "GET", null, params),
 
     // Assignments
     assignClass: async (data) => apiCall("/staff/assign-class", "POST", data),
@@ -3775,6 +4061,59 @@ window.API = {
         params,
       ),
 
+    // Canonical Staff-domain access and workflows
+    getAccessContext: async () => apiCall("/staff/access-context", "GET"),
+    getTeachers: async (params = {}) =>
+      apiCall("/staff/teachers", "GET", null, params),
+    getNonTeaching: async (params = {}) =>
+      apiCall("/staff/non-teaching", "GET", null, params),
+    getPayrollEligibility: async (staffId) =>
+      apiCall(`/staff/payroll-eligibility/${staffId}`, "GET"),
+    validatePayrollEligibility: async (payload) =>
+      apiCall("/staff/payroll-eligibility-validate", "POST", payload),
+    getIdCards: async (params = {}) =>
+      apiCall("/staff/id-cards", "GET", null, params),
+    generateIdCard: async (payload) =>
+      apiCall("/staff/id-cards-generate", "POST", payload),
+    issueIdCard: async (payload) =>
+      apiCall("/staff/id-cards-issue", "POST", payload),
+    getLeaveTypes: async () => apiCall("/staff/leave-types", "GET"),
+    getLeaveRequests: async (params = {}) =>
+      apiCall("/staff/leave-requests", "GET", null, params),
+    createLeaveRequest: async (payload) =>
+      apiCall("/staff/leave-requests", "POST", payload),
+    updateLeaveRequestStatus: async (id, payload) =>
+      apiCall(`/staff/leave-requests-status/${id}`, "PUT", payload),
+    getAvailableRoles: async () => apiCall("/staff/available-roles", "GET"),
+    getRoleAssignments: async (staffId) =>
+      apiCall("/staff/role-assignments", "GET", null, { staff_id: staffId }),
+    assignStaffRole: async (payload) =>
+      apiCall("/staff/role-assignments", "POST", payload),
+    revokeStaffRole: async (staffId, roleId) =>
+      apiCall(`/staff/role-assignments/${roleId}`, "DELETE", {
+        staff_id: staffId,
+      }),
+    
+    // Additional staff endpoints for new UI controllers
+    getPerformanceReviews: async (params = {}) =>
+      apiCall("/staff/performance-reviews", "GET", null, params),
+    
+    // Staff lifecycle and onboarding endpoints
+    getOnboarding: async (params = {}) =>
+      apiCall("/staff/onboarding", "GET", null, params),
+    createOnboarding: async (data) =>
+      apiCall("/staff/onboarding", "POST", data),
+    getLifecycle: async (params = {}) =>
+      apiCall("/staff/lifecycle", "GET", null, params),
+    createLifecycleAction: async (data) =>
+      apiCall("/staff/lifecycle", "POST", data),
+    getAppointments: async (params = {}) =>
+      apiCall("/staff/appointments", "GET", null, params),
+    createAppointment: async (data) =>
+      apiCall("/staff/appointments", "POST", data),
+    importExistingStaff: async (data) =>
+      apiCall("/staff/import-existing", "POST", data),
+
     // Legacy support
     list: async (params = {}) => apiCall("/staff", "GET", null, params),
     assignRole: async (id, roleData) =>
@@ -3794,17 +4133,37 @@ window.API = {
     // Media (photos & documents) — routes to POST /staff/upload/{id}
     uploadPhoto: async (staffId, file, extra = {}) => {
       const formData = createFormData(
-        { type: "photo", description: extra.description || "", tags: extra.tags || "" },
+        {
+          type: "photo",
+          description: extra.description || "",
+          tags: extra.tags || "",
+        },
         { file },
       );
-      return apiCall(`/staff/upload-photo/${staffId}`, "POST", formData, {}, { isFile: true });
+      return apiCall(
+        `/staff/upload-photo/${staffId}`,
+        "POST",
+        formData,
+        {},
+        { isFile: true },
+      );
     },
     uploadDocument: async (staffId, file, extra = {}) => {
       const formData = createFormData(
-        { type: "document", description: extra.description || "", tags: extra.tags || "" },
+        {
+          type: "document",
+          description: extra.description || "",
+          tags: extra.tags || "",
+        },
         { file },
       );
-      return apiCall(`/staff/upload-document/${staffId}`, "POST", formData, {}, { isFile: true });
+      return apiCall(
+        `/staff/upload-document/${staffId}`,
+        "POST",
+        formData,
+        {},
+        { isFile: true },
+      );
     },
   },
 
@@ -4010,7 +4369,10 @@ window.API = {
     // Timetable
     getTimetable: async (params = {}) => {
       const qs = new URLSearchParams(params).toString();
-      return apiCall(qs ? `/schedules/timetable-get?${qs}` : "/schedules/timetable-get", "GET");
+      return apiCall(
+        qs ? `/schedules/timetable-get?${qs}` : "/schedules/timetable-get",
+        "GET",
+      );
     },
     createTimetable: async (data) =>
       apiCall("/schedules/timetable-create", "POST", data),
@@ -4024,8 +4386,7 @@ window.API = {
       apiCall("/schedules/timetable-check-conflicts", "GET"),
     reportTimetableConflict: async (data) =>
       apiCall("/schedules/timetable-report-conflict", "POST", data),
-    getTimeSlots: async () =>
-      apiCall("/schedules/timetable-time-slots", "GET"),
+    getTimeSlots: async () => apiCall("/schedules/timetable-time-slots", "GET"),
 
     // Exams
     getExam: async (id = null) =>
@@ -4477,11 +4838,13 @@ window.API = {
 
     // Roles Management (System Admin)
     getRoles: async (params) => apiCall("/system/roles", "GET", null, params),
-    getRole: async (id) => apiCall(`/system/roles?id=${id}`, "GET"),
+    getRole: async (id) =>
+      apiCall(`/system/roles/${encodeURIComponent(id)}`, "GET"),
     createRole: async (data) => apiCall("/system/roles", "POST", data),
     updateRole: async (id, data) =>
       apiCall("/system/roles", "PUT", { id, ...data }),
-    deleteRole: async (id) => apiCall("/system/roles", "DELETE", { id }),
+    deleteRole: async (id) =>
+      apiCall(`/system/roles/${encodeURIComponent(id)}`, "DELETE"),
     toggleRoleStatus: async (id, isActive) =>
       apiCall("/system/roles-toggle", "POST", { id, is_active: isActive }),
 
@@ -4515,9 +4878,9 @@ window.API = {
     createPermission: async (data) =>
       apiCall("/system/permissions", "POST", data),
     updatePermission: async (id, data) =>
-      apiCall("/system/permissions", "PUT", { id, ...data }),
+      apiCall(`/system/permissions/${encodeURIComponent(id)}`, "PUT", data),
     deletePermission: async (id) =>
-      apiCall("/system/permissions", "DELETE", { id }),
+      apiCall(`/system/permissions/${encodeURIComponent(id)}`, "DELETE"),
 
     // Role-Permission Assignment (System Admin)
     getRolePermissions: async (roleId) =>
@@ -4525,13 +4888,15 @@ window.API = {
     assignPermissionToRole: async (roleId, permissionId) =>
       apiCall("/system/role-permissions", "POST", {
         role_id: roleId,
-        permission_id: permissionId,
+        permission_ids: [permissionId],
       }),
     revokePermissionFromRole: async (roleId, permissionId) =>
-      apiCall("/system/role-permissions", "DELETE", {
-        role_id: roleId,
-        permission_id: permissionId,
-      }),
+      apiCall(
+        `/system/role-permissions/${encodeURIComponent(permissionId)}`,
+        "DELETE",
+        null,
+        { role_id: roleId },
+      ),
 
     // Dashboards Management (System Admin)
     getDashboards: async (params) =>
@@ -4558,6 +4923,62 @@ window.API = {
     updatePolicy: async (id, data) =>
       apiCall("/system/policies", "PUT", { id, ...data }),
     deletePolicy: async (id) => apiCall("/system/policies", "DELETE", { id }),
+    getAccountStatuses: async (params = {}) => apiCall("/system/account-status", "GET", null, params),
+    updateAccountStatus: async (userId, data) => apiCall("/system/account-status", "PUT", { user_id: userId, ...data }),
+    getAuthenticationLogs: async (params = {}) => apiCall("/system/authentication-logs", "GET", null, params),
+    getFailedLogins: async (params = {}) => apiCall("/system/failed-login-attempts", "GET", null, params),
+    getActiveSessions: async (params = {}) => apiCall("/system/active-sessions", "GET", null, params),
+    revokeSession: async (sessionId) => apiCall("/system/active-sessions-revoke", "POST", { session_id: sessionId }),
+    getTokens: async (params = {}) => apiCall("/system/tokens", "GET", null, params),
+    revokeToken: async (tokenId, tokenType) => apiCall("/system/tokens-revoke", "POST", { token_id: tokenId, token_type: tokenType }),
+    getActivityAuditLogs: async (params = {}) => apiCall("/system/activity-audit-logs", "GET", null, params),
+    getErrorLogs: async (params = {}) => apiCall("/system/error-logs", "GET", null, params),
+    getApiMetrics: async (params = {}) => apiCall("/system/api-metrics", "GET", null, params),
+    getDiagnostics: async () => apiCall("/system/diagnostics", "GET"),
+    getRateLimiting: async () => apiCall("/system/rate-limiting", "GET"),
+    getBackgroundJobs: async (params = {}) => apiCall("/system/background-jobs", "GET", null, params),
+    getJobInspector: async (params = {}) => apiCall("/system/job-inspector", "GET", null, params),
+    getSecurityIncidents: async (params = {}) => apiCall("/system/security-incidents", "GET", null, params),
+    getPermissionChanges: async (params = {}) => apiCall("/system/permission-changes", "GET", null, params),
+    getPolicyViolations: async (params = {}) => apiCall("/system/policy-violations", "GET", null, params),
+    getBackups: async (params = {}) => apiCall("/system/backups", "GET", null, params),
+    createBackup: async (data = {}) => apiCall("/system/backups", "POST", data),
+    deleteBackup: async (id) => apiCall("/system/backups", "DELETE", { id }),
+    getMigrations: async (params = {}) => apiCall("/system/migrations", "GET", null, params),
+    runMigration: async (data) => apiCall("/system/migrations", "POST", data),
+    getFeatureFlags: async () => apiCall("/system/feature-flags", "GET"),
+    updateFeatureFlags: async (data) => apiCall("/system/feature-flags", "PUT", data),
+    getModuleEnablement: async () => apiCall("/system/module-enablement", "GET"),
+    updateModuleEnablement: async (data) => apiCall("/system/module-enablement", "PUT", data),
+    getDataRetention: async () => apiCall("/system/data-retention", "GET"),
+    updateDataRetention: async (data) => apiCall("/system/data-retention", "PUT", data),
+    getDomainIsolation: async () => apiCall("/system/domain-isolation", "GET"),
+    updateDomainIsolation: async (data) => apiCall("/system/domain-isolation", "PUT", data),
+    getTimeBoundAccess: async () => apiCall("/system/time-bound-access", "GET"),
+    updateTimeBoundAccess: async (data) => apiCall("/system/time-bound-access", "PUT", data),
+    getRouteAccessRules: async () => apiCall("/system/route-access-rules", "GET"),
+    createRouteAccessRule: async (data) => apiCall("/system/route-access-rules", "POST", data),
+    updateRouteAccessRule: async (id, data) => apiCall("/system/route-access-rules", "PUT", { id, ...data }),
+    deleteRouteAccessRule: async (id) => apiCall("/system/route-access-rules", "DELETE", { id }),
+    getPermissionPolicies: async () => apiCall("/system/permission-policies", "GET"),
+    createPermissionPolicy: async (data) => apiCall("/system/permission-policies", "POST", data),
+    updatePermissionPolicy: async (id, data) => apiCall("/system/permission-policies", "PUT", { id, ...data }),
+    deletePermissionPolicy: async (id) => apiCall("/system/permission-policies", "DELETE", { id }),
+    getWebhookRegistry: async () => apiCall("/system/webhook-registry", "GET"),
+    createWebhook: async (data) => apiCall("/system/webhook-registry", "POST", data),
+    updateWebhook: async (id, data) => apiCall("/system/webhook-registry", "PUT", { id, ...data }),
+    deleteWebhook: async (id) => apiCall("/system/webhook-registry", "DELETE", { id }),
+    getRoleNavigation: async () => apiCall("/system/role-navigation", "GET"),
+    getResourcePermissions: async (params = {}) =>
+      apiCall("/system/resource-permissions", "GET", null, params),
+    getIpLists: async (params = {}) =>
+      apiCall("/system/ip-lists", "GET", null, params),
+    createIpRule: async (data) =>
+      apiCall("/system/ip-lists", "POST", data),
+    updateIpRule: async (id, data) =>
+      apiCall(`/system/ip-lists/${encodeURIComponent(id)}`, "PUT", data),
+    deleteIpRule: async (id) =>
+      apiCall(`/system/ip-lists/${encodeURIComponent(id)}`, "DELETE"),
   },
 
   // System Config endpoints (match SystemConfigController)
@@ -4631,9 +5052,21 @@ window.API = {
 
   resetPassword: {
     request: async (email) =>
-      apiCall("/auth/forgot-password", "POST", { email }, {}, { checkPermission: false }),
+      apiCall(
+        "/auth/forgot-password",
+        "POST",
+        { email },
+        {},
+        { checkPermission: false },
+      ),
     verify: async (token) =>
-      apiCall("/auth/reset-password", "GET", null, { token }, { checkPermission: false }),
+      apiCall(
+        "/auth/reset-password",
+        "GET",
+        null,
+        { token },
+        { checkPermission: false },
+      ),
     complete: async (token, newPassword) =>
       apiCall(
         "/auth/reset-password",
@@ -4643,129 +5076,58 @@ window.API = {
           new_password: newPassword,
         },
         {},
-        { checkPermission: false }
+        { checkPermission: false },
       ),
   },
 
-  // Dashboard Statistics endpoints
+  // Dashboard endpoints — one canonical namespace for all role dashboards.
   dashboard: {
-    // ⚠️ SECURITY: System Admin Dashboard - Infrastructure & Technical Metrics ONLY
-    // NO business data (students, finance, operations)
+    // System Administrator (role 2): infrastructure only, no School Domain data.
+    getAuthEvents: async () =>
+      apiCall("/dashboard/system-admin/auth-events", "GET"),
+    getActiveSessions: async () =>
+      apiCall("/dashboard/system-admin/active-sessions", "GET"),
+    getSystemUptime: async () =>
+      apiCall("/dashboard/system-admin/uptime", "GET"),
+    getSystemHealthErrors: async () =>
+      apiCall("/dashboard/system-admin/health-errors", "GET"),
+    getSystemHealthWarnings: async () =>
+      apiCall("/dashboard/system-admin/health-warnings", "GET"),
+    getAPIRequestLoad: async () =>
+      apiCall("/dashboard/system-admin/api-load", "GET"),
 
-    // System-focused endpoints
-    getAuthEvents: async () => {
-      return await apiCall("/system/auth-events", "GET");
-    },
+    // Shared dashboard statistics retained from the superseded duplicate block.
+    getStudentStats: async () => apiCall("/students/stats", "GET"),
+    getTodayAttendance: async () => apiCall("/attendance/today", "GET"),
+    getTeachingStats: async () => apiCall("/staff/stats", "GET"),
+    getFeesCollected: async () => apiCall("/payments/stats", "GET"),
+    getWeeklyLessons: async () => apiCall("/schedules/weekly", "GET"),
+    getCollectionTrends: async () =>
+      apiCall("/payments/collection-trends", "GET"),
+    getPendingApprovals: async () =>
+      apiCall("/system/pending-approvals", "GET"),
+    getActivities: async () => apiCall("/activities/list", "GET"),
+    getPendingAdmissions: async () =>
+      apiCall("/admissions/pending", "GET"),
+    getMyClassAttendance: async () =>
+      apiCall("/attendance/my-class", "GET"),
+    getMyClassAssessments: async () =>
+      apiCall("/assessments/my-results", "GET"),
+    getMyLessonPlan: async () =>
+      apiCall("/schedules/my-lessons", "GET"),
+    getFeeStatusByStudent: async () =>
+      apiCall("/payments/fee-status", "GET"),
+    getMonthlyFinancialReport: async () =>
+      apiCall("/finance/monthly-report", "GET"),
+    getPayrollStatus: async () =>
+      apiCall("/finance/payroll-status", "GET"),
+    getInventoryStockStatus: async () =>
+      apiCall("/inventory/stock-status", "GET"),
+    getLowStockAlerts: async () =>
+      apiCall("/inventory/low-stock-alerts", "GET"),
+    getPendingRequisitions: async () =>
+      apiCall("/inventory/requisitions-pending", "GET"),
 
-    getActiveSessions: async () => {
-      return await apiCall("/system/active-sessions", "GET");
-    },
-
-    getSystemUptime: async () => {
-      return await apiCall("/system/uptime", "GET");
-    },
-
-    getSystemHealthErrors: async () => {
-      return await apiCall("/system/health-errors", "GET");
-    },
-
-    getSystemHealthWarnings: async () => {
-      return await apiCall("/system/health-warnings", "GET");
-    },
-
-    getAPIRequestLoad: async () => {
-      return await apiCall("/system/api-load", "GET");
-    },
-
-    // Director-level endpoints (business operational data)
-    getStudentStats: async () => {
-      return await apiCall("/students/stats", "GET");
-    },
-
-    getTodayAttendance: async () => {
-      return await apiCall("/attendance/today", "GET");
-    },
-
-    getTeachingStats: async () => {
-      return await apiCall("/staff/stats", "GET");
-    },
-
-    getFeesCollected: async () => {
-      return await apiCall("/payments/stats", "GET");
-    },
-
-    getWeeklyLessons: async () => {
-      return await apiCall("/schedules/weekly", "GET");
-    },
-
-    // Additional endpoints for other role dashboards
-    getCollectionTrends: async () => {
-      return await apiCall("/payments/collection-trends", "GET");
-    },
-
-    getPendingApprovals: async () => {
-      return await apiCall("/system/pending-approvals", "GET");
-    },
-
-    getDirectorPayrollSummary: async () => {
-      return await apiCall("/dashboard/director/payroll-summary", "GET");
-    },
-
-    getDirectorSystemStatus: async () => {
-      return await apiCall("/dashboard/director/system-status", "GET");
-    },
-
-    getDirectorAnnouncements: async () => {
-      return await apiCall("/dashboard/director/announcements", "GET");
-    },
-
-    getActivities: async () => {
-      return await apiCall("/activities/list", "GET");
-    },
-
-    getPendingAdmissions: async () => {
-      return await apiCall("/admissions/pending", "GET");
-    },
-
-    getMyClassAttendance: async () => {
-      return await apiCall("/attendance/my-class", "GET");
-    },
-
-    getMyClassAssessments: async () => {
-      return await apiCall("/assessments/my-results", "GET");
-    },
-
-    getMyLessonPlan: async () => {
-      return await apiCall("/schedules/my-lessons", "GET");
-    },
-
-    getFeeStatusByStudent: async () => {
-      return await apiCall("/payments/fee-status", "GET");
-    },
-
-    getMonthlyFinancialReport: async () => {
-      return await apiCall("/finance/monthly-report", "GET");
-    },
-
-    getPayrollStatus: async () => {
-      return await apiCall("/finance/payroll-status", "GET");
-    },
-
-    getInventoryStockStatus: async () => {
-      return await apiCall("/inventory/stock-status", "GET");
-    },
-
-    getLowStockAlerts: async () => {
-      return await apiCall("/inventory/low-stock-alerts", "GET");
-    },
-
-    getPendingRequisitions: async () => {
-      return await apiCall("/inventory/requisitions-pending", "GET");
-    },
-  },
-
-  // Dashboard endpoints
-  dashboard: {
     getDirectorSummary: async () => {
       return await apiCall("/dashboard/director/summary", "GET");
     },
@@ -4861,15 +5223,22 @@ window.API = {
       // Some deployments do not expose the aggregate endpoint. Once a 404 is
       // confirmed, stop retrying it for this page session and let the dashboard
       // use its individual, real endpoints instead.
-      if (sessionStorage.getItem("school_admin_full_endpoint_missing") === "1") {
-        const error = new Error("School admin aggregate endpoint is unavailable.");
+      if (
+        sessionStorage.getItem("school_admin_full_endpoint_missing") === "1"
+      ) {
+        const error = new Error(
+          "School admin aggregate endpoint is unavailable.",
+        );
         error.code = "ENDPOINT_UNAVAILABLE";
         throw error;
       }
       try {
         return await apiCall("/dashboard/school-admin/full", "GET");
       } catch (error) {
-        if (Number(error?.status || error?.code) === 404 || /404/.test(String(error?.message || ""))) {
+        if (
+          Number(error?.status || error?.code) === 404 ||
+          /404/.test(String(error?.message || ""))
+        ) {
           sessionStorage.setItem("school_admin_full_endpoint_missing", "1");
           error.code = "ENDPOINT_UNAVAILABLE";
         }
@@ -5168,6 +5537,49 @@ window.API = {
     getInternTeacherObservations: async () => {
       return await apiCall("/dashboard/intern-teacher/observations", "GET");
     },
+  },
+
+  staffLifecycle: {
+    list: async (params = {}) =>
+      apiCall("/stafflifecycle", "GET", null, params),
+    get: async (id) => apiCall(`/stafflifecycle/${id}`, "GET"),
+    referenceData: async () => apiCall("/stafflifecycle/reference-data", "GET"),
+    createAction: async (data) =>
+      apiCall("/stafflifecycle/action", "POST", data),
+    approve: async (id, comment = "") =>
+      apiCall(`/stafflifecycle/approve/${id}`, "PUT", { comment }),
+    reject: async (id, comment = "") =>
+      apiCall(`/stafflifecycle/reject/${id}`, "PUT", { comment }),
+    cancel: async (id, reason) =>
+      apiCall(`/stafflifecycle/cancel/${id}`, "PUT", { reason }),
+  },
+
+  staffMigration: {
+    referenceData: async () =>
+      apiCall("/staff-migration/reference-data", "GET"),
+    batches: async (params = {}) =>
+      apiCall("/staff-migration/batches", "GET", null, params),
+    batch: async (id) => apiCall(`/staff-migration/batch/${id}`, "GET"),
+    templateUrl: () => `${API_BASE_URL}/staff-migration/template`,
+    downloadTemplate: async () =>
+      apiCall("/staff-migration/template", "GET", null, {}, {
+        isDownload: true,
+        filename: "existing_staff_migration_template.csv",
+      }),
+    stage: async (formData) =>
+      apiCall("/staff-migration/stage", "POST", formData, {}, { isFile: true }),
+    commit: async (batchId) =>
+      apiCall("/staff-migration/commit", "POST", { batch_id: batchId }),
+    rollback: async (batchId) =>
+      apiCall("/staff-migration/rollback", "POST", { batch_id: batchId }),
+    resendInvitation: async (userId, baseUrl = window.location.origin) =>
+      apiCall("/staff-migration/resend-invitation", "POST", {
+        user_id: userId,
+        base_url: baseUrl,
+      }),
+    onboarding: async () => apiCall("/staff-migration/onboarding", "GET"),
+    completeProfile: async (payload) =>
+      apiCall("/staff-migration/profile", "PUT", payload),
   },
 };
 

@@ -567,4 +567,5 @@
     }
 
 
-</style><script src="<?= $appBase ?>/js/pages/detailed_payslip.js?v=<?= time() ?>"></script>
+</style><script src="js/pages/staff_access.js"></script>
+<script src="<?= $appBase ?>/js/pages/detailed_payslip.js?v=<?= time() ?>"></script>

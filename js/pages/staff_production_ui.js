@@ -1,757 +1,550 @@
 /**
- * Staff Management Production UI Enhancements
- * Handles DataTables, Chart.js, advanced modals, and Material Design components
- * Works alongside staff.js controller
+ * Staff Management Controller
+ * Handles manage_staff.php
+ * Uses existing api.js JWT authentication
  */
-
 const StaffProductionUI = {
-  // DataTables instances
-  tables: {
-    allStaff: null,
-    teaching: null,
-    nonTeaching: null,
-    payroll: null,
-    attendance: null,
-    contracts: null,
-  },
+    state: {
+        staff: [],
+        filteredStaff: [],
+        departments: [],
+        currentFilters: {
+            search: '',
+            department: null,
+            staff_type_id: null,
+            status: null
+        }
+    },
 
-  // Chart.js instances
-  charts: {
-    totalStaff: null,
-    teachingStaff: null,
-    distribution: null,
-    payrollTrend: null,
-  },
+    async init() {
+        // Wait for AuthContext to be ready
+        if (typeof AuthContext !== 'undefined') {
+            await AuthContext.ready();
+        }
+        if (window.StaffAccess) {
+            await StaffAccess.init();
+        }
 
-  // Active filters
-  activeFilters: [],
+        // Check authentication
+        if (!AuthContext?.isAuthenticated()) {
+            window.location.href = (window.APP_BASE || '') + '/index.php';
+            return;
+        }
 
-  /**
-   * Initialize all production UI components
-   */
-  init: function () {
-    console.log("[StaffProductionUI] Initializing production-level UI...");
+        // Check permissions
+        if (!this.canViewDirectory()) {
+            showNotification('You do not have permission to view staff', 'error');
+            return;
+        }
 
-    this.initializeDataTables();
-    this.initializeCharts();
-    this.initializeSelect2();
-    this.initializeEventListeners();
-    this.loadDashboardStatistics();
+        this.bindEvents();
+        await this.loadInitialData();
+        this.applyAccessUi();
+        this.applyPageContext();
+    },
 
-    console.log("[StaffProductionUI] Production UI ready!");
-  },
+    canViewDirectory() {
+        return (window.StaffAccess && StaffAccess.can('staff.directory.view')) || AuthContext.canView('staff');
+    },
 
-  /**
-   * Initialize all DataTables with advanced features
-   */
-  initializeDataTables: function () {
-    // All Staff DataTable
-    this.tables.allStaff = $("#staffDataTable").DataTable({
-      responsive: true,
-      processing: true,
-      serverSide: false, // Client-side for now (can enable server-side later)
-      pageLength: 25,
-      order: [[2, "asc"]], // Sort by staff number (column index unchanged)
-      dom:
-        '<"row"<"col-sm-12 col-md-6"B><"col-sm-12 col-md-6"f>>' +
-        '<"row"<"col-sm-12"tr>>' +
-        '<"row"<"col-sm-12 col-md-5"i><"col-sm-12 col-md-7"p>>',
-      buttons: [
-        {
-          extend: "excel",
-          text: '<i class="material-icons" style="font-size:16px">file_download</i> Excel',
-          className: "btn btn-success btn-sm",
-        },
-        {
-          extend: "pdf",
-          text: '<i class="material-icons" style="font-size:16px">picture_as_pdf</i> PDF',
-          className: "btn btn-danger btn-sm",
-        },
-        {
-          extend: "print",
-          text: '<i class="material-icons" style="font-size:16px">print</i> Print',
-          className: "btn btn-secondary btn-sm",
-        },
-      ],
-      columns: [
-        { data: null, render: (data, type, row, meta) => meta.row + 1 },
-        {
-          data: null,
-          render: function (data, type, row) {
-            const avatar =
-              row.avatar_url || (window.APP_BASE || "") + "/uploads/staff/profile_pictures/staff_avatar.jpeg";
-            const name =
-              `${row.first_name || ""} ${row.last_name || ""}`.trim() || "N/A";
-            const initials = name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase();
+    canManageDirectory() {
+        return (window.StaffAccess && StaffAccess.can('staff.directory.manage')) || AuthContext.canCreate('staff') || AuthContext.canEdit('staff');
+    },
 
-            return `
-                            <div class="d-flex align-items-center">
-                                <div class="avatar-placeholder me-2">${initials}</div>
-                                <div>
-                                    <div class="fw-bold">${name}</div>
-                                    <small class="text-muted">${row.email || ""}</small>
-                                </div>
-                            </div>
-                        `;
-          },
-        },
-        { data: "staff_no", defaultContent: "-" },
-        {
-          data: "staff_type_id",
-          render: function (data) {
-            const types = { 1: "Teaching", 2: "Non-Teaching", 3: "Admin" };
-            return types[data] || "-";
-          },
-        },
-        { data: "department_name", defaultContent: "-" },
-        { data: "position", defaultContent: "-" },
-        { data: "phone", defaultContent: "-" },
-        {
-          data: null,
-          orderable: false,
-          render: function (data, type, row) {
-            if (row.payroll_eligible) {
-              return '<span class="badge bg-success"><i class="material-icons" style="font-size:12px;vertical-align:middle">verified</i> Complete</span>';
+    canDeleteDirectory() {
+        return AuthContext.canDelete('staff');
+    },
+
+    canExportDirectory() {
+        return AuthContext.canExport('staff');
+    },
+
+    applyAccessUi() {
+        const addBtn = document.getElementById('addStaffBtn');
+        if (addBtn) addBtn.hidden = !this.canManageDirectory();
+
+        const exportBtn = document.getElementById('exportStaffBtn');
+        if (exportBtn) exportBtn.hidden = !this.canExportDirectory();
+
+        this.applyRoleLayout();
+
+        if (window.StaffAccess) StaffAccess.apply(document);
+    },
+
+    getRoleMode() {
+        const roles = (window.StaffAccess?.getContext?.().roles || AuthContext?.getUser?.()?.roles || [])
+            .map(role => String(role.name || role.role_name || role).toLowerCase());
+        const hasRole = fragment => roles.some(role => role.includes(fragment));
+
+        if (this.canManageDirectory()) return 'operations';
+        if (hasRole('director') || hasRole('headteacher') || hasRole('deputy')) return 'leadership';
+        return 'viewer';
+    },
+
+    getVisibleCards() {
+        const mode = this.getRoleMode();
+        if (mode === 'operations') return ['total', 'active', 'teaching', 'non_teaching'];
+        if (mode === 'leadership') return ['total', 'active', 'teaching'];
+        return ['total', 'active'];
+    },
+
+    getVisibleColumns() {
+        const mode = this.getRoleMode();
+        if (mode === 'operations') {
+            return ['staff_no', 'name', 'department', 'type', 'position', 'status', 'actions'];
+        }
+        if (mode === 'leadership') {
+            return ['name', 'department', 'type', 'position', 'status', 'actions'];
+        }
+        return ['name', 'department', 'position', 'status'];
+    },
+
+    applyRoleLayout() {
+        const container = document.querySelector('[data-staff-directory-page]');
+        if (container) {
+            container.dataset.roleMode = this.getRoleMode();
+        }
+
+        const cards = new Set(this.getVisibleCards());
+        document.querySelectorAll('[data-staff-card]').forEach(card => {
+            card.hidden = !cards.has(card.dataset.staffCard);
+        });
+
+        const columns = new Set(this.getVisibleColumns());
+        document.querySelectorAll('[data-staff-column]').forEach(th => {
+            th.hidden = !columns.has(th.dataset.staffColumn);
+        });
+    },
+
+    async loadInitialData() {
+        await Promise.all([
+            this.loadStaff(),
+            this.loadDepartments()
+        ]);
+    },
+
+    async loadStaff() {
+        try {
+            const response = await window.API.staff.index({
+                search: this.state.currentFilters.search,
+                department_id: this.state.currentFilters.department,
+                staff_type_id: this.state.currentFilters.staff_type_id,
+                status: this.state.currentFilters.status
+            });
+
+            const normalized = AppState.normalizeResponse(response);
+            
+            if (normalized.success) {
+                this.state.staff = this.extractStaffList(normalized.data);
+                this.state.filteredStaff = [...this.state.staff];
+                this.render();
+            } else {
+                showNotification(normalized.message || 'Failed to load staff', 'error');
             }
-            var pct = row.profile_completeness || 0;
-            var missing = (row.payroll_missing_fields || []).join(', ');
-            return '<span class="badge bg-danger" title="Missing: ' + missing + '"><i class="material-icons" style="font-size:12px;vertical-align:middle">warning</i> ' + pct + '%</span>';
-          },
-        },
-        {
-          data: "status",
-          render: function (data) {
-            const badges = {
-              active:
-                '<span class="status-badge status-active"><i class="material-icons" style="font-size:12px">check_circle</i> Active</span>',
-              on_leave:
-                '<span class="status-badge status-on-leave"><i class="material-icons" style="font-size:12px">event_busy</i> On Leave</span>',
-              inactive:
-                '<span class="status-badge status-inactive"><i class="material-icons" style="font-size:12px">cancel</i> Inactive</span>',
-            };
-            return badges[data] || badges["active"];
-          },
-        },
-        {
-          data: null,
-          orderable: false,
-          render: function (data, type, row) {
-            return `
-                            <div class="btn-group" role="group">
-                                <button class="action-btn action-btn-view" onclick="StaffProductionUI.viewStaff(${row.id})" data-bs-toggle="tooltip" title="View Details">
-                                    <i class="material-icons" style="font-size:18px">visibility</i>
-                                </button>
-                                <button class="action-btn action-btn-edit" onclick="StaffProductionUI.editStaff(${row.id})" data-bs-toggle="tooltip" title="Edit">
-                                    <i class="material-icons" style="font-size:18px">edit</i>
-                                </button>
-                                <button class="action-btn action-btn-delete" onclick="StaffProductionUI.deleteStaff(${row.id})" data-bs-toggle="tooltip" title="Delete">
-                                    <i class="material-icons" style="font-size:18px">delete</i>
-                                </button>
-                            </div>
-                        `;
-          },
-        },
-      ],
-      language: {
-        emptyTable: `
-                    <div class="empty-state">
-                        <i class="material-icons empty-state-icon">groups</i>
-                        <h5>No Staff Members Found</h5>
-                        <p class="text-muted">Add your first staff member to get started</p>
-                        <button class="btn btn-primary" onclick="staffManagementController.showStaffModal()">
-                            <i class="material-icons" style="font-size:18px;vertical-align:middle">add</i> Add Staff
-                        </button>
-                    </div>
-                `,
-        loadingRecords: `
-                    <div class="text-center py-4">
-                        <div class="spinner-border text-primary" role="status"></div>
-                        <p class="mt-2 text-muted">Loading staff data...</p>
-                    </div>
-                `,
-      },
-      drawCallback: function () {
-        // Re-initialize tooltips
-        $('[data-bs-toggle="tooltip"]').tooltip();
-      },
-    });
+        } catch (error) {
+            if (error.code === 'PERMISSION_DENIED') {
+                showNotification('You do not have permission to view staff', 'error');
+            } else {
+                console.error('Error loading staff:', error);
+                showNotification('Failed to load staff', 'error');
+            }
+        }
+    },
 
-    // Teaching Staff DataTable
-    this.tables.teaching = $("#teachingStaffTable").DataTable({
-      responsive: true,
-      pageLength: 25,
-      order: [[2, "asc"]],
-      columns: [
-        { data: null, render: (data, type, row, meta) => meta.row + 1 },
-        {
-          data: null,
-          render: function (data, type, row) {
-            const name =
-              `${row.first_name || ""} ${row.last_name || ""}`.trim();
-            const initials = name
-              .split(" ")
-              .map((n) => n[0])
-              .join("")
-              .toUpperCase();
-            return `
-                            <div class="d-flex align-items-center">
-                                <div class="avatar-placeholder me-2" style="background: linear-gradient(135deg, #2196F3, #64B5F6)">${initials}</div>
-                                <div>
-                                    <div class="fw-bold">${name}</div>
-                                    <small class="text-muted">${row.position || "Teacher"}</small>
-                                </div>
-                            </div>
-                        `;
-          },
-        },
-        { data: "staff_no" },
-        { data: "department_name" },
-        { data: "qualifications", defaultContent: "-" },
-        {
-          data: "workload_hours",
-          defaultContent: "0",
-          render: function (data) {
-            const hours = data || 0;
-            const maxHours = 40;
-            const percentage = (hours / maxHours) * 100;
-            const color =
-              percentage > 90
-                ? "danger"
-                : percentage > 70
-                  ? "warning"
-                  : "success";
-            return `
-                            <div>
-                                <span class="fw-bold">${hours} hrs</span>
-                                <div class="progress progress-thin mt-1">
-                                    <div class="progress-bar bg-${color}" style="width: ${percentage}%"></div>
-                                </div>
-                            </div>
-                        `;
-          },
-        },
-        {
-          data: "status",
-          render: function (data) {
-            return data === "active"
-              ? '<span class="status-badge status-active">Active</span>'
-              : '<span class="status-badge status-inactive">Inactive</span>';
-          },
-        },
-        {
-          data: null,
-          orderable: false,
-          render: function (data, type, row) {
-            return `
-                            <div class="btn-group">
-                                <button class="action-btn action-btn-view" onclick="StaffProductionUI.viewStaff(${row.id})">
-                                    <i class="material-icons" style="font-size:18px">visibility</i>
-                                </button>
-                                <button class="action-btn action-btn-edit" onclick="StaffProductionUI.editStaff(${row.id})">
-                                    <i class="material-icons" style="font-size:18px">edit</i>
-                                </button>
-                            </div>
-                        `;
-          },
-        },
-      ],
-    });
+    extractStaffList(data) {
+        if (!data) return [];
+        if (Array.isArray(data)) return data;
+        if (Array.isArray(data.staff)) return data.staff;
+        if (Array.isArray(data.data?.staff)) return data.data.staff;
+        if (Array.isArray(data.data)) return data.data;
+        return [];
+    },
 
-    // Similar initialization for other tables (non-teaching, payroll, attendance, contracts)
-    this.initializeOtherTables();
+    async loadDepartments() {
+        try {
+            const response = await window.API.staff.getDepartments();
+            const normalized = AppState.normalizeResponse(response);
+            
+            if (normalized.success) {
+                this.state.departments = Array.isArray(normalized.data) ? normalized.data : [];
+                this.populateDepartmentDropdown();
+            }
+        } catch (error) {
+            console.error('Error loading departments:', error);
+        }
+    },
 
-    console.log("[StaffProductionUI] DataTables initialized");
-  },
+    populateDepartmentDropdown() {
+        const filterSelect = document.getElementById('filterDepartment');
+        const formSelect = document.getElementById('department');
+        
+        if (filterSelect) {
+            filterSelect.innerHTML = '<option value="">All Departments</option>' +
+                this.state.departments.map(dept => 
+                    `<option value="${dept.id}">${dept.name}</option>`
+                ).join('');
+        }
+        
+        if (formSelect) {
+            formSelect.innerHTML = '<option value="">Select Department</option>' +
+                this.state.departments.map(dept => 
+                    `<option value="${dept.id}">${dept.name}</option>`
+                ).join('');
+        }
+    },
 
-  /**
-   * Initialize other data tables (non-teaching, payroll, etc.)
-   */
-  initializeOtherTables: function () {
-    // Non-Teaching Staff Table
-    if ($("#nonTeachingStaffTable").length) {
-      this.tables.nonTeaching = $("#nonTeachingStaffTable").DataTable({
-        responsive: true,
-        pageLength: 25,
-        columns: [
-          { data: null, render: (data, type, row, meta) => meta.row + 1 },
-          {
-            data: null,
-            render: function (data, type, row) {
-              const name =
-                `${row.first_name || ""} ${row.last_name || ""}`.trim();
-              const initials = name
-                .split(" ")
-                .map((n) => n[0])
-                .join("")
-                .toUpperCase();
-              return `<div class="d-flex align-items-center">
-                                <div class="avatar-placeholder me-2">${initials}</div>
-                                <span class="fw-bold">${name}</span>
-                            </div>`;
-            },
-          },
-          { data: "staff_no" },
-          { data: "department_name" },
-          { data: "position" },
-          {
-            data: "employment_date",
-            render: (data) =>
-              data ? new Date(data).toLocaleDateString() : "-",
-          },
-          {
-            data: "status",
-            render: function (data) {
-              return data === "active"
-                ? '<span class="status-badge status-active">Active</span>'
-                : '<span class="status-badge status-inactive">Inactive</span>';
-            },
-          },
-          {
-            data: null,
-            orderable: false,
-            render: function (data, type, row) {
-              return `
-                                <div class="btn-group">
-                                    <button class="action-btn action-btn-view" onclick="StaffProductionUI.viewStaff(${row.id})">
-                                        <i class="material-icons" style="font-size:18px">visibility</i>
-                                    </button>
-                                    <button class="action-btn action-btn-edit" onclick="StaffProductionUI.editStaff(${row.id})">
-                                        <i class="material-icons" style="font-size:18px">edit</i>
-                                    </button>
-                                </div>
-                            `;
-            },
-          },
-        ],
-      });
-    }
+    bindEvents() {
+        document.getElementById('searchStaff')?.addEventListener('input', (e) => {
+            this.state.currentFilters.search = e.target.value;
+            this.applyFilters();
+        });
 
-    // Payroll DataTable
-    if ($("#payrollDataTable").length) {
-      this.tables.payroll = $("#payrollDataTable").DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[1, "asc"]],
-      });
-    }
+        document.getElementById('filterDepartment')?.addEventListener('change', (e) => {
+            this.state.currentFilters.department = e.target.value || null;
+            this.applyFilters();
+        });
 
-    // Attendance DataTable
-    if ($("#attendanceDataTable").length) {
-      this.tables.attendance = $("#attendanceDataTable").DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[1, "asc"]],
-      });
-    }
+        document.getElementById('filterStaffType')?.addEventListener('change', (e) => {
+            this.state.currentFilters.staff_type_id = e.target.value || null;
+            this.applyFilters();
+        });
 
-    // Contracts DataTable
-    if ($("#contractsDataTable").length) {
-      this.tables.contracts = $("#contractsDataTable").DataTable({
-        responsive: true,
-        pageLength: 25,
-        order: [[1, "asc"]],
-      });
-    }
-  },
+        document.getElementById('filterStatus')?.addEventListener('change', (e) => {
+            this.state.currentFilters.status = e.target.value || null;
+            this.applyFilters();
+        });
 
-  /**
-   * Initialize Chart.js visualizations
-   */
-  initializeCharts: function () {
-    // Total Staff Mini Chart (sparkline)
-    const totalStaffCtx = document.getElementById("totalStaffChart");
-    if (totalStaffCtx) {
-      this.charts.totalStaff = new Chart(totalStaffCtx, {
-        type: "line",
-        data: {
-          labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-          datasets: [
-            {
-              data: [30, 32, 31, 34, 35, 36],
-              borderColor: "#4CAF50",
-              backgroundColor: "rgba(76, 175, 80, 0.1)",
-              tension: 0.4,
-              fill: true,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: { display: false },
-          },
-        },
-      });
-    }
+        document.getElementById('resetFilters')?.addEventListener('click', () => {
+            this.resetFilters();
+        });
 
-    // Teaching Staff Mini Chart
-    const teachingStaffCtx = document.getElementById("teachingStaffChart");
-    if (teachingStaffCtx) {
-      this.charts.teachingStaff = new Chart(teachingStaffCtx, {
-        type: "line",
-        data: {
-          labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-          datasets: [
-            {
-              data: [12, 13, 14, 14, 15, 15],
-              borderColor: "#2196F3",
-              backgroundColor: "rgba(33, 150, 243, 0.1)",
-              tension: 0.4,
-              fill: true,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: { x: { display: false }, y: { display: false } },
-        },
-      });
-    }
+        document.getElementById('addStaffBtn')?.addEventListener('click', () => {
+            if (this.canManageDirectory()) {
+                this.showAddModal();
+            } else {
+                showNotification('You do not have permission to add staff', 'error');
+            }
+        });
 
-    // Staff Distribution Chart (Doughnut)
-    const distributionCtx = document.getElementById("staffDistributionChart");
-    if (distributionCtx) {
-      this.charts.distribution = new Chart(distributionCtx, {
-        type: "doughnut",
-        data: {
-          labels: ["Teaching", "Non-Teaching", "Administrative"],
-          datasets: [
-            {
-              data: [15, 18, 3],
-              backgroundColor: [
-                "rgba(33, 150, 243, 0.8)",
-                "rgba(76, 175, 80, 0.8)",
-                "rgba(156, 39, 176, 0.8)",
-              ],
-              borderWidth: 0,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { position: "bottom" },
-          },
-        },
-      });
-    }
+        document.getElementById('saveStaffBtn')?.addEventListener('click', () => {
+            this.saveStaff();
+        });
 
-    // Payroll Trend Chart (Line)
-    const payrollTrendCtx = document.getElementById("payrollTrendChart");
-    if (payrollTrendCtx) {
-      this.charts.payrollTrend = new Chart(payrollTrendCtx, {
-        type: "line",
-        data: {
-          labels: ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-          datasets: [
-            {
-              label: "Monthly Payroll (KES)",
-              data: [1200000, 1250000, 1280000, 1300000, 1320000, 1350000],
-              borderColor: "#4CAF50",
-              backgroundColor: "rgba(76, 175, 80, 0.1)",
-              tension: 0.4,
-              fill: true,
-            },
-          ],
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-          },
-          scales: {
-            y: {
-              ticks: {
-                callback: function (value) {
-                  return "KES " + value / 1000 + "K";
-                },
-              },
-            },
-          },
-        },
-      });
-    }
+        document.getElementById('exportStaffBtn')?.addEventListener('click', () => {
+            if (this.canExportDirectory()) {
+                this.exportStaff();
+            } else {
+                showNotification('You do not have permission to export staff', 'error');
+            }
+        });
+    },
 
-    console.log("[StaffProductionUI] Charts initialized");
-  },
+    applyPageContext() {
+        const context = window.STAFF_PAGE_CONTEXT || {};
 
-  /**
-   * Initialize Select2 for enhanced dropdowns
-   */
-  initializeSelect2: function () {
-    if (typeof $.fn.select2 !== "undefined") {
-      $(".select2").select2({
-        theme: "bootstrap-5",
-        width: "100%",
-      });
-    }
-  },
+        if (context.mode === 'create' && this.canManageDirectory()) {
+            window.setTimeout(() => this.showAddModal(), 100);
+        }
+    },
 
-  /**
-   * Initialize event listeners
-   */
-  initializeEventListeners: function () {
-    // Search input with debounce
-    let searchTimeout;
-    $("#staffSearchInput").on("keyup", function () {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(() => {
-        StaffProductionUI.tables.allStaff.search($(this).val()).draw();
-      }, 300);
-    });
+    applyFilters() {
+        let filtered = [...this.state.staff];
 
-    // Filter selects
-    $(
-      "#departmentFilterSelect, #staffTypeFilterSelect, #statusFilterSelect",
-    ).on("change", function () {
-      StaffProductionUI.applyFilters();
-    });
+        if (this.state.currentFilters.search) {
+            const search = this.state.currentFilters.search.toLowerCase();
+            filtered = filtered.filter(staff => {
+                const name = `${staff.first_name || ''} ${staff.last_name || ''}`.toLowerCase();
+                const staffNo = (staff.staff_no || '').toLowerCase();
+                const email = (staff.email || '').toLowerCase();
+                return name.includes(search) || staffNo.includes(search) || email.includes(search);
+            });
+        }
 
-    // Avatar upload preview
-    $("#staffAvatar").on("change", function (e) {
-      const file = e.target.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = function (e) {
-          $("#staffAvatarPreview").attr("src", e.target.result);
+        if (this.state.currentFilters.department) {
+            filtered = filtered.filter(staff => 
+                staff.department_id == this.state.currentFilters.department
+            );
+        }
+
+        if (this.state.currentFilters.staff_type_id) {
+            filtered = filtered.filter(staff => 
+                staff.staff_type_id == this.state.currentFilters.staff_type_id
+            );
+        }
+
+        if (this.state.currentFilters.status) {
+            filtered = filtered.filter(staff => 
+                staff.status === this.state.currentFilters.status
+            );
+        }
+
+        this.state.filteredStaff = filtered;
+        this.render();
+    },
+
+    resetFilters() {
+        this.state.currentFilters = {
+            search: '',
+            department: null,
+            staff_type_id: null,
+            status: null
         };
-        reader.readAsDataURL(file);
-      }
-    });
 
-    // Attendance date filter
-    $("#attendanceDateFilter").on("change", function () {
-      staffManagementController.loadAttendance($(this).val());
-    });
+        document.getElementById('searchStaff').value = '';
+        document.getElementById('filterDepartment').value = '';
+        document.getElementById('filterStaffType').value = '';
+        document.getElementById('filterStatus').value = '';
 
-    console.log("[StaffProductionUI] Event listeners initialized");
-  },
+        this.applyFilters();
+    },
 
-  /**
-   * Load and display dashboard statistics
-   */
-  loadDashboardStatistics: async function () {
-    try {
-      const response = await window.API.staff.index();
-      const staffList = staffManagementController.extractStaffList(response);
+    render() {
+        this.applyRoleLayout();
+        this.renderStats();
+        this.renderTable();
+    },
 
-      // Update statistics
-      const totalStaff = staffList.length;
-      const teachingStaff = staffList.filter(
-        (s) => s.staff_type_id === 1,
-      ).length;
-      const onLeave = staffList.filter((s) => s.status === "on_leave").length;
-      const incompleteProfiles = staffList.filter(
-        (s) => s.payroll_eligible === false,
-      ).length;
+    renderStats() {
+        const total = this.state.staff.length;
+        const active = this.state.staff.filter(s => s.status === 'active').length;
+        const teaching = this.state.staff.filter(s => s.staff_type_id == 1).length;
+        const nonTeaching = this.state.staff.filter(s => s.staff_type_id == 2).length;
 
-      $("#totalStaffCount").text(totalStaff);
-      $("#teachingStaffCount").text(teachingStaff);
-      $("#nonTeachingCount").text(totalStaff - teachingStaff);
-      $("#onLeaveCount").text(onLeave);
-      $("#presentTodayCount").text(totalStaff - onLeave);
-      $("#totalActiveStaff").text(totalStaff);
-      $("#incompleteProfilesCount").text(incompleteProfiles);
+        document.getElementById('totalStaff').textContent = total;
+        document.getElementById('activeStaff').textContent = active;
+        document.getElementById('teachingStaff').textContent = teaching;
+        document.getElementById('nonTeachingStaff').textContent = nonTeaching;
+    },
 
-      // Update progress bars
-      const leavePercentage = (onLeave / totalStaff) * 100;
-      $("#leaveProgressBar").css("width", leavePercentage + "%");
+    renderTable() {
+        const tbody = document.getElementById('staffTableBody');
+        if (!tbody) return;
+        const columns = this.getVisibleColumns();
 
-      const attendancePercentage = ((totalStaff - onLeave) / totalStaff) * 100;
-      $("#attendanceProgressBar").css("width", attendancePercentage + "%");
+        if (this.state.filteredStaff.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="${columns.length}" class="text-center text-muted py-4">No staff found</td></tr>`;
+            return;
+        }
 
-      // Load data into DataTables
-      this.tables.allStaff.clear().rows.add(staffList).draw();
-      this.tables.teaching
-        .clear()
-        .rows.add(staffList.filter((s) => s.staff_type_id === 1))
-        .draw();
-      this.tables.nonTeaching
-        .clear()
-        .rows.add(staffList.filter((s) => s.staff_type_id !== 1))
-        .draw();
+        tbody.innerHTML = this.state.filteredStaff.map((staff) => {
+            return `
+                <tr>
+                    ${columns.map(column => this.renderStaffCell(staff, column)).join('')}
+                </tr>
+            `;
+        }).join('');
+    },
 
-      console.log("[StaffProductionUI] Dashboard statistics loaded");
-    } catch (error) {
-      console.error("[StaffProductionUI] Error loading statistics:", error);
-      this.showToast("Error loading dashboard data", "error");
+    renderStaffCell(staff, column) {
+        const fullName = `${staff.first_name || ''} ${staff.last_name || ''}`.trim() || 'Unnamed staff';
+        const cells = {
+            staff_no: `<td>${this.escapeHtml(staff.staff_no || '-')}</td>`,
+            name: `<td><strong>${this.escapeHtml(fullName)}</strong>${this.getRoleMode() === 'operations' ? `<br><small class="text-muted">${this.escapeHtml(staff.email || '-')}</small>` : ''}</td>`,
+            department: `<td>${this.escapeHtml(staff.department_name || '-')}</td>`,
+            type: `<td>${this.renderStaffType(staff)}</td>`,
+            position: `<td>${this.escapeHtml(staff.position || '-')}</td>`,
+            status: `<td>${this.renderStatusBadge(staff)}</td>`,
+            actions: `<td>${this.renderActionButtons(staff)}</td>`,
+        };
+        return cells[column] || '';
+    },
+
+    renderStaffType(staff) {
+        const typeMap = { 1: 'Teaching', 2: 'Non-Teaching', 3: 'Admin' };
+        const typeName = typeMap[staff.staff_type_id] || 'Unknown';
+        const colorMap = { 1: 'primary', 2: 'info', 3: 'warning' };
+        const color = colorMap[staff.staff_type_id] || 'secondary';
+        return `<span class="badge bg-${color}">${this.escapeHtml(typeName)}</span>`;
+    },
+
+    renderStatusBadge(staff) {
+        const statusMap = {
+            'active': 'success',
+            'inactive': 'secondary',
+            'on_leave': 'warning'
+        };
+        const color = statusMap[staff.status] || 'secondary';
+        return `<span class="badge bg-${color}">${this.escapeHtml(staff.status || 'Unknown')}</span>`;
+    },
+
+    renderActionButtons(staff) {
+        const buttons = [];
+
+        buttons.push(`<button class="btn btn-sm btn-outline-info me-1" onclick="StaffProductionUI.viewStaff(${staff.id})" title="View">
+            <i class="bi bi-eye"></i>
+        </button>`);
+
+        if (this.canManageDirectory()) {
+            buttons.push(`<button class="btn btn-sm btn-outline-warning me-1" onclick="StaffProductionUI.editStaff(${staff.id})" title="Edit">
+                <i class="bi bi-pencil"></i>
+            </button>`);
+        }
+
+        if (this.canDeleteDirectory()) {
+            buttons.push(`<button class="btn btn-sm btn-outline-danger" onclick="StaffProductionUI.deleteStaff(${staff.id})" title="Delete">
+                <i class="bi bi-trash"></i>
+            </button>`);
+        }
+
+        return `<div class="btn-group btn-group-sm">${buttons.join('')}</div>`;
+    },
+
+    showAddModal() {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to add staff', 'error');
+            return;
+        }
+        document.getElementById('staffModalTitle').textContent = 'Add Staff';
+        document.getElementById('staffId').value = '';
+        document.getElementById('staffForm').reset();
+        
+        const modal = new bootstrap.Modal(document.getElementById('staffModal'));
+        modal.show();
+    },
+
+    async saveStaff() {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to save staff', 'error');
+            return;
+        }
+        const staffId = document.getElementById('staffId').value;
+        const data = {
+            first_name: document.getElementById('firstName').value,
+            last_name: document.getElementById('lastName').value,
+            email: document.getElementById('email').value,
+            phone: document.getElementById('phone').value,
+            department_id: document.getElementById('department').value,
+            staff_type_id: document.getElementById('staff_type_id').value,
+            position: document.getElementById('position').value,
+            status: document.getElementById('status').value
+        };
+
+        try {
+            if (staffId) {
+                await window.API.staff.update(staffId, data);
+                showNotification('Staff updated successfully', 'success');
+            } else {
+                await window.API.staff.create(data);
+                showNotification('Staff created successfully', 'success');
+            }
+
+            const modal = bootstrap.Modal.getInstance(document.getElementById('staffModal'));
+            modal.hide();
+            
+            await this.loadStaff();
+        } catch (error) {
+            console.error('Error saving staff:', error);
+            showNotification('Failed to save staff', 'error');
+        }
+    },
+
+    async viewStaff(staffId) {
+        try {
+            const response = await window.API.staff.get(staffId);
+            const normalized = AppState.normalizeResponse(response);
+            
+            if (normalized.success) {
+                // Show staff details - implement detail view
+                console.log('Staff details:', normalized.data);
+            }
+        } catch (error) {
+            console.error('Error loading staff details:', error);
+            showNotification('Failed to load staff details', 'error');
+        }
+    },
+
+    async editStaff(staffId) {
+        if (!this.canManageDirectory()) {
+            showNotification('You do not have permission to edit staff', 'error');
+            return;
+        }
+        try {
+            const response = await window.API.staff.get(staffId);
+            const normalized = AppState.normalizeResponse(response);
+            
+            if (normalized.success) {
+                this.populateEditForm(normalized.data);
+                document.getElementById('staffModalTitle').textContent = 'Edit Staff';
+                
+                const modal = new bootstrap.Modal(document.getElementById('staffModal'));
+                modal.show();
+            }
+        } catch (error) {
+            console.error('Error loading staff for edit:', error);
+            showNotification('Failed to load staff details', 'error');
+        }
+    },
+
+    populateEditForm(staff) {
+        document.getElementById('staffId').value = staff.id;
+        document.getElementById('firstName').value = staff.first_name || '';
+        document.getElementById('lastName').value = staff.last_name || '';
+        document.getElementById('email').value = staff.email || '';
+        document.getElementById('phone').value = staff.phone || '';
+        document.getElementById('department').value = staff.department_id || '';
+        document.getElementById('staff_type_id').value = staff.staff_type_id || '';
+        document.getElementById('position').value = staff.position || '';
+        document.getElementById('status').value = staff.status || 'active';
+    },
+
+    async deleteStaff(staffId) {
+        if (!this.canDeleteDirectory()) {
+            showNotification('You do not have permission to delete staff', 'error');
+            return;
+        }
+        if (!confirm('Are you sure you want to delete this staff member?')) return;
+
+        try {
+            await window.API.staff.delete(staffId);
+            showNotification('Staff deleted successfully', 'success');
+            await this.loadStaff();
+        } catch (error) {
+            console.error('Error deleting staff:', error);
+            showNotification('Failed to delete staff', 'error');
+        }
+    },
+
+    exportStaff() {
+        if (!this.state.filteredStaff.length) {
+            showNotification('No data to export', 'warning');
+            return;
+        }
+
+        const headers = ['Staff No', 'Name', 'Email', 'Department', 'Type', 'Position', 'Status'];
+        const rows = this.state.filteredStaff.map(staff => [
+            staff.staff_no || '',
+            `${staff.first_name} ${staff.last_name}`,
+            staff.email || '',
+            staff.department_name || '',
+            this.getStaffTypeName(staff.staff_type_id),
+            staff.position || '',
+            staff.status || ''
+        ]);
+
+        let csv = headers.join(',') + '\n' + 
+            rows.map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+        a.download = 'staff_export.csv';
+        a.click();
+    },
+
+    getStaffTypeName(typeId) {
+        const typeMap = { 1: 'Teaching', 2: 'Non-Teaching', 3: 'Admin' };
+        return typeMap[typeId] || 'Unknown';
+    },
+
+    escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
     }
-  },
-
-  /**
-   * Apply multiple filters and update view
-   */
-  applyFilters: function () {
-    const department = $("#departmentFilterSelect").val();
-    const type = $("#staffTypeFilterSelect").val();
-    const status = $("#statusFilterSelect").val();
-
-    // Clear existing filters
-    this.activeFilters = [];
-
-    // Build filter array
-    if (department)
-      this.activeFilters.push({
-        type: "department",
-        value: department,
-        label: `Department: ${department}`,
-      });
-    if (type)
-      this.activeFilters.push({
-        type: "staffType",
-        value: type,
-        label: `Type: ${type}`,
-      });
-    if (status)
-      this.activeFilters.push({
-        type: "status",
-        value: status,
-        label: `Status: ${status}`,
-      });
-
-    // Display active filters as chips
-    this.displayFilterChips();
-
-    // Apply filters to DataTable
-    // Custom filtering logic here...
-    this.tables.allStaff.draw();
-  },
-
-  /**
-   * Display active filters as removable chips
-   */
-  displayFilterChips: function () {
-    const container = $("#activeFiltersContainer");
-    container.empty();
-
-    if (this.activeFilters.length === 0) {
-      container.html(
-        '<p class="text-muted small mb-0"><i class="material-icons" style="font-size:14px;vertical-align:middle">filter_list</i> No filters applied</p>',
-      );
-      return;
-    }
-
-    this.activeFilters.forEach((filter, index) => {
-      const chip = $(`
-                <span class="filter-chip active">
-                    ${filter.label}
-                    <i class="material-icons" onclick="StaffProductionUI.removeFilter(${index})">close</i>
-                </span>
-            `);
-      container.append(chip);
-    });
-  },
-
-  /**
-   * Remove a specific filter
-   */
-  removeFilter: function (index) {
-    this.activeFilters.splice(index, 1);
-    this.displayFilterChips();
-    // Reset corresponding filter select
-    // ... reset logic
-    this.tables.allStaff.draw();
-  },
-
-  /**
-   * Reset all filters
-   */
-  resetFilters: function () {
-    $(
-      "#departmentFilterSelect, #staffTypeFilterSelect, #statusFilterSelect",
-    ).val("");
-    this.activeFilters = [];
-    this.displayFilterChips();
-    this.tables.allStaff.search("").columns().search("").draw();
-  },
-
-  /**
-   * View staff details
-   */
-  viewStaff: function (staffId) {
-    // Show detailed view modal or navigate to profile page
-    console.log("[StaffProductionUI] Viewing staff:", staffId);
-    staffManagementController.viewStaffDetails(staffId);
-  },
-
-  /**
-   * Edit staff member
-   */
-  editStaff: function (staffId) {
-    console.log("[StaffProductionUI] Editing staff:", staffId);
-    staffManagementController.editStaff(staffId);
-  },
-
-  /**
-   * Delete staff member with confirmation
-   */
-  deleteStaff: function (staffId) {
-    if (
-      confirm(
-        "Are you sure you want to delete this staff member? This action cannot be undone.",
-      )
-    ) {
-      console.log("[StaffProductionUI] Deleting staff:", staffId);
-      staffManagementController.deleteStaff(staffId);
-    }
-  },
-
-  /**
-   * Show toast notification (Bootstrap-style)
-   */
-  showToast: function (message, type = "info") {
-    // Use Bootstrap toast or custom notification
-    console.log(`[Toast ${type}]:`, message);
-
-    // If Bootstrap 5 toasts available:
-    const toastHTML = `
-            <div class="toast align-items-center text-bg-${type} border-0" role="alert">
-                <div class="d-flex">
-                    <div class="toast-body">${message}</div>
-                    <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
-                </div>
-            </div>
-        `;
-    // Append and show toast...
-  },
-
-  /**
-   * Refresh all data tables
-   */
-  refreshTables: function () {
-    console.log("[StaffProductionUI] Refreshing all tables...");
-    this.loadDashboardStatistics();
-  },
-
-  /**
-   * Update charts with new data
-   */
-  updateCharts: function (data) {
-    // Update chart data dynamically
-    if (this.charts.distribution && data.distribution) {
-      this.charts.distribution.data.datasets[0].data = data.distribution;
-      this.charts.distribution.update();
-    }
-
-    if (this.charts.payrollTrend && data.payrollTrend) {
-      this.charts.payrollTrend.data.datasets[0].data = data.payrollTrend;
-      this.charts.payrollTrend.update();
-    }
-  },
 };
 
-// Export to global scope
-window.StaffProductionUI = StaffProductionUI;
-
-console.log("[staff_production_ui.js] Loaded successfully");
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    StaffProductionUI.init().catch(error => {
+        console.error('Failed to initialize StaffProductionUI:', error);
+    });
+});

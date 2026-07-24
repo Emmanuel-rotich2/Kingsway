@@ -1,17 +1,88 @@
-<?php /** Role Permission Matrix - View role-permission assignments */ ?>
-<div>
-    <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
-        <div><h4 class="mb-1"><i class="fas fa-th me-2"></i>Role Permission Matrix</h4><p class="text-muted mb-0">View role-permission assignments</p></div>
-        <button class="btn btn-outline-success" onclick="window._matrixCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>
-    </div></div></div>
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="fas fa-th-list text-primary fa-lg"></i></div><div><h6 class="text-muted mb-1">Roles</h6><h4 class="mb-0" id="statRows">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i class="fas fa-columns text-success fa-lg"></i></div><div><h6 class="text-muted mb-1">Permissions</h6><h4 class="mb-0" id="statCols">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-info bg-opacity-10 p-3 me-3"><i class="fas fa-check text-info fa-lg"></i></div><div><h6 class="text-muted mb-1">Active Mappings</h6><h4 class="mb-0" id="statActive">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3"><i class="fas fa-th text-warning fa-lg"></i></div><div><h6 class="text-muted mb-1">Total Cells</h6><h4 class="mb-0" id="statTotal">0</h4></div></div></div></div></div>
+<?php
+/**
+ * System Administrator — Role-Permission Matrix
+ * Controller: js/pages/role_permission_matrix.js
+ */
+?>
+<div class="container-fluid py-4" id="rolePermissionMatrixPage">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="h3 mb-1">Role-Permission Matrix</h2>
+            <p class="text-muted mb-0">Review, assign and revoke permissions for each role.</p>
+        </div>
+        <button type="button" class="btn btn-outline-secondary" id="refreshRolePermissionMatrixBtn">
+            <i class="fas fa-sync-alt me-1"></i> Refresh
+        </button>
     </div>
-    <div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3"><div class="col-md-8"><input type="text" class="form-control" id="searchInput" placeholder="Filter Roles..."></div><div class="col-md-4"><button class="btn btn-outline-secondary w-100" onclick="window._matrixCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button></div></div></div></div>
-    <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-th me-2"></i>Role / Permission Matrix</h6></div><div class="card-body" id="matrixContainer"><div class="text-center text-muted py-4">Loading matrix...</div></div></div>
+
+    <div
+        class="alert alert-info"
+        id="rolePermissionMatrixState"
+        role="status"
+        aria-live="polite"
+    >
+        Waiting for authentication...
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-lg-4">
+                    <label class="form-label" for="matrixRole">Role</label>
+                    <select class="form-select" id="matrixRole" disabled>
+                        <option value="">Select a role</option>
+                    </select>
+                </div>
+                <div class="col-lg-4">
+                    <label class="form-label" for="matrixModule">Permission module</label>
+                    <select class="form-select" id="matrixModule" disabled>
+                        <option value="">All modules</option>
+                    </select>
+                </div>
+                <div class="col-lg-4">
+                    <label class="form-label" for="matrixSearch">Search permissions</label>
+                    <input
+                        class="form-control"
+                        id="matrixSearch"
+                        type="search"
+                        placeholder="Code, entity, action or description"
+                        autocomplete="off"
+                        disabled
+                    >
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4" id="rolePermissionMatrixSummary"></div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <strong id="rolePermissionMatrixTitle">Permissions</strong>
+            <small class="text-muted" id="rolePermissionMatrixCount"></small>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 90px">Assigned</th>
+                        <th>Permission</th>
+                        <th>Module</th>
+                        <th>Entity</th>
+                        <th>Action</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody id="rolePermissionMatrixBody">
+                    <tr>
+                        <td colspan="6" class="text-center text-muted py-5">
+                            Waiting for authentication...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
-<script src="<?= $appBase ?>/js/pages/system/matrix_grid_controller.js?v=<?php echo time(); ?>"></script>
-<script>window._matrixCtrl = new MatrixGridController({ title: 'Role Permission Matrix', apiEndpoint: '/system/role-permission-matrix', rowLabel: 'Role', colLabel: 'Permission' });</script>
+
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/role_permission_matrix.js?v=<?= asset_version('js/pages/role_permission_matrix.js') ?>"></script>

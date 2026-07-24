@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.payslip.self'); });
 /**
  * Detailed Payslip Page Controller
  * Shows comprehensive payslip with all deductions including staff children fees
@@ -36,13 +37,21 @@ const DetailedPayslipController = {
   loadStaffList: async function () {
     try {
       const response = await window.API.staff.list();
-      if (response?.success) {
-        this.data.staffList = response.data || [];
-        this.populateStaffSelect();
-      }
+      this.data.staffList = this.extractStaffList(response);
+      this.populateStaffSelect();
     } catch (error) {
       console.error("Error loading staff list:", error);
     }
+  },
+
+  extractStaffList: function (response) {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.staff)) return response.staff;
+    if (Array.isArray(response.data?.staff)) return response.data.staff;
+    if (Array.isArray(response.items)) return response.items;
+    if (Array.isArray(response.data)) return response.data;
+    return [];
   },
 
   /**
@@ -418,13 +427,20 @@ const DetailedPayslipController = {
     }
 
     window.PrintManager.printReceipt({
-      schoolName: 'Kingsway Preparatory Academy',
-      schoolAddress: 'Londiani, Kenya',
+      title: 'Staff Payslip',
+      subtitle: `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
       receiptNumber: payslip.payslip_number || payslip.id || '—',
       date: payslip.pay_date || payslip.period || new Date().toISOString(),
       customer: `${staff.first_name || ''} ${staff.last_name || ''} (${staff.staff_no || '—'})`,
       items: items,
-      total: payslip.net_pay || payslip.total || 0
+      total: payslip.net_pay || payslip.total || 0,
+      receiptNote: 'This payslip is system-generated and subject to payroll verification.',
+      reportCode: `PAY-${payslip.payslip_number || payslip.id || Date.now()}`,
+      filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
+      signatureSection: [
+        { label: 'Payroll Officer', dateLine: true },
+        { label: 'Headteacher', dateLine: true },
+      ]
     });
   },
 

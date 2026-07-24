@@ -53,8 +53,10 @@ class TelemetryController extends BaseAPI
             sys_get_temp_dir(),
         ];
         foreach ($candidates as $dir) {
-            if (!is_dir($dir)) {
-                @mkdir($dir, 0755, true);
+            try {
+                $this->ensureManagedDirectory($dir);
+            } catch (\Throwable $exception) {
+                continue;
             }
             if (is_dir($dir) && is_writable($dir)) {
                 return $dir;
@@ -87,7 +89,7 @@ class TelemetryController extends BaseAPI
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
             if ($line !== false) {
-                @file_put_contents($logDir . '/telemetry.log', $line . "\n", FILE_APPEND | LOCK_EX);
+                @$this->writeManagedFile($logDir . '/telemetry.log', $line . "\n", FILE_APPEND | LOCK_EX);
             }
         } catch (\Throwable $e) {
             // Swallow — telemetry must never fail loud.

@@ -3,6 +3,7 @@
 namespace App\API\Modules\finance;
 
 use App\Database\Database;
+use App\API\Core\FileLifecycleBase;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -28,7 +29,7 @@ use function App\API\Includes\formatResponse;
  * - vw_all_school_payments
  * - vw_outstanding_fees
  */
-class ReportingManager
+class ReportingManager extends FileLifecycleBase
 {
     private $db;
 
@@ -630,35 +631,25 @@ class ReportingManager
     public function exportReport($reportType, $data)
     {
         try {
-            $filename = $reportType . '_' . date('YmdHis') . '.csv';
-            $filepath = __DIR__ . '/../../../temp/' . $filename;
-
-            $fp = fopen($filepath, 'w');
-
-            if (!$fp) {
-                return formatResponse(false, null, 'Failed to create export file');
+            if (!is_array($data) || $data === []) {
+                return formatResponse(false, null, 'No report data to export');
             }
 
-            // Write headers
-            if (!empty($data) && is_array($data[0])) {
-                fputcsv($fp, array_keys($data[0]));
-            }
-
-            // Write data rows
-            foreach ($data as $row) {
-                fputcsv($fp, $row);
-            }
-
-            fclose($fp);
+            $path = $this->prints()->exportCSV(
+                $data,
+                (string) $reportType
+            );
 
             return formatResponse(true, [
-                'filename' => $filename,
-                'filepath' => $filepath,
-                'url' => '/temp/' . $filename
+                'filename' => basename($path),
+                'download_url' => $this->generatedDownloadUrl($path),
             ]);
-
         } catch (Exception $e) {
-            return formatResponse(false, null, 'Failed to export report: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to export report: ' . $e->getMessage()
+            );
         }
     }
 

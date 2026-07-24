@@ -208,10 +208,7 @@ const AssembliesController = (() => {
           rows
             .map((r) => r.map((v) => '"' + (v || "") + '"').join(","))
             .join("\n");
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-        a.download = "assemblies.csv";
-        a.click();
+        KingswayFileLifecycle.exportText(csv, "assemblies.csv", "text/csv");
     }
     function escapeHtml(s) {
       return String(s || "")

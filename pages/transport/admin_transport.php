@@ -484,9 +484,7 @@
         const rows = [['Route Name','Vehicle','Driver','AM Pickup','PM Dropoff','Students','Status']];
         _allRoutes.forEach(r => rows.push([r.name||'', r.vehicle_reg||'', r.driver_name||'', r.am_pickup||'', r.pm_dropoff||'', r.student_count||0, r.status||'']));
         const csv  = rows.map(r => r.map(v => '"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const a    = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = 'transport_routes.csv'; a.click();
+        KingswayFileLifecycle.exportText(csv, 'transport_routes.csv', 'text/csv');
     }
 
     // ---- Transport Billing ----

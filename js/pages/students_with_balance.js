@@ -492,23 +492,29 @@ const StudentsWithBalanceController = {
     link.download = `students_with_balance_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
   },
-
-  printStatement: function () {
+  printStatement: async function () {
     const content = document.querySelector("#statementModal .modal-body");
-    if (!content) return;
 
-    const printWindow = window.open("", "_blank");
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Fee Statement</title>
-          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css">
-          <style>@media print { .no-print { display: none; } }</style>
-        </head>
-        <body class="p-4">${content.innerHTML}</body>
-      </html>`);
-    printWindow.document.close();
-    printWindow.onload = () => printWindow.print();
+    if (!content) {
+      this.showNotification?.("The fee statement is not available.", "warning");
+      return;
+    }
+
+    await window.PrintManager.printRecord({
+      title: "Student Fee Statement",
+      description: "Official learner fee statement.",
+      sections: [{
+        title: "Fee Statement",
+        content: content.innerHTML,
+        allowHtml: true,
+      }],
+      filename: `student_fee_statement_${new Date().toISOString().slice(0, 10)}`,
+      reportCode: `FEE-STMT-${Date.now()}`,
+      signatureSection: [
+        { label: "Accounts Office", dateLine: true },
+        { label: "Parent/Guardian", dateLine: true },
+      ],
+    });
   },
 
   formatCurrency: function (value) {

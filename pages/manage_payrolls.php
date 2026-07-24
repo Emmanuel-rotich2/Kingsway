@@ -619,10 +619,10 @@
                     <button class="payroll-action-btn ghost" onclick="PayrollManagerController.refresh()">
                         <i class="fas fa-sync-alt me-1"></i> Refresh
                     </button>
-                    <button class="payroll-action-btn primary" data-hide-for-director="true" onclick="PayrollManagerController.showBulkPayrollModal()">
+                    <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showBulkPayrollModal()">
                         <i class="fas fa-users-cog me-1"></i> Bulk Payroll
                     </button>
-                    <button class="payroll-action-btn primary" data-hide-for-director="true" onclick="PayrollManagerController.showProcessPayrollModal()">
+                    <button class="payroll-action-btn primary" data-permission="staff.payroll.manage" onclick="PayrollManagerController.showProcessPayrollModal()">
                         <i class="fas fa-plus-circle me-1"></i> Single Payroll
                     </button>
                 </div>
@@ -632,25 +632,25 @@
 
     <!-- Director Payroll Board -->
     <div class="payroll-board">
-        <div class="payroll-metric featured">
+        <div class="payroll-metric featured" data-payroll-card="net">
             <div class="metric-icon"><i class="fas fa-coins"></i></div>
             <div class="metric-label">This Month's Net Pay</div>
             <div class="metric-value" id="statThisMonthNet">KES --</div>
             <div class="metric-note">Total payroll exposure for the selected period.</div>
         </div>
-        <div class="payroll-metric">
+        <div class="payroll-metric" data-payroll-card="staff">
             <div class="metric-icon"><i class="fas fa-users"></i></div>
             <div class="metric-label">Total Staff</div>
             <div class="metric-value" id="statTotalStaff">--</div>
             <div class="metric-note">Eligible payroll staff</div>
         </div>
-        <div class="payroll-metric">
+        <div class="payroll-metric" data-payroll-card="children_staff">
             <div class="metric-icon"><i class="fas fa-child"></i></div>
             <div class="metric-label">Staff With Children</div>
             <div class="metric-value" id="statStaffWithChildren">--</div>
             <div class="metric-note">Fee deduction candidates</div>
         </div>
-        <div class="payroll-metric">
+        <div class="payroll-metric" data-payroll-card="children_fees">
             <div class="metric-icon"><i class="fas fa-graduation-cap"></i></div>
             <div class="metric-label">Children Fees Deducted</div>
             <div class="metric-value" id="statChildrenFees">KES --</div>
@@ -713,17 +713,17 @@
         <div class="table-responsive">
             <table class="table mb-0" id="payrollTable">
                 <thead>
-                    <tr>
-                        <th>Staff</th>
-                        <th>Period</th>
-                        <th class="text-end">Basic Salary</th>
-                        <th class="text-end">Allowances</th>
-                        <th class="text-end">Statutory Ded.</th>
-                        <th class="text-end">Children Fees</th>
-                        <th class="text-end">Other Ded.</th>
-                        <th class="text-end">Net Pay</th>
-                        <th class="text-center">Status</th>
-                        <th class="text-center">Actions</th>
+	                    <tr id="payrollTableHeader">
+	                        <th>Staff</th>
+	                        <th>Period</th>
+	                        <th class="text-end">Basic Salary</th>
+	                        <th class="text-end">Allowances</th>
+	                        <th class="text-end">Statutory Ded.</th>
+	                        <th class="text-end">Children Fees</th>
+	                        <th class="text-end">Other Ded.</th>
+	                        <th class="text-end">Net Pay</th>
+	                        <th class="text-center">Status</th>
+	                        <th class="text-center">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="payrollTableBody">
@@ -1131,33 +1131,5 @@
     </div>
 </div>
 
-
-<script>
-(function () {
-    function isDirectorUser() {
-        if (typeof AuthContext === 'undefined' || !AuthContext.isAuthenticated()) return false;
-        const roles = (AuthContext.getRoles && AuthContext.getRoles()) || [];
-        return roles.some(function (role) {
-            const name = String(typeof role === 'string' ? role : (role.name || role.code || ''))
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, '_')
-                .replace(/^_+|_+$/g, '');
-            return name === 'director' || name === 'director_owner';
-        });
-    }
-
-    function applyDirectorPayrollMode() {
-        if (!isDirectorUser()) return;
-        document.querySelectorAll('[data-hide-for-director="true"]').forEach(function (el) {
-            el.remove();
-        });
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', applyDirectorPayrollMode);
-    } else {
-        applyDirectorPayrollMode();
-    }
-})();
-</script>
+<script src="js/pages/staff_access.js"></script>
 <script src="<?= $appBase ?>/js/pages/payroll_manager.js?v=<?= time() ?>"></script>

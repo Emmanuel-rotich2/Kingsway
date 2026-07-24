@@ -13,7 +13,7 @@ class AfricasTalkingWebhookHandler
         $data = $_POST;
         // Example fields: id, status, phoneNumber, networkCode, failureReason, retryCount, messageParts
         $logFile = __DIR__ . '/../../../logs/africastalking_delivery_reports.log';
-        file_put_contents($logFile, date('c') . ' ' . json_encode($data) . PHP_EOL, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, date('c') . ' ' . json_encode($data) . PHP_EOL, FILE_APPEND);
         // Optionally, update message status in DB here
         http_response_code(200);
         echo 'DELIVERY REPORT RECEIVED';
@@ -25,7 +25,7 @@ class AfricasTalkingWebhookHandler
         $data = $_POST;
         // Example fields: text, from, to, date, linkId, networkCode, messageId, type
         $logFile = __DIR__ . '/../../../logs/africastalking_incoming_messages.log';
-        file_put_contents($logFile, date('c') . ' ' . json_encode($data) . PHP_EOL, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, date('c') . ' ' . json_encode($data) . PHP_EOL, FILE_APPEND);
         // Optionally, trigger business logic (auto-reply, ticket, etc.)
         http_response_code(200);
         echo 'INCOMING MESSAGE RECEIVED';

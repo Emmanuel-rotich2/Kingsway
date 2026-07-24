@@ -197,11 +197,7 @@ const EnrollmentTrendsController = {
       ]);
     });
     const csv = rows.map((r) => r.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `enrollment_trends_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
+    KingswayFileLifecycle.exportText(csv, `enrollment_trends_${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
   },
 
   escapeHtml(str) {

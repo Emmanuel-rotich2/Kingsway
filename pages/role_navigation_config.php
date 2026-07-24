@@ -1,18 +1,70 @@
-<?php /** Role Navigation Config - Configure role navigation */ ?>
-<div>
-    <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
-        <div><h4 class="mb-1"><i class="fas fa-compass me-2"></i>Role Navigation Config</h4><p class="text-muted mb-0">Configure role navigation</p></div>
-        <div><button class="btn btn-primary me-2" onclick="window._crudCtrl.showAddModal()"><i class="fas fa-plus me-1"></i> Add</button><button class="btn btn-outline-success" onclick="window._crudCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button></div>
-    </div></div></div>
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="fas fa-list text-primary fa-lg"></i></div><div><h6 class="text-muted mb-1">Total</h6><h4 class="mb-0" id="statTotal">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-success bg-opacity-10 p-3 me-3"><i class="fas fa-check-circle text-success fa-lg"></i></div><div><h6 class="text-muted mb-1">Active</h6><h4 class="mb-0" id="statActive">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-secondary bg-opacity-10 p-3 me-3"><i class="fas fa-pause-circle text-secondary fa-lg"></i></div><div><h6 class="text-muted mb-1">Inactive</h6><h4 class="mb-0" id="statInactive">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-info bg-opacity-10 p-3 me-3"><i class="fas fa-clock text-info fa-lg"></i></div><div><h6 class="text-muted mb-1">Recent (7d)</h6><h4 class="mb-0" id="statRecent">0</h4></div></div></div></div></div>
+<?php
+/** Kingsway System Administrator: Role Navigation Config. */
+?>
+<div class="container-fluid py-4"
+     data-system-admin-page
+     data-resource="role-navigation"
+     data-mode="crud"
+     data-title="Role Navigation Config">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="h3 mb-1">Role Navigation Config</h2>
+            <p class="text-muted mb-0">Assign registered routes to role navigation.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-system-refresh>
+                <i class="fas fa-sync-alt me-1"></i> Refresh
+            </button>
+            <button type="button" class="btn btn-primary" data-system-create>
+                <i class="fas fa-plus me-1"></i> Add record
+            </button>
+        </div>
     </div>
-    <div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3"><div class="col-md-5"><input type="text" class="form-control" id="searchInput" placeholder="Search..."></div><div class="col-md-4"><select class="form-select" id="statusFilter"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div><div class="col-md-3"><button class="btn btn-outline-secondary w-100" onclick="window._crudCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button></div></div></div></div>
-    <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-table me-2"></i>Role Navigation Config</h6></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-hover mb-0" id="dataTable"><thead class="table-light"><tr><th>#</th><th>Name</th><th>Description</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody><tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr></tbody></table></div></div></div>
+
+    <div class="row g-3 mb-4" data-system-summary></div>
+
+    <div class="alert alert-info" data-system-state role="status">
+        Loading role navigation config...
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <strong>Role Navigation Config</strong>
+            <div class="input-group" style="max-width: 360px">
+                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                <input class="form-control" data-system-search placeholder="Search records">
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead data-system-head>
+                    <tr><th>Loading</th></tr>
+                </thead>
+                <tbody data-system-body>
+                    <tr><td class="text-center py-5 text-muted">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer bg-white text-muted small" data-system-count></div>
+    </div>
 </div>
-<div class="modal fade" id="formModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="formModalTitle"><i class="fas fa-compass me-2"></i>Add</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="recordForm"><input type="hidden" id="recordId"><div class="mb-3"><label class="form-label">Name <span class="text-danger">*</span></label><input type="text" class="form-control" id="recordName" required></div><div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="recordDescription" rows="3"></textarea></div><div class="mb-3"><label class="form-label">Status</label><select class="form-select" id="recordStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></div></form></div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" onclick="window._crudCtrl.saveRecord()"><i class="fas fa-save me-1"></i> Save</button></div></div></div></div>
-<script src="<?= $appBase ?>/js/pages/system/crud_registry_controller.js?v=<?php echo time(); ?>"></script>
-<script>window._crudCtrl = new CrudRegistryController({ title: 'Role Navigation Config', apiEndpoint: '/system/role-navigation', canCreate: false, canEdit: false, canDelete: false });</script>
+
+<div class="modal fade" id="systemAdminRecordModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form data-system-form>
+                <div class="modal-header">
+                    <h5 class="modal-title" data-system-modal-title>Role Navigation Config</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" data-system-form-fields></div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary" data-system-save>Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/system/system_admin_console.js?v=<?= asset_version('js/pages/system/system_admin_console.js') ?>"></script>

@@ -266,11 +266,7 @@ const FeeDefaultersController = {
       ]);
     });
     const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `fee_defaulters_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
+    KingswayFileLifecycle.exportText(csv, `fee_defaulters_${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
   },
 
   // Utility

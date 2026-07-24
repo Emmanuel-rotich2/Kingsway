@@ -144,7 +144,7 @@
 
         directory.innerHTML = staff.map(s => `
             <div class="staff-card">
-                <img src="${s.photo || '/uploads/staff/profile_pictures/staff_avatar.jpeg'}" alt="${escapeHtml(s.name)}" class="staff-avatar">
+                <img src="${s.photo || KingswayFileLifecycle.assetUrl('staff', 'profile_pictures', 'staff_avatar.jpeg')}" alt="${escapeHtml(s.name)}" class="staff-avatar">
                 <div class="staff-info">
                     <div class="staff-name">${escapeHtml(s.name)}</div>
                     <div class="staff-role">${escapeHtml(s.role || '-')}</div>

@@ -225,13 +225,13 @@ const classResultsController = (() => {
         // Use PrintManager for CSV export if available
         if (window.PrintManager) {
             const columns = [
-                { key: 'student_name', label: 'Student Name' },
-                { key: 'admission_no', label: 'Adm No' },
-                { key: 'class_name', label: 'Class' },
-                { key: 'subject_name', label: 'Subject' },
-                { key: 'marks', label: 'Marks' },
-                { key: 'grade', label: 'Grade' },
-                { key: 'remarks', label: 'Remarks' }
+                { key: 'student_name', label: 'Student Name', width: '23%', cellClassName: 'print-cell-strong' },
+                { key: 'admission_no', label: 'Admission No.', width: '13%', cellClassName: 'print-cell-code' },
+                { key: 'class_name', label: 'Class', width: '10%' },
+                { key: 'subject_name', label: 'Learning Area', width: '18%' },
+                { key: 'marks', label: 'Score', type: 'percentage', width: '10%', formatter: value => `${Number(value || 0).toFixed(1)}%` },
+                { key: 'grade', label: 'Grade', width: '9%', cellClassName: 'print-cell-grade' },
+                { key: 'remarks', label: 'Remarks', width: '17%' }
             ];
 
             const rows = state.results.map(result => {
@@ -298,14 +298,14 @@ const classResultsController = (() => {
 
             window.PrintManager.printTable({
                 title: 'Class Results Report',
-                subtitle: `Results for ${classText} - ${yearText} - ${termText}`,
-                columns: columns,
-                rows: rows,
+                subtitle: `Results for ${classText} — ${yearText}, ${termText}`,
+                description: 'Official assessment results report.',
+                columns,
+                rows,
                 summary: {
-                    'Total Students': state.results.length,
+                    'Students Assessed': state.results.length,
                     'Average Score': document.getElementById('averageScore').textContent,
-                    'Above Average': document.getElementById('aboveAverage').textContent,
-                    'Generated Date': new Date().toLocaleDateString()
+                    'Above Average': document.getElementById('aboveAverage').textContent
                 },
                 filters: {
                     'Academic Year': yearText,
@@ -314,10 +314,11 @@ const classResultsController = (() => {
                 },
                 orientation: 'landscape',
                 paperSize: 'A4',
+                filename: `class_results_${new Date().toISOString().slice(0, 10)}`,
                 reportCode: 'CR-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
                 signatureSection: [
-                    { label: 'Class Teacher' },
-                    { label: 'Principal' }
+                    { label: 'Class Teacher', dateLine: true },
+                    { label: 'Headteacher', dateLine: true }
                 ]
             });
         } else {

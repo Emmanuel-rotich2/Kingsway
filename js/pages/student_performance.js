@@ -919,267 +919,166 @@ const StudentPerformanceController = {
     const viewMode = this.ui.viewMode?.value || "students";
     let columns = [];
 
-    if (viewMode === "students") {
-      columns = [
-        { key: 'full_name', label: 'Student Name' },
-        { key: 'admission_no', label: 'Admission No' },
-        { key: 'class_name', label: 'Class' },
-        { key: 'stream_name', label: 'Stream' },
-        { key: 'overall_average', label: 'Overall Average' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'position', label: 'Position' },
-        { key: 'attendance_rate', label: 'Attendance Rate' }
-      ];
-    } else if (viewMode === "class") {
-      columns = [
-        { key: 'class_name', label: 'Class' },
-        { key: 'total_students', label: 'Students' },
-        { key: 'average_score', label: 'Average Score' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'attendance_rate', label: 'Attendance Rate' },
-        { key: 'total_fee_balance', label: 'Total Fee Balance' },
-        { key: 'discipline_cases', label: 'Discipline Cases' },
-        { key: 'activities_count', label: 'Activities' }
-      ];
-    } else if (viewMode === "stream") {
-      columns = [
-        { key: 'stream_name', label: 'Stream' },
-        { key: 'total_students', label: 'Students' },
-        { key: 'average_score', label: 'Average Score' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'attendance_rate', label: 'Attendance Rate' },
-        { key: 'total_fee_balance', label: 'Total Fee Balance' },
-        { key: 'discipline_cases', label: 'Discipline Cases' },
-        { key: 'activities_count', label: 'Activities' }
-      ];
-    } else {
-      columns = [
-        { key: 'full_name', label: 'Student Name' },
-        { key: 'admission_no', label: 'Admission No' },
-        { key: 'class_name', label: 'Class' },
-        { key: 'overall_average', label: 'Overall Average' },
-        { key: 'grade', label: 'Grade' }
-      ];
-    }
-
-    window.PrintManager.exportToCSV({
-      columns: columns,
-      rows: this.state.overviewRows,
-      filename: 'student_performance_overview'
-    });
-  },
-
-  fillSelect: function (select, items, placeholder) {
-    if (!select) return;
-
-    select.innerHTML = `<option value="">${placeholder}</option>`;
-
-    (items || []).forEach((item) => {
-      const option = document.createElement("option");
-      option.value = item.id ?? item.year ?? item.academic_year ?? item.value ?? "";
-      option.textContent =
-        item.name ||
-        item.class_name ||
-        item.stream_name ||
-        item.year_name ||
-        item.year_code ||
-        item.label ||
-        option.value;
-      select.appendChild(option);
-    });
-  },
-
-  api: async function (endpoint, method = "GET", data = null) {
-    return API.callAPI(endpoint, method, data);
-  },
-
-  unwrap: function (response) {
-    if (!response) return {};
-    if (response.data && response.data.data !== undefined)
-      return response.data.data;
-    if (response.data !== undefined) return response.data;
-    return response;
-  },
-
-  setOverviewLoading: function (loading) {
-    this.ui.overviewLoading?.classList.toggle("d-none", !loading);
-    this.ui.overviewError?.classList.add("d-none");
-  },
-
-  setModalLoading: function (loading) {
-    this.ui.modalLoading?.classList.toggle("d-none", !loading);
-    this.ui.modalError?.classList.add("d-none");
-    this.ui.modalReportContent?.classList.toggle("opacity-50", loading);
-  },
-
-  showOverviewError: function (message) {
-    if (!this.ui.overviewError) return;
-    this.ui.overviewError.textContent = message;
-    this.ui.overviewError.classList.remove("d-none");
-  },
-
-  showModalError: function (message) {
-    if (!this.ui.modalError) return;
-    this.ui.modalError.textContent = message;
-    this.ui.modalError.classList.remove("d-none");
-  },
-
-  destroyCharts: function () {
-    if (this.state.charts.subject) {
-      this.state.charts.subject.destroy();
-      this.state.charts.subject = null;
-    }
-
-    if (this.state.charts.trend) {
-      this.state.charts.trend.destroy();
-      this.state.charts.trend = null;
-    }
-  },
-
-  labelForViewMode: function (mode) {
-    return (
-      {
-        students: "Students View",
-        class: "Class View",
-        stream: "Stream View",
-        school: "Whole School View",
-      }[mode] || "Students View"
-    );
-  },
-
-  gradeFromScore: function (score) {
-    const value = Number(score);
-    if (value >= 80) return "A";
-    if (value >= 70) return "B";
-    if (value >= 60) return "C";
-    if (value >= 50) return "D";
-    return "E";
-  },
-
-  remarkFromScore: function (score) {
-    if (score >= 75) return "Excellent";
-    if (score >= 60) return "Good";
-    if (score >= 50) return "Fair";
-    return "Needs Support";
-  },
-
-  formatMoney: function (value) {
-    const amount = Number(value);
-    if (!Number.isFinite(amount)) return "-";
-    return `KES ${amount.toLocaleString()}`;
-  },
-
-  debounce: function (fn, delay) {
-    let timer;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn.apply(this, args), delay);
-    };
-  },
-
-  escape: function (value) {
-    return String(value ?? "").replace(
-      /[&<>"']/g,
-      (char) =>
-        ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          '"': "&quot;",
-          "'": "&#039;",
-        })[char]
-    );
-  },
-
-  printOverviewReport: function () {
-    if (!this.state.overviewRows.length) {
-      this.notify("No data to print", "warning");
-      return;
-    }
-
-    const viewMode = this.ui.viewMode?.value || "students";
-    const summary = this.calculateOverviewSummary(this.state.overviewRows);
-    const filters = {
-      'View Mode': this.labelForViewMode(viewMode),
-      'Academic Year': this.ui.academicYearFilter?.options[this.ui.academicYearFilter.selectedIndex]?.text || 'All',
-      'Term': this.ui.termFilter?.options[this.ui.termFilter.selectedIndex]?.text || 'All',
-      'Class': this.ui.classFilter?.options[this.ui.classFilter.selectedIndex]?.text || 'All',
-      'Stream': this.ui.streamFilter?.options[this.ui.streamFilter.selectedIndex]?.text || 'All',
-      'Gender': this.ui.genderFilter?.options[this.ui.genderFilter.selectedIndex]?.text || 'All'
+    const percentValue = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number) ? `${number.toFixed(1)}%` : "—";
     };
 
-    // Remove empty filters
-    Object.keys(filters).forEach(key => {
-      if (filters[key] === 'All' || !filters[key]) {
-        delete filters[key];
-      }
-    });
+    const moneyValue = (value) => {
+      const number = Number(value);
+      return Number.isFinite(number)
+        ? `KSh ${number.toLocaleString("en-KE", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}`
+        : "KSh 0.00";
+    };
 
-    // Define columns based on view mode
-    let columns = [];
+    const positionValue = (value) => {
+      const number = Number(value);
+      return Number.isInteger(number) && number > 0 ? String(number) : "—";
+    };
+
     if (viewMode === "students") {
       columns = [
-        { key: 'full_name', label: 'Student Name' },
-        { key: 'admission_no', label: 'Admission No' },
-        { key: 'class_name', label: 'Class' },
-        { key: 'stream_name', label: 'Stream' },
-        { key: 'overall_average', label: 'Overall Average' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'position', label: 'Position' },
-        { key: 'attendance_rate', label: 'Attendance Rate' }
-      ];
-    } else if (viewMode === "class") {
-      columns = [
-        { key: 'class_name', label: 'Class' },
-        { key: 'total_students', label: 'Students' },
-        { key: 'average_score', label: 'Average Score' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'attendance_rate', label: 'Attendance Rate' },
-        { key: 'total_fee_balance', label: 'Total Fee Balance' },
-        { key: 'discipline_cases', label: 'Discipline Cases' },
-        { key: 'activities_count', label: 'Activities' }
-      ];
-    } else if (viewMode === "stream") {
-      columns = [
-        { key: 'stream_name', label: 'Stream' },
-        { key: 'total_students', label: 'Students' },
-        { key: 'average_score', label: 'Average Score' },
-        { key: 'grade', label: 'Grade' },
-        { key: 'attendance_rate', label: 'Attendance Rate' },
-        { key: 'total_fee_balance', label: 'Total Fee Balance' },
-        { key: 'discipline_cases', label: 'Discipline Cases' },
-        { key: 'activities_count', label: 'Activities' }
+        {
+          key: "full_name",
+          label: "Student Name",
+          width: "22%",
+          cellClassName: "print-cell-strong",
+        },
+        {
+          key: "admission_no",
+          label: "Admission No.",
+          width: "13%",
+          cellClassName: "print-cell-code",
+        },
+        { key: "class_name", label: "Class", width: "9%" },
+        { key: "stream_name", label: "Stream", width: "9%" },
+        {
+          key: "overall_average",
+          label: "Average",
+          type: "percentage",
+          width: "11%",
+          formatter: percentValue,
+        },
+        {
+          key: "grade",
+          label: "Grade",
+          width: "8%",
+          cellClassName: "print-cell-grade",
+        },
+        {
+          key: "position",
+          label: "Position",
+          type: "integer",
+          width: "9%",
+          formatter: positionValue,
+        },
+        {
+          key: "attendance_rate",
+          label: "Attendance",
+          type: "percentage",
+          width: "11%",
+          formatter: percentValue,
+        },
       ];
     } else {
-      // Default to student columns
+      const groupLabel = viewMode === "stream" ? "Stream" : "Class";
+      const groupKey = viewMode === "stream" ? "stream_name" : "class_name";
+
       columns = [
-        { key: 'full_name', label: 'Student Name' },
-        { key: 'admission_no', label: 'Admission No' },
-        { key: 'class_name', label: 'Class' },
-        { key: 'overall_average', label: 'Overall Average' },
-        { key: 'grade', label: 'Grade' }
+        {
+          key: groupKey,
+          label: groupLabel,
+          width: "18%",
+          cellClassName: "print-cell-strong",
+        },
+        {
+          key: "total_students",
+          label: "Students",
+          type: "integer",
+          width: "10%",
+        },
+        {
+          key: "average_score",
+          label: "Average",
+          type: "percentage",
+          width: "11%",
+          formatter: percentValue,
+        },
+        {
+          key: "grade",
+          label: "Grade",
+          width: "8%",
+          cellClassName: "print-cell-grade",
+        },
+        {
+          key: "attendance_rate",
+          label: "Attendance",
+          type: "percentage",
+          width: "11%",
+          formatter: percentValue,
+        },
+        {
+          key: "total_fee_balance",
+          label: "Fee Balance",
+          type: "currency",
+          width: "17%",
+          formatter: moneyValue,
+        },
+        {
+          key: "discipline_cases",
+          label: "Discipline",
+          type: "integer",
+          width: "12%",
+        },
+        {
+          key: "activities_count",
+          label: "Activities",
+          type: "integer",
+          width: "11%",
+        },
       ];
     }
+
+    const totalRecords = Array.isArray(this.state.overviewRows)
+      ? this.state.overviewRows.length
+      : 0;
+
+    const averageScore = Number(summary.average_score);
+    const summaryData = {
+      "Records Included": totalRecords,
+      "Total Students": Number(summary.total_students) || 0,
+      "Average Score": Number.isFinite(averageScore)
+        ? `${averageScore.toFixed(1)}%`
+        : "—",
+      "Top Student": summary.top_student || "Not available",
+      "Best Group": summary.best_group || "Not available",
+    };
 
     window.PrintManager.printTable({
-      title: 'Student Performance Report',
-      subtitle: this.labelForViewMode(viewMode) + ' Overview',
-      columns: columns,
+      title: "Student Performance Report",
+      subtitle: `${this.labelForViewMode(viewMode)} Overview`,
+      description:
+        "Consolidated academic performance, attendance and related indicators.",
+      columns,
       rows: this.state.overviewRows,
-      summary: {
-        'Total Students': summary.total_students,
-        'Average Score': summary.average_score + '%',
-        'Top Student': summary.top_student,
-        'Best Group': summary.best_group
-      },
-      filters: filters,
-      orientation: 'landscape',
-      paperSize: 'A4',
-      reportCode: 'PERF-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+      summary: summaryData,
+      filters,
+      orientation: "landscape",
+      paperSize: "A4",
+      filename: `Student_Performance_${viewMode}_${new Date()
+        .toISOString()
+        .slice(0, 10)}`,
+      reportCode: `PERF-${new Date()
+        .toISOString()
+        .slice(0, 10)
+        .replace(/-/g, "")}`,
       signatureSection: [
-        { label: 'Academic Dean' },
-        { label: 'Headteacher' }
-      ]
+        { label: "Academic Dean", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
     });
   },
 

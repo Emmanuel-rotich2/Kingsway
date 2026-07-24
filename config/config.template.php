@@ -1,103 +1,289 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\Config;
 
-use Exception;
+/**
+ * Kingsway Academy
+ * Development environment configuration.
+ *
+ * Loaded when APP_ENV=development or when running on localhost.
+ */
 
-// Debug mode (set to false in production)
 define('DEBUG', true);
 
-// Base URL Configuration (Update this with your actual domain) - MUST BE FIRST
-// Detect if local or production
-$isLocal = ($_SERVER['HTTP_HOST'] ?? 'localhost') === 'localhost' || strpos($_SERVER['HTTP_HOST'] ?? '', '127.0.0.1') !== false;
-$protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-$baseUrl = $isLocal ? 'http://127.0.0.1:8000' : 'https://kingsway.ac.ke';
-define('BASE_URL', $baseUrl);
+/*
+|--------------------------------------------------------------------------
+| Application URL and storage root
+|--------------------------------------------------------------------------
+*/
 
-// File upload paths
-define('UPLOAD_PATH', __DIR__ . '/../uploads');
-define('STUDENT_PHOTOS', UPLOAD_PATH . '/students');
-// Canonical default avatar used when a student has no uploaded photo.
-// Path is relative to the app root and resolved for the browser via the APP_BASE prefix.
-define('STUDENT_AVATAR_DEFAULT', 'uploads/students/avatar.jpg');
-define('STAFF_PHOTOS', UPLOAD_PATH . '/staff');
-define('DOCUMENTS', UPLOAD_PATH . '/documents');
-define('ADMISSION_DOCUMENTS', UPLOAD_PATH . '/students/documents');
+define(
+    'BASE_URL',
+    rtrim(
+        (string) ($_ENV['BASE_URL'] ?? 'http://localhost/Kingsway'),
+        '/'
+    )
+);
 
-// Create upload directories if they don't exist
-$directories = [UPLOAD_PATH, STUDENT_PHOTOS, STAFF_PHOTOS, DOCUMENTS, ADMISSION_DOCUMENTS];
-foreach ($directories as $dir) {
-    if (!file_exists($dir)) {
-        mkdir($dir, 0775, true);
-    }
-}
+define(
+    'UPLOAD_PATH',
+    rtrim(
+        (string) (
+            $_ENV['UPLOAD_PATH']
+            ?? dirname(__DIR__) . '/uploads'
+        ),
+        '/\\'
+    )
+);
 
-// System settings
+require_once __DIR__ . '/upload_paths.php';
+
+/*
+|--------------------------------------------------------------------------
+| School identity
+|--------------------------------------------------------------------------
+*/
+
 define('SCHOOL_NAME', 'Kingsway Preparatory School');
 define('SCHOOL_CODE', 'KWPS');
-define('CURRENT_YEAR', date('Y'));
-define('CURRENT_TERM', ceil(date('n') / 3));
-
-// School Contact Details
 define('SCHOOL_ADDRESS', 'P.O Box 203-20203, Londiani, Kenya');
 define('SCHOOL_PHONE', '+254-720-113030 / +254-720-113031');
 define('SCHOOL_EMAIL', 'info@kingswaypreparatoryschool.sc.ke');
-define('SCHOOL_WEBSITE', 'www.kingswaypreparatoryschool.sc.ke');
 define('SCHOOL_PRINCIPAL_NAME', 'Mr Bett Junior');
 define('SCHOOL_PRINCIPAL_TITLE', 'Headteacher');
 define('SCHOOL_MOTTO', 'In God We Soar');
-define('SCHOOL_LOGO_URL', BASE_URL . '/uploads/school_assets/official_school_logo.png'); // Canonical logo (alt: /images/official_school_logo.png)
 
-// Pagination defaults
+define('CURRENT_YEAR', date('Y'));
+define('CURRENT_TERM', (int) ceil((int) date('n') / 3));
+
+/*
+|--------------------------------------------------------------------------
+| Database
+|--------------------------------------------------------------------------
+*/
+
+define('DB_HOST', $_ENV['DB_HOST'] ?? '127.0.0.1');
+define('DB_USER', $_ENV['DB_USER'] ?? 'root');
+define('DB_NAME', $_ENV['DB_NAME'] ?? 'KingsWayAcademy');
+define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
+define('DB_PASS', $_ENV['DB_PASS'] ?? 'admin123');
+
+/*
+|--------------------------------------------------------------------------
+| Authentication
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'JWT_SECRET',
+    $_ENV['JWT_SECRET'] ?? 'dev_secret_key_change_this'
+);
+
+define(
+    'JWT_EXPIRY',
+    (int) ($_ENV['JWT_EXPIRY'] ?? 3600)
+);
+
+define(
+    'JWT_ISSUER',
+    $_ENV['JWT_ISSUER'] ?? 'kingsway-prep-school'
+);
+
+define(
+    'JWT_AUDIENCE',
+    $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
+);
+
+/*
+|--------------------------------------------------------------------------
+| Email
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'SMTP_HOST',
+    $_ENV['SMTP_HOST'] ?? 'mail.kingswaypreparatoryschool.sc.ke'
+);
+
+define(
+    'SMTP_PORT',
+    (int) ($_ENV['SMTP_PORT'] ?? 587)
+);
+
+define(
+    'SMTP_USERNAME',
+    $_ENV['SMTP_USERNAME']
+    ?? 'info@kingswaypreparatoryschool.sc.ke'
+);
+
+define(
+    'SMTP_FROM_EMAIL',
+    $_ENV['SMTP_FROM_EMAIL']
+    ?? 'info@kingswaypreparatoryschool.sc.ke'
+);
+
+define(
+    'SMTP_PASSWORD',
+    $_ENV['SMTP_PASSWORD'] ?? ''
+);
+
+define(
+    'SMTP_FROM_NAME',
+    $_ENV['SMTP_FROM_NAME']
+    ?? 'Kingsway Preparatory School'
+);
+
+/*
+|--------------------------------------------------------------------------
+| SMS
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'SMS_PROVIDER',
+    $_ENV['SMS_PROVIDER'] ?? 'africastalking'
+);
+
+define('SMS_API_KEY', $_ENV['SMS_API_KEY'] ?? '');
+define('SMS_USERNAME', $_ENV['SMS_USERNAME'] ?? 'sandbox');
+define('SMS_APPNAME', $_ENV['SMS_APPNAME'] ?? 'Sandbox');
+
+define(
+    'SMS_SENDER_ID',
+    $_ENV['SMS_SENDER_ID'] ?? 'Kingsway Preparatory'
+);
+
+define(
+    'SMS_SHORTCODE',
+    $_ENV['SMS_SHORTCODE'] ?? '20174'
+);
+
+define(
+    'SMS_WHATSAPP_NUMBER',
+    $_ENV['SMS_WHATSAPP_NUMBER'] ?? '+254710398690'
+);
+
+/*
+|--------------------------------------------------------------------------
+| M-Pesa
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'MPESA_ENVIRONMENT',
+    $_ENV['MPESA_ENVIRONMENT'] ?? 'sandbox'
+);
+
+define(
+    'MPESA_BASE_URL',
+    MPESA_ENVIRONMENT === 'production'
+    ? 'https://api.safaricom.co.ke'
+    : 'https://sandbox.safaricom.co.ke'
+);
+
+define(
+    'MPESA_CONSUMER_KEY',
+    $_ENV['MPESA_CONSUMER_KEY'] ?? ''
+);
+
+define(
+    'MPESA_CONSUMER_SECRET',
+    $_ENV['MPESA_CONSUMER_SECRET'] ?? ''
+);
+
+define(
+    'MPESA_SHORTCODE',
+    $_ENV['MPESA_SHORTCODE'] ?? ''
+);
+
+define(
+    'MPESA_PASSKEY',
+    $_ENV['MPESA_PASSKEY'] ?? ''
+);
+
+define(
+    'MPESA_INITIATOR_NAME',
+    $_ENV['MPESA_INITIATOR_NAME'] ?? ''
+);
+
+define(
+    'MPESA_INITIATOR_PASSWORD',
+    $_ENV['MPESA_INITIATOR_PASSWORD'] ?? ''
+);
+
+define(
+    'MPESA_SECURITY_CREDENTIAL',
+    $_ENV['MPESA_SECURITY_CREDENTIAL'] ?? ''
+);
+
+/*
+|--------------------------------------------------------------------------
+| KCB Buni
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'KCB_ENVIRONMENT',
+    $_ENV['KCB_ENVIRONMENT'] ?? 'sandbox'
+);
+
+define(
+    'KCB_BASE_URL',
+    $_ENV['KCB_BASE_URL']
+    ?? 'https://uat.buni.kcbgroup.com'
+);
+
+define(
+    'KCB_CONSUMER_KEY',
+    $_ENV['KCB_CONSUMER_KEY'] ?? ''
+);
+
+define(
+    'KCB_CONSUMER_SECRET',
+    $_ENV['KCB_CONSUMER_SECRET'] ?? ''
+);
+
+define(
+    'KCB_API_KEY',
+    $_ENV['KCB_API_KEY'] ?? ''
+);
+
+define(
+    'KCB_ORGANIZATION_REFERENCE',
+    $_ENV['KCB_ORGANIZATION_REFERENCE'] ?? ''
+);
+
+define(
+    'KCB_CREDIT_ACCOUNT',
+    $_ENV['KCB_CREDIT_ACCOUNT'] ?? ''
+);
+
+define(
+    'KCB_PUBLIC_KEY_PATH',
+    $_ENV['KCB_PUBLIC_KEY_PATH']
+    ?? __DIR__ . '/kcb_public_key.pem'
+);
+
+/*
+|--------------------------------------------------------------------------
+| Application defaults
+|--------------------------------------------------------------------------
+*/
+
 define('DEFAULT_PAGE_SIZE', 10);
 define('MAX_PAGE_SIZE', 100);
 
-// Session settings
-ini_set('session.cookie_httponly', 1);
-ini_set('session.use_only_cookies', 1);
-ini_set('session.cookie_secure', isset($_SERVER['HTTPS']));
+ini_set('session.cookie_httponly', '1');
+ini_set('session.use_only_cookies', '1');
+ini_set('session.cookie_secure', '0');
 
-// Error reporting
-if (DEBUG) {
-    error_reporting(E_ALL);
-    ini_set('display_errors', 1);
-} else {
-    error_reporting(0);
-    ini_set('display_errors', 0);
-}
+error_reporting(E_ALL);
+ini_set('display_errors', '1');
 
-// Time zone
-date_default_timezone_set('Africa/Nairobi');
-
-// API settings
-define('API_VERSION', '1.0');
-define('API_BASE_URL', '/api/v1');
-
-// Database Configuration - CI/Test Environment
-define('DB_HOST', getenv('DB_HOST') ?: '127.0.0.1');
-define('DB_USER', getenv('DB_USER') ?: 'testuser');
-define('DB_PASS', getenv('DB_PASS') ?: 'testpass');
-define('DB_NAME', getenv('DB_NAME') ?: 'KingsWayAcademy');
-define('DB_PORT', getenv('DB_PORT') ?: '3306');
-define('DB_CHARSET', 'utf8mb4');
-
-// JWT Configuration
-define('JWT_SECRET', '51c47afc73a6f2cf1a052309d1f8a8bb4839d7bc7aaddb32cd8f26b2898aed23');
-define('JWT_EXPIRY', 3600); // Token expiry in seconds (1 hour)
-define('JWT_ISSUER', 'kingsway-prep-school');
-define('JWT_AUDIENCE', 'kingsway-staff');
-
-// System Version
-define('SYSTEM_VERSION', '1.0.0');
-
-// Email Configuration (disabled for CI)
-define('SMTP_HOST', 'smtp.gmail.com');
-define('SMTP_PORT', 587);
-define('SMTP_USERNAME', 'angisofttechnologies@gmail.com');
-define('SMTP_PASSWORD', 'snhtcunelqtkujnp');
-define('SMTP_FROM_EMAIL', 'angisofttechnologies@gmail.com'); // Must match authenticated account
-define('SMTP_FROM_NAME', 'Kingsway Preparatory School');
-
-// SMS Configuration (disabled for CI)
-define('SMS_PROVIDER', 'africastalking'); // or 'twilio'
-define('SMS_API_KEY', 'atsk_c5500c783227e742d2db31baf235dccfbce1ca1923ae3316026cdf8354c1e531e98ebf2c');
-define('SMS_USERNAME', 'sandbox');
+/*
+|--------------------------------------------------------------------------
+| End of file config.template.php
+|--------------------------------------------------------------------------
+*/

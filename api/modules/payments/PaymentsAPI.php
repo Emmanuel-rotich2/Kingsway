@@ -34,7 +34,7 @@ class PaymentsAPI extends BaseAPI
     {
         $logFile = $this->logDir . '/mpesa_b2c_callbacks.log';
         $logEntry = "[{$this->timestamp}] RAW B2C CALLBACK:\n" . json_encode($callbackData) . "\n\n";
-        file_put_contents($logFile, $logEntry, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
 
         try {
             if (!$callbackData || !isset($callbackData['Result'])) {
@@ -60,7 +60,7 @@ class PaymentsAPI extends BaseAPI
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
                 $logEntry = "[{$this->timestamp}] UNKNOWN B2C CALLBACK: ConversationID=$conversationID, OriginatorID=$originatorConversationID\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'Received but transaction not found'
@@ -84,7 +84,7 @@ class PaymentsAPI extends BaseAPI
                     $stmt->execute([$transactionID, $disbursement['id']]);
                 }
                 $logEntry = "[{$this->timestamp}] B2C SUCCESS: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Ref: $transactionID\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
             } else {
                 $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
                 $stmt->execute([
@@ -101,7 +101,7 @@ class PaymentsAPI extends BaseAPI
                     $stmt->execute([$resultDesc, $disbursement['id']]);
                 }
                 $logEntry = "[{$this->timestamp}] B2C FAILED: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Error: $resultDesc\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
             }
             $this->db->commit();
             return [
@@ -113,7 +113,7 @@ class PaymentsAPI extends BaseAPI
                 $this->db->rollBack();
             }
             $errorEntry = "[{$this->timestamp}] ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n";
-            file_put_contents($logFile, $errorEntry, FILE_APPEND);
+            (new \App\API\Services\UploadService())->writeFile($logFile, $errorEntry, FILE_APPEND);
             return [
                 'ResultCode' => 1,
                 'ResultDesc' => 'Internal server error'
@@ -131,7 +131,7 @@ class PaymentsAPI extends BaseAPI
     {
         $logFile = $this->logDir . '/mpesa_b2c_timeouts.log';
         $logEntry = "[{$this->timestamp}] RAW B2C TIMEOUT:\n" . json_encode($timeoutData) . "\n\n";
-        file_put_contents($logFile, $logEntry, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
 
         try {
             if (!$timeoutData || !isset($timeoutData['Result'])) {
@@ -150,7 +150,7 @@ class PaymentsAPI extends BaseAPI
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
                 $logEntry = "[{$this->timestamp}] UNKNOWN B2C TIMEOUT: ConversationID=$conversationID, OriginatorID=$originatorConversationID\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'Received but transaction not found'
@@ -172,7 +172,7 @@ class PaymentsAPI extends BaseAPI
             }
             $this->db->commit();
             $logEntry = "[{$this->timestamp}] B2C TIMEOUT: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Marked as timeout\n";
-            file_put_contents($logFile, $logEntry, FILE_APPEND);
+            (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
             return [
                 'ResultCode' => 0,
                 'ResultDesc' => 'B2C timeout processed successfully'
@@ -182,7 +182,7 @@ class PaymentsAPI extends BaseAPI
                 $this->db->rollBack();
             }
             $errorEntry = "[{$this->timestamp}] ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n";
-            file_put_contents($logFile, $errorEntry, FILE_APPEND);
+            (new \App\API\Services\UploadService())->writeFile($logFile, $errorEntry, FILE_APPEND);
             return [
                 'ResultCode' => 1,
                 'ResultDesc' => 'Internal server error'
@@ -200,11 +200,11 @@ class PaymentsAPI extends BaseAPI
     {
         $logFileRaw = $this->logDir . '/mpesa_c2b_confirmation_raw.log';
         $logFile = $this->logDir . '/mpesa_c2b_confirmation.log';
-        @file_put_contents($logFileRaw, $this->timestamp . " - RAW REQUEST:\n" . json_encode($confirmationData) . "\n\n", FILE_APPEND);
+        @(new \App\API\Services\UploadService())->writeFile($logFileRaw, $this->timestamp . " - RAW REQUEST:\n" . json_encode($confirmationData) . "\n\n", FILE_APPEND);
 
         try {
             // Log parsed data
-            @file_put_contents($logFile, $this->timestamp . " - PARSED DATA:\n" . print_r($confirmationData, true) . "\n\n", FILE_APPEND);
+            @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - PARSED DATA:\n" . print_r($confirmationData, true) . "\n\n", FILE_APPEND);
 
             // Extract payment details from Safaricom callback
             $mpesaCode = $confirmationData['TransID'] ?? '';
@@ -220,7 +220,7 @@ class PaymentsAPI extends BaseAPI
 
             // Validate required fields
             if (empty($mpesaCode) || empty($admissionNumber) || $amount <= 0) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Missing required fields\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Missing required fields\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Missing required fields'
@@ -237,7 +237,7 @@ class PaymentsAPI extends BaseAPI
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
             
             if (!$student) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Student not found: {$admissionNumber}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Student not found: {$admissionNumber}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Student not found'
@@ -245,7 +245,7 @@ class PaymentsAPI extends BaseAPI
             }
             
             if (!in_array($student['status'], ['active', 'enrolled'])) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Student not active: {$admissionNumber} (status: {$student['status']})\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Student not active: {$admissionNumber} (status: {$student['status']})\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Student account not active'
@@ -256,7 +256,7 @@ class PaymentsAPI extends BaseAPI
 
             // FIX: HIGH - Validate payment amount against outstanding balance
             if ($amount <= 0) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Invalid payment amount: {$amount}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Invalid payment amount: {$amount}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Invalid payment amount'
@@ -265,7 +265,7 @@ class PaymentsAPI extends BaseAPI
 
             $outstandingBalance = $this->getStudentOutstandingBalance($studentId);
             if ($outstandingBalance === false) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Could not calculate outstanding balance for student {$studentId}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Could not calculate outstanding balance for student {$studentId}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Could not validate student balance'
@@ -275,7 +275,7 @@ class PaymentsAPI extends BaseAPI
             // Allow payment if it matches or is less than balance (allow 10% overpayment tolerance)
             $maxAllowed = $outstandingBalance * 1.1;
             if ($amount > $maxAllowed && $outstandingBalance > 0) {
-                @file_put_contents($logFile, $this->timestamp . " - ERROR: Payment {$amount} exceeds outstanding balance {$outstandingBalance}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: Payment {$amount} exceeds outstanding balance {$outstandingBalance}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 1,
                     'ResultDesc' => 'Payment amount exceeds outstanding balance'
@@ -298,7 +298,7 @@ class PaymentsAPI extends BaseAPI
                 
                 if ($existingTx) {
                     // Already processed - safe to return as duplicate
-                    @file_put_contents($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already exists\n", FILE_APPEND);
+                    @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - DUPLICATE: Transaction {$mpesaCode} already exists\n", FILE_APPEND);
                     $this->db->commit();
                     return [
                         'ResultCode' => 0,
@@ -332,7 +332,7 @@ class PaymentsAPI extends BaseAPI
                 ]);
 
                 $mpesaTxId = $this->db->lastInsertId();
-                @file_put_contents($logFile, $this->timestamp . " - M-Pesa TX recorded (ID: {$mpesaTxId})\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - M-Pesa TX recorded (ID: {$mpesaTxId})\n", FILE_APPEND);
 
                 // Get parent_id for this student
                 $parentStmt = $this->db->prepare("SELECT parent_id FROM student_parents WHERE student_id = :student_id LIMIT 1");
@@ -382,7 +382,7 @@ class PaymentsAPI extends BaseAPI
 
                 $this->db->commit();
 
-                @file_put_contents($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - CONFIRMATION SUCCESS: {$mpesaCode}, Student: {$admissionNumber} (ID: {$studentId}), Amount: {$amount}\n", FILE_APPEND);
 
                 return [
                     'ResultCode' => 0,
@@ -398,7 +398,7 @@ class PaymentsAPI extends BaseAPI
             // FIX: MEDIUM - Improved error handling: distinguish between expected and unexpected errors
             if (strpos($e->getMessage(), '1062') !== false || strpos($e->getMessage(), 'Duplicate') !== false) {
                 // Duplicate key - already processed
-                @file_put_contents($logFile, $this->timestamp . " - DUPLICATE via exception: {$mpesaCode}\n", FILE_APPEND);
+                @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - DUPLICATE via exception: {$mpesaCode}\n", FILE_APPEND);
                 return [
                     'ResultCode' => 0,
                     'ResultDesc' => 'Confirmation received successfully (already processed)'
@@ -406,7 +406,7 @@ class PaymentsAPI extends BaseAPI
             }
             
             // Database connection error or other critical issue
-            @file_put_contents($logFile, $this->timestamp . " - PDO ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - PDO ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
             error_log("M-Pesa C2B PDO Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
@@ -414,7 +414,7 @@ class PaymentsAPI extends BaseAPI
             ];
         } catch (\Exception $e) {
             // FIX: MEDIUM - Better logging and error messages
-            @file_put_contents($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
+            @(new \App\API\Services\UploadService())->writeFile($logFile, $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n", FILE_APPEND);
             error_log("M-Pesa C2B Error: " . $e->getMessage());
             return [
                 'ResultCode' => 1,
@@ -434,7 +434,7 @@ class PaymentsAPI extends BaseAPI
         $logFile = $this->logDir . '/kcb_validation.log';
         $logFileErr = $this->logDir . '/kcb_validation_errors.log';
         $signature = $headers['Signature'] ?? $headers['signature'] ?? '';
-        file_put_contents(
+        (new \App\API\Services\UploadService())->writeFile(
             $logFileRaw,
             $this->timestamp . " - RAW REQUEST:\n" .
             "Signature: {$signature}\n" .
@@ -445,7 +445,7 @@ class PaymentsAPI extends BaseAPI
             if (!$validationData || !is_array($validationData)) {
                 throw new \Exception("Invalid or missing JSON data");
             }
-            file_put_contents(
+            (new \App\API\Services\UploadService())->writeFile(
                 $logFile,
                 $this->timestamp . " - PARSED DATA:\n" . print_r($validationData, true) . "\n\n",
                 FILE_APPEND
@@ -454,7 +454,7 @@ class PaymentsAPI extends BaseAPI
             $customerReference = $validationData['customerReference'] ?? '';
             $organizationReference = $validationData['organizationReference'] ?? '';
             if (empty($customerReference)) {
-                file_put_contents(
+                (new \App\API\Services\UploadService())->writeFile(
                     $logFile,
                     $this->timestamp . " - REJECTED: Empty customer reference\n\n",
                     FILE_APPEND
@@ -474,7 +474,7 @@ class PaymentsAPI extends BaseAPI
             $stmt->execute(['admission_no' => $customerReference]);
             $student = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$student) {
-                file_put_contents(
+                (new \App\API\Services\UploadService())->writeFile(
                     $logFile,
                     $this->timestamp . " - REJECTED: Admission number '{$customerReference}' not found\n\n",
                     FILE_APPEND
@@ -491,7 +491,7 @@ class PaymentsAPI extends BaseAPI
                 ];
             }
             if (!in_array($student['status'], ['active', 'enrolled'])) {
-                file_put_contents(
+                (new \App\API\Services\UploadService())->writeFile(
                     $logFile,
                     $this->timestamp . " - REJECTED: Student '{$customerReference}' status is '{$student['status']}'\n\n",
                     FILE_APPEND
@@ -531,14 +531,14 @@ class PaymentsAPI extends BaseAPI
                     'signature' => substr($signature, 0, 50) . '...'
                 ])
             ]);
-            file_put_contents(
+            (new \App\API\Services\UploadService())->writeFile(
                 $logFile,
                 $this->timestamp . " - ACCEPTED: Student '{$customerReference}' - {$student['full_name']}, Balance: {$student['current_balance']}, RequestID: {$requestId}\n\n",
                 FILE_APPEND
             );
             return $response;
         } catch (\Exception $e) {
-            file_put_contents(
+            (new \App\API\Services\UploadService())->writeFile(
                 $logFileErr,
                 $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n",
                 FILE_APPEND
@@ -566,7 +566,7 @@ class PaymentsAPI extends BaseAPI
     {
         $logFile = $this->logDir . '/kcb_transfer_callbacks.log';
         $logEntry = "[{$this->timestamp}] RAW KCB TRANSFER CALLBACK:\nHeaders: " . json_encode($headers) . "\nBody: " . json_encode($callbackData) . "\n\n";
-        file_put_contents($logFile, $logEntry, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
         try {
             if (!$callbackData || !is_array($callbackData)) {
                 return [
@@ -596,7 +596,7 @@ class PaymentsAPI extends BaseAPI
             $disbursement = $stmt->fetch(\PDO::FETCH_ASSOC);
             if (!$disbursement) {
                 $logEntry = "[{$this->timestamp}] UNKNOWN KCB TRANSFER: RequestID=$requestId, TransactionRef=$transactionRef\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 return [
                     'statusCode' => '0',
                     'statusMessage' => 'Received but transaction not found'
@@ -621,7 +621,7 @@ class PaymentsAPI extends BaseAPI
                     $stmt->execute([$transactionRef, $charges, $disbursement['id']]);
                 }
                 $logEntry = "[{$this->timestamp}] KCB TRANSFER SUCCESS: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Ref: $transactionRef\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 $this->sendTransferNotification($disbursement, $transactionRef, 'completed', $charges);
             } else {
                 $stmt = $this->db->prepare("UPDATE disbursement_transactions SET status = 'failed', transaction_ref = ?, result_description = ?, callback_data = ?, failed_at = NOW() WHERE id = ?");
@@ -639,7 +639,7 @@ class PaymentsAPI extends BaseAPI
                     $stmt->execute([$statusDesc, $disbursement['id']]);
                 }
                 $logEntry = "[{$this->timestamp}] KCB TRANSFER FAILED: {$disbursement['recipient_name']} - KES {$disbursement['amount']} - Error: $statusDesc\n";
-                file_put_contents($logFile, $logEntry, FILE_APPEND);
+                (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
                 $this->sendTransferNotification($disbursement, $transactionRef, 'failed', 0, $statusDesc);
             }
             $this->db->commit();
@@ -653,7 +653,7 @@ class PaymentsAPI extends BaseAPI
                 $this->db->rollBack();
             }
             $errorEntry = "[{$this->timestamp}] ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n";
-            file_put_contents($logFile, $errorEntry, FILE_APPEND);
+            (new \App\API\Services\UploadService())->writeFile($logFile, $errorEntry, FILE_APPEND);
             return [
                 'statusCode' => '1',
                 'statusMessage' => 'Internal server error'
@@ -728,7 +728,7 @@ class PaymentsAPI extends BaseAPI
     public function processKcbNotification(array $notificationData, array $headers)
     {
         $signature = $headers['Signature'] ?? $headers['signature'] ?? '';
-        file_put_contents(
+        (new \App\API\Services\UploadService())->writeFile(
             $this->logDir . '/kcb_notification_raw.log',
             $this->timestamp . " - RAW REQUEST:\n" .
             "Signature: {$signature}\n" .
@@ -739,7 +739,7 @@ class PaymentsAPI extends BaseAPI
             if (!$notificationData || !is_array($notificationData)) {
                 throw new \Exception("Invalid or missing JSON data");
             }
-            file_put_contents(
+            (new \App\API\Services\UploadService())->writeFile(
                 $this->logDir . '/kcb_notification.log',
                 $this->timestamp . " - PARSED DATA:\n" . print_r($notificationData, true) . "\n\n",
                 FILE_APPEND
@@ -775,7 +775,7 @@ class PaymentsAPI extends BaseAPI
                 $existing = $dupStmt->fetch(\PDO::FETCH_ASSOC);
                 if ($existing) {
                     $this->db->rollback();
-                    file_put_contents(
+                    (new \App\API\Services\UploadService())->writeFile(
                         $this->logDir . '/kcb_notification.log',
                         $this->timestamp . " - DUPLICATE: Transaction {$transactionReference} already processed (ID: {$existing['id']})\n\n",
                         FILE_APPEND
@@ -847,7 +847,7 @@ class PaymentsAPI extends BaseAPI
                     ])
                 ]);
                 $this->db->commit();
-                file_put_contents(
+                (new \App\API\Services\UploadService())->writeFile(
                     $this->logDir . '/kcb_notification.log',
                     $this->timestamp . " - SUCCESS: KCB {$transactionReference}, Student {$customerReference} ({$student['first_name']} {$student['last_name']}), Amount: KES {$transactionAmount}, Mobile: {$customerMobile}\n\n",
                     FILE_APPEND
@@ -862,7 +862,7 @@ class PaymentsAPI extends BaseAPI
                 throw $e;
             }
         } catch (\Exception $e) {
-            file_put_contents(
+            (new \App\API\Services\UploadService())->writeFile(
                 $this->logDir . '/kcb_notification_errors.log',
                 $this->timestamp . " - ERROR: " . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n\n",
                 FILE_APPEND
@@ -885,7 +885,7 @@ class PaymentsAPI extends BaseAPI
     {
         $logFile = $this->logDir . '/bank_webhooks_raw.log';
         $logEntry = "[{$this->timestamp}] RAW WEBHOOK:\nHeaders: " . json_encode($headers) . "\nBody: " . json_encode($webhookData) . "\n\n";
-        file_put_contents($logFile, $logEntry, FILE_APPEND);
+        (new \App\API\Services\UploadService())->writeFile($logFile, $logEntry, FILE_APPEND);
 
         try {
             if (!$webhookData) {
@@ -965,7 +965,7 @@ class PaymentsAPI extends BaseAPI
             }
         } catch (\Exception $e) {
             $errorEntry = "[{$this->timestamp}] ERROR: " . $e->getMessage() . "\n\n";
-            file_put_contents($logFile, $errorEntry, FILE_APPEND);
+            (new \App\API\Services\UploadService())->writeFile($logFile, $errorEntry, FILE_APPEND);
             return [
                 'status' => false,
                 'message' => 'Internal server error'

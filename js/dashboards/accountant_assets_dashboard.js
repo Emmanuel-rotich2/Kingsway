@@ -142,13 +142,12 @@ const accountantAssetsDashboardController = Object.assign(
       if (printBtn) {
         printBtn.addEventListener("click", function () {
           if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
-            window.PrintManager.printElement({
-              elementId: 'dashboardContent',
+            window.PrintManager.printElement('dashboardContent', {
               title: 'Assets Management Dashboard',
               subtitle: 'Asset Tracking & Depreciation'
             });
           } else {
-            window.print();
+            console.error("PrintManager is unavailable.");
           }
         });
       }
@@ -178,13 +177,7 @@ const accountantAssetsDashboardController = Object.assign(
           dashboard: "Assets Management Dashboard",
           timestamp: new Date().toISOString(),
         };
-        var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "assets-dashboard-" + Date.now() + ".json";
-        link.click();
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(JSON.stringify(data, null, 2), "assets-dashboard-" + Date.now() + ".json", "application/json");
       } catch (e) {
         console.error("Export failed:", e);
       }

@@ -41,7 +41,7 @@ if ($classDisplay === '') {
 ?>
 <article class="id-card id-card-front">
     <table class="id-front-layout" role="presentation">
-        <tr class="id-front-header-row">
+        <tr class="id-front-header-row" border="0">
             <td class="id-front-logo-cell">
                 <?php if ($schoolLogo !== ''): ?>
                     <img
@@ -52,7 +52,7 @@ if ($classDisplay === '') {
                 <?php endif; ?>
             </td>
 
-            <td class="id-front-school-cell">
+            <td class="id-front-school-cell" colspan="4">
                 <div class="id-card-school-name">
                     <?= idCardEscape($schoolName) ?>
                 </div>
@@ -64,13 +64,13 @@ if ($classDisplay === '') {
         </tr>
 
         <tr>
-            <td colspan="2" class="id-card-title-strip">
+            <td colspan="5" class="id-card-title-strip">
                 Student Identity Card
             </td>
         </tr>
 
-        <tr class="id-front-body-row">
-            <td class="id-front-photo-cell">
+        <tr class="id-front-body-row" >
+            <td class="id-front-photo-cell" colspan="2">
                 <?php if ($studentPhoto !== ''): ?>
                     <img
                         src="<?= idCardEscape($studentPhoto) ?>"
@@ -84,7 +84,7 @@ if ($classDisplay === '') {
                 <?php endif; ?>
             </td>
 
-            <td class="id-front-details-cell">
+            <td class="id-front-details-cell" colspan="3">
                 <div class="id-card-name">
                     <?= idCardEscape($studentName) ?>
                 </div>
@@ -111,7 +111,7 @@ if ($classDisplay === '') {
         </tr>
 
         <tr>
-            <td colspan="2" class="id-card-footer-strip">
+            <td colspan="5" class="id-card-footer-strip">
                 <span><?= idCardEscape($schoolMotto) ?></span>
                 <span>
                     <?= idCardEscape(

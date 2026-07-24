@@ -60,7 +60,7 @@ function renderProfileHeader(student) {
     headerContainer.innerHTML = `
         <div class="row align-items-center mb-4">
             <div class="col-auto">
-                <img src="${student.photo_url || (window.APP_BASE || '') + '/uploads/students/avatar.jpg'}"
+                <img src="${student.photo_url || KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')}"
                      class="rounded-circle" 
                      width="100" 
                      height="100"

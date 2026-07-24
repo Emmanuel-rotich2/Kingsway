@@ -5,6 +5,7 @@ namespace App\API\Router;
 use App\API\Middleware\CORSMiddleware;
 use App\API\Middleware\AuthMiddleware;
 use App\API\Middleware\DeviceMiddleware;
+use App\API\Middleware\IpAccessControlMiddleware;
 use App\API\Middleware\RBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
 use App\API\Middleware\RouteAuthorization;
@@ -26,16 +27,19 @@ class Router
             // 1. CORS - Check origin and handle preflight
             CORSMiddleware::handle();
 
-            // 2. Rate Limiting - Prevent brute force and flooding
+            // 2. IP access control - Enforce active allow/deny CIDR rules
+            IpAccessControlMiddleware::handle();
+
+            // 3. Rate Limiting - Prevent brute force and flooding
             RateLimitMiddleware::handle();
 
-            // 3. Auth (JWT) - Validate JWT token
+            // 4. Auth (JWT) - Validate JWT token
             AuthMiddleware::handle();
 
-            // 4. RBAC - Resolve user permissions from database
+            // 5. RBAC - Resolve user permissions from database
             RBACMiddleware::handle();
 
-            // 5. Route Authorization - Enforce DB route whitelist for registered API routes
+            // 6. Route Authorization - Enforce DB route whitelist for registered API routes
             $routeAuth = RouteAuthorization::enforceCurrentRequest();
             if (!$routeAuth['success']) {
                 http_response_code($routeAuth['http_code']);
@@ -49,7 +53,7 @@ class Router
                 ];
             }
 
-            // 6. Device - Log device fingerprint and check blacklist
+            // 7. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
             // ===== DELEGATE TO CONTROLLER ROUTER =====

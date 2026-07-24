@@ -184,7 +184,7 @@ const manageTeachersController = {
   loadDepartments: async function () {
     try {
       const response = await window.API.apiCall(
-        "/staff/departments/get",
+        "/staff/departments-get",
         "GET",
       );
       this.departments = this.unwrap(response) || [];
@@ -659,13 +659,7 @@ const manageTeachersController = {
       csv += `"${s.staff_no || ""}","${name}","${s.email || ""}","${s.department_name || ""}","${s.tsc_no || ""}","${s.position || ""}","${s.contract_type || ""}","${s.status || ""}"\n`;
     });
 
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `teachers_export_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, `teachers_export_${new Date().toISOString().split("T")[0]}.csv`, "text/csv");
   },
 
   printTeachers: function () {

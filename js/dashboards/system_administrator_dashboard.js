@@ -1,816 +1,826 @@
 /**
  * System Administrator Dashboard Controller
- * ⚠️ SECURITY: Infrastructure & Technical Monitoring ONLY
- * 
- * This dashboard shows SYSTEM HEALTH and SECURITY metrics only.
- * NO business data (finance, students, staff operations, inventory, etc.)
- * 
- * Root access ≠ business data visibility
- * System Admin manages the SYSTEM, not the SCHOOL.
- * 
- * Architecture:
- * PHP Dashboard (static HTML) → JS Helper (this file) → api.js → REST API → Backend
- * 
- * Endpoints used (SYSTEM ONLY):
- * - GET /api/system/auth-events → Active users, auth statistics
- * - GET /api/system/active-sessions → Currently logged in users by role
- * - GET /api/system/uptime → System availability percentage
- * - GET /api/system/health-errors → Critical/error system issues
- * - GET /api/system/health-warnings → System warnings
- * - GET /api/system/api-load → API request metrics and chart data
- * 
- * UI Element IDs (from system_administrator_dashboard.php):
- * - Cards: #uptime-value, #active-users-value, #error-rate-value, #queue-health-value, #db-health-value
- * - Chart: #apiRequestsChart
- * - Activity Table: #activity-log-table
- * - Buttons: #refreshDashboard, #exportDashboard
- * - Time: #lastRefreshTime
+ * Page: system_administrator_dashboard.php
+ * Displays System Domain identity, security and platform telemetry.
  */
+const SystemAdministratorDashboardController = {
+  state: {
+    initialized: false,
+    eventsBound: false,
+    initializationPromise: null,
+    loading: false,
+    data: {
+      auth: null,
+      sessions: null,
+      uptime: null,
+      errors: null,
+      warnings: null,
+      apiLoad: null,
+    },
+    failures: [],
+  },
 
-const sysAdminDashboardController = {
-    state: {
-        uptime: null,
-        activeSessions: null,
-        authEvents: null,
-        healthErrors: null,
-        healthWarnings: null,
-        apiLoad: null,
-        lastRefresh: null,
-        isLoading: false
-    },
-    
-    charts: {
-        apiRequests: null
-    },
-    
-    config: {
-        refreshInterval: 30000, // 30 seconds
-        apiBasePath: (window.APP_BASE || '') + '/api'
-    },
-    
-    /**
-     * Initialize dashboard
-     */
-    init: function() {
-        console.log('🚀 System Admin Dashboard initializing...');
-        
-        // Check authentication if AuthContext is available
-        if (typeof AuthContext !== 'undefined' && typeof AuthContext.isAuthenticated === 'function') {
-            if (!AuthContext.isAuthenticated()) {
-                console.warn('User not authenticated, redirecting...');
-                window.location.href = (window.APP_BASE || '') + '/index.php';
-                return;
-            }
-        }
-        
-        // Initial load
-        this.loadDashboardData();
-        this.setupEventListeners();
-        this.setupAutoRefresh();
-        
-        console.log('✓ System Admin Dashboard initialized');
-    },
-    
-    /**
-     * Load SYSTEM-ONLY dashboard data from REST API endpoints
-     * ⚠️ SECURITY: Only technical/infrastructure metrics
-     * Falls back to demo data if endpoints fail
-     */
-    loadDashboardData: async function() {
-        if (this.state.isLoading) return;
-        
-        this.state.isLoading = true;
-        this.showLoadingState(true);
-        
-        try {
-            console.log('📡 Fetching system metrics from API...');
-            
-            // Make parallel API calls for better performance
-            const [uptimeRes, sessionsRes, authRes, errorsRes, warningsRes, apiLoadRes] = await Promise.allSettled([
-                this.fetchSystemUptime(),
-                this.fetchActiveSessions(),
-                this.fetchAuthEvents(),
-                this.fetchHealthErrors(),
-                this.fetchHealthWarnings(),
-                this.fetchAPILoad()
-            ]);
-            
-            // Process results (each uses fallback on failure)
-            this.state.uptime = uptimeRes.status === 'fulfilled' ? uptimeRes.value : this.getDefaultUptime();
-            this.state.activeSessions = sessionsRes.status === 'fulfilled' ? sessionsRes.value : this.getDefaultSessions();
-            this.state.authEvents = authRes.status === 'fulfilled' ? authRes.value : this.getDefaultAuthEvents();
-            this.state.healthErrors = errorsRes.status === 'fulfilled' ? errorsRes.value : this.getDefaultErrors();
-            this.state.healthWarnings = warningsRes.status === 'fulfilled' ? warningsRes.value : this.getDefaultWarnings();
-            this.state.apiLoad = apiLoadRes.status === 'fulfilled' ? apiLoadRes.value : this.getDefaultAPILoad();
-            
-            this.state.lastRefresh = new Date();
-            
-            console.log('✓ Dashboard data loaded', {
-                uptime: this.state.uptime,
-                sessions: this.state.activeSessions,
-                auth: this.state.authEvents
-            });
-            
-            // Update all UI components
-            this.renderAllComponents();
-            
-        } catch (error) {
-            console.error('❌ Dashboard load error:', error);
-            this.showNotification('Error loading dashboard: ' + error.message, 'error');
-        } finally {
-            this.state.isLoading = false;
-            this.showLoadingState(false);
-        }
-    },
-    
-    // ================== API FETCH METHODS ==================
-    
-    /**
-     * Fetch system uptime from API
-     */
-    fetchSystemUptime: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getSystemUptime) {
-                const response = await API.dashboard.getSystemUptime();
-                // API returns: { overall_uptime_percent, components, period, last_updated }
-                return {
-                    percentage: response.overall_uptime_percent || response.data?.overall_uptime_percent || 99.97,
-                    components: response.components || response.data?.components || [],
-                    period: response.period || '7 days'
-                };
-            }
-            return this.getDefaultUptime();
-        } catch (e) {
-            console.warn('⚠️ Uptime fetch failed:', e.message);
-            return this.getDefaultUptime();
-        }
-    },
-    
-    /**
-     * Fetch active sessions from API
-     */
-    fetchActiveSessions: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getActiveSessions) {
-                const response = await API.dashboard.getActiveSessions();
-                // API returns: { sessions, summary: { total_active_users, by_role } }
-                const data = response.data || response;
-                return {
-                    total: data.summary?.total_active_users || data.sessions?.length || 0,
-                    byRole: data.summary?.by_role || {},
-                    sessions: data.sessions || []
-                };
-            }
-            return this.getDefaultSessions();
-        } catch (e) {
-            console.warn('⚠️ Sessions fetch failed:', e.message);
-            return this.getDefaultSessions();
-        }
-    },
-    
-    /**
-     * Fetch auth events from API
-     */
-    fetchAuthEvents: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getAuthEvents) {
-                const response = await API.dashboard.getAuthEvents();
-                // API returns: { events, summary: { successful_logins, failed_logins, total_events } }
-                const data = response.data || response;
-                return {
-                    events: data.events || [],
-                    successfulLogins: data.summary?.successful_logins || 0,
-                    failedLogins: data.summary?.failed_logins || 0,
-                    totalEvents: data.summary?.total_events || 0
-                };
-            }
-            return this.getDefaultAuthEvents();
-        } catch (e) {
-            console.warn('⚠️ Auth events fetch failed:', e.message);
-            return this.getDefaultAuthEvents();
-        }
-    },
-    
-    /**
-     * Fetch health errors from API
-     */
-    fetchHealthErrors: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getSystemHealthErrors) {
-                const response = await API.dashboard.getSystemHealthErrors();
-                const data = response.data || response;
-                return {
-                    errors: data.errors || [],
-                    criticalCount: data.summary?.critical_errors || 0,
-                    totalCount: data.summary?.total_errors || 0
-                };
-            }
-            return this.getDefaultErrors();
-        } catch (e) {
-            console.warn('⚠️ Health errors fetch failed:', e.message);
-            return this.getDefaultErrors();
-        }
-    },
-    
-    /**
-     * Fetch health warnings from API
-     */
-    fetchHealthWarnings: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getSystemHealthWarnings) {
-                const response = await API.dashboard.getSystemHealthWarnings();
-                const data = response.data || response;
-                return {
-                    warnings: data.warnings || [],
-                    totalCount: data.summary?.total_warnings || 0
-                };
-            }
-            return this.getDefaultWarnings();
-        } catch (e) {
-            console.warn('⚠️ Health warnings fetch failed:', e.message);
-            return this.getDefaultWarnings();
-        }
-    },
-    
-    /**
-     * Fetch API load metrics from API
-     */
-    fetchAPILoad: async function() {
-        try {
-            if (typeof API !== 'undefined' && API.dashboard?.getAPIRequestLoad) {
-                const response = await API.dashboard.getAPIRequestLoad();
-                // API returns: { endpoints, hourly, summary: { total_requests_24h, avg_response_time_ms } }
-                const data = response.data || response;
-                return {
-                    endpoints: data.endpoints || [],
-                    hourly: data.hourly || [],
-                    totalRequests: data.summary?.total_requests_24h || 0,
-                    avgResponseTime: data.summary?.avg_response_time_ms || 0,
-                    requestsPerSec: data.summary?.requests_per_second || 0
-                };
-            }
-            return this.getDefaultAPILoad();
-        } catch (e) {
-            console.warn('⚠️ API load fetch failed:', e.message);
-            return this.getDefaultAPILoad();
-        }
-    },
-    
-    // ================== DEFAULT/FALLBACK DATA ==================
-    
-    getDefaultUptime: function() {
-        return { percentage: 99.97, components: [], period: '7 days' };
-    },
-    
-    getDefaultSessions: function() {
-        return { 
-            total: 127, 
-            byRole: { 'Admin': 3, 'Staff': 45, 'Others': 79 },
-            sessions: []
-        };
-    },
-    
-    getDefaultAuthEvents: function() {
-        return {
-            events: [],
-            successfulLogins: 0,
-            failedLogins: 0,
-            totalEvents: 0
-        };
-    },
-    
-    getDefaultErrors: function() {
-        return { errors: [], criticalCount: 0, totalCount: 0 };
-    },
-    
-    getDefaultWarnings: function() {
-        return { warnings: [], totalCount: 0 };
-    },
-    
-    getDefaultAPILoad: function() {
-        return {
-            endpoints: [],
-            hourly: [],
-            totalRequests: 0,
-            avgResponseTime: 0,
-            requestsPerSec: 0
-        };
-    },
-    
-    // ================== RENDER METHODS ==================
-    
-    /**
-     * Render all UI components with fetched data
-     */
-    renderAllComponents: function() {
-        this.renderMetricCards();
-        this.renderAPIRequestsChart();
-        this.renderActivityTable();
-        this.updateRefreshTime();
-    },
-    
-    /**
-     * Render the 5 metric cards in the PHP dashboard
-     * Elements: #uptime-value, #active-users-value, #error-rate-value, #queue-health-value, #db-health-value
-     */
-    renderMetricCards: function() {
-        // 1. System Uptime Card
-        const uptimeEl = document.getElementById('uptime-value');
-        if (uptimeEl && this.state.uptime) {
-            uptimeEl.textContent = this.state.uptime.percentage.toFixed(2) + '%';
-            
-            // Update progress bar if present
-            const uptimeProgress = document.querySelector('#card-uptime .progress-bar');
-            if (uptimeProgress) {
-                uptimeProgress.style.width = this.state.uptime.percentage + '%';
-            }
-        }
-        
-        // 2. Active Users Card
-        const activeUsersEl = document.getElementById('active-users-value');
-        if (activeUsersEl && this.state.activeSessions) {
-            activeUsersEl.textContent = this.formatNumber(this.state.activeSessions.total);
-            
-            // Update role badges if present
-            const badgeContainer = document.querySelector('#card-active-users .d-flex.gap-1');
-            if (badgeContainer && this.state.activeSessions.byRole) {
-                const roles = this.state.activeSessions.byRole;
-                const adminCount = roles['System Administrator'] || roles['Admin'] || roles['admin'] || 0;
-                const staffCount = roles['Teacher'] || roles['Staff'] || roles['staff'] || 0;
-                const othersCount = this.state.activeSessions.total - adminCount - staffCount;
-                
-                badgeContainer.innerHTML = `
-                    <span class="badge bg-success">Admin: ${adminCount}</span>
-                    <span class="badge bg-info">Staff: ${staffCount}</span>
-                    <span class="badge bg-secondary">Others: ${othersCount > 0 ? othersCount : 0}</span>
-                `;
-            }
-        }
-        
-        // 3. Error Rate Card
-        const errorRateEl = document.getElementById('error-rate-value');
-        if (errorRateEl && this.state.healthErrors) {
-            // Calculate error rate based on total errors vs API requests
-            const totalRequests = this.state.apiLoad?.totalRequests || 10000;
-            const totalErrors = this.state.healthErrors.totalCount || 0;
-            const errorRate = totalRequests > 0 ? ((totalErrors / totalRequests) * 100).toFixed(2) : '0.00';
-            errorRateEl.textContent = errorRate + '%';
-            
-            // Update progress bar if present
-            const errorProgress = document.querySelector('#card-error-rate .progress-bar');
-            if (errorProgress) {
-                errorProgress.style.width = Math.min(parseFloat(errorRate), 100) + '%';
-            }
-        }
-        
-        // 4. Queue Health Card
-        const queueHealthEl = document.getElementById('queue-health-value');
-        if (queueHealthEl) {
-            const warningCount = this.state.healthWarnings?.totalCount || 0;
-            const status = warningCount === 0 ? 'Healthy' : (warningCount <= 3 ? 'Warning' : 'Critical');
-            queueHealthEl.textContent = status;
-            queueHealthEl.className = 'mb-0 fw-bold ' + (status === 'Healthy' ? 'text-success' : (status === 'Warning' ? 'text-warning' : 'text-danger'));
-            
-            // Update badges if present
-            const queueBadges = document.querySelector('#card-queue-health .d-flex.gap-1');
-            if (queueBadges && this.state.apiLoad) {
-                const processed = this.state.apiLoad.totalRequests || 0;
-                const failed = this.state.healthErrors?.totalCount || 0;
-                queueBadges.innerHTML = `
-                    <span class="badge bg-success">Processed: ${this.formatNumber(processed)}</span>
-                    <span class="badge bg-warning text-dark">Failed: ${failed}</span>
-                `;
-            }
-        }
-        
-        // 5. Database Health Card
-        const dbHealthEl = document.getElementById('db-health-value');
-        if (dbHealthEl) {
-            const avgResponse = this.state.apiLoad?.avgResponseTime || 45;
-            const status = avgResponse < 100 ? 'Optimal' : (avgResponse < 300 ? 'Normal' : 'Slow');
-            dbHealthEl.textContent = status;
-            dbHealthEl.className = 'mb-0 fw-bold ' + (status === 'Optimal' ? 'text-success' : (status === 'Normal' ? 'text-info' : 'text-warning'));
-            
-            // Update subtitle with actual response time
-            const dbSubtitle = document.querySelector('#card-db-health small');
-            if (dbSubtitle) {
-                dbSubtitle.innerHTML = `<i class="bi bi-hdd"></i> ${avgResponse}ms avg response`;
-            }
-            
-            // Update progress bar based on response time (lower is better)
-            const dbProgress = document.querySelector('#card-db-health .progress-bar');
-            if (dbProgress) {
-                const healthPercent = Math.max(0, 100 - (avgResponse / 5)); // 500ms = 0%, 0ms = 100%
-                dbProgress.style.width = healthPercent + '%';
-            }
-        }
-        
-        console.log('✓ Metric cards updated');
-    },
-    
-    /**
-     * Render API Requests chart (canvas #apiRequestsChart)
-     */
-    renderAPIRequestsChart: function() {
-        const canvas = document.getElementById('apiRequestsChart');
-        if (!canvas || typeof Chart === 'undefined') {
-            console.warn('Chart canvas or Chart.js not available');
-            return;
-        }
-        
-        try {
-            // Destroy previous chart instance if exists
-            if (this.charts.apiRequests) {
-                this.charts.apiRequests.destroy();
-                this.charts.apiRequests = null;
-            }
-            
-            // Generate hourly labels for 24 hours
-            const labels = Array.from({length: 12}, (_, i) => {
-                const hour = i * 2;
-                return `${hour.toString().padStart(2, '0')}:00`;
-            });
-            
-            // Use API data or generate simulated data
-            let successData, failedData;
-            
-            if (this.state.apiLoad?.hourly && this.state.apiLoad.hourly.length > 0) {
-                // Use real data from API
-                successData = this.state.apiLoad.hourly.map(h => h.requests || 0);
-                failedData = this.state.apiLoad.hourly.map(() => Math.floor(Math.random() * 10));
-            } else {
-                // Generate simulated realistic data pattern (low at night, peak at business hours)
-                successData = [120, 85, 45, 30, 180, 420, 680, 720, 650, 580, 420, 280];
-                failedData = [2, 1, 0, 0, 3, 5, 8, 6, 4, 3, 2, 1];
-            }
-            
-            const ctx = canvas.getContext('2d');
-            this.charts.apiRequests = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            label: 'Successful Requests',
-                            data: successData,
-                            borderColor: '#198754',
-                            backgroundColor: 'rgba(25, 135, 84, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            borderWidth: 2,
-                            pointRadius: 3,
-                            pointHoverRadius: 5
-                        },
-                        {
-                            label: 'Failed Requests',
-                            data: failedData,
-                            borderColor: '#dc3545',
-                            backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                            fill: true,
-                            tension: 0.4,
-                            borderWidth: 2,
-                            pointRadius: 3,
-                            pointHoverRadius: 5
-                        }
-                    ]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15
-                            }
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                drawBorder: false
-                            },
-                            title: {
-                                display: true,
-                                text: 'Request Count'
-                            }
-                        },
-                        x: {
-                            grid: {
-                                display: false
-                            }
-                        }
-                    },
-                    interaction: {
-                        intersect: false,
-                        mode: 'index'
-                    }
-                }
-            });
-            
-            console.log('✓ API Requests chart rendered');
-        } catch (error) {
-            console.error('Error rendering API requests chart:', error);
-        }
-    },
-    
-    /**
-     * Render activity log table (#activity-log-table)
-     */
-    renderActivityTable: function() {
-        const tbody = document.getElementById('activity-log-table');
-        if (!tbody) return;
-        
-        // Use auth events if available, otherwise show placeholder data
-        const events = this.state.authEvents?.events || [];
-        
-        if (events.length === 0) {
-            // Keep existing placeholder data in PHP
-            console.log('No auth events, keeping placeholder data');
-            return;
-        }
-        
-        // Clear existing rows and populate with real data
-        tbody.innerHTML = '';
-        
-        // Show last 5 events
-        const recentEvents = events.slice(0, 5);
-        
-        recentEvents.forEach(event => {
-            const tr = document.createElement('tr');
-            
-            // Format time as relative (e.g., "2 min ago")
-            const timeAgo = this.formatTimeAgo(event.created_at);
-            
-            // Determine user badge color based on action or role
-            const badgeClass = this.getActionBadgeClass(event.action);
-            
-            // Format status badge
-            const statusClass = event.status === 'success' ? 'bg-success' : (event.status === 'failure' ? 'bg-danger' : 'bg-warning text-dark');
-            const statusText = event.status === 'success' ? 'Success' : (event.status === 'failure' ? 'Failed' : 'Pending');
-            
-            tr.innerHTML = `
-                <td><small class="text-muted">${timeAgo}</small></td>
-                <td><span class="badge ${badgeClass}">${this.escapeHtml(event.first_name || event.email || 'system')}</span></td>
-                <td>${this.escapeHtml(this.formatAction(event.action))}</td>
-                <td>${this.escapeHtml(event.details || event.ip_address || '-')}</td>
-                <td><span class="badge ${statusClass}">${statusText}</span></td>
-            `;
-            
-            tbody.appendChild(tr);
-        });
-        
-        console.log('✓ Activity table updated with', recentEvents.length, 'events');
-    },
-    
-    // ================== UTILITY METHODS ==================
-    
-    /**
-     * Update last refresh time display
-     */
-    updateRefreshTime: function() {
-        const el = document.getElementById('lastRefreshTime');
-        if (el && this.state.lastRefresh) {
-            el.textContent = this.state.lastRefresh.toLocaleTimeString();
-        }
-    },
-    
-    /**
-     * Show/hide loading state on refresh button
-     */
-    showLoadingState: function(isLoading) {
-        const btn = document.getElementById('refreshDashboard');
-        if (!btn) return;
-        
-        if (isLoading) {
-            btn.disabled = true;
-            btn.innerHTML = '<i class="bi bi-arrow-clockwise spin"></i> Refreshing...';
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh';
-        }
-    },
-    
-    /**
-     * Setup event listeners for dashboard controls
-     */
-    setupEventListeners: function() {
-        // Refresh button
-        const refreshBtn = document.getElementById('refreshDashboard');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.loadDashboardData();
-            });
-        }
-        
-        // Export button
-        const exportBtn = document.getElementById('exportDashboard');
-        if (exportBtn) {
-            exportBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                this.exportDashboardData();
-            });
-        }
-        
-        // Print button (if exists)
-        const printBtn = document.getElementById('printDashboard');
-        if (printBtn) {
-            printBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (window.PrintManager) {
-                    window.PrintManager.printElement({
-                        elementId: 'dashboardContent',
-                        title: 'System Administrator Dashboard',
-                        subtitle: 'System Overview and Statistics'
-                    });
-                } else {
-                    window.print();
-                }
-            });
-        }
-        
-        // Chart time range buttons
-        const timeButtons = document.querySelectorAll('.btn-group .btn-outline-secondary');
-        timeButtons.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                // Remove active from siblings
-                timeButtons.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                // Could reload chart with different time range
-            });
-        });
-        
-        console.log('✓ Event listeners attached');
-    },
-    
-    /**
-     * Setup auto-refresh timer
-     */
-    setupAutoRefresh: function() {
-        // Clear any existing interval
-        if (this._refreshInterval) {
-            clearInterval(this._refreshInterval);
-        }
-        
-        // Set new interval
-        this._refreshInterval = setInterval(() => {
-            console.log('🔄 Auto-refreshing dashboard...');
-            this.loadDashboardData();
-        }, this.config.refreshInterval);
-        
-        console.log(`✓ Auto-refresh set for every ${this.config.refreshInterval / 1000} seconds`);
-    },
-    
-    /**
-     * Export dashboard data to JSON file
-     */
-    exportDashboardData: function() {
-        try {
-            const exportData = {
-                dashboard: 'System Administrator Dashboard',
-                exportedAt: new Date().toISOString(),
-                lastRefresh: this.state.lastRefresh?.toISOString(),
-                metrics: {
-                    uptime: this.state.uptime,
-                    activeSessions: this.state.activeSessions,
-                    authEvents: {
-                        successfulLogins: this.state.authEvents?.successfulLogins,
-                        failedLogins: this.state.authEvents?.failedLogins,
-                        totalEvents: this.state.authEvents?.totalEvents
-                    },
-                    healthErrors: this.state.healthErrors,
-                    healthWarnings: this.state.healthWarnings,
-                    apiLoad: {
-                        totalRequests: this.state.apiLoad?.totalRequests,
-                        avgResponseTime: this.state.apiLoad?.avgResponseTime,
-                        requestsPerSec: this.state.apiLoad?.requestsPerSec
-                    }
-                }
-            };
-            
-            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = `system-admin-dashboard-${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
-            
-            this.showNotification('Dashboard data exported successfully', 'success');
-        } catch (error) {
-            console.error('Export failed:', error);
-            this.showNotification('Export failed: ' + error.message, 'error');
-        }
-    },
-    
-    /**
-     * Format number with thousands separator
-     */
-    formatNumber: function(num) {
-        if (num === null || num === undefined) return '0';
-        if (typeof num === 'string' && isNaN(num)) return num;
-        return new Intl.NumberFormat().format(num);
-    },
-    
-    /**
-     * Format timestamp as relative time (e.g., "2 min ago")
-     */
-    formatTimeAgo: function(timestamp) {
-        if (!timestamp) return 'Unknown';
-        
-        const now = new Date();
-        const date = new Date(timestamp);
-        const diffMs = now - date;
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-        
-        if (diffMins < 1) return 'Just now';
-        if (diffMins < 60) return `${diffMins} min ago`;
-        if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-        if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-        
-        return date.toLocaleDateString();
-    },
-    
-    /**
-     * Get badge class based on action type
-     */
-    getActionBadgeClass: function(action) {
-        const actionClasses = {
-            'login': 'bg-primary',
-            'logout': 'bg-secondary',
-            'password_change': 'bg-warning text-dark',
-            'create': 'bg-success',
-            'update': 'bg-info',
-            'delete': 'bg-danger',
-            'system': 'bg-info'
-        };
-        return actionClasses[action] || 'bg-secondary';
-    },
-    
-    /**
-     * Format action name for display
-     */
-    formatAction: function(action) {
-        const actionLabels = {
-            'login': 'User logged in',
-            'logout': 'User logged out',
-            'password_change': 'Password changed',
-            'create': 'Created resource',
-            'update': 'Updated resource',
-            'delete': 'Deleted resource'
-        };
-        return actionLabels[action] || action;
-    },
-    
-    /**
-     * Escape HTML special characters
-     */
-    escapeHtml: function(text) {
-        if (!text) return '';
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return String(text).replace(/[&<>"']/g, m => map[m]);
-    },
-    
-    /**
-     * Show notification to user
-     */
-    showNotification: function(message, type = 'info') {
-        // Use global showNotification if available
-        if (typeof showNotification === 'function') {
-            showNotification(message, type);
-            return;
-        }
-        
-        // Fallback to console
-        const logMethod = type === 'error' ? 'error' : (type === 'warning' ? 'warn' : 'log');
-        console[logMethod](`[${type.toUpperCase()}] ${message}`);
+  elements: {},
+
+  async init() {
+    if (this.state.initializationPromise) {
+      return this.state.initializationPromise;
     }
+
+    this.state.initializationPromise = this.initialize();
+    return this.state.initializationPromise;
+  },
+
+  async initialize() {
+    try {
+      if (!window.AuthContext?.ready) {
+        throw new Error("Authentication context is unavailable.");
+      }
+
+      // No protected-page DOM initialization or API request occurs before auth settles.
+      await window.AuthContext.ready();
+
+      if (!window.AuthContext.isAuthenticated?.()) {
+        window.location.href = (window.APP_BASE || "") + "/index.php";
+        return;
+      }
+
+      this.cacheElements();
+
+      if (!this.hasSystemAdministratorAccess()) {
+        this.renderForbidden();
+        return;
+      }
+
+      if (!window.API?.dashboard) {
+        throw new Error("The Dashboard API namespace is unavailable.");
+      }
+
+      this.bindEvents();
+      this.state.initialized = true;
+      await this.loadData();
+    } catch (error) {
+      console.error(
+        "[SystemAdministratorDashboardController] Initialization failed:",
+        error,
+      );
+      this.showState(
+        error?.message || "The System Administrator Dashboard could not initialize.",
+        "danger",
+      );
+      this.renderUnavailable("Dashboard initialization failed.");
+      this.setBusy(false);
+    }
+  },
+
+  cacheElements() {
+    this.elements = {
+      root: document.getElementById("systemAdministratorDashboardPage"),
+      state: document.getElementById("systemAdministratorDashboardState"),
+      refreshButton: document.getElementById(
+        "refreshSystemAdministratorDashboardBtn",
+      ),
+      generatedAt: document.getElementById(
+        "systemAdministratorGeneratedAt",
+      ),
+      metricCards: document.getElementById(
+        "systemAdministratorMetricCards",
+      ),
+      enabledUsers: document.getElementById("metricEnabledUsers"),
+      enabledUsersNote: document.getElementById("metricEnabledUsersNote"),
+      activeSessions: document.getElementById("metricActiveSessions"),
+      activeSessionsNote: document.getElementById(
+        "metricActiveSessionsNote",
+      ),
+      failedLogins: document.getElementById("metricFailedLogins"),
+      failedLoginsNote: document.getElementById("metricFailedLoginsNote"),
+      openIncidents: document.getElementById("metricOpenIncidents"),
+      openIncidentsNote: document.getElementById(
+        "metricOpenIncidentsNote",
+      ),
+      pendingJobs: document.getElementById("metricPendingJobs"),
+      pendingJobsNote: document.getElementById("metricPendingJobsNote"),
+      apiErrors: document.getElementById("metricApiErrors"),
+      apiErrorsNote: document.getElementById("metricApiErrorsNote"),
+      activityCount: document.getElementById(
+        "systemAdministratorActivityCount",
+      ),
+      activityBody: document.getElementById(
+        "systemAdministratorActivityBody",
+      ),
+      technicalChecks: document.getElementById(
+        "systemAdministratorTechnicalChecks",
+      ),
+      alerts: document.getElementById("systemAdministratorAlerts"),
+    };
+
+    const required = [
+      "root",
+      "state",
+      "refreshButton",
+      "generatedAt",
+      "metricCards",
+      "enabledUsers",
+      "enabledUsersNote",
+      "activeSessions",
+      "activeSessionsNote",
+      "failedLogins",
+      "failedLoginsNote",
+      "openIncidents",
+      "openIncidentsNote",
+      "pendingJobs",
+      "pendingJobsNote",
+      "apiErrors",
+      "apiErrorsNote",
+      "activityCount",
+      "activityBody",
+      "technicalChecks",
+      "alerts",
+    ];
+
+    const missing = required.filter((key) => !this.elements[key]);
+    if (missing.length) {
+      throw new Error(
+        `System Administrator Dashboard markup is incomplete: ${missing.join(", ")}.`,
+      );
+    }
+  },
+
+  bindEvents() {
+    if (this.state.eventsBound) return;
+
+    this.elements.refreshButton.addEventListener("click", () => {
+      void this.loadData();
+    });
+
+    this.state.eventsBound = true;
+  },
+
+  hasSystemAdministratorAccess() {
+    const roles = (window.AuthContext.getRoles?.() || []).map((role) =>
+      String(
+        typeof role === "string" ? role : role?.name || role?.role_name || "",
+      )
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, "_"),
+    );
+
+    return Boolean(
+      roles.includes("system_administrator") ||
+        window.AuthContext.hasRole?.("System Administrator") ||
+        window.AuthContext.hasPermission?.("*") ||
+        window.AuthContext.hasPermission?.("system.dashboard.view"),
+    );
+  },
+
+  async loadData() {
+    if (this.state.loading) return;
+
+    this.state.loading = true;
+    this.state.failures = [];
+    this.setBusy(true);
+    this.showState("Loading live system metrics...", "info");
+    this.renderLoading();
+
+    const requests = [
+      {
+        key: "auth",
+        label: "authentication activity",
+        run: () => window.API.dashboard.getAuthEvents(),
+      },
+      {
+        key: "sessions",
+        label: "active sessions",
+        run: () => window.API.dashboard.getActiveSessions(),
+      },
+      {
+        key: "uptime",
+        label: "runtime health",
+        run: () => window.API.dashboard.getSystemUptime(),
+      },
+      {
+        key: "errors",
+        label: "system errors and incidents",
+        run: () => window.API.dashboard.getSystemHealthErrors(),
+      },
+      {
+        key: "warnings",
+        label: "warnings and background jobs",
+        run: () => window.API.dashboard.getSystemHealthWarnings(),
+      },
+      {
+        key: "apiLoad",
+        label: "API telemetry",
+        run: () => window.API.dashboard.getAPIRequestLoad(),
+      },
+    ];
+
+    try {
+      const results = await Promise.allSettled(
+        requests.map((request) => request.run()),
+      );
+
+      results.forEach((result, index) => {
+        const request = requests[index];
+        if (result.status === "fulfilled") {
+          this.state.data[request.key] = result.value || {};
+          return;
+        }
+
+        this.state.data[request.key] = null;
+        this.state.failures.push({
+          key: request.key,
+          label: request.label,
+          error: result.reason,
+        });
+      });
+
+      if (
+        this.state.failures.length === requests.length &&
+        this.state.failures.every((failure) =>
+          this.isForbidden(failure.error),
+        )
+      ) {
+        this.renderForbidden();
+        return;
+      }
+
+      this.renderDashboard();
+
+      if (this.state.failures.length === requests.length) {
+        this.showState(
+          "No dashboard endpoint could be loaded. Check the API and server logs.",
+          "danger",
+        );
+      } else if (this.state.failures.length > 0) {
+        this.showState(
+          `Dashboard loaded partially. Unavailable: ${this.state.failures
+            .map((failure) => failure.label)
+            .join(", ")}.`,
+          "warning",
+        );
+      } else {
+        this.hideState();
+      }
+    } catch (error) {
+      console.error(
+        "[SystemAdministratorDashboardController] Dashboard load failed:",
+        error,
+      );
+      this.showState(
+        this.formatError(error, "Failed to load system metrics."),
+        this.isForbidden(error) ? "warning" : "danger",
+      );
+      this.renderUnavailable("System metrics could not be loaded.");
+    } finally {
+      this.state.loading = false;
+      this.setBusy(false);
+    }
+  },
+
+  renderDashboard() {
+    this.renderMetrics();
+    this.renderActivity();
+    this.renderTechnicalChecks();
+    this.renderAlerts();
+    this.renderGeneratedAt();
+  },
+
+  renderMetrics() {
+    const { auth, sessions, errors, warnings, apiLoad } = this.state.data;
+
+    this.setMetric(
+      this.elements.enabledUsers,
+      this.elements.enabledUsersNote,
+      this.numberOrNull(sessions?.summary?.enabled_users),
+      sessions ? "Current account status" : "Unavailable",
+    );
+
+    const sessionTracking = sessions?.summary?.tracking_available;
+    this.setMetric(
+      this.elements.activeSessions,
+      this.elements.activeSessionsNote,
+      sessionTracking === false
+        ? null
+        : this.numberOrNull(sessions?.summary?.total_active_sessions),
+      sessionTracking === false
+        ? "Telemetry not recorded"
+        : sessions
+          ? "Unexpired sessions"
+          : "Unavailable",
+    );
+
+    const authTracking = auth?.summary?.tracking_available;
+    this.setMetric(
+      this.elements.failedLogins,
+      this.elements.failedLoginsNote,
+      authTracking === false
+        ? null
+        : this.numberOrNull(auth?.summary?.failed_logins),
+      authTracking === false
+        ? "Telemetry not recorded"
+        : auth
+          ? "Last 24 hours"
+          : "Unavailable",
+    );
+
+    this.setMetric(
+      this.elements.openIncidents,
+      this.elements.openIncidentsNote,
+      this.numberOrNull(errors?.summary?.open_incidents),
+      errors ? "Not resolved or closed" : "Unavailable",
+    );
+
+    this.setMetric(
+      this.elements.pendingJobs,
+      this.elements.pendingJobsNote,
+      this.numberOrNull(warnings?.summary?.pending_jobs),
+      warnings ? "Queued or retrying" : "Unavailable",
+    );
+
+    const apiTracking = apiLoad?.summary?.telemetry_available;
+    this.setMetric(
+      this.elements.apiErrors,
+      this.elements.apiErrorsNote,
+      apiTracking === false
+        ? null
+        : this.numberOrNull(apiLoad?.summary?.api_errors_24h),
+      apiTracking === false
+        ? "Telemetry not recorded"
+        : apiLoad
+          ? "HTTP 5xx · 24 hours"
+          : "Unavailable",
+    );
+  },
+
+  setMetric(valueElement, noteElement, value, note) {
+    valueElement.textContent =
+      value === null ? "—" : new Intl.NumberFormat().format(value);
+    noteElement.textContent = note || "";
+  },
+
+  renderActivity() {
+    const auth = this.state.data.auth;
+    const events = Array.isArray(auth?.events) ? auth.events : [];
+
+    if (!auth) {
+      this.elements.activityCount.textContent = "";
+      this.showActivityMessage(
+        "Authentication activity is unavailable.",
+        "text-danger",
+      );
+      return;
+    }
+
+    if (auth?.summary?.tracking_available === false) {
+      this.elements.activityCount.textContent = "";
+      this.showActivityMessage(
+        "Authentication telemetry has not been recorded yet.",
+      );
+      return;
+    }
+
+    this.elements.activityCount.textContent = `${events.length} event${
+      events.length === 1 ? "" : "s"
+    }`;
+
+    if (events.length === 0) {
+      this.showActivityMessage(
+        "No authentication events were recorded in the last 24 hours.",
+      );
+      return;
+    }
+
+    this.elements.activityBody.innerHTML = events
+      .map((event) => {
+        const actor =
+          event.username ||
+          [event.first_name, event.last_name].filter(Boolean).join(" ") ||
+          event.user_id ||
+          "Unknown";
+        const status = String(event.status || "unknown").toLowerCase();
+        const statusClass =
+          status === "success"
+            ? "success"
+            : status === "failed" || status === "failure"
+              ? "danger"
+              : "secondary";
+
+        return `
+          <tr>
+            <td>${this.escapeHtml(this.formatDateTime(event.created_at))}</td>
+            <td>${this.escapeHtml(actor)}</td>
+            <td>${this.escapeHtml(this.humanize(event.action || "login"))}</td>
+            <td><span class="badge bg-${statusClass}">${this.escapeHtml(status)}</span></td>
+            <td>${this.escapeHtml(event.ip_address || "—")}</td>
+          </tr>`;
+      })
+      .join("");
+  },
+
+  renderTechnicalChecks() {
+    const { uptime, errors, warnings, apiLoad } = this.state.data;
+    const database = uptime?.database;
+    const runtime = uptime?.runtime;
+    const storage = uptime?.storage;
+    const openIncidents = this.numberOrNull(
+      errors?.summary?.open_incidents,
+    );
+    const pendingJobs = this.numberOrNull(warnings?.summary?.pending_jobs);
+    const failedJobs = this.numberOrNull(
+      warnings?.summary?.failed_jobs_24h,
+    );
+    const apiErrors = this.numberOrNull(
+      apiLoad?.summary?.api_errors_24h,
+    );
+
+    const checks = [
+      {
+        name: "Database",
+        status: database?.status || "unavailable",
+        detail:
+          database?.latency_ms === null ||
+          database?.latency_ms === undefined
+            ? "Latency unavailable"
+            : `${database.latency_ms} ms`,
+      },
+      {
+        name: "PHP runtime",
+        status: runtime?.php_version ? "healthy" : "unavailable",
+        detail: runtime?.php_version
+          ? `PHP ${runtime.php_version} · ${runtime.environment || "unknown environment"}`
+          : "Runtime details unavailable",
+      },
+      {
+        name: "Storage",
+        status: storage?.status || "unavailable",
+        detail: storage?.free_formatted
+          ? `${storage.free_formatted} free`
+          : "Free space unavailable",
+      },
+      {
+        name: "API telemetry",
+        status:
+          apiLoad?.summary?.telemetry_available === false
+            ? "unavailable"
+            : apiErrors === null
+              ? "unavailable"
+              : apiErrors > 0
+                ? "attention"
+                : "healthy",
+        detail:
+          apiLoad?.summary?.telemetry_available === false
+            ? "No request metrics recorded"
+            : apiErrors === null
+              ? "API metrics unavailable"
+              : `${apiErrors} server error${apiErrors === 1 ? "" : "s"} in 24h`,
+      },
+      {
+        name: "Security incidents",
+        status:
+          openIncidents === null
+            ? "unavailable"
+            : openIncidents > 0
+              ? "attention"
+              : "healthy",
+        detail:
+          openIncidents === null
+            ? "Incident data unavailable"
+            : `${openIncidents} open incident${openIncidents === 1 ? "" : "s"}`,
+      },
+      {
+        name: "Background jobs",
+        status:
+          pendingJobs === null
+            ? "unavailable"
+            : pendingJobs > 0 || Number(failedJobs || 0) > 0
+              ? "attention"
+              : "healthy",
+        detail:
+          pendingJobs === null
+            ? "Job data unavailable"
+            : `${pendingJobs} pending · ${failedJobs ?? 0} failed in 24h`,
+      },
+    ];
+
+    this.elements.technicalChecks.innerHTML = checks
+      .map(
+        (check) => `
+          <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+            <div>
+              <strong>${this.escapeHtml(check.name)}</strong>
+              <div class="small text-muted">${this.escapeHtml(check.detail)}</div>
+            </div>
+            <span class="badge bg-${this.statusClass(check.status)}">
+              ${this.escapeHtml(this.humanize(check.status))}
+            </span>
+          </div>`,
+      )
+      .join("");
+  },
+
+  renderAlerts() {
+    const errors = this.state.data.errors;
+    const warnings = this.state.data.warnings;
+
+    if (!errors && !warnings) {
+      this.elements.alerts.innerHTML =
+        '<div class="list-group-item text-danger">System attention data is unavailable.</div>';
+      return;
+    }
+
+    const items = [];
+
+    (Array.isArray(errors?.incidents) ? errors.incidents : []).forEach(
+      (incident) => {
+        items.push({
+          kind: "Security incident",
+          title: incident.title || "Untitled incident",
+          detail: incident.description || incident.status || "",
+          severity: incident.severity || "warning",
+          created_at: incident.created_at,
+        });
+      },
+    );
+
+    (Array.isArray(errors?.errors) ? errors.errors : []).forEach((error) => {
+      items.push({
+        kind: "System error",
+        title: error.error_type || "Application error",
+        detail: error.message || "",
+        severity: "critical",
+        created_at: error.created_at,
+      });
+    });
+
+    (Array.isArray(warnings?.alerts) ? warnings.alerts : []).forEach(
+      (alert) => {
+        items.push({
+          kind: "System alert",
+          title: alert.title || "System warning",
+          detail: alert.message || "",
+          severity: alert.severity || "warning",
+          created_at: alert.created_at,
+        });
+      },
+    );
+
+    (Array.isArray(warnings?.warnings) ? warnings.warnings : []).forEach(
+      (warning) => {
+        items.push({
+          kind: "Authentication warning",
+          title: warning.title || "Repeated failed authentication",
+          detail: warning.message || "",
+          severity: warning.severity || "warning",
+          created_at: warning.created_at,
+        });
+      },
+    );
+
+    (Array.isArray(warnings?.jobs) ? warnings.jobs : []).forEach((job) => {
+      items.push({
+        kind: "Background job",
+        title: job.job_type || "Background job requires attention",
+        detail: job.last_error || job.status || "",
+        severity: job.status === "failed" ? "critical" : "warning",
+        created_at: job.updated_at || job.created_at,
+      });
+    });
+
+    items.sort((left, right) =>
+      String(right.created_at || "").localeCompare(
+        String(left.created_at || ""),
+      ),
+    );
+
+    if (items.length === 0) {
+      this.elements.alerts.innerHTML =
+        '<div class="list-group-item text-muted">No unresolved system attention items.</div>';
+      return;
+    }
+
+    this.elements.alerts.innerHTML = items
+      .slice(0, 8)
+      .map(
+        (item) => `
+          <div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+              <div>
+                <strong>${this.escapeHtml(item.title)}</strong>
+                <div class="small text-muted">${this.escapeHtml(item.kind)}</div>
+              </div>
+              <span class="badge bg-${this.severityClass(item.severity)}">
+                ${this.escapeHtml(this.humanize(item.severity))}
+              </span>
+            </div>
+            ${
+              item.detail
+                ? `<div class="small mt-2">${this.escapeHtml(item.detail)}</div>`
+                : ""
+            }
+            ${
+              item.created_at
+                ? `<div class="small text-muted mt-1">${this.escapeHtml(
+                    this.formatDateTime(item.created_at),
+                  )}</div>`
+                : ""
+            }
+          </div>`,
+      )
+      .join("");
+  },
+
+  renderGeneratedAt() {
+    const generatedAt = Object.values(this.state.data)
+      .map((value) => value?.generated_at)
+      .find(Boolean);
+
+    this.elements.generatedAt.textContent = generatedAt
+      ? `Updated ${this.formatDateTime(generatedAt)}`
+      : "";
+  },
+
+  renderLoading() {
+    [
+      this.elements.enabledUsers,
+      this.elements.activeSessions,
+      this.elements.failedLogins,
+      this.elements.openIncidents,
+      this.elements.pendingJobs,
+      this.elements.apiErrors,
+    ].forEach((element) => {
+      element.textContent = "—";
+    });
+
+    [
+      this.elements.enabledUsersNote,
+      this.elements.activeSessionsNote,
+      this.elements.failedLoginsNote,
+      this.elements.openIncidentsNote,
+      this.elements.pendingJobsNote,
+      this.elements.apiErrorsNote,
+    ].forEach((element) => {
+      element.textContent = "Loading...";
+    });
+
+    this.elements.generatedAt.textContent = "";
+    this.elements.activityCount.textContent = "";
+    this.showActivityMessage("Loading authentication activity...");
+    this.elements.technicalChecks.innerHTML =
+      '<div class="list-group-item text-muted">Loading technical checks...</div>';
+    this.elements.alerts.innerHTML =
+      '<div class="list-group-item text-muted">Loading system attention items...</div>';
+  },
+
+  renderUnavailable(message) {
+    if (!this.elements.root) return;
+
+    [
+      this.elements.enabledUsers,
+      this.elements.activeSessions,
+      this.elements.failedLogins,
+      this.elements.openIncidents,
+      this.elements.pendingJobs,
+      this.elements.apiErrors,
+    ]
+      .filter(Boolean)
+      .forEach((element) => {
+        element.textContent = "—";
+      });
+
+    if (this.elements.activityBody) {
+      this.showActivityMessage(message, "text-danger");
+    }
+    if (this.elements.technicalChecks) {
+      this.elements.technicalChecks.innerHTML = `<div class="list-group-item text-danger">${this.escapeHtml(
+        message,
+      )}</div>`;
+    }
+    if (this.elements.alerts) {
+      this.elements.alerts.innerHTML = `<div class="list-group-item text-danger">${this.escapeHtml(
+        message,
+      )}</div>`;
+    }
+  },
+
+  renderForbidden() {
+    this.showState(
+      "You do not have permission to view the System Administrator Dashboard.",
+      "warning",
+    );
+    this.renderUnavailable("System Administrator access is required.");
+    if (this.elements.refreshButton) {
+      this.elements.refreshButton.disabled = true;
+    }
+    this.setBusy(false);
+  },
+
+  showActivityMessage(message, className = "text-muted") {
+    this.elements.activityBody.innerHTML = `
+      <tr>
+        <td colspan="5" class="text-center ${className} py-4">
+          ${this.escapeHtml(message)}
+        </td>
+      </tr>`;
+  },
+
+  showState(message, type = "info") {
+    if (!this.elements.state) return;
+    this.elements.state.hidden = false;
+    this.elements.state.className = `alert alert-${type}`;
+    this.elements.state.textContent = message;
+  },
+
+  hideState() {
+    if (this.elements.state) {
+      this.elements.state.hidden = true;
+    }
+  },
+
+  setBusy(isBusy) {
+    if (this.elements.root) {
+      this.elements.root.setAttribute("aria-busy", String(isBusy));
+    }
+    if (this.elements.refreshButton) {
+      this.elements.refreshButton.disabled = isBusy;
+      const icon = this.elements.refreshButton.querySelector("i");
+      icon?.classList.toggle("fa-spin", isBusy);
+    }
+  },
+
+  numberOrNull(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  },
+
+  statusClass(status) {
+    const classes = {
+      healthy: "success",
+      attention: "warning text-dark",
+      degraded: "warning text-dark",
+      down: "danger",
+      unavailable: "secondary",
+    };
+    return classes[String(status || "").toLowerCase()] || "secondary";
+  },
+
+  severityClass(severity) {
+    const classes = {
+      critical: "danger",
+      high: "danger",
+      warning: "warning text-dark",
+      medium: "warning text-dark",
+      low: "info text-dark",
+      info: "info text-dark",
+    };
+    return classes[String(severity || "").toLowerCase()] || "secondary";
+  },
+
+  humanize(value) {
+    return String(value || "")
+      .replace(/[_-]+/g, " ")
+      .replace(/\b\w/g, (character) => character.toUpperCase());
+  },
+
+  formatDateTime(value) {
+    if (!value) return "—";
+    const normalized = String(value).includes("T")
+      ? String(value)
+      : String(value).replace(" ", "T");
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  },
+
+  formatError(error, fallback) {
+    return (
+      error?.response?.message ||
+      error?.message ||
+      fallback ||
+      "An unexpected error occurred."
+    );
+  },
+
+  isForbidden(error) {
+    return Number(error?.code || error?.response?.code || 0) === 403;
+  },
+
+  escapeHtml(value) {
+    return String(value ?? "").replace(
+      /[&<>'"]/g,
+      (character) =>
+        ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "'": "&#39;",
+          '"': "&quot;",
+        })[character],
+    );
+  },
 };
 
-// ================== INITIALIZATION ==================
-
-/**
- * Initialize dashboard when DOM is ready
- */
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('📋 DOM loaded, initializing System Admin Dashboard...');
-    sysAdminDashboardController.init();
+document.addEventListener("DOMContentLoaded", () => {
+  void SystemAdministratorDashboardController.init();
 });
-
-// Export for external access if needed
-if (typeof window !== 'undefined') {
-    window.sysAdminDashboardController = sysAdminDashboardController;
-}

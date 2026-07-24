@@ -243,10 +243,7 @@ const MySubjectsController = {
       let csv = headers.join(',') + '\n' + 
         rows.map(r => r.map(v => '"' + (v || '') + '"').join(',')).join('\n');
       
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      a.download = 'my_subjects.csv';
-      a.click();
+      KingswayFileLifecycle.exportText(csv, 'my_subjects.csv', 'text/csv');
     }
   },
 

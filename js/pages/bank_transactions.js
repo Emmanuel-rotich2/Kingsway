@@ -369,13 +369,7 @@
             });
 
             var csv = [headers.join(",")].concat(rows.map(function (r) { return r.join(","); })).join("\n");
-            var blob = new Blob([csv], { type: "text/csv" });
-            var url = window.URL.createObjectURL(blob);
-            var a = document.createElement("a");
-            a.href = url;
-            a.download = "bank_transactions_" + new Date().toISOString().split("T")[0] + ".csv";
-            a.click();
-            window.URL.revokeObjectURL(url);
+            KingswayFileLifecycle.exportText(csv, "bank_transactions_" + new Date().toISOString().split("T")[0] + ".csv", "text/csv");
             this.showNotification("Export completed", "success");
         },
 

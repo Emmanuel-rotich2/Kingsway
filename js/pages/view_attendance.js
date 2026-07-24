@@ -1143,7 +1143,7 @@ const viewAttendanceController = {
         { key: 'absent', label: 'Absent' },
         { key: 'late', label: 'Late' },
         { key: 'permission', label: 'Permission' },
-        { key: 'attendance_percentage', label: 'Attendance %' }
+        { key: 'attendance_percentage', label: 'Attendance', type: 'percentage', formatter: value => `${Number(value || 0).toFixed(1)}%` }
       ];
       summary = {
         'Total Students': rows.length,
@@ -1157,17 +1157,19 @@ const viewAttendanceController = {
     }
 
     window.PrintManager.printTable({
-      title: title,
-      subtitle: subtitle,
-      columns: columns,
-      rows: rows,
+      title,
+      subtitle,
+      description: 'Official attendance and permission report.',
+      columns,
+      rows,
       summary: summary,
       orientation: 'landscape',
       paperSize: 'A4',
+      filename: `attendance_report_${new Date().toISOString().slice(0, 10)}`,
       reportCode: 'ATT-' + new Date().toISOString().slice(0, 10).replace(/-/g, ''),
       signatureSection: [
-        { label: 'Class Teacher' },
-        { label: 'Principal' }
+        { label: 'Class Teacher', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   },
@@ -1199,21 +1201,23 @@ const viewAttendanceController = {
           { label: 'Absent', value: this.studentData.absent || '—' },
           { label: 'Late', value: this.studentData.late || '—' },
           { label: 'Permission', value: this.studentData.permission || '—' },
-          { label: 'Attendance %', value: this.studentData.attendance_percentage || '—' }
+          { label: 'Attendance Percentage', value: `${Number(this.studentData.attendance_percentage || 0).toFixed(1)}%` }
         ]
       }
     ];
 
     window.PrintManager.printRecord({
       title: 'Student Attendance Report',
-      subtitle: studentName,
-      sections: sections,
+      subtitle: `${studentName} (${admissionNo})`,
+      description: 'Individual learner attendance summary.',
+      sections,
       orientation: 'portrait',
       paperSize: 'A4',
+      filename: `student_attendance_${admissionNo}_${new Date().toISOString().slice(0, 10)}`,
       reportCode: 'STA-' + (this.studentData.student_id || '0'),
       signatureSection: [
-        { label: 'Class Teacher' },
-        { label: 'Principal' }
+        { label: 'Class Teacher', dateLine: true },
+        { label: 'Headteacher', dateLine: true }
       ]
     });
   },

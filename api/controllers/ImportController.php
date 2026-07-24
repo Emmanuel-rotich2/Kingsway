@@ -110,13 +110,12 @@ class ImportController extends BaseController
         $label = DataImporter::TYPES[$type]['label'] ?? $type;
         $filename = str_replace([' ', '/'], '_', strtolower($label)) . '_template.csv';
 
-        header('Content-Type: text/csv; charset=utf-8');
-        header("Content-Disposition: attachment; filename=\"$filename\"");
-        header('Content-Length: ' . filesize($path));
-        header('Pragma: no-cache');
-        header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
-        readfile($path);
-        exit;
+        $this->streamManagedFile(
+            $path,
+            $filename,
+            'text/csv; charset=utf-8',
+            'attachment'
+        );
     }
 
     // ── GET /api/import/logs ────────────────────────────────────────────────

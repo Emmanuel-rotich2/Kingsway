@@ -542,15 +542,7 @@ const CateringBoardingController = {
     ]);
 
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell || "").replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `meal_sheet_${this.state.selectedDate}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    KingswayFileLifecycle.exportText(csv, `meal_sheet_${this.state.selectedDate}.csv`, "text/csv");
   },
 
   setLoading(loading) {

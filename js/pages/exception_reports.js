@@ -124,12 +124,7 @@ const exceptionReportsController = {
       e.amount||0, `"${e.affected_party||e.student_name||''}"`,
       `"${e.detected_at||e.created_at||''}"`, `"${e.status||'open'}"`,
     ].join(','))];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `exception_report_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    KingswayFileLifecycle.exportText(rows.join('\n'), `exception_report_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   _extract: function (settled) {

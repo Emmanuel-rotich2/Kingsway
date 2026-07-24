@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.teaching_assignments.view'); });
 /**
  * Assign Class Teachers Controller
  * Page: assign_class_teachers.php

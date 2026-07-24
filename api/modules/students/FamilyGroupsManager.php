@@ -661,6 +661,137 @@ class FamilyGroupsManager
         }
     }
 
+    public function getFamilyGroupsMeta(): array
+    {
+        try {
+            $classes = $this->pdo
+                ->query("SELECT id, name FROM classes WHERE status IN ('active','completed') ORDER BY name ASC")
+                ->fetchAll(PDO::FETCH_ASSOC);
+            $streams = $this->pdo
+                ->query("SELECT id, class_id, stream_name FROM class_streams WHERE status = 'active' ORDER BY stream_name ASC")
+                ->fetchAll(PDO::FETCH_ASSOC);
+
+            return [
+                'success' => true,
+                'data' => [
+                    'classes' => $classes,
+                    'streams' => $streams,
+                    'relationship_types' => [
+                        'father', 'mother', 'guardian', 'step_father', 'step_mother',
+                        'grandparent', 'uncle', 'aunt', 'sibling', 'other',
+                    ],
+                ],
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Failed to load family groups metadata: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    public function getFamilyGroups(array $filters = []): array
+    {
+        $search = trim((string)($filters['search'] ?? ''));
+        $limit = max(1, min(200, (int)($filters['limit'] ?? 100)));
+        $offset = max(0, (int)($filters['offset'] ?? 0));
+
+        if ($search !== '') {
+            return $this->searchFamilyGroups($search, $limit, $offset);
+        }
+
+        try {
+            $stmt = $this->pdo->prepare("
+                SELECT
+                    p.id AS parent_id,
+                    CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS parent_name,
+                    p.phone_1,
+                    p.email,
+                    p.status AS parent_status,
+                    COUNT(sp.student_id) AS students_count,
+                    GROUP_CONCAT(CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) ORDER BY s.first_name SEPARATOR ', ') AS student_names
+                FROM parents p
+                LEFT JOIN student_parents sp ON sp.parent_id = p.id
+                LEFT JOIN students s ON s.id = sp.student_id
+                WHERE p.status = 'active'
+                GROUP BY p.id, p.first_name, p.middle_name, p.last_name, p.phone_1, p.email, p.status
+                ORDER BY p.first_name, p.last_name
+                LIMIT :limit OFFSET :offset
+            ");
+            $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+            $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+            $stmt->execute();
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            return [
+                'success' => true,
+                'data' => $rows,
+                'pagination' => [
+                    'limit' => $limit,
+                    'offset' => $offset,
+                    'total' => count($rows),
+                ],
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Failed to load family groups: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    public function linkStudentToFamilyGroup(int $parentId, array $data): array
+    {
+        $studentId = !empty($data['student_id']) ? (int)$data['student_id'] : 0;
+        if (!$studentId) {
+            return [
+                'success' => false,
+                'message' => 'Student ID is required',
+            ];
+        }
+
+        return $this->linkParentToStudent($parentId, $studentId, [
+            'relationship' => $data['relationship'] ?? 'guardian',
+            'is_primary_contact' => !empty($data['is_primary_contact']) ? 1 : 0,
+            'is_emergency_contact' => !empty($data['is_emergency_contact']) ? 1 : 0,
+            'financial_responsibility' => $data['financial_responsibility'] ?? 100.00,
+        ]);
+    }
+
+    public function getChildrenForParentIds(array $parentIds): array
+    {
+        $parentIds = array_values(array_unique(array_filter(array_map('intval', $parentIds))));
+        if (!$parentIds) {
+            return [
+                'success' => true,
+                'data' => [],
+            ];
+        }
+
+        try {
+            $placeholders = implode(',', array_fill(0, count($parentIds), '?'));
+            $stmt = $this->pdo->prepare("
+                SELECT DISTINCT sp.student_id
+                FROM student_parents sp
+                JOIN students s ON s.id = sp.student_id
+                WHERE sp.parent_id IN ({$placeholders})
+                  AND s.status = 'active'
+                ORDER BY sp.student_id ASC
+            ");
+            $stmt->execute($parentIds);
+
+            return [
+                'success' => true,
+                'data' => array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'student_id')),
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Failed to load linked children: ' . $e->getMessage(),
+            ];
+        }
+    }
+
     /**
      * Delete a parent (soft delete by setting status to inactive)
      * 

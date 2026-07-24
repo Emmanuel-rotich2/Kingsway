@@ -130,13 +130,12 @@ const accountantControlsDashboardController = Object.assign(
       if (printBtn) {
         printBtn.addEventListener("click", function () {
           if (window.PrintManager && typeof window.PrintManager.printElement === 'function') {
-            window.PrintManager.printElement({
-              elementId: 'dashboardContent',
+            window.PrintManager.printElement('dashboardContent', {
               title: 'Financial Controls Dashboard',
               subtitle: 'Audit & Compliance Overview'
             });
           } else {
-            window.print();
+            console.error("PrintManager is unavailable.");
           }
         });
       }
@@ -191,13 +190,7 @@ const accountantControlsDashboardController = Object.assign(
           dashboard: "Financial Controls Dashboard",
           timestamp: new Date().toISOString(),
         };
-        var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-        var url = URL.createObjectURL(blob);
-        var link = document.createElement("a");
-        link.href = url;
-        link.download = "controls-dashboard-" + Date.now() + ".json";
-        link.click();
-        URL.revokeObjectURL(url);
+        KingswayFileLifecycle.exportText(JSON.stringify(data, null, 2), "controls-dashboard-" + Date.now() + ".json", "application/json");
       } catch (e) {
         console.error("Export failed:", e);
       }

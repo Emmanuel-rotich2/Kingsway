@@ -272,9 +272,9 @@ if (canShowSection('authorization', $allowedSections)) {
                         <img src="<?php echo htmlspecialchars($student['photo_url']); ?>" 
                              alt="Student Photo" 
                              class="student-photo"
-                             onerror="this.src='/uploads/students/avatar.jpg'">
+                             onerror="this.src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg')">
                     <?php else: ?>
-                        <img src="/uploads/students/avatar.jpg" 
+                        <img src=KingswayFileLifecycle.assetUrl('students', 'avatar.jpg') 
                              alt="Student Photo" 
                              class="student-photo">
                     <?php endif; ?>

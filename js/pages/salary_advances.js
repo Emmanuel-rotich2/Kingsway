@@ -47,7 +47,7 @@ const salaryAdvancesController = {
 
   _loadStaff: async function () {
     try {
-      const r = await callAPI('/staff/all', 'GET');
+      const r = await callAPI('/staff', 'GET');
       const list = r?.data || r || [];
       const opts = list.map(s => `<option value="${s.id}">${s.full_name || (s.first_name + ' ' + s.last_name)} (${s.employee_number || 'EMP'})</option>`).join('');
       document.getElementById('adv_staff_id') && (document.getElementById('adv_staff_id').innerHTML = '<option value="">— Select staff —</option>' + opts);

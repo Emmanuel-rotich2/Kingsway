@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.payroll.manage'); });
 /**
  * Manage Payrolls Page Controller - Compatibility Shim
  * 

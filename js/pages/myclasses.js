@@ -177,14 +177,16 @@ const myclassesController = (() => {
   }
 
   function printSchedule() {
-    const content =
-      document.getElementById("classesContainer")?.innerHTML || "";
-    const w = window.open("", "", "width=900,height=700");
-    w.document.write(
-      `<html><head><title>My Classes</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.0/font/bootstrap-icons.min.css"></head><body class="p-4"><h3>My Classes & Assigned Subjects</h3>${content}</body></html>`,
-    );
-    w.document.close();
-    w.print();
+    return window.PrintManager.printElement("classesContainer", {
+      title: "My Classes and Assigned Subjects",
+      description: "Current teaching assignments and class schedule.",
+      orientation: "landscape",
+      filename: `my_classes_${new Date().toISOString().slice(0, 10)}`,
+      signatureSection: [
+        { label: "Teacher", dateLine: true },
+        { label: "Academic Dean", dateLine: true },
+      ],
+    });
   }
 
   return { init, openUploadModal, uploadMaterial, printSchedule };

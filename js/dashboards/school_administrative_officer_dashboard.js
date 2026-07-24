@@ -1253,15 +1253,7 @@ const schoolAdminDashboardController = {
         tables: this.state.tables,
       };
 
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `school-admin-dashboard-${Date.now()}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
+      KingswayFileLifecycle.exportText(JSON.stringify(data, null, 2), `school-admin-dashboard-${Date.now()}.json`, "application/json",);
 
       this.log("✓ Dashboard exported successfully");
     } catch (error) {

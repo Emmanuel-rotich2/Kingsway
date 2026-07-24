@@ -1,25 +1,197 @@
-<?php /** Authentication Logs - View authentication and login activity logs */ ?>
-<div>
-    <div class="row mb-4"><div class="col-12"><div class="d-flex justify-content-between align-items-center">
-        <div><h4 class="mb-1"><i class="fas fa-sign-in-alt me-2"></i>Authentication Logs</h4><p class="text-muted mb-0">View authentication and login activity logs</p></div>
-        <button class="btn btn-outline-success" onclick="window._logCtrl.exportCSV()"><i class="fas fa-file-csv me-1"></i> Export</button>
-    </div></div></div>
-    <div class="row mb-4">
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-primary bg-opacity-10 p-3 me-3"><i class="fas fa-list text-primary fa-lg"></i></div><div><h6 class="text-muted mb-1">Total Records</h6><h4 class="mb-0" id="statTotal">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-danger bg-opacity-10 p-3 me-3"><i class="fas fa-times-circle text-danger fa-lg"></i></div><div><h6 class="text-muted mb-1">Errors</h6><h4 class="mb-0" id="statErrors">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-warning bg-opacity-10 p-3 me-3"><i class="fas fa-exclamation-triangle text-warning fa-lg"></i></div><div><h6 class="text-muted mb-1">Warnings</h6><h4 class="mb-0" id="statWarnings">0</h4></div></div></div></div></div>
-        <div class="col-md-3 mb-3"><div class="card shadow-sm border-0"><div class="card-body"><div class="d-flex align-items-center"><div class="rounded-circle bg-info bg-opacity-10 p-3 me-3"><i class="fas fa-calendar-day text-info fa-lg"></i></div><div><h6 class="text-muted mb-1">Today</h6><h4 class="mb-0" id="statToday">0</h4></div></div></div></div></div>
+<?php
+/**
+ * System Administrator — Authentication Logs
+ * Controller: js/pages/authentication_logs.js
+ */
+?>
+<div class="container-fluid py-4" id="authenticationLogsPage">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h2 class="h3 mb-1">Authentication Logs</h2>
+            <p class="text-muted mb-0">
+                Review successful and failed sign-in attempts recorded by the
+                authentication service.
+            </p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <button
+                type="button"
+                class="btn btn-outline-secondary"
+                id="resetAuthenticationLogFiltersBtn"
+            >
+                <i class="fas fa-undo me-1"></i> Reset filters
+            </button>
+            <button
+                type="button"
+                class="btn btn-primary"
+                id="refreshAuthenticationLogsBtn"
+            >
+                <i class="fas fa-sync-alt me-1"></i> Refresh
+            </button>
+        </div>
     </div>
-    <div class="card shadow-sm mb-4"><div class="card-body"><div class="row g-3">
-        <div class="col-md-3"><input type="text" class="form-control" id="searchInput" placeholder="Search logs..."></div>
-        <div class="col-md-2"><select class="form-select" id="severityFilter"><option value="">All Levels</option><option value="error">Error</option><option value="warning">Warning</option><option value="info">Info</option><option value="critical">Critical</option></select></div>
-        <div class="col-md-2"><input type="date" class="form-control" id="dateFrom"></div>
-        <div class="col-md-2"><input type="date" class="form-control" id="dateTo"></div>
-        <div class="col-md-3"><button class="btn btn-outline-secondary w-100" onclick="window._logCtrl.loadData()"><i class="fas fa-sync-alt me-1"></i> Refresh</button></div>
-    </div></div></div>
-    <div class="card shadow-sm"><div class="card-header bg-white"><h6 class="mb-0"><i class="fas fa-table me-2"></i>Log Records</h6></div>
-    <div class="card-body p-0"><div class="table-responsive"><table class="table table-hover mb-0" id="dataTable"><thead class="table-light"><tr><th>#</th><th>Timestamp</th><th>Level</th><th>Message</th><th>Source</th><th>Actions</th></tr></thead><tbody><tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr></tbody></table></div></div></div>
+
+    <div class="row g-3 mb-4" id="authenticationLogsSummary"></div>
+
+    <div
+        class="alert alert-info"
+        id="authenticationLogsState"
+        role="status"
+        aria-live="polite"
+    >
+        Waiting for authentication...
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white">
+            <div class="row g-2 align-items-end">
+                <div class="col-lg-4">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogSearch"
+                    >
+                        Search
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="fas fa-search"></i>
+                        </span>
+                        <input
+                            class="form-control"
+                            id="authenticationLogSearch"
+                            type="search"
+                            maxlength="200"
+                            placeholder="Username, email, IP, reason or client"
+                            autocomplete="off"
+                        >
+                    </div>
+                </div>
+
+                <div class="col-sm-6 col-lg-2">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogStatusFilter"
+                    >
+                        Result
+                    </label>
+                    <select class="form-select" id="authenticationLogStatusFilter">
+                        <option value="">All results</option>
+                        <option value="success">Successful</option>
+                        <option value="failed">Failed</option>
+                    </select>
+                </div>
+
+                <div class="col-sm-6 col-lg-2">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogReasonFilter"
+                    >
+                        Failure reason
+                    </label>
+                    <select class="form-select" id="authenticationLogReasonFilter">
+                        <option value="">All reasons</option>
+                    </select>
+                </div>
+
+                <div class="col-sm-6 col-lg-2">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogDateFrom"
+                    >
+                        From date
+                    </label>
+                    <input
+                        class="form-control"
+                        id="authenticationLogDateFrom"
+                        type="date"
+                    >
+                </div>
+
+                <div class="col-sm-6 col-lg-2">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogDateTo"
+                    >
+                        To date
+                    </label>
+                    <input
+                        class="form-control"
+                        id="authenticationLogDateTo"
+                        type="date"
+                    >
+                </div>
+
+                <div class="col-sm-6 col-lg-2">
+                    <label
+                        class="form-label small text-muted"
+                        for="authenticationLogPageSize"
+                    >
+                        Rows per page
+                    </label>
+                    <select class="form-select" id="authenticationLogPageSize">
+                        <option value="25">25</option>
+                        <option value="50" selected>50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Date and time</th>
+                        <th>Account / identifier</th>
+                        <th>Result</th>
+                        <th>IP address</th>
+                        <th>Failure reason</th>
+                        <th>Client</th>
+                    </tr>
+                </thead>
+                <tbody id="authenticationLogsTableBody">
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-muted">
+                            Waiting for authentication...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div
+            class="card-footer bg-white d-flex flex-wrap gap-3
+                   justify-content-between align-items-center"
+        >
+            <span class="text-muted small" id="authenticationLogsCount">
+                No authentication events loaded
+            </span>
+            <nav aria-label="Authentication log pages">
+                <div class="btn-group btn-group-sm">
+                    <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        id="authenticationLogsPreviousPage"
+                    >
+                        <i class="fas fa-chevron-left me-1"></i> Previous
+                    </button>
+                    <span
+                        class="btn btn-outline-secondary disabled"
+                        id="authenticationLogsPageIndicator"
+                    >
+                        Page 1 of 1
+                    </span>
+                    <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        id="authenticationLogsNextPage"
+                    >
+                        Next <i class="fas fa-chevron-right ms-1"></i>
+                    </button>
+                </div>
+            </nav>
+        </div>
+    </div>
 </div>
-<div class="modal fade" id="detailModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="fas fa-info-circle me-2"></i>Detail</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="detailContent">--</div></div></div></div>
-<script src="<?= $appBase ?>/js/pages/system/log_viewer_controller.js?v=<?php echo time(); ?>"></script>
-<script>window._logCtrl = new LogViewerController({ title: 'Authentication Logs', apiEndpoint: '/system/authentication-logs' });</script>
+
+<script src="<?= htmlspecialchars($appBase) ?>/js/pages/authentication_logs.js?v=<?= asset_version('js/pages/authentication_logs.js') ?>"></script>

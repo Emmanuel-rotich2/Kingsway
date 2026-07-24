@@ -1,6 +1,9 @@
 <?php
 namespace App\API\Controllers;
 
+use App\API\Services\DownloadService;
+use App\API\Services\UploadService;
+
 /**
  * WebsiteController — CRUD for all public website content tables.
  * Endpoint: /api/website/{resource}
@@ -321,103 +324,310 @@ class WebsiteController extends BaseController
     // DOWNLOADS  /api/website/downloads
     // ─────────────────────────────────────────────────────────────────────────
 
-    public function getDownloads($id = null, $data = [], $segments = []) {
-        if (!$this->hasPerm('website_view')) return $this->forbidden('Access denied.');
+    public function getDownloads(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
+        if (!$this->hasPerm('website_view')) {
+            return $this->forbidden('Access denied.');
+        }
+
         try {
-            // Default to active downloads only (mirrors kw_downloads). Pass
-            // active=0 to include inactive (admin view).
             $activeOnly = ($data['active'] ?? '1') !== '0';
             $sql = $activeOnly
-                ? "SELECT * FROM page_downloads WHERE is_active=1 ORDER BY category, display_order ASC LIMIT 200"
-                : "SELECT * FROM page_downloads ORDER BY category, display_order ASC LIMIT 200";
-            $rows = $this->db->query($sql)->fetchAll();
-            return $this->success(['items'=>$rows,'total'=>count($rows)]);
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
-    }
+                ? "SELECT * FROM page_downloads
+                   WHERE is_active = 1
+                     AND token_revoked_at IS NULL
+                   ORDER BY category, display_order ASC
+                   LIMIT 200"
+                : "SELECT * FROM page_downloads
+                   ORDER BY category, display_order ASC
+                   LIMIT 200";
 
-    /**
-     * Save an uploaded document into uploads/school_assets/documents and return
-     * the env-agnostic web URL (relative to BASE_URL). Falls back to the
-     * manually-supplied file_url when no file was uploaded.
-     */
-    private function saveUploadedDocument(?array $file, string $existingUrl = ''): ?string {
-        if (empty($file) || ($file['error'] ?? 1) !== UPLOAD_ERR_OK || empty($file['tmp_name'])) {
-            return $existingUrl ?: null;
-        }
-        $destDir = defined('SCHOOL_ASSETS_DOCUMENTS') ? SCHOOL_ASSETS_DOCUMENTS : (__DIR__.'/../../uploads/school_assets/documents');
-        if (!is_dir($destDir)) { mkdir($destDir, 0755, true); }
-        $safeName = preg_replace('/[^A-Za-z0-9._-]/', '_', basename($file['name']));
-        // Avoid collisions.
-        if (file_exists($destDir.'/'.$safeName)) {
-            $safeName = time().'_'.$safeName;
-        }
-        if (!@move_uploaded_file($file['tmp_name'], $destDir.'/'.$safeName)) {
-            return $existingUrl ?: null;
-        }
-        // Build an env-agnostic web URL. UPLOAD_PATH is rooted at the project
-        // root (dev: .../Kingsway/uploads, prod: /home/kingswa4/uploads = deploy
-        // root). Strip that root off the real destination dir to get the path
-        // relative to the site base, then prefix the env-aware BASE_URL (which is
-        // http://localhost/Kingsway locally and the production domain in prod).
-        // This mirrors PrintController::getWebUrl and works for both subdir and
-        // root installs without hardcoding /Kingsway.
-        $root = rtrim(realpath(dirname(UPLOAD_PATH) ?: __DIR__.'/..'), '/\\');
-        $rel  = trim(str_replace('\\','/', str_replace($root, '', realpath($destDir))), '/\\');
-        $rel  = $rel === '' ? 'uploads/school_assets/documents' : $rel;
-        $base = rtrim(defined('BASE_URL') ? BASE_URL : (rtrim(str_replace('\\','/',dirname($_SERVER['SCRIPT_NAME'] ?? '/api/index.php')),'/')), '/');
-        return $base . '/' . $rel . '/' . $safeName;
-    }
-
-    public function postDownloads($id = null, $data = [], $segments = []) {
-        $guard = $this->requirePerm('website_downloads_manage');
-        if ($guard) return $guard;
-        if (empty($data['title'])) return $this->badRequest('Title is required.');
-        try {
-            $fileUrl = $this->saveUploadedDocument($_FILES['file'] ?? null, $data['file_url'] ?? '');
-            if (empty($fileUrl)) return $this->badRequest('Provide a file to upload or a valid file URL.');
-            $max = (int)$this->db->query("SELECT COALESCE(MAX(display_order),0) FROM page_downloads WHERE category=?", [$data['category']??'General'])->fetchColumn();
-            $this->db->query(
-                "INSERT INTO page_downloads (title,description,file_url,file_type,file_size,category,icon,color,display_order) VALUES (?,?,?,?,?,?,?,?,?)",
-                [$data['title'], $data['description']??'', $fileUrl, $data['file_type']??'PDF',
-                 $data['file_size']??'', $data['category']??'General',
-                 $data['icon']??'bi-file-earmark-pdf-fill', $data['color']??'#198754', $max+10]
+            $rows = array_map(
+                [$this->downloads(), 'normalizedPublicDocument'],
+                $this->db->query($sql)->fetchAll()
             );
-            return $this->created(['id'=>$this->db->lastInsertId()], 'Download entry added');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+
+            return $this->success([
+                'items' => $rows,
+                'total' => count($rows),
+            ]);
+        } catch (\Throwable $exception) {
+            return $this->error(
+                'Failed: ' . $exception->getMessage()
+            );
+        }
     }
 
-    public function putDownloads($id = null, $data = [], $segments = []) {
+    public function postDownloads(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
         $guard = $this->requirePerm('website_downloads_manage');
-        if ($guard) return $guard;
-        if (!$id) return $this->badRequest('Download ID required.');
+        if ($guard) {
+            return $guard;
+        }
+
+        if (empty($data['title'])) {
+            return $this->badRequest('Title is required.');
+        }
+
+        if (
+            empty($_FILES['file'])
+            || ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE)
+                !== UPLOAD_ERR_OK
+        ) {
+            return $this->badRequest(
+                'Choose a school document to upload.'
+            );
+        }
+
         try {
-            $fields = []; $params = [];
-            foreach (['title','description','file_type','file_size','category','icon','color','is_active'] as $f) {
-                if (isset($data[$f])) { $fields[] = "$f=?"; $params[] = $data[$f]; }
-            }
-            // Real file upload wins over a manually-typed URL.
-            $existing = $this->db->query("SELECT file_url FROM page_downloads WHERE id=?", [$id])->fetchColumn();
-            $uploadedUrl = $this->saveUploadedDocument($_FILES['file'] ?? null, $existing ?: '');
-            if ($uploadedUrl && $uploadedUrl !== $existing) {
-                $fields[] = "file_url=?"; $params[] = $uploadedUrl;
-            } elseif (isset($data['file_url']) && $data['file_url'] !== $existing) {
-                $fields[] = "file_url=?"; $params[] = $data['file_url'];
-            }
-            if (empty($fields)) return $this->badRequest('No fields to update.');
-            $params[] = $id;
-            $this->db->query("UPDATE page_downloads SET ".implode(',',$fields).",updated_at=NOW() WHERE id=?", $params);
-            return $this->success(['id'=>(int)$id], 'Download updated');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+            $stored = $this->uploadManaged(
+                $_FILES['file'],
+                'school_document',
+                [
+                    'prefix' => 'school_document',
+                    'preferred_name' => (string) $data['title'],
+                ]
+            );
+            $token = $this->downloads()->createPublicToken();
+
+            $maxOrder = (int) $this->db->query(
+                "SELECT COALESCE(MAX(display_order), 0)
+                 FROM page_downloads
+                 WHERE category = ?",
+                [$data['category'] ?? 'General']
+            )->fetchColumn();
+
+            $this->db->query(
+                "INSERT INTO page_downloads (
+                    title,
+                    description,
+                    storage_filename,
+                    public_token,
+                    original_filename,
+                    mime_type,
+                    file_size_bytes,
+                    file_type,
+                    file_size,
+                    category,
+                    icon,
+                    color,
+                    display_order,
+                    is_active,
+                    token_created_at,
+                    created_by,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW(), ?, NOW(), NOW())",
+                [
+                    $data['title'],
+                    $data['description'] ?? '',
+                    $stored['storage_filename'],
+                    $token,
+                    $stored['original_filename'],
+                    $stored['mime_type'],
+                    $stored['file_size_bytes'],
+                    strtoupper(
+                        pathinfo(
+                            $stored['original_filename'],
+                            PATHINFO_EXTENSION
+                        )
+                    ),
+                    $stored['file_size'],
+                    $data['category'] ?? 'General',
+                    $data['icon'] ?? 'bi-file-earmark-pdf-fill',
+                    $data['color'] ?? '#198754',
+                    $maxOrder + 10,
+                    (int) ($this->user['id'] ?? 0) ?: null,
+                ]
+            );
+
+            $recordId = (int) $this->db->lastInsertId();
+
+            return $this->created([
+                'id' => $recordId,
+                'download_url' =>
+                    $this->downloads()->publicDownloadUrl($token),
+            ], 'Download entry added.');
+        } catch (\Throwable $exception) {
+            return $this->error(
+                'Failed: ' . $exception->getMessage()
+            );
+        }
     }
 
-    public function deleteDownloads($id = null, $data = [], $segments = []) {
+    public function putDownloads(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
         $guard = $this->requirePerm('website_downloads_manage');
-        if ($guard) return $guard;
-        if (!$id) return $this->badRequest('Download ID required.');
+        if ($guard) {
+            return $guard;
+        }
+
+        if (!$id) {
+            return $this->badRequest('Download ID required.');
+        }
+
         try {
-            $this->db->query("UPDATE page_downloads SET is_active=0, updated_at=NOW() WHERE id=?", [$id]);
-            return $this->success(null, 'Download removed');
-        } catch (\Throwable $e) { return $this->error('Failed: '.$e->getMessage()); }
+            $existing = $this->db->query(
+                "SELECT * FROM page_downloads WHERE id = ? LIMIT 1",
+                [(int) $id]
+            )->fetch();
+
+            if (!$existing) {
+                return $this->notFound('Download record not found.');
+            }
+
+            $fields = [];
+            $params = [];
+
+            foreach ([
+                'title',
+                'description',
+                'category',
+                'icon',
+                'color',
+                'is_active',
+            ] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $fields[] = "{$field} = ?";
+                    $params[] = $data[$field];
+                }
+            }
+
+            $hasReplacement = !empty($_FILES['file'])
+                && ($_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE)
+                    === UPLOAD_ERR_OK;
+
+            if ($hasReplacement) {
+
+                $oldPath = !empty($existing['storage_filename'])
+                    ? rtrim(
+                        (string) SCHOOL_ASSETS_DOCUMENTS,
+                        '/\\'
+                    )
+                        . DIRECTORY_SEPARATOR
+                        . basename(
+                            (string) $existing['storage_filename']
+                        )
+                    : null;
+
+                $stored = $this->uploadManaged(
+                    $_FILES['file'],
+                    'school_document',
+                    [
+                        'prefix' => 'school_document',
+                        'preferred_name' => (string) (
+                            $data['title']
+                            ?? $existing['title']
+                            ?? 'school_document'
+                        ),
+                        'replace_path' => $oldPath,
+                    ]
+                );
+
+                $fields = array_merge($fields, [
+                    'storage_filename = ?',
+                    'public_token = ?',
+                    'original_filename = ?',
+                    'mime_type = ?',
+                    'file_size_bytes = ?',
+                    'file_type = ?',
+                    'file_size = ?',
+                    'token_created_at = NOW()',
+                    'token_revoked_at = NULL',
+                ]);
+
+                array_push(
+                    $params,
+                    $stored['storage_filename'],
+                    $this->downloads()->createPublicToken(),
+                    $stored['original_filename'],
+                    $stored['mime_type'],
+                    $stored['file_size_bytes'],
+                    strtoupper(
+                        pathinfo(
+                            $stored['original_filename'],
+                            PATHINFO_EXTENSION
+                        )
+                    ),
+                    $stored['file_size']
+                );
+            }
+
+            if ($fields === []) {
+                return $this->badRequest('No fields to update.');
+            }
+
+            $fields[] = 'updated_by = ?';
+            $params[] = (int) ($this->user['id'] ?? 0) ?: null;
+            $params[] = (int) $id;
+
+            $this->db->query(
+                "UPDATE page_downloads
+                 SET " . implode(', ', $fields) . ",
+                     updated_at = NOW()
+                 WHERE id = ?",
+                $params
+            );
+
+            return $this->success(
+                ['id' => (int) $id],
+                $hasReplacement
+                    ? 'Download file replaced and public token regenerated.'
+                    : 'Download metadata updated.'
+            );
+        } catch (\Throwable $exception) {
+            return $this->error(
+                'Failed: ' . $exception->getMessage()
+            );
+        }
+    }
+
+    public function deleteDownloads(
+        $id = null,
+        $data = [],
+        $segments = []
+    ) {
+        $guard = $this->requirePerm('website_downloads_manage');
+        if ($guard) {
+            return $guard;
+        }
+
+        if (!$id) {
+            return $this->badRequest('Download ID required.');
+        }
+
+        try {
+            $this->db->query(
+                "UPDATE page_downloads
+                 SET is_active = 0,
+                     token_revoked_at = NOW(),
+                     updated_by = ?,
+                     updated_at = NOW()
+                 WHERE id = ?",
+                [
+                    (int) ($this->user['id'] ?? 0) ?: null,
+                    (int) $id,
+                ]
+            );
+
+            return $this->success(
+                null,
+                'Download removed and public access revoked.'
+            );
+        } catch (\Throwable $exception) {
+            return $this->error(
+                'Failed: ' . $exception->getMessage()
+            );
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

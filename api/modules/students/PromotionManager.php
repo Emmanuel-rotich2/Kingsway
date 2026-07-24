@@ -463,6 +463,273 @@ class PromotionManager
         }
     }
 
+    public function getPromotionMeta(): array
+    {
+        $years = $this->db->query("
+            SELECT id, year_code, year_name, is_current
+            FROM academic_years
+            ORDER BY is_current DESC, year_code DESC
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $classes = $this->db->query("
+            SELECT id, name
+            FROM classes
+            WHERE status IN ('active','completed')
+            ORDER BY name ASC
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $streams = $this->db->query("
+            SELECT id, class_id, stream_name
+            FROM class_streams
+            WHERE status = 'active'
+            ORDER BY stream_name ASC
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        $terms = $this->db->query("
+            SELECT id, name
+            FROM academic_terms
+            ORDER BY start_date ASC
+        ")->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'academic_years' => $years,
+            'classes' => $classes,
+            'streams' => $streams,
+            'terms' => $terms,
+            'promotion_rules' => ['promote_all', 'promote_passed', 'repeat_failed', 'custom'],
+            'statuses' => ['pending_approval', 'approved', 'rejected', 'transferred', 'retained', 'graduated'],
+        ];
+    }
+
+    public function getPromotionCandidates(array $filters = []): array
+    {
+        $fromYearId = !empty($filters['from_academic_year_id']) ? (int)$filters['from_academic_year_id'] : null;
+        $fromClassId = !empty($filters['from_class_id']) ? (int)$filters['from_class_id'] : null;
+        $fromStreamId = !empty($filters['from_stream_id']) ? (int)$filters['from_stream_id'] : null;
+        $search = !empty($filters['search']) ? trim((string)$filters['search']) : '';
+
+        $sql = "
+            SELECT
+                s.id,
+                s.admission_no,
+                CONCAT_WS(' ', s.first_name, s.middle_name, s.last_name) AS full_name,
+                c.name AS current_class,
+                cs.stream_name AS current_stream,
+                s.stream_id,
+                ay.year_code AS current_year,
+                s.status AS student_status
+            FROM students s
+            LEFT JOIN class_streams cs ON cs.id = s.stream_id
+            LEFT JOIN classes c ON c.id = cs.class_id
+            LEFT JOIN class_enrollments ce ON ce.student_id = s.id
+            LEFT JOIN academic_years ay ON ay.id = ce.academic_year_id
+            WHERE s.status = 'active'
+        ";
+        $bindings = [];
+
+        if ($fromClassId) {
+            $sql .= " AND c.id = ?";
+            $bindings[] = $fromClassId;
+        }
+        if ($fromStreamId) {
+            $sql .= " AND s.stream_id = ?";
+            $bindings[] = $fromStreamId;
+        }
+        if ($fromYearId) {
+            $sql .= " AND ay.id = ?";
+            $bindings[] = $fromYearId;
+        }
+        if ($search !== '') {
+            $sql .= " AND (s.admission_no LIKE ? OR s.first_name LIKE ? OR s.last_name LIKE ?)";
+            $term = '%' . $search . '%';
+            array_push($bindings, $term, $term, $term);
+        }
+
+        $sql .= " ORDER BY s.first_name, s.last_name";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($bindings);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function executePromotionV2(array $data, int $performedBy): array
+    {
+        $fromYearId = !empty($data['from_academic_year_id']) ? (int)$data['from_academic_year_id'] : 0;
+        $toYearId = !empty($data['to_academic_year_id']) ? (int)$data['to_academic_year_id'] : 0;
+        $fromTermId = !empty($data['from_term_id']) ? (int)$data['from_term_id'] : 0;
+        $toClassId = !empty($data['to_class_id']) ? (int)$data['to_class_id'] : 0;
+        $toStreamId = !empty($data['to_stream_id']) ? (int)$data['to_stream_id'] : 0;
+        $students = !empty($data['students']) ? (array)$data['students'] : [];
+        $notes = $data['notes'] ?? null;
+
+        if (!$fromYearId || !$toYearId || !$students) {
+            throw new Exception('Required fields: from_academic_year_id, to_academic_year_id, students');
+        }
+
+        $fromYear = $this->getYearValueFromId($fromYearId);
+        $toYear = $this->getYearValueFromId($toYearId);
+        if (!$fromYear || !$toYear) {
+            throw new Exception('Selected academic years do not contain valid YEAR values');
+        }
+
+        if (!$fromTermId) {
+            $fromTermId = $this->getCurrentTermId($fromYear);
+        }
+        if (!$fromTermId) {
+            throw new Exception('Current academic term could not be resolved');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare("
+                INSERT INTO promotion_batches
+                    (from_academic_year, to_academic_year, batch_type, batch_scope, status, created_by, notes)
+                VALUES (?, ?, 'manual', 'Manual Promotion V2', 'in_progress', ?, ?)
+            ");
+            $stmt->execute([$fromYear, $toYear, $performedBy, $notes]);
+            $batchId = (int)$this->db->lastInsertId();
+
+            $promoted = 0;
+            $retained = 0;
+            $processed = 0;
+
+            foreach ($students as $studentData) {
+                if (!is_array($studentData) || empty($studentData['student_id'])) {
+                    continue;
+                }
+
+                $studentId = (int)$studentData['student_id'];
+                $finalAction = $studentData['final_action'] ?? 'promote';
+                $studentNotes = $studentData['notes'] ?? null;
+
+                $stmt = $this->db->prepare("
+                    SELECT id, class_id, stream_id, academic_year_id
+                    FROM class_enrollments
+                    WHERE student_id = ? AND academic_year_id = ?
+                    LIMIT 1
+                ");
+                $stmt->execute([$studentId, $fromYearId]);
+                $enrollment = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$enrollment) {
+                    continue;
+                }
+
+                $targetClassId = $toClassId ?: (int)$enrollment['class_id'];
+                $targetStreamId = $toStreamId ?: (int)$enrollment['stream_id'];
+                $toEnrollmentId = null;
+                $promotionStatus = $finalAction === 'retain' ? 'retained' : 'approved';
+
+                if ($finalAction === 'promote') {
+                    $stmt = $this->db->prepare("
+                        SELECT id
+                        FROM class_enrollments
+                        WHERE student_id = ? AND academic_year_id = ?
+                        LIMIT 1
+                    ");
+                    $stmt->execute([$studentId, $toYearId]);
+                    $existingEnrollment = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                    if ($existingEnrollment) {
+                        $stmt = $this->db->prepare("
+                            UPDATE class_enrollments
+                            SET class_id = ?, stream_id = ?, enrollment_status = 'active'
+                            WHERE id = ?
+                        ");
+                        $stmt->execute([$targetClassId, $targetStreamId, $existingEnrollment['id']]);
+                        $toEnrollmentId = (int)$existingEnrollment['id'];
+                    } else {
+                        $stmt = $this->db->prepare("
+                            INSERT INTO class_enrollments
+                                (student_id, class_id, stream_id, academic_year_id, enrollment_date, enrollment_status)
+                            VALUES (?, ?, ?, ?, CURDATE(), 'active')
+                        ");
+                        $stmt->execute([$studentId, $targetClassId, $targetStreamId, $toYearId]);
+                        $toEnrollmentId = (int)$this->db->lastInsertId();
+                    }
+
+                    if ($toStreamId) {
+                        $stmt = $this->db->prepare("UPDATE students SET stream_id = ? WHERE id = ?");
+                        $stmt->execute([$toStreamId, $studentId]);
+                    }
+
+                    $stmt = $this->db->prepare("
+                        UPDATE class_enrollments
+                        SET promotion_status = 'promoted',
+                            promoted_to_class_id = ?,
+                            promoted_to_stream_id = ?,
+                            promotion_date = CURDATE(),
+                            completed_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$targetClassId, $targetStreamId, $enrollment['id']]);
+                    $promoted++;
+                } else {
+                    $stmt = $this->db->prepare("
+                        UPDATE class_enrollments
+                        SET promotion_status = 'retained',
+                            promotion_date = CURDATE()
+                        WHERE id = ?
+                    ");
+                    $stmt->execute([$enrollment['id']]);
+                    $retained++;
+                }
+
+                $stmt = $this->db->prepare("
+                    INSERT INTO student_promotions
+                        (batch_id, from_enrollment_id, to_enrollment_id, from_academic_year_id, to_academic_year_id,
+                         student_id, current_class_id, current_stream_id, promoted_to_class_id, promoted_to_stream_id,
+                         from_academic_year, to_academic_year, from_term_id, promotion_status, overall_score,
+                         promotion_reason, approved_by, approval_date)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NOW())
+                ");
+                $stmt->execute([
+                    $batchId,
+                    $enrollment['id'],
+                    $toEnrollmentId,
+                    $fromYearId,
+                    $toYearId,
+                    $studentId,
+                    $enrollment['class_id'],
+                    $enrollment['stream_id'],
+                    $targetClassId,
+                    $targetStreamId,
+                    $fromYear,
+                    $toYear,
+                    $fromTermId,
+                    $promotionStatus,
+                    $studentNotes,
+                    $performedBy,
+                ]);
+                $processed++;
+            }
+
+            $stmt = $this->db->prepare("
+                UPDATE promotion_batches
+                SET status = 'completed',
+                    total_students_processed = ?,
+                    total_promoted = ?,
+                    total_rejected = ?,
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ");
+            $stmt->execute([$processed, $promoted, $retained, $batchId]);
+
+            $this->db->commit();
+            return [
+                'message' => "Promotion completed successfully. {$promoted} promoted, {$retained} retained.",
+                'batch_id' => $batchId,
+                'processed' => $processed,
+                'promoted' => $promoted,
+                'retained' => $retained,
+            ];
+        } catch (Exception $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $e;
+        }
+    }
+
     // ==================== HELPER METHODS ====================
 
     private function getStudentStatus(int $studentId): ?array

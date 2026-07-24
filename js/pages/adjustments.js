@@ -205,12 +205,7 @@ const adjustmentsController = {
       `"${a.student_name||'General'}"`,a.amount||0,`"${(a.reason||'').replace(/"/g,"'")}"`,
       `"${a.submitted_by||''}"`,`"${a.status||''}"`,
     ].join(','))];
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const el = document.createElement('a');
-    el.href = URL.createObjectURL(blob);
-    el.download = `adjustments_${new Date().toISOString().split('T')[0]}.csv`;
-    el.click();
-    URL.revokeObjectURL(el.href);
+    KingswayFileLifecycle.exportText(rows.join('\n'), `adjustments_${new Date().toISOString().split('T')[0]}.csv`, 'text/csv');
   },
 
   _set: (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; },

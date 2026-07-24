@@ -436,10 +436,6 @@ if ($appBase === '.') $appBase = '';
           <input type="file" class="form-control" id="dlFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx">
           <small class="text-muted">Leave empty to keep the existing file. The admin uploads fees structures, admission letters, etc. here.</small>
         </div>
-        <div class="col-12 ws-form-group">
-          <label>Or File URL / Path (optional fallback)</label>
-          <input type="text" id="dlUrl" placeholder="uploads/school_assets/documents/fee_structure.pdf or https://…">
-        </div>
         <div class="col-12 ws-form-group"><label>Description</label><textarea id="dlDesc" rows="2" class="form-control" placeholder="Short description of this document"></textarea></div>
         <div class="col-md-6 ws-form-group"><label>File Size (display)</label><input type="text" id="dlSize" placeholder="e.g. 245 KB"></div>
       </div>

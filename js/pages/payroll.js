@@ -1,3 +1,4 @@
+document.addEventListener('DOMContentLoaded', async () => { if (window.StaffAccess) await StaffAccess.require('staff.payroll.manage'); });
 /**
  * Payroll Page Controller
  * Staff self-service payroll view: process payroll, view payslips, reports
