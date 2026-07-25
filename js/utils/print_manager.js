@@ -62,24 +62,19 @@ const PrintManager = (() => {
     appBase: window.APP_BASE || "",
     apiBase: window.API_BASE_URL || window.APP_BASE || "",
 
-    schoolName:
-      window.SCHOOL_CONFIG?.name || "KINGSWAY PREPARATORY SCHOOL",
-    schoolMotto:
-      window.SCHOOL_CONFIG?.motto || "In God We Soar",
+    schoolName: window.SCHOOL_CONFIG?.name || "KINGSWAY PREPARATORY SCHOOL",
+    schoolMotto: window.SCHOOL_CONFIG?.motto || "In God We Soar",
     schoolAddress:
       window.SCHOOL_CONFIG?.address ||
       "P.O. Box 203-20203, Londiani, Kericho County, Kenya",
-    schoolPhone:
-      window.SCHOOL_CONFIG?.phone || "0720 113 030 / 0720 113 031",
+    schoolPhone: window.SCHOOL_CONFIG?.phone || "0720 113 030 / 0720 113 031",
     schoolEmail:
-      window.SCHOOL_CONFIG?.email ||
-      "info@kingswaypreparatoryschool.sc.ke",
+      window.SCHOOL_CONFIG?.email || "info@kingswaypreparatoryschool.sc.ke",
     schoolWebsite:
-      window.SCHOOL_CONFIG?.website ||
-      "www.kingswaypreparatoryschool.sc.ke",
+      window.SCHOOL_CONFIG?.website || "www.kingswaypreparatoryschool.sc.ke",
     schoolLogo:
       window.SCHOOL_CONFIG?.logo ||
-      `${window.APP_BASE || ""}/uploads/school_assets/official_school_logo.png`,
+      `{$appBase}/uploads/school_assets/official_school_logo.png`,
 
     endpoints: {
       tableReport: "/api/print/table",
@@ -107,7 +102,8 @@ const PrintManager = (() => {
 
   function escapeHtml(value) {
     const div = document.createElement("div");
-    div.textContent = value === null || value === undefined ? "" : String(value);
+    div.textContent =
+      value === null || value === undefined ? "" : String(value);
     return div.innerHTML;
   }
 
@@ -165,7 +161,10 @@ const PrintManager = (() => {
       return path;
     }
 
-    const base = String(config.apiBase || config.appBase || "").replace(/\/+$/, "");
+    const base = String(config.apiBase || config.appBase || "").replace(
+      /\/+$/,
+      "",
+    );
     const normalizedPath = String(path || "").startsWith("/")
       ? String(path)
       : `/${String(path || "")}`;
@@ -348,7 +347,10 @@ const PrintManager = (() => {
   }
 
   function downloadBlob(blob, filename) {
-    return KingswayFileLifecycle.downloadBlob(blob, safeFilename(filename, 'document.pdf'));
+    return KingswayFileLifecycle.downloadBlob(
+      blob,
+      safeFilename(filename, "document.pdf"),
+    );
   }
 
   function openUrl(url, target = "_blank") {
@@ -415,7 +417,8 @@ const PrintManager = (() => {
 
     if (isBlob(response)) {
       const filename =
-        options.filename || `document_${new Date().toISOString().slice(0, 10)}.pdf`;
+        options.filename ||
+        `document_${new Date().toISOString().slice(0, 10)}.pdf`;
 
       if (options.download === true) {
         downloadBlob(response, filename);
@@ -435,21 +438,22 @@ const PrintManager = (() => {
       throw new Error(payload.message || "The print request failed.");
     }
 
-    const files = Array.isArray(payload.files) && payload.files.length
-      ? payload.files
-      : payload.file
-        ? [payload.file]
-        : payload.download_url
-          ? [payload.download_url]
-          : payload.pdf_url
-            ? [payload.pdf_url]
-            : payload.csv_url
-              ? [payload.csv_url]
-              : payload.url
-                ? [payload.url]
-                : payload.filename
-                  ? [payload.filename]
-                  : [];
+    const files =
+      Array.isArray(payload.files) && payload.files.length
+        ? payload.files
+        : payload.file
+          ? [payload.file]
+          : payload.download_url
+            ? [payload.download_url]
+            : payload.pdf_url
+              ? [payload.pdf_url]
+              : payload.csv_url
+                ? [payload.csv_url]
+                : payload.url
+                  ? [payload.url]
+                  : payload.filename
+                    ? [payload.filename]
+                    : [];
 
     if (!files.length) {
       throw new Error(
@@ -619,12 +623,8 @@ const PrintManager = (() => {
         [resolveUserDisplayName(user), resolveUserRole(user)]
           .filter(Boolean)
           .join(" — "),
-      generatedAt: formatReportDate(
-        config.generatedAt || new Date(),
-      ),
-      printedAt: formatReportDate(
-        config.printedAt || new Date(),
-      ),
+      generatedAt: formatReportDate(config.generatedAt || new Date()),
+      printedAt: formatReportDate(config.printedAt || new Date()),
       confidentialityNote:
         config.confidentialityNote ||
         "This document is issued by Kingsway Preparatory School and is intended for authorized use only.",
@@ -918,8 +918,7 @@ const PrintManager = (() => {
         teacherName: config.teacherName || "Class Teacher",
         sportsCoordinatorName:
           config.sportsCoordinatorName || "Sports Coordinator",
-        examOfficerName:
-          config.examOfficerName || "Examinations Officer",
+        examOfficerName: config.examOfficerName || "Examinations Officer",
       },
       filename:
         config.filename ||
@@ -997,7 +996,10 @@ const PrintManager = (() => {
   function setStoredIdChunkSize(chunkSize) {
     const value = Math.max(
       1,
-      Math.min(defaults.maxIdChunkSize, Number(chunkSize) || defaults.idChunkSize),
+      Math.min(
+        defaults.maxIdChunkSize,
+        Number(chunkSize) || defaults.idChunkSize,
+      ),
     );
 
     localStorage.setItem(STORAGE_KEYS.idChunkSize, String(value));
@@ -1049,9 +1051,7 @@ const PrintManager = (() => {
       chunkElement.value = String(getStoredIdChunkSize());
 
       chunkElement.addEventListener("change", () => {
-        chunkElement.value = String(
-          setStoredIdChunkSize(chunkElement.value),
-        );
+        chunkElement.value = String(setStoredIdChunkSize(chunkElement.value));
       });
     }
   }
@@ -1063,11 +1063,13 @@ const PrintManager = (() => {
       ids = [ids];
     }
 
-    ids = [...new Set(
-      ids
-        .map((id) => Number(id))
-        .filter((id) => Number.isInteger(id) && id > 0),
-    )];
+    ids = [
+      ...new Set(
+        ids
+          .map((id) => Number(id))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
 
     if (!ids.length && options.studentId) {
       const id = Number(options.studentId);
@@ -1089,22 +1091,16 @@ const PrintManager = (() => {
     }
 
     const printerMode =
-      config.printerMode ||
-      config.printer_mode ||
-      getStoredIdPrinterMode();
+      config.printerMode || config.printer_mode || getStoredIdPrinterMode();
 
     const side = config.side || getStoredIdSide();
 
     if (!VALID_ID_PRINTER_MODES.has(printerMode)) {
-      throw new Error(
-        "Invalid printer mode. Use a4_pdf or direct_card.",
-      );
+      throw new Error("Invalid printer mode. Use a4_pdf or direct_card.");
     }
 
     if (!VALID_ID_SIDES.has(side)) {
-      throw new Error(
-        "Invalid card side. Use front, back or both.",
-      );
+      throw new Error("Invalid card side. Use front, back or both.");
     }
 
     const chunkSize = Math.max(
@@ -1112,9 +1108,7 @@ const PrintManager = (() => {
       Math.min(
         config.maxIdChunkSize || defaults.maxIdChunkSize,
         Number(
-          config.chunkSize ||
-            config.chunk_size ||
-            getStoredIdChunkSize(),
+          config.chunkSize || config.chunk_size || getStoredIdChunkSize(),
         ) || defaults.idChunkSize,
       ),
     );
@@ -1177,9 +1171,7 @@ const PrintManager = (() => {
       ...options,
       studentIds,
       chunkSize:
-        options.chunkSize ||
-        options.chunk_size ||
-        getStoredIdChunkSize(),
+        options.chunkSize || options.chunk_size || getStoredIdChunkSize(),
     });
   }
 
@@ -1280,16 +1272,14 @@ const PrintManager = (() => {
       paperSize: config.paperSize || "A4",
       orientation: config.orientation || "portrait",
       reportCode:
-        config.reportCode ||
-        `RCT-${receiptNumber || createReportCode("RCT")}`,
+        config.reportCode || `RCT-${receiptNumber || createReportCode("RCT")}`,
       filename:
         config.filename ||
         safeFilename(`receipt_${receiptNumber || Date.now()}`, "receipt"),
-      signatureSection:
-        config.signatureSection || [
-          { label: "Accounts Office", dateLine: true },
-          { label: "Headteacher", dateLine: true },
-        ],
+      signatureSection: config.signatureSection || [
+        { label: "Accounts Office", dateLine: true },
+        { label: "Headteacher", dateLine: true },
+      ],
     });
   }
 
@@ -1312,9 +1302,7 @@ const PrintManager = (() => {
 
     const headers = config.columns.map((column) => {
       const label =
-        typeof column === "string"
-          ? column
-          : column.label || column.key || "";
+        typeof column === "string" ? column : column.label || column.key || "";
 
       return `"${String(label).replace(/"/g, '""')}"`;
     });
@@ -1337,12 +1325,14 @@ const PrintManager = (() => {
       }),
     );
 
-    const csv = [headers, ...rows]
-      .map((row) => row.join(","))
-      .join("\n");
-    KingswayFileLifecycle.exportText(`\uFEFF${csv}`, `${safeFilename(config.filename, "export")}_${new Date()
+    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
+    KingswayFileLifecycle.exportText(
+      `\uFEFF${csv}`,
+      `${safeFilename(config.filename, "export")}_${new Date()
         .toISOString()
-        .slice(0, 10)}.csv`, 'text/csv;charset=utf-8;');
+        .slice(0, 10)}.csv`,
+      "text/csv;charset=utf-8;",
+    );
   }
 
   /* ==========================================================================
@@ -1471,4 +1461,3 @@ const PrintManager = (() => {
 })();
 
 window.PrintManager = PrintManager;
-

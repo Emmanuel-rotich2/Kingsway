@@ -74,3 +74,7 @@ AGENTS.md
 CLAUDE.md
 structure.txt
 Kingsway.code-workspace
+node_modules
+package-lock.json
+composer.lock
+package-lock.json
