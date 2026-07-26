@@ -366,6 +366,24 @@ class AuthAPI extends BaseAPI
             }
 
             try {
+                if (!empty($userData['force_password_change'])) {
+                    $setupToken = $this->createPasswordSetupInvitation((int)$userData['id']);
+                    $loginData['data']['password_setup_required'] = true;
+                    $loginData['data']['password_setup_url'] = $this->passwordSetupUrl($setupToken);
+                    $loginData['data']['dashboard'] = [
+                        'key' => 'reset_default_password',
+                        'url' => $loginData['data']['password_setup_url'],
+                        'label' => 'Create Password',
+                    ];
+                } elseif ($this->staffProfileCompletionRequired((int)$userData['id'])) {
+                    $loginData['data']['profile_completion_required'] = true;
+                    $loginData['data']['dashboard'] = [
+                        'key' => 'complete_staff_profile',
+                        'url' => 'complete_staff_profile',
+                        'label' => 'Complete Staff Profile',
+                    ];
+                }
+
                 return $this->attachTrackedSession(
                     $loginData,
                     (int) $userData['id'],
@@ -1180,6 +1198,84 @@ class AuthAPI extends BaseAPI
         return $loginData;
     }
 
+    private function createPasswordSetupInvitation(int $userId): string
+    {
+        $stmt = $this->db->prepare('
+            SELECT u.email, s.id AS staff_id
+            FROM users u
+            LEFT JOIN staff s ON s.user_id = u.id
+            WHERE u.id = ?
+            LIMIT 1
+        ');
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$row || empty($row['email'])) {
+            throw new \RuntimeException('User email is required for password setup.');
+        }
+
+        $this->db->prepare("
+            UPDATE user_invitations
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE user_id = ? AND status = 'pending'
+        ")->execute([$userId]);
+
+        $token = bin2hex(random_bytes(32));
+        $this->db->prepare("
+            INSERT INTO user_invitations
+                (user_id, staff_id, email, token_hash, status, expires_at, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())
+        ")->execute([
+            $userId,
+            $row['staff_id'] ? (int)$row['staff_id'] : null,
+            strtolower($row['email']),
+            hash('sha256', $token),
+            $userId,
+        ]);
+
+        return $token;
+    }
+
+    private function passwordSetupUrl(string $token): string
+    {
+        $baseUrl = defined('BASE_URL') ? rtrim(BASE_URL, '/') : '';
+        if ($baseUrl === '') {
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+            $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+            $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+            $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+            $baseUrl = $scheme . '://' . $host . $appBase;
+        }
+
+        return $baseUrl . '/reset_default_password.php?token=' . rawurlencode($token);
+    }
+
+    private function staffProfileCompletionRequired(int $userId): bool
+    {
+        try {
+            $stmt = $this->db->prepare('
+                SELECT
+                    COALESCE(sop.profile_completed, 0) AS profile_completed,
+                    COALESCE(sop.communication_completed, 0) AS communication_completed
+                FROM staff s
+                LEFT JOIN staff_onboarding_progress sop ON sop.staff_id = s.id
+                WHERE s.user_id = ?
+                LIMIT 1
+            ');
+            $stmt->execute([$userId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$row) {
+                return false;
+            }
+
+            return (int)$row['profile_completed'] !== 1
+                || (int)$row['communication_completed'] !== 1;
+        } catch (\Throwable $error) {
+            error_log('Staff profile completion check failed: ' . $error->getMessage());
+            return false;
+        }
+    }
+
     // Send reset email
     private function sendResetEmail($email, $username, $resetLink)
     {
@@ -1200,6 +1296,95 @@ class AuthAPI extends BaseAPI
             $subject,
             $body
         );
+    }
+
+    public function resetDefaultPassword($data)
+    {
+        $token = trim($data['token'] ?? '');
+        $newPassword = $data['new_password'] ?? $data['password'] ?? null;
+
+        if ($token === '' || !$newPassword) {
+            return [
+                'success' => false,
+                'message' => 'Token and new password are required.'
+            ];
+        }
+
+        $passwordValidation = ValidationHelper::validatePassword($newPassword);
+        if (!$passwordValidation['valid']) {
+            return [
+                'success' => false,
+                'message' => $passwordValidation['error']
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            $stmt = $this->db->prepare('
+                SELECT id, user_id
+                FROM user_invitations
+                WHERE token_hash = ?
+                  AND status = "pending"
+                  AND expires_at > NOW()
+                LIMIT 1
+                FOR UPDATE
+            ');
+            $stmt->execute([hash('sha256', $token)]);
+            $invitation = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+            if (!$invitation) {
+                $this->db->rollBack();
+                return [
+                    'success' => false,
+                    'message' => 'Invalid or expired setup link.'
+                ];
+            }
+
+            $stmt = $this->db->prepare('
+                UPDATE users
+                SET password = ?,
+                    status = "active",
+                    password_changed_at = NOW(),
+                    force_password_change = 0,
+                    updated_at = NOW()
+                WHERE id = ?
+            ');
+            $stmt->execute([
+                password_hash($newPassword, PASSWORD_DEFAULT),
+                (int) $invitation['user_id']
+            ]);
+
+            $stmt = $this->db->prepare('
+                UPDATE staff_onboarding_progress
+                SET password_completed = 1, updated_at = NOW()
+                WHERE user_id = ?
+            ');
+            $stmt->execute([(int) $invitation['user_id']]);
+
+            $stmt = $this->db->prepare('
+                UPDATE user_invitations
+                SET status = "accepted", accepted_at = NOW(), updated_at = NOW()
+                WHERE id = ?
+            ');
+            $stmt->execute([(int) $invitation['id']]);
+
+            $this->db->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Password has been updated. You may now sign in.'
+            ];
+        } catch (\Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            error_log('Default password reset failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Password setup failed. Please request a new setup link.'
+            ];
+        }
     }
 
     private function parseTemplate($template, $data)

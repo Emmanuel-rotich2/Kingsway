@@ -127,6 +127,7 @@ const SessionManager = (() => {
     emit('SESSION_EXPIRED', {});
     broadcast('SESSION_EXPIRED', {});
     window.dispatchEvent(new CustomEvent('SESSION_EXPIRED_CONFIRMED'));
+    redirectToLogin();
   }
 
   function subscribe(event, callback) {
@@ -170,6 +171,7 @@ const SessionManager = (() => {
     if (!message?.type) return;
     if (message.type === 'LOGGED_OUT' || message.type === 'SESSION_EXPIRED') {
       auth()?.clearUser?.();
+      if (message.type === 'SESSION_EXPIRED') redirectToLogin();
     } else if (message.type === 'SESSION_CHANGED') {
       auth()?.initialize?.();
     }
@@ -184,10 +186,24 @@ const SessionManager = (() => {
 
   function startMonitoring() {
     if (monitorTimer) return;
-    monitorTimer = window.setInterval(() => {
-      // Monitoring observes state only. It does not log out or force refresh.
+    monitorTimer = window.setInterval(async () => {
       emit('SESSION_CHECK', getSessionState());
+      if (
+        isAuthenticated() &&
+        window.KingswaySessionActivity?.shouldRefreshSoon?.()
+      ) {
+        await refreshSession();
+      }
     }, 60000);
+  }
+
+  function redirectToLogin() {
+    if (sessionStorage.getItem('_session_expired_redirect')) return;
+    sessionStorage.setItem('_session_expired_redirect', '1');
+    window.setTimeout(() => {
+      sessionStorage.removeItem('_session_expired_redirect');
+      window.location.replace(`${window.APP_BASE || ''}/index.php`);
+    }, 800);
   }
 
   function stop() {

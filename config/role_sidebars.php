@@ -265,7 +265,7 @@ return [
             ['label' => 'Class Capacity',          'url' => 'class_capacity'],
         ]],
 
-        // STAFF — Admin handles full HR operations + onboarding
+        // STAFF — school Admin handles full HR operations + onboarding
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
@@ -273,7 +273,7 @@ return [
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Staff ID Cards',          'url' => 'staff_id_cards'],              // generate staff ID
+            ['label' => 'Staff Security Passes',   'url' => 'staff_id_cards'],              // generate and issue lanyard passes
             ['label' => 'Staff Role Assignments',   'url' => 'staff_role_assignments'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
             ['label' => 'Leave Management',        'url' => 'staff_leave'],
@@ -1198,7 +1198,7 @@ return [
             ['label' => 'Policy Violations',       'url' => 'policy_violations'],
         ]],
 
-        // ── ADMIN: STAFF (disciplinary oversight) ─────────────────────────────
+        // deputy HT Disciplinary: STAFF (disciplinary oversight) ─────────────────────────────
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],

@@ -1,409 +1,466 @@
 <?php
+
+declare(strict_types=1);
+
 namespace App\API\Modules\staff;
 
-use App\Config;
 use App\API\Includes\BaseAPI;
-use App\API\Services\IDCardTemplateRenderer;
-use PDO;
+use App\API\Services\StaffRecordsService;
+use App\API\Services\StaffSecurityPassCredentialService;
 use Exception;
+use PDO;
+use Throwable;
 use function App\API\Includes\formatResponse;
 
 /**
- * Staff ID Card Generator
- * 
- * Generates printable staff ID cards with:
- * - Staff photo
- * - QR code for quick scanning
- * - Personal details (name, staff number)
- * - Department and designation info
- * - School branding
- * - Bulk PDF generation with A4 layout
+ * StaffIDCardGenerator
+ *
+ * Compatibility class name retained because StaffController already depends on
+ * it. The generated document is now a portrait Staff Security Pass intended
+ * for a lanyard, gate verification and attendance-device integration.
+ *
+ * Responsibilities:
+ * - load canonical staff/pass data;
+ * - create the signed QR credential;
+ * - delegate PDF rendering to PrintService;
+ * - delegate browser URLs to DownloadService through BaseAPI.
  */
-class StaffIDCardGenerator extends BaseAPI
+final class StaffIDCardGenerator extends BaseAPI
 {
-    private $uploadsPath;
-    private $qrCodesPath;
-    private $templatesPath;
-    private $renderer;
+    private StaffRecordsService $recordsService;
+    private StaffSecurityPassCredentialService $credentialService;
 
     public function __construct()
     {
         parent::__construct('staff_id_cards');
-        // Use Config constants for paths - environment-aware
-        // STAFF_PHOTOS points to staff/profile_pictures, but ID cards use staff/images
-        $this->uploadsPath = STAFF_IMAGES; // Use staff/images for ID card photos
-        $this->qrCodesPath = STAFF_QR_CODES;
-        $this->templatesPath = ID_CARD_TEMPLATES;
-        $this->renderer = new IDCardTemplateRenderer($this->db);
+        $this->recordsService = new StaffRecordsService();
+        $this->credentialService = new StaffSecurityPassCredentialService();
     }
 
     /**
-     * Upload staff photo
-     * @param int $staffId Staff ID
-     * @param array $fileData $_FILES array data
-     * @return array Response
+     * Upload a staff portrait through the existing MediaManager/UploadService
+     * lifecycle and persist the canonical staff.profile_pic_url column.
      */
     public function uploadStaffPhoto($staffId, $fileData)
     {
         try {
             $statement = $this->db->prepare(
-                "SELECT id, staff_number FROM staff WHERE id = ?"
+                'SELECT id, staff_no FROM staff WHERE id = ? LIMIT 1'
             );
-            $statement->execute([$staffId]);
+            $statement->execute([(int) $staffId]);
             $staff = $statement->fetch(PDO::FETCH_ASSOC);
 
             if (!$staff) {
-                return formatResponse(false, null, 'Staff not found');
+                return formatResponse(false, null, 'Staff member not found.');
             }
 
             $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
             $mediaId = $mediaManager->upload(
                 $fileData,
                 'staff/profile_pictures',
-                $staffId,
+                (int) $staffId,
                 null,
                 $this->user_id,
                 'staff profile photo',
                 '',
-                'photo_staff_' . $staffId
+                'photo_staff_' . (int) $staffId
             );
-            $photoUrl = $mediaManager->getFileUrl($mediaId)
+
+            $profilePictureUrl = $mediaManager->getFileUrl($mediaId)
                 ?: $mediaManager->getPreviewUrl($mediaId);
 
-            if (!$photoUrl) {
-                return formatResponse(false, null, 'Uploaded photo could not be resolved');
+            if (!$profilePictureUrl) {
+                return formatResponse(
+                    false,
+                    null,
+                    'Uploaded staff portrait could not be resolved.'
+                );
             }
 
             $statement = $this->db->prepare(
-                "UPDATE staff SET photo_url = ?, updated_at = NOW() WHERE id = ?"
+                'UPDATE staff
+                 SET profile_pic_url = ?, updated_at = NOW()
+                 WHERE id = ?'
             );
-            $statement->execute([$photoUrl, $staffId]);
+            $statement->execute([$profilePictureUrl, (int) $staffId]);
 
             $this->logAction(
                 'update',
-                $staffId,
-                'Uploaded staff photo through canonical UploadService'
+                (int) $staffId,
+                'Uploaded staff security-pass portrait through MediaManager.'
             );
 
-            return formatResponse(true, [
-                'photo_url' => $photoUrl,
-                'media_id' => $mediaId,
-            ], 'Photo uploaded successfully');
-        } catch (Exception $exception) {
+            return formatResponse(
+                true,
+                [
+                    'profile_pic_url' => $profilePictureUrl,
+                    'media_id' => $mediaId,
+                ],
+                'Staff portrait uploaded successfully.'
+            );
+        } catch (Throwable $exception) {
             $this->logError('uploadStaffPhoto', $exception->getMessage());
+
             return formatResponse(
                 false,
                 null,
-                'Failed to upload photo: ' . $exception->getMessage()
+                'Failed to upload staff portrait: '
+                    . $exception->getMessage()
             );
         }
     }
 
     /**
-     * Generate staff ID card (HTML/PDF ready)
-     * @param int $staffId Staff ID
-     * @param string $format 'html' or 'pdf'
-     * @param string $side 'front', 'back', or 'both'
-     * @return array Response
+     * Generate one portrait security-pass PDF.
+     *
+     * $format is retained for endpoint compatibility. PrintService remains the
+     * canonical owner and always returns a PDF descriptor.
      */
-    public function generateIDCard($staffId, $format = 'html', $side = 'both')
-    {
+    public function generateIDCard(
+        $staffId,
+        $format = 'pdf',
+        $side = 'both',
+        $printMode = 'direct_card',
+        $expiresAt = null
+    ) {
         try {
-            // Get staff details
-            $stmt = $this->db->prepare("
-                SELECT 
-                    s.*,
-                    d.name as department_name
-                FROM staff s
-                LEFT JOIN departments d ON s.department_id = d.id
-                WHERE s.id = ?
-            ");
-            $stmt->execute([$staffId]);
-            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+            // $expiresAt is retained only for endpoint compatibility.
+            // Staff security passes are valid while employment remains current.
+            $pass = $this->loadSinglePass(
+                (int) $staffId,
+                false
+            );
 
-            if (!$staff) {
-                return formatResponse(false, null, 'Staff not found');
-            }
+            $result = $this->prints()->printSingleStaffSecurityPass(
+                $pass,
+                [
+                    'printerMode' => $this->normalizePrintMode($printMode),
+                    'side' => $this->normalizeSide($side),
+                    'filename' => 'staff_security_pass_'
+                        . $this->safeIdentifier($pass['staff_no'])
+                        . '_'
+                        . date('Y-m-d_His'),
+                ]
+            );
 
-            $staff = $this->normalizeStaff($staff);
+            $payload = $this->buildPrintPayload($result, [$pass]);
 
-            // Get school configuration
-            $schoolConfig = $this->getSchoolConfig();
+            $this->logAction(
+                'create',
+                (int) $staffId,
+                'Generated portrait staff security pass.'
+            );
 
-            // Generate card data
-            $card = [
-                'card_number' => $staff['card_number'] ?? $staff['staff_number'],
-                'issue_date' => $staff['card_issue_date'] ?? date('Y-m-d'),
-                'expiry_date' => $staff['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
-            ];
+            return formatResponse(
+                true,
+                $payload,
+                'Staff security pass generated successfully.'
+            );
+        } catch (Throwable $exception) {
+            $this->logError('generateIDCard', $exception->getMessage());
 
-            // Generate HTML using shared renderer
-            $html = $this->renderer->renderDirectCard($staff, 'staff', $side, $schoolConfig);
-
-            if ($format === 'pdf') {
-                // Generate PDF
-                $pdfPath = $this->prints()->generatePDFFromHtml($html, [
-                    'orientation' => 'landscape',
-                    'paperSize' => 'A4',
-                    'filename' => 'staff_id_card_' . $staff['staff_number'] . '_' . time()
-                ]);
-
-                // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
-                $webPath = str_replace($this->prints()->getOutputPath(), '', $pdfPath);
-                $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
-
-                $this->logAction('create', $staffId, "Generated staff ID card PDF: {$pdfPath}");
-
-                return formatResponse(true, [
-                    'file_path' => $webPath,
-                    'view_url' => $webPath,
-                    'staff_name' => $staff['first_name'] . ' ' . $staff['last_name'],
-                    'staff_number' => $staff['staff_number'],
-                    'format' => 'pdf'
-                ], 'Staff ID card PDF generated successfully');
-            } else {
-                // Save HTML version
-                $filename = "staff_id_card_{$staff['staff_number']}_" . time() . ".html";
-                $filepath = $this->templatesPath . $filename;
-                (new \App\API\Services\UploadService())->writeFile($filepath, $html);
-
-                $this->logAction('create', $staffId, "Generated staff ID card HTML: {$filename}");
-
-                return formatResponse(true, [
-                    'file_path' => '/templates/id_cards/' . $filename,
-                    'view_url' => '/templates/id_cards/' . $filename,
-                    'staff_name' => $staff['first_name'] . ' ' . $staff['last_name'],
-                    'staff_number' => $staff['staff_number'],
-                    'format' => 'html'
-                ], 'Staff ID card generated successfully');
-            }
-
-        } catch (Exception $e) {
-            $this->logError('generateIDCard', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate ID card: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to generate staff security pass: '
+                    . $exception->getMessage()
+            );
         }
     }
 
     /**
-     * Generate print-ready single card HTML for browser/system printing.
-     * Reuses the shared IDCardTemplateRenderer so the single-card print output
-     * is identical to the bulk sheet (CR80 size, QR as data URI, front|back).
+     * Generate a printable copy of an existing registered pass.
      */
-    public function generatePrintableSingle($staffId, $side = 'both', $printMode = 'direct_card')
-    {
+    public function generatePrintableSingle(
+        $staffId,
+        $side = 'both',
+        $printMode = 'direct_card'
+    ) {
         try {
-            $stmt = $this->db->prepare("
-                SELECT
-                    s.*,
-                    d.name as department_name
-                FROM staff s
-                LEFT JOIN departments d ON s.department_id = d.id
-                WHERE s.id = ?
-            ");
-            $stmt->execute([$staffId]);
-            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
+            $pass = $this->loadSinglePass((int) $staffId, true);
 
-            if (!$staff) {
-                return formatResponse(false, null, 'Staff not found');
-            }
+            $result = $this->prints()->printSingleStaffSecurityPass(
+                $pass,
+                [
+                    'printerMode' => $this->normalizePrintMode($printMode),
+                    'side' => $this->normalizeSide($side),
+                    'filename' => 'staff_security_pass_'
+                        . $this->safeIdentifier($pass['staff_no'])
+                        . '_'
+                        . date('Y-m-d_His'),
+                ]
+            );
 
-            $staff = $this->normalizeStaff($staff);
+            return formatResponse(
+                true,
+                $this->buildPrintPayload($result, [$pass]),
+                'Staff security-pass document prepared successfully.'
+            );
+        } catch (Throwable $exception) {
+            $this->logError(
+                'generatePrintableSingle',
+                $exception->getMessage()
+            );
 
-            $card = [
-                'card_number' => $staff['card_number'] ?? $staff['staff_number'],
-                'issue_date' => $staff['card_issue_date'] ?? date('Y-m-d'),
-                'expiry_date' => $staff['card_expiry_date'] ?? (date('Y') + 1) . '-12-31'
-            ];
-
-            $schoolConfig = $this->getSchoolConfig();
-
-            if ($printMode === 'a4_sheet') {
-                $html = $this->renderer->renderBulkA4Sheet([$staff], 'staff', $schoolConfig);
-            } else {
-                $html = $this->renderer->renderDirectCard($staff, 'staff', $side, $schoolConfig);
-            }
-
-            return formatResponse(true, [
-                'html' => $html,
-                'staff_name' => $staff['first_name'] . ' ' . $staff['last_name'],
-                'staff_number' => $staff['staff_number'],
-                'side' => $side,
-                'print_mode' => $printMode
-            ], 'ID card printable HTML generated');
-
-        } catch (Exception $e) {
-            $this->logError('generatePrintableSingle', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate printable card: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to prepare staff security pass: '
+                    . $exception->getMessage()
+            );
         }
     }
 
     /**
-     * Generate bulk ID cards PDF for selected staff
-     * @param array $staffIds Array of staff IDs
-     * @param string $printMode 'a4_sheet' or 'direct_card'
-     * @param bool $includeFront Include front side
-     * @param bool $includeBack Include back side
-     * @return array Response
+     * Generate selected staff security passes as A4 sheets or individual
+     * portrait pass pages.
      */
-    public function generateBulkIDCardsPDF($staffIds, $printMode = 'a4_sheet', $includeFront = true, $includeBack = true)
-    {
+    public function generateBulkIDCardsPDF(
+        $staffIds,
+        $printMode = 'a4_pdf',
+        $includeFront = true,
+        $includeBack = true,
+        $expiresAt = null,
+        $requireExisting = false
+    ) {
         try {
-            if (empty($staffIds)) {
-                return formatResponse(false, null, 'No staff IDs provided');
+            $staffIds = array_values(
+                array_unique(
+                    array_filter(
+                        array_map('intval', (array) $staffIds),
+                        static fn (int $staffId): bool => $staffId > 0
+                    )
+                )
+            );
+
+            if ($staffIds === []) {
+                return formatResponse(
+                    false,
+                    null,
+                    'Select at least one staff member.'
+                );
             }
 
-            // Get staff details
-            $placeholders = str_repeat('?,', count($staffIds) - 1) . '?';
-            $stmt = $this->db->prepare("
-                SELECT 
-                    s.*,
-                    d.name as department_name
-                FROM staff s
-                LEFT JOIN departments d ON s.department_id = d.id
-                WHERE s.id IN ({$placeholders}) AND s.status = 'active'
-            ");
-            $stmt->execute($staffIds);
-            $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            if (empty($staff)) {
-                return formatResponse(false, null, 'No active staff found');
+            if (!$includeFront && !$includeBack) {
+                return formatResponse(
+                    false,
+                    null,
+                    'Select at least one security-pass side.'
+                );
             }
 
-            // Normalize each staff member into the renderer's expected shape
-            $staff = array_map(function ($member) {
-                $member = $this->normalizeStaff($member);
-                $member['card_number'] = $member['card_number'] ?? $member['staff_number'];
-                $member['issue_date'] = $member['card_issue_date'] ?? date('Y-m-d');
-                $member['expiry_date'] = $member['card_expiry_date'] ?? (date('Y') + 1) . '-12-31';
-                return $member;
-            }, $staff);
+            $side = $includeFront && $includeBack
+                ? 'both'
+                : ($includeFront ? 'front' : 'back');
 
-            // Get school configuration
-            $schoolConfig = $this->getSchoolConfig();
+            // $expiresAt is retained only for endpoint compatibility.
+            $passes = $this->loadPasses(
+                $staffIds,
+                (bool) $requireExisting
+            );
 
-            if ($printMode === 'a4_sheet') {
-                // Generate bulk A4 sheet
-                $html = $this->renderer->renderBulkA4Sheet($staff, 'staff', $schoolConfig);
-                
-                $pdfPath = $this->prints()->generatePDFFromHtml($html, [
-                    'orientation' => 'landscape',
-                    'paperSize' => 'A4',
-                    'filename' => 'staff_id_cards_bulk_' . time()
-                ]);
-            } else {
-                // Direct card mode - generate one PDF per card
-                return formatResponse(false, null, 'Direct card mode not yet implemented for bulk generation');
-            }
+            $result = $this->prints()->printStaffSecurityPasses(
+                $passes,
+                [
+                    'printerMode' => $this->normalizePrintMode($printMode),
+                    'side' => $side,
+                    'chunkSize' => 100,
+                    'filename' => 'staff_security_passes_'
+                        . date('Y-m-d_His'),
+                ]
+            );
 
-            // Convert to web-accessible path (env-agnostic, BASE_URL-rooted)
-            $webPath = str_replace($this->prints()->getOutputPath(), '', $pdfPath);
-            $webPath = rtrim(BASE_URL, '/') . '/temp/print/' . ltrim($webPath, '/');
+            $this->logAction(
+                'create',
+                0,
+                sprintf(
+                    'Generated portrait security-pass PDF for %d staff members.',
+                    count($passes)
+                )
+            );
 
-            $this->logAction('create', 0, "Generated bulk staff ID cards PDF: " . count($staff) . " staff");
+            return formatResponse(
+                true,
+                $this->buildPrintPayload($result, $passes),
+                'Staff security-pass PDF generated successfully.'
+            );
+        } catch (Throwable $exception) {
+            $this->logError(
+                'generateBulkIDCardsPDF',
+                $exception->getMessage()
+            );
 
-            return formatResponse(true, [
-                'pdf_url' => $webPath,
-                'file_name' => basename($pdfPath),
-                'staff_count' => count($staff),
-                'card_sides' => count($staff) * ($includeFront && $includeBack ? 2 : 1),
-                'layout' => 'front_back_row',
-                'print_mode' => $printMode
-            ], 'Bulk staff ID cards PDF generated successfully');
-
-        } catch (Exception $e) {
-            $this->logError('generateBulkIDCardsPDF', $e->getMessage());
-            return formatResponse(false, null, 'Failed to generate bulk ID cards: ' . $e->getMessage());
+            return formatResponse(
+                false,
+                null,
+                'Failed to generate staff security passes: '
+                    . $exception->getMessage()
+            );
         }
-    }
-
-    // ========================================================================
-    // HELPER METHODS
-    // ========================================================================
-
-    private function resizeImage($source, $destination, $maxWidth, $maxHeight)
-    {
-        list($srcWidth, $srcHeight, $srcType) = getimagesize($source);
-
-        // Calculate new dimensions
-        $ratio = min($maxWidth / $srcWidth, $maxHeight / $srcHeight);
-        $newWidth = (int) ($srcWidth * $ratio);
-        $newHeight = (int) ($srcHeight * $ratio);
-
-        // Create image resource
-        switch ($srcType) {
-            case IMAGETYPE_JPEG:
-                $srcImage = imagecreatefromjpeg($source);
-                break;
-            case IMAGETYPE_PNG:
-                $srcImage = imagecreatefrompng($source);
-                break;
-            default:
-                throw new Exception('Unsupported image type');
-        }
-
-        // Create new image
-        $newImage = imagecreatetruecolor($newWidth, $newHeight);
-
-        // Preserve transparency for PNG
-        if ($srcType == IMAGETYPE_PNG) {
-            imagealphablending($newImage, false);
-            imagesavealpha($newImage, true);
-        }
-
-        // Resize
-        imagecopyresampled($newImage, $srcImage, 0, 0, 0, 0, $newWidth, $newHeight, $srcWidth, $srcHeight);
-
-        // Save
-        imagejpeg($newImage, $destination, 90);
-
-        // Free memory
-        imagedestroy($srcImage);
-        imagedestroy($newImage);
     }
 
     /**
-     * Normalize a raw staff row from the DB into the shape the ID-card renderer
-     * expects. The `staff` table stores the unique number in `staff_no`, while the
-     * card template/renderer read `staff_number`, so map it here. Also resolves the
-     * photo default and department label in one place.
+     * @return array<string, mixed>
      */
-    private function normalizeStaff(array $staff): array
-    {
-        $staff['staff_number'] = $staff['staff_number'] ?? $staff['staff_no'] ?? '';
-        $staff['department'] = $staff['department_name'] ?? $staff['department'] ?? '';
-
-        $defaultAvatar = defined('STAFF_AVATAR_DEFAULT') ? STAFF_AVATAR_DEFAULT : $this->publicUploadAssetUrl('staff', 'avatar.jpg');
-        if (empty($staff['photo_url']) || !file_exists('.' . $staff['photo_url'])) {
-            $staff['photo_url'] = '/' . ltrim($defaultAvatar, '/');
+    private function loadSinglePass(
+        int $staffId,
+        bool $requireExisting
+    ): array {
+        if ($staffId <= 0) {
+            throw new Exception('A valid staff ID is required.');
         }
-        return $staff;
+
+        $passes = $this->loadPasses(
+            [$staffId],
+            $requireExisting
+        );
+
+        if ($passes === []) {
+            throw new Exception('Staff member not found.');
+        }
+
+        return $passes[0];
     }
 
-    private function getSchoolConfig()
-    {
-        try {
-            $stmt = $this->db->query("SELECT config_key, config_value FROM school_configuration");
-            $configs = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    /**
+     * @param array<int, int> $staffIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadPasses(
+        array $staffIds,
+        bool $requireExisting
+    ): array {
+        $rows = $this->recordsService->idCards([
+            'staff_ids' => $staffIds,
+        ]);
 
-            return [
-                'name' => $configs['school_name'] ?? 'Kingsway Academy',
-                'motto' => $configs['school_motto'] ?? 'Excellence in Education',
-                'logo' => $configs['school_logo'] ?? $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png'),
-                'address' => $configs['school_address'] ?? '',
-                'phone' => $configs['school_phone'] ?? '',
-                'email' => $configs['school_email'] ?? '',
-                'website' => $configs['school_website'] ?? ''
-            ];
-        } catch (Exception $e) {
-            return [
-                'name' => 'Kingsway Academy',
-                'motto' => 'Excellence in Education',
-                'logo' => $this->publicUploadAssetUrl('school_assets', 'official_school_logo.png'),
-                'address' => '',
-                'phone' => '',
-                'email' => '',
-                'website' => ''
-            ];
+        if ($rows === []) {
+            throw new Exception('No current staff members were found.');
         }
+
+        $returnedStaffIds = array_map(
+            static fn (array $row): int => (int) ($row['staff_id'] ?? 0),
+            $rows
+        );
+        $missingStaffIds = array_values(array_diff($staffIds, $returnedStaffIds));
+
+        if ($missingStaffIds !== []) {
+            throw new Exception(
+                'One or more selected staff members are missing or inactive.'
+            );
+        }
+
+        if ($requireExisting) {
+            $missingPasses = array_filter(
+                $rows,
+                static fn (array $row): bool => empty($row['id'])
+            );
+
+            if ($missingPasses !== []) {
+                throw new Exception(
+                    'One or more selected staff members do not have a generated security pass.'
+                );
+            }
+        }
+
+        return array_map(
+            function (array $row): array {
+                $passNumber = trim((string) ($row['card_number'] ?? ''));
+
+                if ($passNumber === '') {
+                    $passNumber = $this->recordsService
+                        ->securityPassNumberForStaff((int) $row['staff_id']);
+                }
+
+                $credential = $this->credentialService->issue(
+                    $passNumber,
+                    null
+                );
+
+                $row['pass_id'] = isset($row['id']) && $row['id'] !== null
+                    ? (int) $row['id']
+                    : null;
+                $row['card_number'] = $passNumber;
+                $row['expires_at'] = null;
+                $row['generated_at'] = $row['generated_at'] ?: date('Y-m-d');
+                $row['qr_code_data_uri'] = $this->credentialService
+                    ->qrDataUri($credential);
+
+                return $row;
+            },
+            $rows
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $result
+     * @param array<int, array<string, mixed>> $passes
+     * @return array<string, mixed>
+     */
+    private function buildPrintPayload(array $result, array $passes): array
+    {
+        $files = array_map(
+            fn (string $path): array => $this->buildPrintFile($path),
+            $result['files'] ?? []
+        );
+
+        return array_merge(
+            $result,
+            [
+                'staff_count' => count($passes),
+                'passes' => array_map(
+                    static fn (array $pass): array => [
+                        'staff_id' => (int) $pass['staff_id'],
+                        'staff_no' => (string) $pass['staff_no'],
+                        'card_number' => (string) $pass['card_number'],
+                    ],
+                    $passes
+                ),
+                'files' => $files,
+                'file' => $files[0] ?? null,
+                'pdf_url' => $files[0]['download_url'] ?? null,
+                'download_url' => $files[0]['download_url'] ?? null,
+            ]
+        );
+    }
+
+    /**
+     * @return array{filename:string,download_url:string,url:string}
+     */
+    private function buildPrintFile(string $path): array
+    {
+        $url = $this->generatedDownloadUrl($path, true);
+
+        return [
+            'filename' => basename($path),
+            'download_url' => $url,
+            'url' => $url,
+        ];
+    }
+
+    private function normalizePrintMode($value): string
+    {
+        return in_array(
+            strtolower(trim((string) $value)),
+            ['direct_card', 'direct'],
+            true
+        )
+            ? 'direct_card'
+            : 'a4_pdf';
+    }
+
+    private function normalizeSide($value): string
+    {
+        $side = strtolower(trim((string) $value));
+
+        return in_array($side, ['front', 'back', 'both'], true)
+            ? $side
+            : 'both';
+    }
+
+    private function safeIdentifier(string $value): string
+    {
+        $safe = preg_replace('/[^A-Za-z0-9_-]+/', '_', trim($value));
+        return $safe !== null && $safe !== '' ? $safe : 'staff';
     }
 }

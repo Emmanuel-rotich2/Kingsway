@@ -8,10 +8,12 @@ use RuntimeException;
 final class StaffLifecycleService
 {
     private Database $db;
+    private StaffRecordsService $recordsService;
 
     public function __construct()
     {
         $this->db = Database::getInstance();
+        $this->recordsService = new StaffRecordsService($this->db);
     }
 
     public function dashboard(array $filters = []): array
@@ -35,8 +37,8 @@ final class StaffLifecycleService
         $summary = $this->db->query(
             "SELECT COUNT(*) total,
                     SUM(status='active') active,
-                    SUM(status='suspended') suspended,
-                    SUM(status IN ('terminated','retired','resigned','inactive')) exited
+                    SUM(status='on_leave') suspended,
+                    SUM(status='inactive') exited
              FROM staff"
         )->fetch(PDO::FETCH_ASSOC) ?: [];
         $pending = $this->db->query("SELECT COUNT(*) FROM staff_lifecycle_actions WHERE status='pending'")->fetchColumn();
@@ -111,13 +113,13 @@ final class StaffLifecycleService
         try {
             $status=$decision==='approve'?'approved':'rejected';
             $this->db->query("UPDATE staff_lifecycle_actions SET status=?,approved_by=?,approved_at=NOW(),review_comment=?,updated_at=NOW() WHERE id=?",[$status,$actorUserId,$comment,$actionId]);
-            if ($decision==='approve') $this->applyAction($action);
+            if ($decision==='approve') $this->applyAction($action, $actorUserId);
             $this->audit($actorUserId,'staff_lifecycle_action_'.$status,$actionId,['comment'=>$comment]);
             $this->db->commit();
         } catch (\Throwable $e) { $this->db->rollback(); throw $e; }
     }
 
-    private function applyAction(array $a): void
+    private function applyAction(array $a, int $actorUserId): void
     {
         $sets=[]; $params=[];
         foreach ([
@@ -125,10 +127,50 @@ final class StaffLifecycleService
         ] as $column=>$source) {
             if ($a[$source] !== null && $a[$source] !== '') { $sets[]="{$column}=?"; $params[]=$a[$source]; }
         }
-        $statusMap=['suspension'=>'suspended','reinstatement'=>'active','resignation'=>'resigned','retirement'=>'retired','termination'=>'terminated','confirmation'=>'active'];
-        if (isset($statusMap[$a['action_type']])) { $sets[]='status=?'; $params[]=$statusMap[$a['action_type']]; }
-        $sets[]='updated_at=NOW()'; $params[]=(int)$a['staff_id'];
-        $this->db->query('UPDATE staff SET '.implode(',',$sets).' WHERE id=?',$params);
+        /*
+         * staff.status is restricted to active, inactive and on_leave.
+         * Lifecycle action detail remains in staff_lifecycle_actions.
+         */
+        $statusMap = [
+            'suspension' => 'on_leave',
+            'reinstatement' => 'active',
+            'resignation' => 'inactive',
+            'retirement' => 'inactive',
+            'termination' => 'inactive',
+            'confirmation' => 'active',
+        ];
+
+        if (isset($statusMap[$a['action_type']])) {
+            $sets[] = 'status=?';
+            $params[] = $statusMap[$a['action_type']];
+        }
+
+        $sets[] = 'updated_at=NOW()';
+        $params[] = (int) $a['staff_id'];
+        $this->db->query(
+            'UPDATE staff SET ' . implode(',', $sets) . ' WHERE id=?',
+            $params
+        );
+
+        $revokingActions = [
+            'suspension',
+            'resignation',
+            'retirement',
+            'termination',
+        ];
+
+        if (in_array($a['action_type'], $revokingActions, true)) {
+            $this->recordsService->revokeLatestSecurityPass(
+                (int) $a['staff_id'],
+                $actorUserId,
+                'Staff lifecycle action: ' . (string) $a['action_type']
+            );
+        }
+
+        /*
+         * A transfer in this service is an internal department/position move,
+         * so it does not invalidate the staff security pass.
+         */
         if (in_array($a['action_type'],['resignation','retirement','termination'],true)) {
             $this->db->query("UPDATE users u JOIN staff s ON s.user_id=u.id SET u.status='inactive',u.updated_at=NOW() WHERE s.id=?",[(int)$a['staff_id']]);
             $this->db->query("UPDATE user_sessions us JOIN staff s ON s.user_id=us.user_id SET us.revoked_at=NOW() WHERE s.id=? AND us.revoked_at IS NULL",[(int)$a['staff_id']]);

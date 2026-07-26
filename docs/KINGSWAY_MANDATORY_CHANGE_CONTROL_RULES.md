@@ -52,6 +52,16 @@ Never create a competing table when an existing canonical table can support the 
 
 Never write queries against assumed column names.
 
+## 2A. Uploads Are Runtime-Owned
+
+The `uploads/` directory is environment-owned runtime storage and must not be tracked in Git.
+
+Do not commit files from `uploads/`, including generated print files, user documents, imported files, profile pictures, logos, certificates, ID-card output, or `.gitkeep` placeholders.
+
+When a change to an upload-backed template or asset is intentionally needed for production, copy that file into `uploads_backup/` and document the manual promotion path. Production deployment must then copy the reviewed file from `uploads_backup/` into the production `uploads/` tree manually.
+
+Never use `uploads/` as the canonical source for deployable templates. Use `uploads_backup/` for repository-managed backup copies only.
+
 ## 3. API Audit
 
 Before adding or changing API calls:
@@ -80,6 +90,30 @@ Before creating a controller, service, repository, helper, or module:
 
 Create a new backend file only when there is no appropriate canonical location.
 
+### Controller Boundary Rule
+
+Controllers must remain thin REST endpoint adapters.
+
+A controller's responsibility is to:
+
+- Expose RESTful endpoints.
+- Validate and normalize request input at the boundary.
+- Enforce authentication, authorization, and route-level guards.
+- Delegate business operations to the canonical API file, service, module manager, workflow, repository, or microservice layer.
+- Normalize and return responses using existing project conventions.
+
+Controllers must not contain core business logic, workflow orchestration, complex calculations, database-heavy operations, reporting logic, import/export processing, lifecycle rules, payment rules, academic rules, finance rules, or staff/student domain rules.
+
+When a controller starts accumulating business behavior, move that behavior into the appropriate existing domain layer, preferring this order:
+
+1. Existing `api/modules/<domain>/*API.php`
+2. Existing `api/modules/<domain>/*Manager.php` or workflow class
+3. Existing `api/services/*Service.php`
+4. A new narrowly scoped service or module manager only when no canonical location exists
+5. An external microservice only when the project already uses or explicitly requires that boundary
+
+The controller may coordinate the call, but the domain decision must live outside the controller.
+
 ## 5. Route and UI Audit
 
 For every affected page or route, map the complete chain:
@@ -102,6 +136,20 @@ role_sidebar.php
 Confirm that all parts exist, use matching names, and remain synchronized.
 
 A route is not considered complete merely because the PHP page loads.
+
+## 5A. Staff Teaching Role Model
+
+Every teaching-domain staff member must be treated as a teacher first.
+
+The baseline teaching role is `Subject Teacher`. Additional roles such as `Headteacher`, `Deputy Head - Academic`, `Deputy Head - Discipline`, `Class Teacher`, `Intern/Student Teacher`, games/co-curricular duty, boarding duty, or similar responsibilities are layered duties, not replacements for `Subject Teacher`.
+
+When creating, importing, onboarding, assigning, reporting on, or building dashboards for teachers:
+
+- Ensure teaching-domain users have the `Subject Teacher` school role in `user_roles`.
+- Do not model `Class Teacher`, `Headteacher`, or deputy-head roles as mutually exclusive with subject teaching.
+- Use `staff_class_assignments` plus `learning_areas`, `classes`, `class_streams`, `school_levels`, and `academic_years` for teaching responsibilities.
+- For lower primary and pre-primary, class teachers may cover all learning areas in their class curriculum.
+- For upper primary and junior secondary, class teachers are subject teachers with additional class oversight responsibilities.
 
 ## 6. Gap Analysis Before Implementation
 

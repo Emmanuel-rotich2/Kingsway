@@ -55,6 +55,13 @@ class AuthController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // POST /api/auth/reset-default-password
+    public function postResetDefaultPassword($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->resetDefaultPassword($data);
+        return $this->handleResponse($result);
+    }
+
     // POST /api/auth/refresh-token
     public function postRefreshToken($id = null, $data = [], $segments = [])
     {

@@ -220,6 +220,12 @@ define(
     TEMPLATES_PATH . '/id_cards'
 );
 
+
+define(
+    'STAFF_SECURITY_PASS_TEMPLATES',
+    ID_CARD_TEMPLATES . '/staff_security_pass'
+);
+
 /*
 |--------------------------------------------------------------------------
 | Generated temporary files
@@ -271,6 +277,7 @@ $requiredUploadDirectories = [
     PRINT_SERVER_TEMPLATES,
     CERTIFICATE_TEMPLATES,
     ID_CARD_TEMPLATES,
+    STAFF_SECURITY_PASS_TEMPLATES,
 
     TEMP_UPLOADS,
     PRINT_OUTPUT_PATH,

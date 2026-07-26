@@ -21,6 +21,65 @@ use Exception;
  */
 class StaffController extends BaseController
 {
+    private const STAFF_DIRECTORY_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_LIFECYCLE_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_APPOINTMENTS_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_ONBOARDING_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
+    private const STAFF_ONBOARDING_MANAGE_ROLES = [
+        'system administrator',
+        'school administrator',
+        'headteacher',
+    ];
+
+    private const STAFF_PERFORMANCE_VIEW_ROLES = [
+        'system administrator',
+        'school administrator',
+        'director',
+        'headteacher',
+        'deputy head - academic',
+        'deputy head academic',
+        'deputy head - discipline',
+        'deputy head discipline',
+    ];
+
     private $api;
     private $payroll;
     private $idCardGenerator;
@@ -68,7 +127,7 @@ class StaffController extends BaseController
      */
     public function get($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.directory.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES)) return $denied;
         if ($id !== null && empty($segments)) {
             $result = $this->api->get($id);
             return $this->handleResponse($result);
@@ -147,7 +206,7 @@ class StaffController extends BaseController
      */
     public function getAcademicKPISummary($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         try {
             $params = array_merge($_GET ?? [], $data);
             return $this->handleResponse($this->api->getAcademicKPISummary(
@@ -200,7 +259,7 @@ class StaffController extends BaseController
      */
     public function getLifecycle($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', ['system administrator','school administrator','director','headteacher','deputy head discipline'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.lifecycle.view', self::STAFF_LIFECYCLE_VIEW_ROLES)) return $denied;
         try {
             $params = array_merge($_GET ?? [], $data);
             return $this->success(
@@ -233,7 +292,7 @@ class StaffController extends BaseController
      */
     public function getAppointments($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.appointments.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.appointments.view', self::STAFF_APPOINTMENTS_VIEW_ROLES)) return $denied;
         return $this->success($this->recordsService->appointmentSummary(), 'Staff appointments retrieved');
     }
 
@@ -879,6 +938,7 @@ class StaffController extends BaseController
      */
     public function getPerformanceAcademicKpiSummary($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
         $academicYearId = $data['academic_year_id'] ?? null;
         
@@ -1097,6 +1157,7 @@ class StaffController extends BaseController
      */
     public function getOnboarding($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         $result = $id
             ? $this->onboardingManager->getOnboardingDetail((int)$id)
             : $this->onboardingManager->listOnboardings(array_merge($_GET ?? [], $data));
@@ -1109,6 +1170,7 @@ class StaffController extends BaseController
      */
     public function postOnboarding($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['initiated_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->createOnboarding($data));
     }
@@ -1119,6 +1181,7 @@ class StaffController extends BaseController
      */
     public function putOnboarding($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         if (!$id) return $this->error('onboarding id required');
         return $this->handleResponse($this->onboardingManager->updateOnboarding((int)$id, $data));
     }
@@ -1129,6 +1192,7 @@ class StaffController extends BaseController
      */
     public function putOnboardingTask($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         if (!$id) return $this->error('task id required');
         return $this->handleResponse($this->onboardingManager->updateTaskStatus((int)$id, $data));
     }
@@ -1139,6 +1203,7 @@ class StaffController extends BaseController
      */
     public function postOnboardingDocument($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['verified_by'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->recordDocument($data));
     }
@@ -1149,6 +1214,7 @@ class StaffController extends BaseController
      */
     public function postProbationReview($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES)) return $denied;
         $data['reviewer_id'] = $this->user['id'] ?? $this->user['user_id'] ?? null;
         return $this->handleResponse($this->onboardingManager->recordProbationReview($data));
     }
@@ -1159,6 +1225,7 @@ class StaffController extends BaseController
      */
     public function getOnboardingTemplates($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         return $this->handleResponse($this->onboardingManager->getActiveTemplates());
     }
 
@@ -1168,32 +1235,38 @@ class StaffController extends BaseController
      */
     public function getOnboardingPending($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffDomain('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES)) return $denied;
         return $this->handleResponse($this->onboardingManager->getPendingTasks());
     }
 
     // ========================================================================
-    // STAFF ID CARD ENDPOINTS
+    // STAFF SECURITY-PASS ENDPOINTS
+    //
+    // Compatibility: route and permission identifiers retain id-card naming.
     // ========================================================================
 
     /**
      * POST /api/staff/id-card/generate
-     * Generate staff ID card
+     * Legacy-compatible route for generating one staff security pass.
      */
     public function postIdCardGenerate($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
 
-        $staffId = $data['staff_id'] ?? null;
-        if (!$staffId) {
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
             return $this->badRequest('Staff ID is required');
         }
 
-        $format = $data['format'] ?? 'html';
         $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+        $result = $this->idCardGenerator->generateIDCard(
+            $staffId,
+            'pdf',
+            $side,
+            $printMode
+        );
 
-        $result = $this->idCardGenerator->generateIDCard((int) $staffId, $format, $side);
         return $this->handleResponse($result);
     }
 
@@ -1203,32 +1276,36 @@ class StaffController extends BaseController
      */
     public function postIdCardGenerateBulkPdf($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
 
         $staffIds = $data['staff_ids'] ?? [];
         if (empty($staffIds) || !is_array($staffIds)) {
             return $this->badRequest('Staff IDs array is required');
         }
 
-        $printMode = $data['print_mode'] ?? 'a4_sheet';
+        $printMode = $data['print_mode'] ?? 'a4_pdf';
         $includeFront = $data['include_front'] ?? true;
         $includeBack = $data['include_back'] ?? true;
 
-        $result = $this->idCardGenerator->generateBulkIDCardsPDF($staffIds, $printMode, $includeFront, $includeBack);
+        $result = $this->idCardGenerator->generateBulkIDCardsPDF(
+            $staffIds,
+            $printMode,
+            $includeFront,
+            $includeBack,
+            null,
+            true
+        );
+
         return $this->handleResponse($result);
     }
 
     /**
      * POST /api/staff/id-card/print-single
-     * Generate print-ready single card HTML for browser/system printing.
+     * Prepare a print-ready copy of one existing staff security pass.
      */
     public function postIdCardPrintSingle($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
 
         $staffId = $data['staff_id'] ?? ($segments[0] ?? null);
         if (!$staffId) {
@@ -1242,15 +1319,91 @@ class StaffController extends BaseController
         return $this->handleResponse($result);
     }
 
+    /** POST /api/staff/id-cards-bulk-generate */
+    public function postIdCardsBulkGenerate($id = null, $data = [], $segments = [])
+    {
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
+
+        $staffIds = $data['staff_ids'] ?? [];
+        if (empty($staffIds) || !is_array($staffIds)) {
+            return $this->badRequest('staff_ids array is required');
+        }
+
+        $printMode = $data['print_mode'] ?? 'a4_pdf';
+        $includeFront = array_key_exists('include_front', $data) ? (bool)$data['include_front'] : true;
+        $includeBack = array_key_exists('include_back', $data) ? (bool)$data['include_back'] : true;
+
+        try {
+            $normalizedStaffIds = array_values(
+                array_unique(
+                    array_filter(
+                        array_map('intval', $staffIds),
+                        static fn (int $staffId): bool => $staffId > 0
+                    )
+                )
+            );
+
+            if ($normalizedStaffIds === []) {
+                return $this->badRequest('staff_ids must contain valid staff IDs');
+            }
+
+            $result = $this->idCardGenerator->generateBulkIDCardsPDF(
+                $normalizedStaffIds,
+                $printMode,
+                $includeFront,
+                $includeBack,
+                null,
+                false
+            );
+
+            if (($result['status'] ?? 'error') !== 'success') {
+                return $this->handleResponse($result);
+            }
+
+            $persisted = $this->recordsService->persistBulkGeneratedIdCards(
+                $normalizedStaffIds,
+                null,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'bulk_generate_staff_security_passes',
+                'staff',
+                null,
+                null,
+                [
+                    'count' => count($persisted),
+                    'print_mode' => $printMode,
+                    'include_front' => $includeFront,
+                    'include_back' => $includeBack,
+                ]
+            );
+
+            return $this->success(
+                [
+                    'document' => $result['data'] ?? null,
+                    'passes' => $persisted,
+                    // Legacy response key retained for existing consumers.
+                    'cards' => $persisted,
+                    'count' => count($persisted),
+                ],
+                'Staff security passes generated successfully'
+            );
+        } catch (\Throwable $e) {
+            return $this->serverError(
+                'Failed to generate staff security passes',
+                $e->getMessage()
+            );
+        }
+    }
+
     /**
      * POST /api/staff/id-card/upload-photo
-     * Upload staff photo for ID card
+     * Upload the portrait used on a staff security pass.
      */
     public function postIdCardUploadPhoto($id = null, $data = [], $segments = [])
     {
-        if (!$this->user) {
-            return $this->unauthorized('Authentication required');
-        }
+        if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
 
         $staffId = $data['staff_id'] ?? null;
         if (!$staffId) {
@@ -1293,10 +1446,16 @@ class StaffController extends BaseController
             'permissions' => $this->access->permissions(),
             'roles' => $this->access->roles(),
             'capabilities' => [
-                'staff_directory_view' => $this->access->allows('staff.directory.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_directory_view' => $this->access->allows('staff.directory.view', self::STAFF_DIRECTORY_VIEW_ROLES),
                 'staff_directory_manage' => $this->access->allows('staff.directory.manage', ['system administrator','school administrator']),
                 'teachers_view' => $this->access->allows('staff.teachers.view', ['system administrator','school administrator','director','headteacher','deputy head - academic']),
                 'non_teaching_view' => $this->access->allows('staff.non_teaching.view', ['system administrator','school administrator','director','headteacher']),
+                'staff_lifecycle_view' => $this->access->allows('staff.lifecycle.view', self::STAFF_LIFECYCLE_VIEW_ROLES),
+                'staff_appointments_view' => $this->access->allows('staff.appointments.view', self::STAFF_APPOINTMENTS_VIEW_ROLES),
+                'staff_appointments_approve' => $this->access->allows('staff.appointments.approve', ['director','school administrator']),
+                'staff_appointments_onboard' => $this->access->allows('staff.appointments.onboard', ['system administrator','school administrator','headteacher']),
+                'staff_onboarding_view' => $this->access->allows('staff.onboarding.view', self::STAFF_ONBOARDING_VIEW_ROLES),
+                'staff_onboarding_manage' => $this->access->allows('staff.onboarding.manage', self::STAFF_ONBOARDING_MANAGE_ROLES),
                 'attendance_manage' => $this->access->allows('staff.attendance.manage', ['system administrator','school administrator','headteacher']),
                 'attendance_self' => $this->access->allows('staff.attendance.self', ['staff','class teacher','subject teacher','accountant']),
                 'leave_manage' => $this->access->allows('staff.leave.manage', ['system administrator','school administrator','headteacher']),
@@ -1307,6 +1466,7 @@ class StaffController extends BaseController
                 'id_cards_manage' => $this->access->allows('staff.id_cards.manage', ['system administrator','school administrator']),
                 'role_assignments_manage' => $this->access->allows('staff.roles.manage', ['system administrator','school administrator']),
                 'teaching_assignments_manage' => $this->access->allows('staff.teaching_assignments.manage', ['system administrator','school administrator','headteacher','deputy head - academic']),
+                'staff_performance_view' => $this->access->allows('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES),
             ],
         ]);
     }
@@ -1382,39 +1542,110 @@ class StaffController extends BaseController
         }
     }
 
-    /** GET /api/staff/id-cards */
+    /** GET /api/staff/id-cards — legacy route name, security-pass registry. */
     public function getIdCards($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.view', ['system administrator','school administrator','director','headteacher'])) return $denied;
         return $this->success($this->recordsService->idCards($_GET ?? []));
     }
 
-    /** POST /api/staff/id-cards/generate */
+    /** POST /api/staff/id-cards/generate — generate and register one pass. */
     public function postIdCardsGenerate($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
-        $staffId = (int)($data['staff_id'] ?? 0);
-        if (!$staffId) return $this->badRequest('staff_id is required');
+
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return $this->badRequest('staff_id is required');
+        }
+
+        $side = $data['side'] ?? 'both';
+        $printMode = $data['print_mode'] ?? 'direct_card';
+
         try {
-            $card = $this->idCardGenerator->generateIDCard($staffId, $data['format'] ?? 'html', $data['side'] ?? 'both');
-            $number = 'KWA-S-' . str_pad((string)$staffId, 6, '0', STR_PAD_LEFT);
-            $this->recordsService->persistGeneratedIdCard($staffId, $number, $data['expires_at'] ?? date('Y-m-d', strtotime('+2 years')), $this->access->userId());
-            $this->access->audit('generate_id_card', 'staff', $staffId, null, ['card_number' => $number]);
-            return $this->success(['card_number' => $number, 'document' => $card], 'Staff ID card generated');
+            $result = $this->idCardGenerator->generateIDCard(
+                $staffId,
+                'pdf',
+                $side,
+                $printMode
+            );
+
+            if (($result['status'] ?? 'error') !== 'success') {
+                return $this->handleResponse($result);
+            }
+
+            $passNumber = $this->recordsService
+                ->securityPassNumberForStaff($staffId);
+
+            $this->recordsService->persistGeneratedIdCard(
+                $staffId,
+                $passNumber,
+                null,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'generate_staff_security_pass',
+                'staff',
+                $staffId,
+                null,
+                [
+                    'pass_number' => $passNumber,
+                    // Legacy field retained for audit-query compatibility.
+                    'card_number' => $passNumber,
+                    'print_mode' => $printMode,
+                    'side' => $side,
+                ]
+            );
+
+            return $this->success(
+                [
+                    'pass_number' => $passNumber,
+                    // Legacy response field retained for existing consumers.
+                    'card_number' => $passNumber,
+                    'document' => $result['data'] ?? null,
+                ],
+                'Staff security pass generated successfully'
+            );
         } catch (\Throwable $e) {
-            return $this->serverError('Failed to generate staff ID card', $e->getMessage());
+            return $this->serverError(
+                'Failed to generate staff security pass',
+                $e->getMessage()
+            );
         }
     }
 
-    /** POST /api/staff/id-cards/issue */
+    /** POST /api/staff/id-cards/issue — mark a registered pass as issued. */
     public function postIdCardsIssue($id = null, $data = [], $segments = [])
     {
         if ($denied = $this->guardStaffDomain('staff.id_cards.manage', ['system administrator','school administrator'])) return $denied;
-        $staffId = (int)($data['staff_id'] ?? 0);
-        if (!$staffId) return $this->badRequest('staff_id is required');
-        $this->recordsService->issueIdCard($staffId, $this->access->userId());
-        $this->access->audit('issue_id_card', 'staff', $staffId, null, ['status' => 'issued']);
-        return $this->success(null, 'Staff ID card issued');
+
+        $staffId = (int) ($data['staff_id'] ?? 0);
+        if ($staffId <= 0) {
+            return $this->badRequest('staff_id is required');
+        }
+
+        try {
+            $this->recordsService->issueIdCard(
+                $staffId,
+                $this->access->userId()
+            );
+
+            $this->access->audit(
+                'issue_staff_security_pass',
+                'staff',
+                $staffId,
+                null,
+                ['status' => 'issued']
+            );
+
+            return $this->success(
+                null,
+                'Staff security pass issued successfully'
+            );
+        } catch (RuntimeException $exception) {
+            return $this->badRequest($exception->getMessage());
+        }
     }
 
     /** GET /api/staff/leave-requests — admin scope or own records */
@@ -1458,7 +1689,7 @@ class StaffController extends BaseController
     /** GET /api/staff/performance-reviews */
     public function getPerformanceReviews($id = null, $data = [], $segments = [])
     {
-        if ($denied = $this->guardStaffDomain('staff.performance.view', ['system administrator','school administrator','director','headteacher','deputy head - academic'])) return $denied;
+        if ($denied = $this->guardStaffDomain('staff.performance.view', self::STAFF_PERFORMANCE_VIEW_ROLES)) return $denied;
         try {
             $rows = $this->recordsService->performanceReviews($_GET ?? [], $id ? (int)$id : null);
             if($id) return $rows ? $this->success($rows[0]) : $this->notFound('Performance review not found');

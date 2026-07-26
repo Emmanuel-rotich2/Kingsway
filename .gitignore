@@ -17,6 +17,12 @@
 /logs/*.log
 .phpunit.cache/
 
+# Runtime uploads are environment-owned and must never be tracked.
+# Template or asset changes that need manual production promotion belong in
+# uploads_backup/, then production can copy them into its own uploads/ tree.
+/uploads/
+!/uploads_backup/
+
 # Node modules (if any in the future)
 /node_modules/
 

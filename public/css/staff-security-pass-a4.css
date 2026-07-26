@@ -1,0 +1,90 @@
+/*
+ * A4 portrait staff security-pass sheets.
+ * Six portrait passes per side: two columns by three rows.
+ * Back sheets mirror each row in the PHP layout for duplex alignment.
+ *
+ * The positioning follows the existing student ID-card Dompdf strategy:
+ * fixed A4 canvas plus explicitly positioned card slots. This avoids CSS
+ * table layout and prevents Dompdf from treating ordinary divs as table cells.
+ */
+
+@page {
+    size: A4 portrait;
+    margin: 0;
+}
+
+html,
+body,
+.staff-pass-print-body {
+    width: 210mm;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+
+.staff-pass-a4-document {
+    width: 210mm;
+    margin: 0;
+    padding: 0;
+}
+
+.staff-pass-a4-page {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    min-height: 297mm;
+    max-height: 297mm;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    page-break-after: always;
+    page-break-inside: avoid;
+}
+
+.staff-pass-a4-page:last-child {
+    page-break-after: auto;
+}
+
+.staff-pass-a4-sheet {
+    position: absolute;
+    top: 15.6mm;
+    left: 51.02mm;
+    width: 107.96mm;
+    height: 265.8mm;
+    margin: 0;
+    padding: 0;
+}
+
+.staff-pass-a4-row {
+    position: relative;
+    width: 107.96mm;
+    height: 88.6mm;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    page-break-inside: avoid;
+}
+
+.staff-pass-a4-cell {
+    position: absolute;
+    top: 0;
+    width: 53.98mm;
+    height: 85.60mm;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.staff-pass-a4-cell:first-child {
+    left: 0;
+}
+
+.staff-pass-a4-cell:last-child {
+    right: 0;
+}
+
+.staff-pass-a4-cell > .staff-pass {
+    width: 53.98mm;
+    height: 85.60mm;
+    margin: 0;
+}

@@ -880,6 +880,7 @@ class UsersAPI extends BaseAPI
                 last_name,
                 role_id,
                 status,
+                force_password_change,
                 account_locked_until,
                 CASE
                     WHEN account_locked_until IS NOT NULL
@@ -1018,6 +1019,7 @@ class UsersAPI extends BaseAPI
                     'last_name' => $user['last_name'],
                     'role_id' => $user['role_id'],
                     'status' => $user['status'] ?? null,
+                    'force_password_change' => (int)($user['force_password_change'] ?? 0),
                     'roles' => $roles['data'] ?? [],
                     'permissions' => $permissionCodes  // In response body, NOT in token
                 ]

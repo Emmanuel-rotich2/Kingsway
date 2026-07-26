@@ -388,5 +388,6 @@
   </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/staff_onboarding.js"></script>
+<?php $staffOnboardingJs = __DIR__ . '/../js/pages/staff_onboarding.js'; ?>
+<script src="<?= $appBase ?>/js/pages/staff_onboarding.js?v=<?= file_exists($staffOnboardingJs) ? filemtime($staffOnboardingJs) : time() ?>"></script>
 <script>document.addEventListener('DOMContentLoaded', () => staffOnboardingController.init());</script>

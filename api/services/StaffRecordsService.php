@@ -78,47 +78,225 @@ final class StaffRecordsService
 
     public function idCards(array $filters = []): array
     {
-        $where = ['1=1'];
+        $where = ["COALESCE(s.status, 'active') IN ('active', 'on_leave')"];
         $params = [];
         if (!empty($filters['staff_id'])) {
-            $where[] = 'c.staff_id = ?';
+            $where[] = 's.id = ?';
             $params[] = (int)$filters['staff_id'];
         }
+
+        if (!empty($filters['staff_ids']) && is_array($filters['staff_ids'])) {
+            $staffIds = array_values(
+                array_unique(
+                    array_filter(
+                        array_map('intval', $filters['staff_ids']),
+                        static fn (int $staffId): bool => $staffId > 0
+                    )
+                )
+            );
+
+            if ($staffIds === []) {
+                return [];
+            }
+
+            $where[] = 's.id IN ('
+                . implode(',', array_fill(0, count($staffIds), '?'))
+                . ')';
+            array_push($params, ...$staffIds);
+        }
+
         if (!empty($filters['status'])) {
-            $where[] = 'c.status = ?';
-            $params[] = $filters['status'];
+            if ($filters['status'] === 'missing') {
+                $where[] = 'c.id IS NULL';
+            } else {
+                $where[] = 'c.status = ?';
+                $params[] = $filters['status'];
+            }
         }
 
         return $this->db->query(
-            "SELECT c.*, s.staff_no, s.first_name, s.last_name, s.position, s.profile_pic_url,
+            "SELECT
+                    c.id,
+                    s.id AS staff_id,
+                    c.card_number,
+                    c.generated_by,
+                    c.generated_at,
+                    c.issued_by,
+                    c.issued_at,
+                    c.expires_at,
+                    c.status,
+                    c.metadata,
+                    c.created_at,
+                    c.updated_at,
+                    s.staff_no,
+                    s.first_name,
+                    s.last_name,
+                    s.position,
+                    u.email,
+                    s.phone,
+                    s.profile_pic_url,
                     d.name AS department_name
-             FROM staff_id_cards c
-             JOIN staff s ON s.id = c.staff_id
+             FROM staff s
+             LEFT JOIN (
+                SELECT c1.*
+                FROM staff_id_cards c1
+                INNER JOIN (
+                    SELECT staff_id, MAX(id) AS id
+                    FROM staff_id_cards
+                    GROUP BY staff_id
+                ) latest ON latest.id = c1.id
+             ) c ON c.staff_id = s.id
+             LEFT JOIN users u ON u.id = s.user_id
              LEFT JOIN departments d ON d.id = s.department_id
              WHERE " . implode(' AND ', $where) . "
-             ORDER BY c.created_at DESC",
+             ORDER BY
+                CASE WHEN c.id IS NULL THEN 0 ELSE 1 END,
+                s.last_name,
+                s.first_name,
+                s.staff_no",
             $params
         )->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function securityPassNumberForStaff(int $staffId): string
+    {
+        if ($staffId <= 0) {
+            throw new RuntimeException('A valid staff ID is required.');
+        }
+
+        return 'KWA-S-' . str_pad(
+            (string) $staffId,
+            6,
+            '0',
+            STR_PAD_LEFT
+        );
+    }
+
     public function persistGeneratedIdCard(int $staffId, string $cardNumber, ?string $expiresAt, int $actorId): void
     {
+        /*
+         * $expiresAt is retained for method compatibility only. Staff security
+         * passes remain valid while the staff employment relationship is current and
+         * are revoked by the canonical lifecycle/offboarding workflows.
+         */
         $this->db->query(
             "INSERT INTO staff_id_cards (staff_id, card_number, status, issued_at, expires_at, generated_by, created_at, updated_at)
-             VALUES (?, ?, 'generated', NULL, ?, ?, NOW(), NOW())
-             ON DUPLICATE KEY UPDATE status='generated', expires_at=VALUES(expires_at), generated_by=VALUES(generated_by), updated_at=NOW()",
-            [$staffId, $cardNumber, $expiresAt, $actorId]
+             VALUES (?, ?, 'generated', NULL, NULL, ?, NOW(), NOW())
+             ON DUPLICATE KEY UPDATE
+                 status = 'generated',
+                 issued_by = NULL,
+                 issued_at = NULL,
+                 generated_at = NOW(),
+                 expires_at = NULL,
+                 generated_by = VALUES(generated_by),
+                 updated_at = NOW()",
+            [$staffId, $cardNumber, $actorId]
         );
+    }
+
+    public function persistBulkGeneratedIdCards(array $staffIds, ?string $expiresAt, int $actorId): array
+    {
+        $persisted = [];
+        foreach (array_unique(array_map('intval', $staffIds)) as $staffId) {
+            if ($staffId <= 0) {
+                continue;
+            }
+
+            $cardNumber = $this->securityPassNumberForStaff($staffId);
+            $this->persistGeneratedIdCard($staffId, $cardNumber, $expiresAt, $actorId);
+            $persisted[] = [
+                'staff_id' => $staffId,
+                'card_number' => $cardNumber,
+            ];
+        }
+
+        return $persisted;
     }
 
     public function issueIdCard(int $staffId, int $actorId): void
     {
-        $this->db->query(
+        if ($staffId <= 0) {
+            throw new RuntimeException('A valid staff ID is required.');
+        }
+
+        $statement = $this->db->query(
             "UPDATE staff_id_cards
-             SET status = 'issued', issued_at = NOW(), issued_by = ?, updated_at = NOW()
-             WHERE staff_id = ?",
+             SET status = 'issued',
+                 issued_at = NOW(),
+                 issued_by = ?,
+                 updated_at = NOW()
+             WHERE id = (
+                 SELECT latest.id
+                 FROM (
+                     SELECT id
+                     FROM staff_id_cards
+                     WHERE staff_id = ?
+                     ORDER BY id DESC
+                     LIMIT 1
+                 ) AS latest
+             )",
             [$actorId, $staffId]
         );
+
+        if ($statement->rowCount() !== 1) {
+            throw new RuntimeException(
+                'No generated staff security pass was found to issue.'
+            );
+        }
+    }
+
+    public function revokeLatestSecurityPass(
+        int $staffId,
+        int $actorId,
+        string $reason
+    ): bool {
+        if ($staffId <= 0) {
+            throw new RuntimeException('A valid staff ID is required.');
+        }
+
+        $pass = $this->db->query(
+            "SELECT id, metadata
+             FROM staff_id_cards
+             WHERE staff_id = ?
+             ORDER BY id DESC
+             LIMIT 1",
+            [$staffId]
+        )->fetch(PDO::FETCH_ASSOC);
+
+        if (!$pass) {
+            return false;
+        }
+
+        $metadata = [];
+        if (!empty($pass['metadata'])) {
+            $decoded = json_decode((string) $pass['metadata'], true);
+            if (is_array($decoded)) {
+                $metadata = $decoded;
+            }
+        }
+
+        $metadata['revocation'] = [
+            'reason' => trim($reason) !== ''
+                ? trim($reason)
+                : 'Staff employment is no longer current.',
+            'revoked_by' => $actorId,
+            'revoked_at' => date('c'),
+        ];
+
+        $this->db->query(
+            "UPDATE staff_id_cards
+             SET status = 'revoked',
+                 expires_at = NULL,
+                 metadata = ?,
+                 updated_at = NOW()
+             WHERE id = ?",
+            [
+                json_encode($metadata, JSON_UNESCAPED_SLASHES),
+                (int) $pass['id'],
+            ]
+        );
+
+        return true;
     }
 
     public function performanceReviews(array $filters = [], ?int $id = null): array
@@ -466,7 +644,19 @@ final class StaffRecordsService
             }
 
             if (($data['status'] ?? '') === 'completed') {
-                $this->db->query('UPDATE staff SET status = ? , updated_at = NOW() WHERE id = ?', ['inactive', $offboarding['staff_id']]);
+                $staffId = (int) $offboarding['staff_id'];
+
+                $this->db->query(
+                    'UPDATE staff SET status = ?, updated_at = NOW() WHERE id = ?',
+                    ['inactive', $staffId]
+                );
+
+                $this->revokeLatestSecurityPass(
+                    $staffId,
+                    $actorId,
+                    'Staff offboarding completed.'
+                );
+
                 $this->db->query(
                     'UPDATE staff_offboarding SET processed_by = ?, processed_at = NOW() WHERE id = ?',
                     [$actorId, $offboardingId]

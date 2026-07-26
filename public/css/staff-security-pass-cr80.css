@@ -1,0 +1,126 @@
+/* ==========================================================================
+   Direct portrait Staff Security Pass printing
+   One 53.98 mm x 85.60 mm side per PDF page.
+
+   This follows the existing student ID direct-card strategy: the physical
+   pass is positioned inside a slightly smaller printer-safe canvas so Dompdf
+   cannot flow one side onto a second page.
+   ========================================================================== */
+
+@page {
+    size: 53.98mm 85.60mm;
+    margin: 0;
+}
+
+html,
+body,
+.staff-pass-print-body {
+    width: 53.98mm;
+    height: 85.60mm;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+}
+
+.staff-pass-direct-document {
+    width: 53.98mm;
+    margin: 0;
+    padding: 0;
+}
+
+.staff-pass-direct-page {
+    position: relative;
+    display: block;
+    width: 53.98mm;
+    height: 85.60mm;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    page-break-before: auto;
+    page-break-after: always;
+    page-break-inside: avoid;
+    break-before: auto;
+    break-after: page;
+    break-inside: avoid;
+}
+
+.staff-pass-direct-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+}
+
+.staff-pass-direct-page > .staff-pass {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 53.58mm;
+    height: 85.20mm;
+    min-width: 53.58mm;
+    max-width: 53.58mm;
+    min-height: 85.20mm;
+    max-height: 85.20mm;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+.staff-pass-direct-page .staff-pass-details,
+.staff-pass-direct-page .staff-pass-details tbody,
+.staff-pass-direct-page .staff-pass-details tr,
+.staff-pass-direct-page .staff-pass-details td,
+.staff-pass-direct-page .staff-pass-back-details,
+.staff-pass-direct-page .staff-pass-back-details tbody,
+.staff-pass-direct-page .staff-pass-back-details tr,
+.staff-pass-direct-page .staff-pass-back-details td {
+    page-break-before: auto;
+    page-break-after: auto;
+    page-break-inside: auto;
+    break-before: auto;
+    break-after: auto;
+    break-inside: auto;
+}
+
+/* Browser-only preview of the exact server-rendered front/back templates. */
+@media screen {
+    html,
+    body,
+    .staff-pass-print-body {
+        width: auto;
+        height: auto;
+        min-height: 100%;
+        background: #eef1ef;
+    }
+
+    .staff-pass-direct-document {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 16px;
+        width: auto;
+        padding: 16px;
+    }
+
+    .staff-pass-direct-page {
+        flex: 0 0 53.98mm;
+        page-break-after: auto;
+        break-after: auto;
+        background: #ffffff;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+    }
+}
+
+@media print {
+    html,
+    body,
+    .staff-pass-print-body {
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .staff-pass {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+}
