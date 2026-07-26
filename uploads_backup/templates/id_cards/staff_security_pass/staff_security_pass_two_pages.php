@@ -16,15 +16,15 @@ $side = isset($side) && is_string($side) ? $side : 'both';
         ?>
 
         <?php if ($side === 'front' || $side === 'both'): ?>
-            <section class="staff-pass-direct-page">
+            <div class="staff-pass-direct-page">
                 <?php require $frontTemplatePath; ?>
-            </section>
+            </div>
         <?php endif; ?>
 
         <?php if ($side === 'back' || $side === 'both'): ?>
-            <section class="staff-pass-direct-page">
+            <div class="staff-pass-direct-page">
                 <?php require $backTemplatePath; ?>
-            </section>
+            </div>
         <?php endif; ?>
     <?php endforeach; ?>
 </div>

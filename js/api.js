@@ -16,8 +16,16 @@ const TOKEN_REFRESH_LOCK_KEY = "kingsway_token_refresh_lock";
 const TOKEN_REFRESH_EVENT_KEY = "kingsway_token_refresh_event";
 const TOKEN_REFRESH_LOCK_TTL_MS = 20000;
 const TOKEN_REFRESH_WAIT_MS = 18000;
-const ACTIVE_SESSION_WINDOW_MS = 55 * 60 * 1000;
-const TOKEN_REFRESH_SKEW_SECONDS = 5 * 60;
+const KINGSWAY_AUTH_SESSION_CONFIG = window.AUTH_SESSION_CONFIG || {};
+const ACTIVE_SESSION_WINDOW_MS =
+  Math.max(
+    300,
+    Number(KINGSWAY_AUTH_SESSION_CONFIG.idleTimeoutSeconds) || 1800,
+  ) * 1000;
+const TOKEN_REFRESH_SKEW_SECONDS = Math.max(
+  60,
+  Number(KINGSWAY_AUTH_SESSION_CONFIG.refreshWindowSeconds) || 600,
+);
 const CURRENT_TAB_ID =
   Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
 
@@ -389,10 +397,15 @@ const AuthContext = (() => {
         API_BASE_URL + "/auth/refresh-token",
         window.location.origin,
       );
-      const response = await fetch(url, {
+      const response = await fetchWithBrowserFallback(url.toString(), {
         method: "POST",
         credentials: "include", // carries the HttpOnly refresh_token cookie
-        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "Cache-Control": "no-store",
+        },
         body: JSON.stringify(
           refreshToken ? { refresh_token: refreshToken } : {},
         ),
@@ -439,9 +452,9 @@ const AuthContext = (() => {
   let _bootPromise = null;
 
   function doInitialize() {
-    // Set activeStorage once based on what actually has data
+    // Set activeStorage once based on what actually has data.
     detectAuthStorage();
-    let token = activeStorage.getItem("token");
+    const token = activeStorage.getItem("token");
     const userData = activeStorage.getItem("user_data");
     const permissionsData = activeStorage.getItem("user_permissions");
 
@@ -461,14 +474,35 @@ const AuthContext = (() => {
       }
     }
 
+    if (currentUser && token) {
+      // Defer the refresh call to the next microtask. AuthContext is assigned to
+      // window only after this IIFE finishes, while refreshAccessToken() is the
+      // canonical token owner and reads window.AuthContext.
+      return Promise.resolve().then(async () => {
+        if (isSessionIdleExpired()) {
+          clearUser();
+          return false;
+        }
+
+        if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+          const refreshed = await refreshAccessToken();
+          if (!refreshed && isTokenExpired(0)) {
+            clearUser();
+            return false;
+          }
+        }
+
+        return isAuthenticated();
+      });
+    }
+
     // Single source of truth: if web-storage had no token, fall back to the
     // server-side refresh cookie exactly once. Resolve rather than throw so the
     // caller can decide whether to redirect.
-    if (!token) {
-      return bootstrapFromRefreshCookie().catch((e) => {
-        console.warn("AuthContext initialize refresh skipped:", e);
-      });
-    }
+    return bootstrapFromRefreshCookie().catch((e) => {
+      console.warn("AuthContext initialize refresh skipped:", e);
+      return false;
+    });
   }
 
   async function initialize() {
@@ -609,6 +643,7 @@ const AuthContext = (() => {
     removeAuthKeys(localStorage);
     removeAuthKeys(sessionStorage);
     localStorage.removeItem("auth_storage_mode");
+    localStorage.removeItem(SESSION_ACTIVITY_KEY);
   }
 
   /**
@@ -739,8 +774,12 @@ const AuthContext = (() => {
   /**
    * Check if user is authenticated
    */
+  function hasSession() {
+    return Boolean(currentUser && getToken());
+  }
+
   function isAuthenticated() {
-    return !!currentUser && !!getToken();
+    return hasSession() && !isTokenExpired(0) && !isSessionIdleExpired();
   }
 
   /**
@@ -850,6 +889,7 @@ const AuthContext = (() => {
     getSidebarItems,
     getDashboardInfo,
     getPermissionCount,
+    hasSession,
     isAuthenticated,
     initialize,
     canView,
@@ -1576,53 +1616,53 @@ if (document.readyState === "loading") {
 }
 
 /**
- * A 401 refresh attempt failed. Rather than immediately clearing auth state
- * and hard-redirecting to index.php (which would bounce the whole app before
- * telemetry/data runs on initial load), we emit a SESSION_EXPIRED event and let
- * the app decide. A registered handler can show a login modal; only if nothing
- * handles it do we fall back to a redirect. The user is never silently logged
- * out in the middle of boot for a single transient failure.
+ * End the local session once Kingsway can no longer authenticate it.
+ *
+ * This is intentionally idempotent because several page requests can fail at
+ * the same time when one access token expires. One owner clears auth state,
+ * broadcasts the expiry and redirects the browser to the login page.
  */
 let _sessionExpiredEmitted = false;
 function handleSessionExpired(reason = "refresh_rejected") {
-  // This function is called only after the refresh endpoint has explicitly
-  // rejected the session with 401/403. Network failures, timeouts, 429 and 5xx
-  // responses must never erase a valid local session.
-  console.warn("[API] Session expired — emitting SESSION_EXPIRED", reason);
+  if (_sessionExpiredEmitted) return;
+  _sessionExpiredEmitted = true;
+
+  console.warn("[API] Session expired", reason);
 
   if (typeof AuthContext !== "undefined" && AuthContext.clearUser) {
     AuthContext.clearUser();
   }
 
-  // Prefer an event-driven UI (login modal) over a hard redirect.
   if (
     typeof SessionManager !== "undefined" &&
     typeof SessionManager.onSessionExpired === "function"
   ) {
     try {
-      SessionManager.onSessionExpired();
-    } catch (e) {
-      console.error(e);
-    }
-    return;
-  }
-
-  // Fallback: emit a global event other code can hook.
-  window.dispatchEvent(new CustomEvent("SESSION_EXPIRED"));
-
-  // Last-resort redirect only if nothing handled it and we're not mid-boot.
-  if (!_sessionExpiredEmitted) {
-    _sessionExpiredEmitted = true;
-    if (window.__APP_BOOTED__) {
-      // Avoid double redirects within the same tab.
-      if (sessionStorage.getItem("_session_expired_redirect")) return;
-      sessionStorage.setItem("_session_expired_redirect", "1");
-      setTimeout(function () {
-        sessionStorage.removeItem("_session_expired_redirect");
-        window.location.href = (window.APP_BASE || "") + "/index.php";
-      }, 2000);
+      SessionManager.onSessionExpired(reason);
+      return;
+    } catch (error) {
+      console.error("[API] SessionManager expiry handling failed:", error);
     }
   }
+
+  window.dispatchEvent(
+    new CustomEvent("SESSION_EXPIRED", { detail: { reason } }),
+  );
+
+  if (sessionStorage.getItem("_session_expired_redirect")) return;
+  sessionStorage.setItem("_session_expired_redirect", "1");
+  window.setTimeout(() => {
+    sessionStorage.removeItem("_session_expired_redirect");
+    window.location.replace(`${window.APP_BASE || ""}/index.php`);
+  }, 250);
+}
+
+function createSessionExpiredError(message = "Your session has expired") {
+  const error = new Error(message);
+  error.code = 401;
+  error.state = "unauthorized";
+  error.sessionExpired = true;
+  return error;
 }
 
 /**
@@ -1669,7 +1709,7 @@ async function performRefreshAccessToken() {
       window.location.origin,
     );
 
-    const response = await fetch(url, {
+    const response = await fetchWithBrowserFallback(url.toString(), {
       method: "POST",
       credentials: "include",
       cache: "no-store",
@@ -1727,22 +1767,34 @@ function isTokenExpired(bufferSeconds = 60) {
   return expiresIn === null || expiresIn < bufferSeconds;
 }
 
-function getTokenSecondsUntilExpiry() {
+function decodeAccessTokenPayload() {
   const token = AuthContext.getToken();
   if (!token) return null;
 
   try {
-    // Decode JWT (without verification, just get payload)
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-
-    const payload = JSON.parse(base64UrlDecode(parts[1]));
-    const now = Math.floor(Date.now() / 1000);
-    return Number(payload.exp || 0) - now;
+    return JSON.parse(base64UrlDecode(parts[1]));
   } catch (error) {
-    console.error("Error checking token expiry:", error);
+    console.error("Error decoding access token:", error);
     return null;
   }
+}
+
+function getTokenSecondsUntilExpiry() {
+  const payload = decodeAccessTokenPayload();
+  if (!payload) return null;
+
+  const now = Math.floor(Date.now() / 1000);
+  return Number(payload.exp || 0) - now;
+}
+
+function getTokenIssuedAtMilliseconds() {
+  const payload = decodeAccessTokenPayload();
+  const issuedAt = Number(payload?.iat || 0);
+  return Number.isFinite(issuedAt) && issuedAt > 0
+    ? issuedAt * 1000
+    : 0;
 }
 
 function base64UrlDecode(value) {
@@ -1763,13 +1815,23 @@ function recordSessionActivity(source = "user") {
 function getLastSessionActivityAt() {
   const raw = localStorage.getItem(SESSION_ACTIVITY_KEY);
   const parsed = Number(raw || 0);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  // Legacy sessions may not have the activity key yet. Use the JWT issue time
+  // instead of treating a missing key as permanently active.
+  return getTokenIssuedAtMilliseconds();
+}
+
+function isSessionIdleExpired() {
+  const lastActivity = getLastSessionActivityAt();
+  if (!lastActivity) return false;
+  return Date.now() - lastActivity >= ACTIVE_SESSION_WINDOW_MS;
 }
 
 function isSessionActiveForRefresh() {
-  const lastActivity = getLastSessionActivityAt();
-  if (!lastActivity) return true;
-  return Date.now() - lastActivity <= ACTIVE_SESSION_WINDOW_MS;
+  return !isSessionIdleExpired();
 }
 
 function acquireTokenRefreshLock() {
@@ -1852,10 +1914,14 @@ function waitForRemoteTokenRefresh() {
 function startSessionActivityTracking() {
   if (window.__KINGSWAY_ACTIVITY_TRACKING__) return;
   window.__KINGSWAY_ACTIVITY_TRACKING__ = true;
-  recordSessionActivity("boot");
 
   let lastWrite = 0;
   const mark = (source) => {
+    if (AuthContext?.hasSession?.() && isSessionIdleExpired()) {
+      handleSessionExpired("idle_timeout");
+      return;
+    }
+
     const now = Date.now();
     if (now - lastWrite < 15000) return;
     lastWrite = now;
@@ -1876,9 +1942,11 @@ function startSessionActivityTracking() {
 
   window.KingswaySessionActivity = {
     markActive: recordSessionActivity,
+    lastActivityAt: getLastSessionActivityAt,
     isActive: isSessionActiveForRefresh,
+    isIdleExpired: isSessionIdleExpired,
     shouldRefreshSoon: () =>
-      Boolean(AuthContext?.isAuthenticated?.()) &&
+      Boolean(AuthContext?.hasSession?.()) &&
       isSessionActiveForRefresh() &&
       isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS),
     secondsUntilExpiry: getTokenSecondsUntilExpiry,
@@ -1893,6 +1961,8 @@ async function apiCall(
   params = {},
   options = {},
 ) {
+  let isProtectedRequest = false;
+
   try {
     const queryParams =
       params && typeof params === "object" && !Array.isArray(params)
@@ -1900,35 +1970,6 @@ async function apiCall(
         : {};
 
     const upperMethod = String(method || "GET").toUpperCase();
-    if (
-      AuthContext.isAuthenticated() &&
-      upperMethod !== "GET"
-    ) {
-      recordSessionActivity("api_write");
-    }
-
-    // If the token is nearing expiry and the user/session is active, refresh
-    // through the cross-tab coordinator. Idle sessions are allowed to expire
-    // cleanly instead of being kept alive by background tabs.
-    if (
-      AuthContext.isAuthenticated() &&
-      isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)
-    ) {
-      if (!isSessionActiveForRefresh() && isTokenExpired(0)) {
-        handleSessionExpired("idle_token_expired");
-        throw new Error("Session expired due to inactivity");
-      }
-
-      console.log("Token expiring soon, refreshing...");
-      try {
-        await refreshAccessToken();
-      } catch (refreshError) {
-        console.warn(
-          "Proactive token refresh failed; continuing with current token:",
-          refreshError && refreshError.message,
-        );
-      }
-    }
 
     // Validate permission BEFORE making the request
     // If user lacks permission, this will throw an error
@@ -1974,11 +2015,43 @@ async function apiCall(
       "/auth/refresh-session",
       "/auth/validate-token",
     ]);
-    const token = authFreeEndpoints.has(normalizedEndpoint)
-      ? null
-      : AuthContext.getToken();
-    if (!token && !authFreeEndpoints.has(normalizedEndpoint)) {
-      console.warn("⚠️ No JWT token found - API call will fail with 401");
+    isProtectedRequest = !authFreeEndpoints.has(normalizedEndpoint);
+
+    if (isProtectedRequest && AuthContext.hasSession?.()) {
+      if (isSessionIdleExpired()) {
+        handleSessionExpired("idle_timeout");
+        throw createSessionExpiredError(
+          "Your session expired after 30 minutes of inactivity",
+        );
+      }
+
+      // A successfully initiated protected request counts as session activity.
+      // This is deliberately recorded only after the idle check so a request
+      // arriving after the 30-minute cutoff cannot revive an expired session.
+      recordSessionActivity(
+        upperMethod === "GET" ? "api_read" : "api_write",
+      );
+
+      if (isTokenExpired(TOKEN_REFRESH_SKEW_SECONDS)) {
+        const tokenAlreadyExpired = isTokenExpired(0);
+        console.log("Access token is expiring; refreshing before request...");
+        const refreshed = await refreshAccessToken();
+
+        if (!refreshed && tokenAlreadyExpired) {
+          handleSessionExpired("expired_token_refresh_failed");
+          throw createSessionExpiredError(
+            "Your session expired. Please sign in again.",
+          );
+        }
+      }
+    }
+
+    const token = isProtectedRequest ? AuthContext.getToken() : null;
+    if (!token && isProtectedRequest) {
+      handleSessionExpired("missing_access_token");
+      throw createSessionExpiredError(
+        "Your session is no longer authenticated. Please sign in again.",
+      );
     }
 
     // Request options
@@ -2053,14 +2126,19 @@ async function apiCall(
           console.error(
             "Token refresh succeeded but no access token is available; session is invalid.",
           );
-          throw new Error("Authentication failed, please log in again");
+          handleSessionExpired("refresh_missing_access_token");
+          throw createSessionExpiredError(
+            "Your session has expired. Please sign in again.",
+          );
         }
         console.log("Retrying original request with refreshed token...");
         fetchOptions.headers.Authorization = "Bearer " + newToken;
         response = await fetchWithBrowserFallback(requestUrl, fetchOptions);
       } else {
-        // Refresh failed, user is logged out and redirected
-        throw new Error("Authentication failed, please log in again");
+        handleSessionExpired("request_401_refresh_failed");
+        throw createSessionExpiredError(
+          "Your session has expired. Please sign in again.",
+        );
       }
     }
 
@@ -2113,7 +2191,23 @@ async function apiCall(
   } catch (error) {
     error.endpoint = error.endpoint || endpoint;
     error.method = error.method || method;
-    if (/Failed to fetch|NetworkError|network/i.test(error.message || "")) {
+    const isNetworkFailure = /Failed to fetch|NetworkError|network/i.test(
+      error.message || "",
+    );
+
+    if (
+      isNetworkFailure &&
+      isProtectedRequest &&
+      AuthContext.hasSession?.() &&
+      isTokenExpired(0)
+    ) {
+      handleSessionExpired("expired_token_network_failure");
+      throw createSessionExpiredError(
+        "Your session expired. Please sign in again.",
+      );
+    }
+
+    if (isNetworkFailure) {
       console.error("[api.js] Network fetch failed", {
         endpoint,
         method,
@@ -2221,6 +2315,7 @@ window.API = {
         console.log("Dashboard info:", response.dashboard);
 
         AuthContext.setUser(userData, response, rememberMe);
+        recordSessionActivity("login");
 
         console.log("After setUser - AuthContext state:");
         console.log("- User:", AuthContext.getUser());
@@ -3366,6 +3461,16 @@ window.API = {
     },
   },
 
+  // Catering endpoints owned by CateringController/MealReportManager
+  catering: {
+    getStats: async (params = {}) =>
+      apiCall("/catering/stats", "GET", null, params),
+    getMenu: async (params = {}) =>
+      apiCall("/catering/menu", "GET", null, params),
+    getFoodStock: async (params = {}) =>
+      apiCall("/catering/food-stock", "GET", null, params),
+  },
+
   // Admission endpoints
   admission: {
     index: async () => apiCall("/admission/index", "GET"),
@@ -4144,7 +4249,7 @@ window.API = {
     // Attendance
     getAttendance: async (id = null, params = {}) =>
       id
-        ? apiCall(`/staff/attendance-get/${id}`, "GET")
+        ? apiCall(`/staff/attendance-get/${id}`, "GET", null, params)
         : apiCall("/staff/attendance-get", "GET", null, params),
     markAttendance: async (data) =>
       apiCall("/staff/attendance-mark", "POST", data),
@@ -4291,12 +4396,21 @@ window.API = {
     issueIdCard: async (payload) =>
       apiCall("/staff/id-cards-issue", "POST", payload),
     getLeaveTypes: async () => apiCall("/staff/leave-types", "GET"),
+    getLeaveBalance: async () => apiCall("/staff/leave-balance", "GET"),
     getLeaveRequests: async (params = {}) =>
       apiCall("/staff/leave-requests", "GET", null, params),
     createLeaveRequest: async (payload) =>
       apiCall("/staff/leave-requests", "POST", payload),
     updateLeaveRequestStatus: async (id, payload) =>
       apiCall(`/staff/leave-requests-status/${id}`, "PUT", payload),
+    getInternalOpportunities: async () =>
+      apiCall("/staff/internal-opportunities", "GET"),
+    applyForInternalOpportunity: async (payload) =>
+      apiCall("/staff/internal-opportunities-apply", "POST", payload),
+    getIncidentReports: async () =>
+      apiCall("/staff/incidents", "GET"),
+    createIncidentReport: async (payload) =>
+      apiCall("/staff/incidents", "POST", payload),
     getAvailableRoles: async () => apiCall("/staff/available-roles", "GET"),
     getRoleAssignments: async (staffId) =>
       apiCall("/staff/role-assignments", "GET", null, { staff_id: staffId }),
@@ -4383,6 +4497,8 @@ window.API = {
   // Transport endpoints
   transport: {
     index: async () => apiCall("/transport/index", "GET"),
+    getMyRoute: async () => apiCall("/transport/my-route", "GET"),
+    getMyVehicle: async () => apiCall("/transport/my-vehicle", "GET"),
 
     // Student verification
     verifyStudent: async (data) =>
@@ -5230,6 +5346,8 @@ window.API = {
   // Maintenance endpoints (exactly as implemented in MaintenanceController)
   maintenance: {
     index: async () => apiCall("/maintenance/index", "GET"),
+    getDashboardSummary: async () =>
+      apiCall("/maintenance/dashboard-summary", "GET"),
 
     getLogs: async (params) =>
       apiCall("/maintenance/logs", "GET", null, params),
@@ -5404,14 +5522,6 @@ window.API = {
      */
     getAccountantBankAccounts: async (params = {}) => {
       return await apiCall("/accounts/bank-accounts", "GET", null, params);
-    },
-
-    /**
-     * Get full accountant dashboard data in a single API call (optimized)
-     * Returns: financial, payments, alerts, bankAccounts, unmatchedPayments
-     */
-    getAccountantFull: async (params = {}) => {
-      return await apiCall("/dashboard/accountant/full", "GET", null, params);
     },
 
     getDirectorAnnouncements: async () => {

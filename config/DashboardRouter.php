@@ -1,12 +1,11 @@
 <?php
 /**
- * Dashboard Route Mapper — hardcoded for zero-latency lookup.
+ * Dashboard component registry and safe fallback mapper.
  *
- * Previously queried `role_dashboards` + `dashboards` tables on every request.
- * Now a single array lookup; no DB round-trips needed.
- *
- * To add a new role: add an entry to ROLE_DASHBOARDS below.
- * Dashboard keys correspond to files in /components/dashboards/{key}.php
+ * Runtime role assignments are read from `role_dashboards` + `dashboards` by
+ * the authentication layer. This registry mirrors the approved production
+ * mapping, validates component/controller availability, and provides a safe
+ * access-denied fallback when database configuration is missing or invalid.
  */
 namespace App\Config;
 
@@ -36,14 +35,13 @@ class DashboardRouter
         64 => 'support_staff_dashboard',
     ];
 
-    private const DEFAULT_DASHBOARD = 'headteacher_dashboard';
+    private const DEFAULT_DASHBOARD = 'dashboard_access_denied';
 
     private const DASHBOARD_ALIASES = [
         'dashboard' => self::DEFAULT_DASHBOARD,
         'home' => self::DEFAULT_DASHBOARD,
         'director_dashboard' => 'director_owner_dashboard',
         'school_admin_dashboard' => 'school_administrative_officer_dashboard',
-        'accountant_controls_dashboard' => 'store_manager_dashboard',
     ];
 
     // role name → role_id for string-based lookups
@@ -102,9 +100,10 @@ class DashboardRouter
             return self::ROLE_DASHBOARDS[$id] ?? self::DEFAULT_DASHBOARD;
         }
 
-        // Last resort: construct from name
-        $constructed = strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $role)) . '_dashboard';
-        return self::dashboardExists($constructed) ? $constructed : self::DEFAULT_DASHBOARD;
+        // Unknown or newly-created roles must be explicitly assigned in the
+        // database and mirrored in this fallback registry. Never infer a
+        // privileged dashboard from an arbitrary role name.
+        return self::DEFAULT_DASHBOARD;
     }
 
     public static function normalizeDashboardKey(string $key): string
@@ -159,6 +158,14 @@ class DashboardRouter
             ];
         }
 
+        if (!isset($registry[self::DEFAULT_DASHBOARD])) {
+            $registry[self::DEFAULT_DASHBOARD] = [
+                'key' => self::DEFAULT_DASHBOARD,
+                'php' => self::dashboardExists(self::DEFAULT_DASHBOARD),
+                'js' => false,
+            ];
+        }
+
         foreach (self::DASHBOARD_ALIASES as $alias => $target) {
             $registry[$alias] = [
                 'key' => $alias,
@@ -177,9 +184,7 @@ class DashboardRouter
         return '?route=' . self::getDashboardForRole($role);
     }
 
-    /**
-     * Returns all roles → dashboard pairs (no DB needed).
-     */
+    /** Returns the approved fallback role-to-dashboard pairs. */
     public static function getAllDashboards(): array
     {
         $result = [];
@@ -194,9 +199,7 @@ class DashboardRouter
         return array_values($result);
     }
 
-    /**
-     * Returns dashboard info for a single role (no DB).
-     */
+    /** Returns fallback dashboard information for one role. */
     public static function getDashboardsForRole(int $roleId): array
     {
         $key = self::ROLE_DASHBOARDS[$roleId] ?? null;
@@ -221,6 +224,6 @@ class DashboardRouter
         if ($exit) exit;
     }
 
-    // No-op — nothing to clear when there's no cache
+    // No-op: this fallback registry has no runtime cache.
     public static function clearCache(): void {}
 }

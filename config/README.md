@@ -35,6 +35,10 @@ DB_PASS=admin123
 DB_NAME=KingsWayAcademy
 
 JWT_SECRET=your_secure_secret_key_here
+JWT_EXPIRY=3600
+AUTH_IDLE_TIMEOUT_SECONDS=1800
+AUTH_REFRESH_WINDOW_SECONDS=600
+AUTH_SESSION_MONITOR_INTERVAL_SECONDS=30
 
 # Add your API keys
 MPESA_CONSUMER_KEY=your_key
@@ -57,6 +61,10 @@ DB_PASS=secure_production_password
 DB_NAME=kingswa4_kingswayacademy
 
 JWT_SECRET=generate_a_secure_64_char_random_string
+JWT_EXPIRY=3600
+AUTH_IDLE_TIMEOUT_SECONDS=1800
+AUTH_REFRESH_WINDOW_SECONDS=600
+AUTH_SESSION_MONITOR_INTERVAL_SECONDS=30
 
 # Production API keys
 MPESA_ENVIRONMENT=production
@@ -145,7 +153,10 @@ if (Config::isDebug()) {
 
 ### Authentication
 - `JWT_SECRET` - Secret key for JWT tokens (MUST be secure in production)
-- `JWT_EXPIRY` - Token expiry time in seconds (default: 3600)
+- `JWT_EXPIRY` - Access-token lifetime in seconds (default: 3600 / one hour)
+- `AUTH_IDLE_TIMEOUT_SECONDS` - Maximum inactivity before the canonical database session expires (default: 1800 / 30 minutes)
+- `AUTH_REFRESH_WINDOW_SECONDS` - How early an active browser session renews its access token (default: 600 / ten minutes before expiry)
+- `AUTH_SESSION_MONITOR_INTERVAL_SECONDS` - Browser session-policy check interval (default: 30 seconds)
 
 ### Email (SMTP)
 - `SMTP_HOST` - Mail server hostname

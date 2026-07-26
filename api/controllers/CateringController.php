@@ -3,92 +3,70 @@ declare(strict_types=1);
 
 namespace App\API\Controllers;
 
-use Exception;
+use App\API\Modules\reports\MealReportManager;
+use InvalidArgumentException;
+use Throwable;
 
 /**
  * CateringController
  *
- * ROUTES:
- * GET /api/catering/stats       → getStats()
- * GET /api/catering/menu        → getMenu()      query: date=YYYY-MM-DD
- * GET /api/catering/food-stock  → getFoodStock() query: low_stock=1, limit=N
+ * Exposes catering endpoints only. Business queries remain in the canonical
+ * MealReportManager under api/modules/reports.
  */
 class CateringController extends BaseController
 {
+    /** @var MealReportManager */
+    private $reports;
+
+    public function __construct()
+    {
+        parent::__construct();
+        $this->reports = new MealReportManager();
+    }
+
     public function index($id = null, $data = [], $segments = [])
     {
         return $this->success(['message' => 'Catering API is running']);
     }
 
-    /**
-     * GET /api/catering/stats
-     */
     public function getStats($id = null, $data = [], $segments = [])
     {
-        $db = \App\Database\Database::getInstance();
-        $stats = ['meals_today' => 0, 'food_items' => 0, 'low_stock' => 0, 'daily_cost' => 0];
-
-        try {
-            $stmt = $db->query("SELECT COUNT(*) FROM meal_records WHERE DATE(served_at) = CURDATE()");
-            $stats['meals_today'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-
-        try {
-            $stmt = $db->query("SELECT COUNT(*) FROM food_store");
-            $stats['food_items'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-
-        try {
-            $stmt = $db->query("SELECT COUNT(*) FROM food_store WHERE quantity <= reorder_level");
-            $stats['low_stock'] = (int)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-
-        try {
-            $stmt = $db->query("SELECT COALESCE(SUM(total_cost),0) FROM meal_records WHERE DATE(served_at) = CURDATE()");
-            $stats['daily_cost'] = (float)($stmt->fetchColumn() ?: 0);
-        } catch (\Exception $e) {}
-
-        return $this->success($stats);
+        return $this->delegate(function () {
+            return $this->reports->getStats($_GET['date'] ?? null);
+        });
     }
 
-    /**
-     * GET /api/catering/menu?date=YYYY-MM-DD
-     */
     public function getMenu($id = null, $data = [], $segments = [])
     {
-        $date = $_GET['date'] ?? date('Y-m-d');
-        try {
-            $db   = \App\Database\Database::getInstance();
-            $stmt = $db->prepare(
-                "SELECT * FROM menu_items WHERE menu_date = :date ORDER BY meal_type, id"
-            );
-            $stmt->execute([':date' => $date]);
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows ?: []);
-        } catch (\Exception $e) {
-            return $this->success([]);
-        }
+        return $this->delegate(function () {
+            return $this->reports->getMenu($_GET['date'] ?? null);
+        });
     }
 
-    /**
-     * GET /api/catering/food-stock?low_stock=1&limit=N
-     */
     public function getFoodStock($id = null, $data = [], $segments = [])
     {
-        $lowStock = !empty($_GET['low_stock']);
-        $limit    = min((int)($_GET['limit'] ?? 50), 200);
-        try {
-            $db    = \App\Database\Database::getInstance();
-            $where = $lowStock ? "WHERE quantity <= reorder_level" : "";
-            $stmt  = $db->prepare(
-                "SELECT * FROM food_store {$where} ORDER BY item_name LIMIT :lim"
+        return $this->delegate(function () {
+            return $this->reports->getFoodStock(
+                !empty($_GET['low_stock']),
+                (int) ($_GET['limit'] ?? 50)
             );
-            $stmt->bindValue(':lim', $limit, \PDO::PARAM_INT);
-            $stmt->execute();
-            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-            return $this->success($rows ?: []);
-        } catch (\Exception $e) {
-            return $this->success([]);
+        });
+    }
+
+    private function delegate(callable $operation)
+    {
+        try {
+            $result = $operation();
+            if (($result['success'] ?? false) !== true) {
+                return $this->badRequest(
+                    $result['message'] ?? $result['error'] ?? 'Catering operation failed'
+                );
+            }
+            return $this->success($result['data'] ?? null);
+        } catch (InvalidArgumentException $error) {
+            return $this->badRequest($error->getMessage());
+        } catch (Throwable $error) {
+            return $this->serverError($error->getMessage());
         }
     }
 }

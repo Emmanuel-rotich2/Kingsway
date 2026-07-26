@@ -101,7 +101,7 @@ body {
 
 .staff-pass-photo-frame {
     width: 23mm;
-    height: 27mm;
+    height: 23mm;
     margin: 0 auto 1.5mm;
     overflow: hidden;
     border: 0.45mm solid #d5aa25;
@@ -202,7 +202,7 @@ body {
 }
 
 .staff-pass-back-header {
-    padding: 2.2mm 3mm 1.7mm;
+    padding: 1.7mm 3mm 1.2mm;
     border-bottom: 0.5mm solid #d5aa25;
     text-align: center;
 }
@@ -221,7 +221,7 @@ body {
 }
 
 .staff-pass-back-body {
-    padding: 2mm 3mm 1.5mm;
+    padding: 1.7mm 3mm 1.2mm;
 }
 
 .staff-pass-qr-panel {
@@ -230,8 +230,8 @@ body {
 
 .staff-pass-qr,
 .staff-pass-qr-placeholder {
-    width: 27mm;
-    height: 27mm;
+    width: 25mm;
+    height: 25mm;
     margin: 0 auto;
 }
 

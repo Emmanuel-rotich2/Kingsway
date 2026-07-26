@@ -1,80 +1,122 @@
 /**
- * HOD Talent Development Dashboard Controller
- * Role: HOD Talent Development (ID 21)
+ * Talent Development Dashboard Controller
+ * Composes the existing Activities API, manager and schedule endpoints.
  */
-const hodDashboardController = {
-    init: function () {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
+(() => {
+    const unwrap = (response) => {
+        let value = response;
+        for (let depth = 0; depth < 4; depth += 1) {
+            if (value && typeof value === 'object' && !Array.isArray(value)
+                && Object.prototype.hasOwnProperty.call(value, 'data')) {
+                value = value.data;
+                continue;
+            }
+            break;
         }
-        this.loadAll();
-    },
+        return value;
+    };
 
-    refresh: function () { this.loadAll(); },
+    const controller = DashboardBaseController.create({
+        controllerName: 'TalentDevelopmentDashboardController',
+        rootId: 'talentDashboard',
+        refreshButtonId: 'talentDashboardRefresh',
+        stateId: 'talentDashboardState',
+        scopeId: 'talentDashboardScope',
+        lastUpdatedId: 'talentDashboardLastUpdated',
 
-    loadAll: async function () {
-        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
+        async apiMethod() {
+            const [summaryResponse, activitiesResponse, schedulesResponse] = await Promise.all([
+                window.API.activities.getSummary(),
+                window.API.activities.list({ limit: 20 }),
+                window.API.activities.listSchedules({})
+            ]);
 
-        const [stats, activities, events] = await Promise.allSettled([
-            get('/activities/stats'),
-            get('/activities/list?limit=8&status=active'),
-            get('/events?limit=5&upcoming=1')
-        ]);
+            const stats = unwrap(summaryResponse) || {};
+            const activitiesValue = unwrap(activitiesResponse);
+            const schedulesValue = unwrap(schedulesResponse);
+            const activities = Array.isArray(activitiesValue) ? activitiesValue : [];
+            const schedules = Array.isArray(schedulesValue) ? schedulesValue : [];
 
-        if (stats.value) this.renderStats(stats.value?.data || stats.value);
-        if (activities.value) this.renderActivities(activities.value?.data || activities.value || []);
-        if (events.value) this.renderEvents(events.value?.data || events.value || []);
-    },
+            const categories = activities.reduce((totals, row) => {
+                const category = row.category_name || 'Uncategorised';
+                totals[category] = (totals[category] || 0) + 1;
+                return totals;
+            }, {});
+            const activeActivities = activities.filter((row) =>
+                ['planned', 'ongoing'].includes(String(row.status || '').toLowerCase())
+            );
+            const participantTotal = activities.reduce(
+                (sum, row) => sum + Number(row.active_participants || 0),
+                0
+            );
 
-    renderStats: function (d) {
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
-        set('activeActivities', d.active_activities || d.total_activities || 0);
-        set('studentsEnrolled', d.students_enrolled || d.total_participants || 0);
-        set('upcomingEvents', d.upcoming_events || 0);
-        set('awardsThisTerm', d.awards || d.awards_this_term || 0);
-    },
+            return {
+                meta: { scope_label: 'Talent Development' },
+                cards: {
+                    active_activities: Number(stats.planned || 0) + Number(stats.ongoing || 0),
+                    student_participants: participantTotal,
+                    completed_activities: Number(stats.completed || 0),
+                    upcoming_sessions: schedules.length
+                },
+                charts: {
+                    by_category: {
+                        labels: Object.keys(categories),
+                        data: Object.values(categories)
+                    },
+                    participation: {
+                        labels: activities.slice(0, 10).map((row) => row.title || 'Activity'),
+                        data: activities.slice(0, 10).map((row) => Number(row.active_participants || 0))
+                    }
+                },
+                tables: {
+                    activities: activeActivities,
+                    schedule: schedules.slice(0, 20)
+                }
+            };
+        },
 
-    renderActivities: function (list) {
-        const tbody = document.getElementById('activitiesTableBody');
-        if (!tbody) return;
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No active activities.</td></tr>'; return; }
-        tbody.innerHTML = list.map(a => {
-            const status = a.status || 'active';
-            return `<tr>
-                <td><strong>${this.esc(a.name || a.title)}</strong></td>
-                <td><span class="badge bg-warning text-dark">${this.esc(a.category || '—')}</span></td>
-                <td>${a.participant_count || a.participants || 0}</td>
-                <td>${this.esc(a.coach_name || a.teacher_name || '—')}</td>
-                <td><span class="badge bg-${status === 'active' ? 'success' : 'secondary'}">${status}</span></td>
-            </tr>`;
-        }).join('');
-    },
+        cards: [
+            { id: 'talActivities', path: 'cards.active_activities', subtitleId: 'talActivitiesSub', subtitle: 'Planned or ongoing programmes' },
+            { id: 'talParticipants', path: 'cards.student_participants', subtitleId: 'talParticipantsSub', subtitle: 'Active student participation' },
+            { id: 'talStaff', path: 'cards.completed_activities', subtitleId: 'talStaffSub', subtitle: 'Programmes completed' },
+            { id: 'talUpcoming', path: 'cards.upcoming_sessions', subtitleId: 'talUpcomingSub', subtitle: 'Recurring schedule entries' }
+        ],
+        chartDefinitions: [
+            { id: 'talCategoryChart', path: 'charts.by_category', label: 'Activities', type: 'doughnut', showLegend: true },
+            { id: 'talParticipationChart', path: 'charts.participation', label: 'Participants', type: 'bar' }
+        ],
+        tableDefinitions: [
+            {
+                bodyId: 'talActivitiesBody',
+                path: 'tables.activities',
+                emptyText: 'No active activities.',
+                columns: [
+                    { key: 'title' },
+                    { value: (row) => row.category_name || 'Uncategorised' },
+                    { value: (row) => [row.start_date, row.end_date].filter(Boolean).join(' – ') },
+                    {
+                        key: 'status',
+                        render: (value, row, instance) => instance.badge(value, {
+                            planned: 'primary', ongoing: 'success', completed: 'secondary', cancelled: 'danger'
+                        })
+                    }
+                ]
+            },
+            {
+                bodyId: 'talScheduleBody',
+                path: 'tables.schedule',
+                emptyText: 'No activity schedule entries.',
+                columns: [
+                    { key: 'activity_title' },
+                    { key: 'day_of_week' },
+                    { value: (row) => `${String(row.start_time || '').slice(0, 5)}–${String(row.end_time || '').slice(0, 5)}` },
+                    { key: 'venue' }
+                ]
+            }
+        ]
+    });
 
-    renderEvents: function (list) {
-        const el = document.getElementById('upcomingEventsList');
-        if (!el) return;
-        if (!list.length) { el.innerHTML = '<div class="text-center text-muted py-3 small">No upcoming events.</div>'; return; }
-        el.innerHTML = list.map(e => {
-            const date = e.event_date || e.date;
-            const d = date ? new Date(date).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '—';
-            return `<a href="#" class="list-group-item list-group-item-action py-2">
-                <div class="d-flex justify-content-between">
-                    <span class="small fw-semibold">${this.esc(e.name || e.title)}</span>
-                    <small class="text-muted">${d}</small>
-                </div>
-                <small class="text-muted">${this.esc(e.venue || e.location || '')}</small>
-            </a>`;
-        }).join('');
-    },
-
-    navigate: function (route) {
-        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
-    },
-
-    esc: function (s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => hodDashboardController.init());
+    window.TalentDevelopmentDashboardController = controller;
+    window.hodDashboardController = controller;
+    DashboardBaseController.boot(controller, 'TalentDevelopmentDashboardController');
+})();

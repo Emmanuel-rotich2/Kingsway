@@ -982,6 +982,7 @@ class AuthAPI extends BaseAPI
         if (!$refreshToken) {
             return [
                 'success' => false,
+                'code' => 401,
                 'message' => 'Refresh token is required'
             ];
         }
@@ -1002,12 +1003,29 @@ class AuthAPI extends BaseAPI
             if (!$result) {
                 return [
                     'success' => false,
+                    'code' => 401,
                     'message' => 'Invalid or expired refresh token'
                 ];
             }
 
+            $userId = (int) $result['user_id'];
+            $refreshTokenId = (int) $result['id'];
+            $refreshSession = $this->authSessionService
+                ->validateRefreshSession($userId, $refreshTokenId);
+
+            if (!$refreshSession) {
+                $this->authSessionService->revokeByRefreshToken(
+                    (string) $refreshToken
+                );
+
+                return [
+                    'success' => false,
+                    'code' => 401,
+                    'message' => 'Session expired due to inactivity'
+                ];
+            }
+
             // Get user and generate new access token
-            $userId = $result['user_id'];
             $userLookup = $this->usersApi->get($userId);
             // UsersAPI::get() returns a {success, data} envelope; unwrap it.
             $userData = ($userLookup['success'] ?? false) ? $userLookup['data'] : null;
@@ -1015,6 +1033,7 @@ class AuthAPI extends BaseAPI
             if (!$userData || empty($userData['id'])) {
                 return [
                     'success' => false,
+                    'code' => 401,
                     'message' => 'User not found'
                 ];
             }
@@ -1106,6 +1125,7 @@ class AuthAPI extends BaseAPI
             error_log('Error exchanging refresh token: ' . $e->getMessage());
             return [
                 'success' => false,
+                'code' => 500,
                 'message' => 'Token refresh failed'
             ];
         }

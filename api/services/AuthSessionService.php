@@ -21,10 +21,15 @@ use Throwable;
 final class AuthSessionService
 {
     private PDO $db;
+    private int $idleTimeoutSeconds;
 
     public function __construct(?PDO $db = null)
     {
         $this->db = $db ?? Database::getInstance()->getConnection();
+        $configuredIdleTimeout = defined('AUTH_IDLE_TIMEOUT_SECONDS')
+            ? (int) AUTH_IDLE_TIMEOUT_SECONDS
+            : 1800;
+        $this->idleTimeoutSeconds = max(300, $configuredIdleTimeout);
     }
 
     /**
@@ -165,13 +170,18 @@ final class AuthSessionService
             return null;
         }
 
+        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
         $stmt = $this->db->prepare(
-            'SELECT id, user_id, last_activity, expires_at
+            "SELECT id, user_id, last_activity, expires_at
              FROM auth_sessions
              WHERE token = ?
                AND user_id = ?
                AND expires_at > NOW()
-             LIMIT 1'
+               AND last_activity >= DATE_SUB(
+                    NOW(),
+                    INTERVAL {$idleTimeoutSeconds} SECOND
+               )
+             LIMIT 1"
         );
         $stmt->execute([
             self::hashAccessToken($accessToken),
@@ -190,6 +200,50 @@ final class AuthSessionService
                AND last_activity < DATE_SUB(NOW(), INTERVAL 1 MINUTE)'
         );
         $stmt->execute([(int) $session['id']]);
+
+        return [
+            'id' => (int) $session['id'],
+            'user_id' => (int) $session['user_id'],
+            'last_activity' => $session['last_activity'],
+            'expires_at' => $session['expires_at'],
+        ];
+    }
+
+    /**
+     * Confirm that a refresh token still belongs to a non-idle canonical
+     * browser session. Refresh-token lifetime alone must not bypass the
+     * 30-minute inactivity policy.
+     */
+    public function validateRefreshSession(
+        int $userId,
+        int $refreshTokenId
+    ): ?array {
+        if ($userId <= 0 || $refreshTokenId <= 0) {
+            return null;
+        }
+
+        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
+        $stmt = $this->db->prepare(
+            "SELECT id, user_id, last_activity, expires_at
+             FROM auth_sessions
+             WHERE user_id = ?
+               AND CAST(
+                    JSON_UNQUOTE(
+                        JSON_EXTRACT(payload, '$.refresh_token_id')
+                    ) AS UNSIGNED
+               ) = ?
+               AND last_activity >= DATE_SUB(
+                    NOW(),
+                    INTERVAL {$idleTimeoutSeconds} SECOND
+               )
+             LIMIT 1"
+        );
+        $stmt->execute([$userId, $refreshTokenId]);
+        $session = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$session) {
+            return null;
+        }
 
         return [
             'id' => (int) $session['id'],
@@ -438,6 +492,7 @@ final class AuthSessionService
         }
 
         // All interpolated values below are strictly normalized integers.
+        $idleTimeoutSeconds = $this->idleTimeoutSeconds;
         $baseSql = "
             SELECT
                 CONCAT('refresh:', rt.id) AS registry_key,
@@ -477,8 +532,17 @@ final class AuthSessionService
                         ) AS UNSIGNED
                     ) AS refresh_token_id,
                     MAX(last_activity) AS last_activity,
-                    SUM(CASE WHEN expires_at > NOW() THEN 1 ELSE 0 END)
-                        AS active_session_count
+                    SUM(
+                        CASE
+                            WHEN expires_at > NOW()
+                             AND last_activity >= DATE_SUB(
+                                NOW(),
+                                INTERVAL {$idleTimeoutSeconds} SECOND
+                             )
+                            THEN 1
+                            ELSE 0
+                        END
+                    ) AS active_session_count
                 FROM auth_sessions
                 WHERE JSON_EXTRACT(
                     payload,

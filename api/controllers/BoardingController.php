@@ -33,93 +33,81 @@ class BoardingController extends BaseController
     {
         return $this->getStats();
     }
-
     public function getStats($id = null, $data = [], $segments = [])
     {
         try {
-            $db = $this->db;
+            $summary = $this->db->query(
+                "SELECT COUNT(*) AS dormitories,
+                        COALESCE(SUM(capacity), 0) AS total_capacity,
+                        COALESCE(SUM(current_occupancy), 0) AS assigned_beds
+                 FROM dormitories
+                 WHERE status = 'active'"
+            )->fetch(\PDO::FETCH_ASSOC) ?: [];
 
-            $totalBoarders = (int)$db->query(
-                "SELECT COUNT(*) FROM students s
-                 JOIN dormitory_assignments da ON da.student_id = s.id AND da.status='active'
-                 WHERE s.status='active'"
-            )->fetchColumn();
+            $roll = $this->db->query(
+                "SELECT COUNT(DISTINCT student_id) AS marked_students,
+                        SUM(status = 'present') AS present_students,
+                        SUM(status IN ('absent', 'unknown')) AS absent_or_unknown
+                 FROM boarding_attendance
+                 WHERE date = CURDATE()"
+            )->fetch(\PDO::FETCH_ASSOC) ?: [];
 
-            $dormCount = (int)$db->query(
-                "SELECT COUNT(*) FROM dormitories WHERE status='active' AND deleted_at IS NULL"
-            )->fetchColumn();
-
-            $totalCapacity = (int)($db->query(
-                "SELECT COALESCE(SUM(capacity),0) FROM dormitories WHERE status='active' AND deleted_at IS NULL"
-            )->fetchColumn() ?? 0);
-
-            $assigned = (int)$db->query(
-                "SELECT COUNT(*) FROM dormitory_assignments WHERE status='active'"
-            )->fetchColumn();
-
-            $presentTonight = (int)$db->query(
-                "SELECT COUNT(*) FROM boarding_attendance WHERE date=CURDATE() AND status='present'"
-            )->fetchColumn();
-
-            $onLeave = (int)$db->query(
+            $permissionCount = (int) ($this->db->query(
                 "SELECT COUNT(*) FROM student_permissions
-                 WHERE status='approved' AND CURDATE() BETWEEN start_date AND end_date"
-            )->fetchColumn();
+                 WHERE status = 'approved'
+                   AND checked_out_at IS NOT NULL
+                   AND checked_in_at IS NULL
+                   AND end_date >= CURDATE()"
+            )->fetchColumn() ?: 0);
 
-            $pendingLeaves = (int)$db->query(
-                "SELECT COUNT(*) FROM student_permissions WHERE status='pending'"
-            )->fetchColumn();
+            $pendingCount = (int) ($this->db->query(
+                "SELECT COUNT(*) FROM student_permissions WHERE status = 'pending'"
+            )->fetchColumn() ?: 0);
 
-            $healthIssues = 0;
-            try {
-                $healthIssues = (int)$db->query(
-                    "SELECT COUNT(*) FROM sick_bay_visits WHERE status='admitted' AND DATE(admission_time)=CURDATE()"
-                )->fetchColumn();
-            } catch (\Throwable $e) { /* table may not exist yet */ }
+            $urgentNotes = (int) ($this->db->query(
+                "SELECT COUNT(*) FROM student_boarding_notes
+                 WHERE resolved = 0 AND priority IN ('high', 'urgent')"
+            )->fetchColumn() ?: 0);
 
-            $disciplinaryCases = 0;
-            try {
-                $disciplinaryCases = (int)$db->query(
-                    "SELECT COUNT(*) FROM student_discipline
-                     WHERE status IN ('open','under_review') AND MONTH(created_at)=MONTH(CURDATE())"
-                )->fetchColumn();
-            } catch (\Throwable $e) { /* graceful */ }
-
-            $rollCallPct = $totalBoarders > 0
-                ? round(($presentTonight / $totalBoarders) * 100)
-                : 0;
+            $assigned = (int) ($summary['assigned_beds'] ?? 0);
+            $capacity = (int) ($summary['total_capacity'] ?? 0);
+            $marked = (int) ($roll['marked_students'] ?? 0);
+            $present = (int) ($roll['present_students'] ?? 0);
 
             return $this->success([
-                'total_boarders'     => $totalBoarders,
-                'dormitories'        => $dormCount,
-                'total_capacity'     => $totalCapacity,
-                'assigned_beds'      => $assigned,
-                'available_beds'     => max(0, $totalCapacity - $assigned),
-                'occupancy_rate'     => $totalCapacity > 0 ? round(($assigned / $totalCapacity) * 100) : 0,
-                'present_tonight'    => $presentTonight,
-                'on_leave'           => $onLeave,
-                'pending_leaves'     => $pendingLeaves,
-                'health_issues'      => $healthIssues,
-                'disciplinary_cases' => $disciplinaryCases,
-                'roll_call_pct'      => $rollCallPct,
+                'total_boarders' => $assigned,
+                'dormitories' => (int) ($summary['dormitories'] ?? 0),
+                'total_capacity' => $capacity,
+                'assigned_beds' => $assigned,
+                'available_beds' => max(0, $capacity - $assigned),
+                'occupancy_rate' => $capacity > 0
+                    ? round(($assigned / $capacity) * 100, 1)
+                    : 0,
+                'present_tonight' => $present,
+                'absent_or_unknown' => (int) ($roll['absent_or_unknown'] ?? 0),
+                'on_leave' => $permissionCount,
+                'pending_leaves' => $pendingCount,
+                'urgent_notes' => $urgentNotes,
+                'roll_call_pct' => $marked > 0
+                    ? round(($present / $marked) * 100, 1)
+                    : 0,
             ]);
         } catch (Exception $e) {
             return $this->serverError($e->getMessage());
         }
     }
-
     public function getOccupancy($id = null, $data = [], $segments = [])
     {
         try {
             $stmt = $this->db->query(
-                "SELECT d.id, d.name AS dormitory_name, d.gender, d.capacity,
-                        COUNT(da.id) AS occupied,
-                        d.capacity - COUNT(da.id) AS available,
-                        d.status
+                "SELECT d.id, d.code, d.name AS dormitory_name, d.gender,
+                        d.capacity, d.current_occupancy AS occupied,
+                        GREATEST(d.capacity - d.current_occupancy, 0) AS available,
+                        d.status,
+                        CONCAT(hp.first_name, ' ', hp.last_name) AS house_parent
                  FROM dormitories d
-                 LEFT JOIN dormitory_assignments da ON da.dormitory_id=d.id AND da.status='active'
-                 WHERE d.status='active' AND d.deleted_at IS NULL
-                 GROUP BY d.id
+                 LEFT JOIN staff hp ON hp.id = d.house_parent_id
+                 WHERE d.status = 'active'
                  ORDER BY d.name"
             );
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -265,24 +253,24 @@ class BoardingController extends BaseController
             return $this->serverError($e->getMessage());
         }
     }
-
     public function getRollCall($id = null, $data = [], $segments = [])
     {
         try {
             $date = $_GET['date'] ?? date('Y-m-d');
-            $stmt = $this->db->query(
-                "SELECT ba.*,
-                        CONCAT(s.first_name,' ',s.last_name) AS student_name,
-                        s.admission_no,
-                        d.name AS dormitory_name
-                 FROM boarding_attendance ba
-                 JOIN students s ON s.id=ba.student_id
-                 LEFT JOIN dormitory_assignments da ON da.student_id=s.id AND da.status='active'
-                 LEFT JOIN dormitories d ON d.id=da.dormitory_id
-                 WHERE ba.date=:date
-                 ORDER BY d.name, s.last_name",
-                [':date' => $date]
+            if (strtotime($date) === false) {
+                return $this->badRequest('Invalid roll-call date');
+            }
+            $stmt = $this->db->prepare(
+                "SELECT dormitory_id, dormitory_name, dormitory_code,
+                        house_parent, date, session_name, session_code,
+                        total_students, present_count, absent_count,
+                        permission_count, sick_bay_count,
+                        attendance_percentage
+                 FROM vw_boarding_roll_call
+                 WHERE date = ?
+                 ORDER BY dormitory_name, session_name"
             );
+            $stmt->execute([date('Y-m-d', strtotime($date))]);
             return $this->success($stmt->fetchAll(\PDO::FETCH_ASSOC));
         } catch (Exception $e) {
             return $this->serverError($e->getMessage());

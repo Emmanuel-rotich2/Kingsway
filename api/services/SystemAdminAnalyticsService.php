@@ -357,13 +357,19 @@ final class SystemAdminAnalyticsService
             $limit = 50;
         }
         $currentSessionId = max(0, (int) ($currentSessionId ?? 0));
+        $idleTimeoutSeconds = max(
+            300,
+            defined('AUTH_IDLE_TIMEOUT_SECONDS')
+                ? (int) AUTH_IDLE_TIMEOUT_SECONDS
+                : 1800
+        );
 
-        $where = ['s.expires_at > NOW()'];
+        $baseWhere = ['s.expires_at > NOW()'];
         $params = [];
 
         if ($search !== '') {
             $term = '%' . $search . '%';
-            $where[] = '(
+            $baseWhere[] = '(
                 u.username LIKE ?
                 OR u.email LIKE ?
                 OR u.first_name LIKE ?
@@ -384,11 +390,18 @@ final class SystemAdminAnalyticsService
             );
         }
         if ($roleId !== null) {
-            $where[] = 'u.role_id = ?';
+            $baseWhere[] = 'u.role_id = ?';
             $params[] = $roleId;
         }
 
-        $whereSql = implode(' AND ', $where);
+        $activeWhere = $baseWhere;
+        $activeWhere[] = "s.last_activity >= DATE_SUB(
+            NOW(),
+            INTERVAL {$idleTimeoutSeconds} SECOND
+        )";
+
+        $baseWhereSql = implode(' AND ', $baseWhere);
+        $activeWhereSql = implode(' AND ', $activeWhere);
         $fromSql = '
             FROM auth_sessions s
             INNER JOIN users u ON u.id = s.user_id
@@ -413,25 +426,25 @@ final class SystemAdminAnalyticsService
                         END
                     ),
                     0
-                ) AS expiring_next_24h,
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN s.last_activity < DATE_SUB(
-                                NOW(),
-                                INTERVAL 30 MINUTE
-                            )
-                            THEN 1
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ) AS idle_over_30_minutes
+                ) AS expiring_next_24h
              $fromSql
-             WHERE $whereSql",
+             WHERE $activeWhereSql",
             $params
         );
         $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $idleStmt = $this->db->query(
+            "SELECT COUNT(*)
+             $fromSql
+             WHERE $baseWhereSql
+               AND s.last_activity < DATE_SUB(
+                    NOW(),
+                    INTERVAL {$idleTimeoutSeconds} SECOND
+               )",
+            $params
+        );
+        $idleExpiredCount = (int) $idleStmt->fetchColumn();
+
         $total = (int) ($summary['active_sessions'] ?? 0);
         $totalPages = max(1, (int) ceil($total / $limit));
         $page = min($page, $totalPages);
@@ -465,7 +478,7 @@ final class SystemAdminAnalyticsService
                     ELSE 0
                 END AS is_current
              $fromSql
-             WHERE $whereSql
+             WHERE $activeWhereSql
              ORDER BY
                 is_current DESC,
                 s.last_activity DESC,
@@ -479,7 +492,7 @@ final class SystemAdminAnalyticsService
                 COALESCE(r.name, 'Unknown') AS role_name,
                 COUNT(*) AS session_count
              $fromSql
-             WHERE $whereSql
+             WHERE $activeWhereSql
              GROUP BY u.role_id, r.name
              ORDER BY role_name",
             $params
@@ -498,6 +511,10 @@ final class SystemAdminAnalyticsService
              INNER JOIN users u ON u.id = s.user_id
              INNER JOIN roles r ON r.id = u.role_id
              WHERE s.expires_at > NOW()
+               AND s.last_activity >= DATE_SUB(
+                    NOW(),
+                    INTERVAL {$idleTimeoutSeconds} SECOND
+               )
              ORDER BY r.name"
         )->fetchAll(PDO::FETCH_ASSOC);
 
@@ -525,9 +542,10 @@ final class SystemAdminAnalyticsService
                 'expiring_next_24h' => (int) (
                     $summary['expiring_next_24h'] ?? 0
                 ),
-                'idle_over_30_minutes' => (int) (
-                    $summary['idle_over_30_minutes'] ?? 0
-                ),
+                // Kept for frontend compatibility; the threshold now follows
+                // AUTH_IDLE_TIMEOUT_SECONDS instead of being hard-coded.
+                'idle_over_30_minutes' => $idleExpiredCount,
+                'idle_timeout_seconds' => $idleTimeoutSeconds,
                 'tracking_available' => $trackedSessionRecords > 0,
                 'by_role' => $byRole,
             ],

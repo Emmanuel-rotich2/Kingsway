@@ -87,6 +87,12 @@ class MaintenanceController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // GET /api/maintenance/dashboard-summary
+    public function getDashboardSummary($id = null, $data = [], $segments = [])
+    {
+        return $this->handleResponse($this->api->getDashboardSummary());
+    }
+
     // GET /api/maintenance/logs
     public function getLogs($id = null, $data = [], $segments = [])
     {

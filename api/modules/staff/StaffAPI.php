@@ -1629,20 +1629,31 @@ class StaffAPI extends BaseAPI {
     public function getProfile($id) {
         try {
             $sql = "
-                SELECT 
+                SELECT
                     s.*,
+                    u.email,
                     sc.category_name,
-                    d.name as department_name,
-                    COUNT(DISTINCT sca.class_id) as assigned_classes,
-                    COUNT(DISTINCT cs.subject_id) as assigned_subjects
+                    d.name AS department_name,
+                    CONCAT_WS(' ', supervisor.first_name, supervisor.last_name) AS supervisor_name,
+                    (
+                        SELECT COUNT(DISTINCT sca.class_id)
+                        FROM staff_class_assignments sca
+                        WHERE sca.staff_id = s.id
+                          AND sca.status = 'active'
+                    ) AS assigned_classes,
+                    (
+                        SELECT COUNT(DISTINCT cs.subject_id)
+                        FROM class_schedules cs
+                        WHERE cs.teacher_id = s.id
+                          AND cs.status = 'active'
+                    ) AS assigned_subjects
                 FROM staff s
+                INNER JOIN users u ON u.id = s.user_id
+                LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
                 LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN staff_class_assignments sca ON s.id = sca.staff_id AND sca.status = 'active'
-                LEFT JOIN classes c ON sca.class_id = c.id
-                LEFT JOIN class_schedules cs ON s.id = cs.teacher_id AND cs.status = 'active'
                 WHERE s.id = ?
-                GROUP BY s.id
+                LIMIT 1
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1756,26 +1767,32 @@ class StaffAPI extends BaseAPI {
 
     public function getAttendance($params) {
         try {
+            $params = is_array($params) ? $params : [];
             $sql = "
-                SELECT 
+                SELECT
                     sa.*,
                     s.first_name,
                     s.last_name,
                     s.staff_no,
-                    s.id as staff_id,
-                    d.name as department_name
+                    s.id AS staff_id,
+                    d.name AS department_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
                 JOIN departments d ON s.department_id = d.id
                 WHERE sa.date BETWEEN ? AND ?
-                ORDER BY sa.date DESC, s.first_name, s.last_name
             ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
+            $bindings = [
                 $params['start_date'] ?? date('Y-m-d', strtotime('-30 days')),
                 $params['end_date'] ?? date('Y-m-d')
-            ]);
+            ];
+            if (!empty($params['staff_id'])) {
+                $sql .= " AND sa.staff_id = ?";
+                $bindings[] = (int) $params['staff_id'];
+            }
+            $sql .= " ORDER BY sa.date DESC, s.first_name, s.last_name";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
 
             $attendance = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -2431,12 +2448,14 @@ class StaffAPI extends BaseAPI {
     /**
      * Get staff payroll history
      */
-    public function getPayrollHistory($staffId, $startDate = null, $endDate = null) {
+    public function getPayrollHistory($staffId, array $filters = []) {
         try {
-            $result = $this->service->getPayrollManager()->getPayrollHistory($staffId, $startDate, $endDate);
-            return formatResponse(true, $result, 'Payroll history retrieved successfully');
+            return $this->service->getPayrollManager()->getPayrollHistory(
+                (int) $staffId,
+                $filters
+            );
         } catch (Exception $e) {
-            $this->handleException($e);
+            return $this->handleException($e);
         }
     }
 
@@ -2740,5 +2759,226 @@ class StaffAPI extends BaseAPI {
             $this->handleException($e);
         }
     }
+
+    // ===============================================================
+    // STAFF SELF-SERVICE: INTERNAL OPPORTUNITIES AND INCIDENTS
+    // ===============================================================
+
+    public function listInternalOpportunities($staffId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT j.id, j.title, j.department, j.job_type, j.location,
+                    j.description, j.requirements, j.responsibilities,
+                    j.deadline, j.status,
+                    a.id AS application_id,
+                    a.status AS application_status,
+                    a.created_at AS applied_at
+             FROM job_vacancies j
+             LEFT JOIN job_applications a
+                    ON a.job_id = j.id
+                   AND a.applicant_type = 'internal'
+                   AND a.staff_id = ?
+             WHERE j.status = 'open'
+               AND j.deadline >= CURDATE()
+             ORDER BY j.deadline, j.title"
+        );
+        $stmt->execute([(int) $staffId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function applyForInternalOpportunity($staffId, $userId, array $data)
+    {
+        $jobId = (int) ($data['job_id'] ?? 0);
+        if ($jobId <= 0) {
+            throw new \RuntimeException('job_id is required', 422);
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            $jobStmt = $this->db->prepare(
+                "SELECT * FROM job_vacancies
+                 WHERE id = ? AND status = 'open' AND deadline >= CURDATE()
+                 FOR UPDATE"
+            );
+            $jobStmt->execute([$jobId]);
+            $job = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$job) {
+                throw new \RuntimeException('This internal opportunity is no longer open', 409);
+            }
+
+            $profileStmt = $this->db->prepare(
+                "SELECT s.id, s.first_name, s.last_name, s.phone, s.tsc_no,
+                        s.position, s.department_id, u.email
+                 FROM staff s
+                 INNER JOIN users u ON u.id = s.user_id
+                 WHERE s.id = ? AND s.status IN ('active', 'on_leave')
+                 LIMIT 1"
+            );
+            $profileStmt->execute([(int) $staffId]);
+            $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$profile) {
+                throw new \RuntimeException('Staff profile is unavailable', 403);
+            }
+
+            $existingStmt = $this->db->prepare(
+                "SELECT id FROM job_applications
+                 WHERE job_id = ?
+                   AND applicant_type = 'internal'
+                   AND staff_id = ?
+                 LIMIT 1"
+            );
+            $existingStmt->execute([$jobId, (int) $staffId]);
+            if ($existingStmt->fetchColumn()) {
+                throw new \RuntimeException('You have already applied for this opportunity', 409);
+            }
+
+            $statement = trim((string) ($data['cover_letter'] ?? $data['statement'] ?? ''));
+            $insertStmt = $this->db->prepare(
+                "INSERT INTO job_applications
+                    (job_id, job_title, first_name, last_name, email, phone,
+                     tsc_number, cover_letter, status, applicant_type, staff_id,
+                     current_position, current_department_id, ip_address,
+                     created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', 'internal', ?, ?, ?, ?, NOW(), NOW())"
+            );
+            $insertStmt->execute([
+                $jobId,
+                $job['title'],
+                $profile['first_name'],
+                $profile['last_name'],
+                $profile['email'],
+                $profile['phone'] ?: 'Not provided',
+                $profile['tsc_no'],
+                $statement !== ''
+                    ? $statement
+                    : 'Internal application submitted through staff self-service.',
+                (int) $staffId,
+                $profile['position'],
+                $profile['department_id'],
+                $_SERVER['REMOTE_ADDR'] ?? null,
+            ]);
+
+            $applicationId = (int) $this->db->lastInsertId();
+            $this->db->commit();
+            return [
+                'id' => $applicationId,
+                'job_id' => $jobId,
+                'status' => 'received',
+            ];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    public function listIncidentReports($staffId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id, reference_no, category, occurred_at, location,
+                    severity, status, resolution, resolved_at, created_at
+             FROM staff_incident_reports
+             WHERE staff_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 50"
+        );
+        $stmt->execute([(int) $staffId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function createIncidentReport($staffId, $userId, array $data)
+    {
+        $category = (string) ($data['category'] ?? '');
+        $severity = (string) ($data['severity'] ?? 'medium');
+        $occurredAt = trim((string) ($data['occurred_at'] ?? ''));
+        $location = trim((string) ($data['location'] ?? ''));
+        $description = trim((string) ($data['description'] ?? ''));
+        $allowedCategories = [
+            'workplace_accident', 'property_damage', 'safety_hazard',
+            'security_concern', 'harassment', 'maintenance',
+            'student_welfare', 'transport', 'kitchen', 'other',
+        ];
+
+        if (!in_array($category, $allowedCategories, true)) {
+            throw new \RuntimeException('Invalid incident category', 422);
+        }
+        if (!in_array($severity, ['low', 'medium', 'high', 'critical'], true)) {
+            throw new \RuntimeException('Invalid incident severity', 422);
+        }
+        if ($occurredAt === '' || strtotime($occurredAt) === false
+            || $location === '' || $description === '') {
+            throw new \RuntimeException(
+                'Incident date, location and description are required',
+                422
+            );
+        }
+
+        $profileStmt = $this->db->prepare(
+            'SELECT department_id FROM staff WHERE id = ? LIMIT 1'
+        );
+        $profileStmt->execute([(int) $staffId]);
+        $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$profile) {
+            throw new \RuntimeException('Staff profile is unavailable', 403);
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $reference = $this->nextStaffIncidentReference();
+            $stmt = $this->db->prepare(
+                "INSERT INTO staff_incident_reports
+                    (reference_no, staff_id, department_id, category,
+                     occurred_at, location, description, immediate_action,
+                     severity, status, created_by, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reported', ?, NOW(), NOW())"
+            );
+            $stmt->execute([
+                $reference,
+                (int) $staffId,
+                $profile['department_id'],
+                $category,
+                date('Y-m-d H:i:s', strtotime($occurredAt)),
+                $location,
+                $description,
+                trim((string) ($data['immediate_action'] ?? '')) ?: null,
+                $severity,
+                (int) $userId,
+            ]);
+            $incidentId = (int) $this->db->lastInsertId();
+            $this->db->commit();
+            return [
+                'id' => $incidentId,
+                'reference_no' => $reference,
+                'status' => 'reported',
+            ];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    private function nextStaffIncidentReference()
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $reference = sprintf(
+                'KSI-%s-%06d',
+                date('Ymd'),
+                random_int(0, 999999)
+            );
+            $stmt = $this->db->prepare(
+                'SELECT 1 FROM staff_incident_reports WHERE reference_no = ? LIMIT 1'
+            );
+            $stmt->execute([$reference]);
+            if (!$stmt->fetchColumn()) {
+                return $reference;
+            }
+        }
+        throw new \RuntimeException('Unable to generate incident reference', 500);
+    }
+
 }
      

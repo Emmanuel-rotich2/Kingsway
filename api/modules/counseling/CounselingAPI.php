@@ -28,27 +28,102 @@ class CounselingAPI extends BaseAPI
     public function getSummary()
     {
         try {
-            $total = $this->db->query("SELECT COUNT(*) FROM counseling_sessions")->fetchColumn();
-            $scheduled = $this->db->query("SELECT COUNT(*) FROM counseling_sessions WHERE status='scheduled'")->fetchColumn();
-            $completed = $this->db->query("SELECT COUNT(*) FROM counseling_sessions WHERE status='completed'")->fetchColumn();
-            $inProgress = $this->db->query("SELECT COUNT(*) FROM counseling_sessions WHERE status='in_progress'")->fetchColumn();
+            $summaryStmt = $this->db->query(
+                "SELECT COUNT(*) AS total_cases,
+                        SUM(status IN ('open', 'in_progress')) AS open_cases,
+                        SUM(priority = 'urgent' AND status IN ('open', 'in_progress')) AS urgent_cases,
+                        SUM(next_follow_up_at IS NOT NULL
+                            AND next_follow_up_at <= NOW()
+                            AND status IN ('open', 'in_progress')) AS follow_ups_due,
+                        SUM(status = 'resolved') AS resolved_cases,
+                        SUM(status = 'closed') AS closed_cases
+                 FROM student_counseling_cases"
+            );
+            $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            $sessionStmt = $this->db->query(
+                "SELECT COUNT(*) AS sessions_this_month
+                 FROM student_counseling_sessions
+                 WHERE session_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
+                   AND session_date < DATE_ADD(
+                        DATE_FORMAT(CURDATE(), '%Y-%m-01'),
+                        INTERVAL 1 MONTH
+                   )"
+            );
+            $sessionsThisMonth = (int) ($sessionStmt->fetchColumn() ?: 0);
+
+            $typeStmt = $this->db->query(
+                "SELECT case_type, COUNT(*) AS case_count
+                 FROM student_counseling_cases
+                 WHERE status IN ('open', 'in_progress')
+                 GROUP BY case_type
+                 ORDER BY case_count DESC, case_type"
+            );
+
+            $trendStmt = $this->db->query(
+                "SELECT DATE_FORMAT(session_date, '%Y-%m') AS month,
+                        COUNT(*) AS session_count
+                 FROM student_counseling_sessions
+                 WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+                 GROUP BY DATE_FORMAT(session_date, '%Y-%m')
+                 ORDER BY month"
+            );
+
+            $caseStmt = $this->db->query(
+                "SELECT c.id, c.case_code, c.title, c.case_type, c.priority,
+                        c.status, c.next_follow_up_at, c.opened_at,
+                        CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                        s.admission_no
+                 FROM student_counseling_cases c
+                 INNER JOIN students s ON s.id = c.student_id
+                 WHERE c.status IN ('open', 'in_progress')
+                 ORDER BY FIELD(c.priority, 'urgent', 'high', 'medium', 'low'),
+                          COALESCE(c.next_follow_up_at, c.created_at), c.id DESC
+                 LIMIT 20"
+            );
+
+            $followStmt = $this->db->query(
+                "SELECT c.id, c.case_code, c.title, c.case_type, c.priority,
+                        c.status, c.next_follow_up_at,
+                        CONCAT(s.first_name, ' ', s.last_name) AS student_name,
+                        s.admission_no
+                 FROM student_counseling_cases c
+                 INNER JOIN students s ON s.id = c.student_id
+                 WHERE c.next_follow_up_at IS NOT NULL
+                   AND c.next_follow_up_at <= DATE_ADD(NOW(), INTERVAL 14 DAY)
+                   AND c.status IN ('open', 'in_progress')
+                 ORDER BY c.next_follow_up_at, FIELD(c.priority, 'urgent', 'high', 'medium', 'low')
+                 LIMIT 20"
+            );
+
+            $byType = $typeStmt->fetchAll(PDO::FETCH_ASSOC);
+            $trend = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
+            $openCases = (int) ($summary['open_cases'] ?? 0);
 
             $this->logAction('read', null, 'Fetched counseling summary');
-
             return $this->response([
                 'status' => 'success',
                 'data' => [
-                    'total' => (int) $total,
-                    'scheduled' => (int) $scheduled,
-                    'completed' => (int) $completed,
-                    'active' => (int) $inProgress + (int) $scheduled
-                ]
+                    'total' => (int) ($summary['total_cases'] ?? 0),
+                    'scheduled' => (int) ($summary['follow_ups_due'] ?? 0),
+                    'completed' => (int) ($summary['resolved_cases'] ?? 0)
+                        + (int) ($summary['closed_cases'] ?? 0),
+                    'active' => $openCases,
+                    'open_cases' => $openCases,
+                    'urgent_cases' => (int) ($summary['urgent_cases'] ?? 0),
+                    'follow_ups_due' => (int) ($summary['follow_ups_due'] ?? 0),
+                    'sessions_this_month' => $sessionsThisMonth,
+                    'by_type' => $byType,
+                    'session_trend' => $trend,
+                    'active_cases' => $caseStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'follow_ups' => $followStmt->fetchAll(PDO::FETCH_ASSOC),
+                ],
             ]);
         } catch (Exception $e) {
             $this->handleException($e);
             return $this->response([
                 'status' => 'error',
-                'message' => 'Failed to fetch summary: ' . $e->getMessage()
+                'message' => 'Failed to fetch summary: ' . $e->getMessage(),
             ], 500);
         }
     }

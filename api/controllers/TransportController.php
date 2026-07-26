@@ -428,21 +428,16 @@ class TransportController extends BaseController
     {
         $userId = $this->getCurrentUserId();
         if (!$userId) {
-            return $this->success(['route' => null, 'message' => 'No user context']);
+            return $this->unauthorized('Authentication required');
         }
+
         try {
-            $db = \App\Database\Database::getInstance();
-            $stmt = $db->prepare("
-                SELECT r.* FROM transport_routes r
-                INNER JOIN route_drivers rd ON rd.route_id = r.id
-                WHERE rd.driver_id = :uid
-                ORDER BY r.id DESC LIMIT 1
-            ");
-            $stmt->execute([':uid' => $userId]);
-            $route = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return $this->success($route ?: null);
-        } catch (\Exception $e) {
-            return $this->success(null);
+            return $this->success(
+                $this->api->getMyRoute((int) $userId),
+                'Driver route context retrieved'
+            );
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
         }
     }
 
@@ -454,21 +449,16 @@ class TransportController extends BaseController
     {
         $userId = $this->getCurrentUserId();
         if (!$userId) {
-            return $this->success(['vehicle' => null, 'message' => 'No user context']);
+            return $this->unauthorized('Authentication required');
         }
+
         try {
-            $db = \App\Database\Database::getInstance();
-            $stmt = $db->prepare("
-                SELECT v.* FROM vehicles v
-                INNER JOIN driver_vehicles dv ON dv.vehicle_id = v.id
-                WHERE dv.driver_id = :uid
-                ORDER BY v.id DESC LIMIT 1
-            ");
-            $stmt->execute([':uid' => $userId]);
-            $vehicle = $stmt->fetch(\PDO::FETCH_ASSOC);
-            return $this->success($vehicle ?: null);
-        } catch (\Exception $e) {
-            return $this->success(null);
+            return $this->success(
+                $this->api->getMyVehicle((int) $userId),
+                'Driver vehicle retrieved'
+            );
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
         }
     }
 

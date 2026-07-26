@@ -96,6 +96,41 @@ define(
     $_ENV['JWT_AUDIENCE'] ?? 'kingsway-staff'
 );
 
+
+$authIdleTimeoutSeconds = max(
+    300,
+    (int) ($_ENV['AUTH_IDLE_TIMEOUT_SECONDS'] ?? 1800)
+);
+
+define(
+    'AUTH_IDLE_TIMEOUT_SECONDS',
+    $authIdleTimeoutSeconds
+);
+
+$authRefreshWindowSeconds = max(
+    60,
+    min(
+        max(60, JWT_EXPIRY - 60),
+        (int) ($_ENV['AUTH_REFRESH_WINDOW_SECONDS'] ?? 600)
+    )
+);
+
+define(
+    'AUTH_REFRESH_WINDOW_SECONDS',
+    $authRefreshWindowSeconds
+);
+
+define(
+    'AUTH_SESSION_MONITOR_INTERVAL_SECONDS',
+    max(
+        15,
+        (int) (
+            $_ENV['AUTH_SESSION_MONITOR_INTERVAL_SECONDS']
+            ?? 30
+        )
+    )
+);
+
 /*
 |--------------------------------------------------------------------------
 | Email

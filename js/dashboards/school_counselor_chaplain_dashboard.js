@@ -1,84 +1,112 @@
 /**
- * School Counselor / Chaplain Dashboard Controller
- * Role: Chaplain (ID 24)
+ * Chaplain / Counselor Dashboard Controller
+ * Uses the canonical CounselingAPI summary; no dashboard-specific service.
  */
-const counselorDashboardController = {
-    init: function () {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
+(() => {
+    const unwrap = (response) => {
+        let value = response;
+        for (let depth = 0; depth < 4; depth += 1) {
+            if (value && typeof value === 'object' && !Array.isArray(value)
+                && Object.prototype.hasOwnProperty.call(value, 'data')) {
+                value = value.data;
+                continue;
+            }
+            break;
         }
-        this.loadAll();
-    },
+        return value;
+    };
 
-    refresh: function () { this.loadAll(); },
+    const controller = DashboardBaseController.create({
+        controllerName: 'ChaplainDashboardController',
+        rootId: 'chaplainDashboard',
+        refreshButtonId: 'chaplainDashboardRefresh',
+        stateId: 'chaplainDashboardState',
+        scopeId: 'chaplainDashboardScope',
+        lastUpdatedId: 'chaplainDashboardLastUpdated',
 
-    loadAll: async function () {
-        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
+        async apiMethod() {
+            const summary = unwrap(await window.API.counseling.getSummary()) || {};
+            const byType = Array.isArray(summary.by_type) ? summary.by_type : [];
+            const trend = Array.isArray(summary.session_trend) ? summary.session_trend : [];
 
-        const [stats, sessions, chapel] = await Promise.allSettled([
-            get('/api/counseling/stats'),
-            get('/api/counseling/sessions?limit=8&sort=recent'),
-            get('/api/chapel/services?limit=5&upcoming=1')
-        ]);
+            return {
+                meta: { scope_label: 'Student Wellbeing' },
+                cards: {
+                    open_cases: Number(summary.open_cases || summary.active || 0),
+                    urgent_cases: Number(summary.urgent_cases || 0),
+                    follow_ups_due: Number(summary.follow_ups_due || 0),
+                    sessions_this_month: Number(summary.sessions_this_month || 0)
+                },
+                charts: {
+                    by_type: {
+                        labels: byType.map((row) => row.case_type || 'Other'),
+                        data: byType.map((row) => Number(row.case_count || 0))
+                    },
+                    session_trend: {
+                        labels: trend.map((row) => row.month || 'Unknown'),
+                        data: trend.map((row) => Number(row.session_count || 0))
+                    }
+                },
+                tables: {
+                    active_cases: Array.isArray(summary.active_cases) ? summary.active_cases : [],
+                    follow_ups: Array.isArray(summary.follow_ups) ? summary.follow_ups : []
+                }
+            };
+        },
 
-        if (stats.value) this.renderStats(stats.value?.data || stats.value);
-        if (sessions.value) this.renderSessions(sessions.value?.data || sessions.value || []);
-        if (chapel.value) this.renderChapel(chapel.value?.data || chapel.value || []);
-    },
+        cards: [
+            { id: 'chpOpenCases', path: 'cards.open_cases', subtitleId: 'chpOpenCasesSub', subtitle: 'Open or in progress' },
+            { id: 'chpUrgent', path: 'cards.urgent_cases', subtitleId: 'chpUrgentSub', subtitle: 'Urgent priority' },
+            { id: 'chpFollowUps', path: 'cards.follow_ups_due', subtitleId: 'chpFollowUpsSub', subtitle: 'Due or overdue' },
+            { id: 'chpSessions', path: 'cards.sessions_this_month', subtitleId: 'chpSessionsSub', subtitle: 'Recorded counseling sessions' }
+        ],
+        chartDefinitions: [
+            { id: 'chpTypeChart', path: 'charts.by_type', label: 'Cases', type: 'doughnut', showLegend: true },
+            { id: 'chpTrendChart', path: 'charts.session_trend', label: 'Sessions', type: 'line' }
+        ],
+        tableDefinitions: [
+            {
+                bodyId: 'chpCasesBody',
+                path: 'tables.active_cases',
+                emptyText: 'No active counseling cases.',
+                columns: [
+                    { key: 'case_code' },
+                    { key: 'student_name' },
+                    { key: 'case_type' },
+                    {
+                        key: 'priority',
+                        render: (value, row, instance) => instance.badge(value, {
+                            low: 'secondary', medium: 'info', high: 'warning', urgent: 'danger'
+                        })
+                    },
+                    {
+                        key: 'status',
+                        render: (value, row, instance) => instance.badge(value, {
+                            open: 'danger', in_progress: 'warning', resolved: 'success', closed: 'secondary'
+                        })
+                    }
+                ]
+            },
+            {
+                bodyId: 'chpFollowUpBody',
+                path: 'tables.follow_ups',
+                emptyText: 'No follow-ups due.',
+                columns: [
+                    { key: 'student_name' },
+                    { key: 'case_code' },
+                    { key: 'next_follow_up_at', format: 'date' },
+                    {
+                        key: 'status',
+                        render: (value, row, instance) => instance.badge(value, {
+                            open: 'danger', in_progress: 'warning', resolved: 'success'
+                        })
+                    }
+                ]
+            }
+        ]
+    });
 
-    renderStats: function (d) {
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
-        set('sessionsThisWeek', d.sessions_this_week || d.sessions_week || 0);
-        set('studentsSeen', d.students_seen || d.unique_students || 0);
-        set('pendingReferrals', d.pending_referrals || d.referrals || 0);
-        set('chapelServices', d.chapel_services || d.services_this_term || 0);
-    },
-
-    renderSessions: function (list) {
-        const tbody = document.getElementById('sessionsTableBody');
-        if (!tbody) return;
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No sessions recorded.</td></tr>'; return; }
-        tbody.innerHTML = list.map(s => {
-            const d = s.session_date || s.date;
-            const dateStr = d ? new Date(d).toLocaleDateString('en-GB', {day:'numeric', month:'short'}) : '—';
-            return `<tr>
-                <td>${this.esc(s.student_name || s.student?.full_name || '—')}</td>
-                <td><span class="badge bg-info text-dark">${this.esc(s.session_type || s.type || 'General')}</span></td>
-                <td>${dateStr}</td>
-                <td>${s.follow_up ? '<span class="badge bg-warning text-dark">Needed</span>' : '<span class="badge bg-success">None</span>'}</td>
-            </tr>`;
-        }).join('');
-    },
-
-    renderChapel: function (list) {
-        const el = document.getElementById('chapelScheduleList');
-        if (!el) return;
-        if (!list.length) { el.innerHTML = '<div class="text-center text-muted py-3 small">No upcoming services.</div>'; return; }
-        el.innerHTML = list.map(s => {
-            const d = s.service_date || s.date;
-            const dateStr = d ? new Date(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'}) : '—';
-            return `<a href="#" class="list-group-item list-group-item-action py-2">
-                <div class="d-flex justify-content-between">
-                    <span class="small fw-semibold">${this.esc(s.title || s.theme || 'Chapel Service')}</span>
-                    <small class="text-muted">${dateStr}</small>
-                </div>
-                <small class="text-muted">${s.time || ''} ${this.esc(s.venue || '')}</small>
-            </a>`;
-        }).join('');
-    },
-
-    showNewSessionModal: function () {
-        this.navigate('student_counseling');
-    },
-
-    navigate: function (route) {
-        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
-    },
-
-    esc: function (s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => counselorDashboardController.init());
+    window.ChaplainDashboardController = controller;
+    window.counselorDashboardController = controller;
+    DashboardBaseController.boot(controller, 'ChaplainDashboardController');
+})();

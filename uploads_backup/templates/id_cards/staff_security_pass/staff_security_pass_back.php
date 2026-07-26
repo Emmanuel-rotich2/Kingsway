@@ -26,7 +26,7 @@ $passNumber = $passNumber ?? '—';
     </div>
 
     <header class="staff-pass-back-header">
-        <div class="staff-pass-back-title">Security &amp; Attendance Credential</div>
+        <div class="staff-pass-back-title">Security &amp; Verification Credential</div>
         <div class="staff-pass-back-subtitle">
             Present this pass at every controlled entry point.
         </div>
@@ -35,22 +35,14 @@ $passNumber = $passNumber ?? '—';
     <main class="staff-pass-back-body">
         <div class="staff-pass-qr-panel">
             <?php if ($qrCode !== ''): ?>
-                <img
-                    src="<?= staffPassEscape($qrCode) ?>"
-                    class="staff-pass-qr"
-                    alt="Signed security-pass QR credential"
-                >
+                <img src="<?= staffPassEscape($qrCode) ?>" class="staff-pass-qr" alt="Signed security-pass QR credential">
             <?php else: ?>
                 <div class="staff-pass-qr-placeholder">QR unavailable</div>
             <?php endif; ?>
-            <div class="staff-pass-scan-label">Scan at gate</div>
+            <div class="staff-pass-scan-label">Scan to verify</div>
         </div>
 
         <table class="staff-pass-back-details" role="presentation">
-            <tr>
-                <td>Pass No.</td>
-                <td><?= staffPassEscape($passNumber ?: '—') ?></td>
-            </tr>
             <tr>
                 <td>Validity</td>
                 <td>Valid while employed</td>
@@ -58,10 +50,8 @@ $passNumber = $passNumber ?? '—';
         </table>
 
         <div class="staff-pass-security-note">
-            Scan to verify the current pass and staff employment status.
-            Where biometric attendance is enabled, fingerprint matching is
-            performed by the approved terminal; no biometric data is stored
-            on this pass.
+            The QR code is digitally signed and cannot be forged.
+            It is not transferable.
         </div>
     </main>
 

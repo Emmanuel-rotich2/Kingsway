@@ -418,9 +418,17 @@ class StaffController extends BaseController
      */
     public function getProfileGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $result = $this->api->getProfile($staffId);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.directory.view',
+                self::STAFF_DIRECTORY_VIEW_ROLES
+            );
+            return $this->handleResponse($this->api->getProfile($staffId));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -428,9 +436,17 @@ class StaffController extends BaseController
      */
     public function getScheduleGet($id = null, $data = [], $segments = [])
     {
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $result = $this->api->getSchedule($staffId);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.directory.view',
+                self::STAFF_DIRECTORY_VIEW_ROLES
+            );
+            return $this->handleResponse($this->api->getSchedule($staffId));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -745,7 +761,14 @@ class StaffController extends BaseController
     public function postLeavesApply($id = null, $data = [], $segments = [])
     {
         if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) { $data['staff_id'] = $this->access->staffId(); }
+        if (!$this->access->allows('staff.leave.manage', ['system administrator','school administrator'])) {
+            try {
+                $this->access->require('staff.leave.request');
+            } catch (RuntimeException $error) {
+                return $this->selfServiceError($error);
+            }
+            $data['staff_id'] = $this->access->staffId();
+        }
         if (empty($data['staff_id'])) return $this->forbidden('No staff profile is linked to this account');
         $result = $this->api->applyLeave($data);
         return $this->handleResponse($result);
@@ -788,13 +811,19 @@ class StaffController extends BaseController
      */
     public function getPayrollPayslip($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $month = $data['month'] ?? date('m');
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->viewPayslip($staffId, $month, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $month = $data['month'] ?? $_GET['month'] ?? date('m');
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->viewPayslip($staffId, $month, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -802,13 +831,20 @@ class StaffController extends BaseController
      */
     public function getPayrollHistory($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $startDate = $data['start_date'] ?? null;
-        $endDate = $data['end_date'] ?? null;
-        
-        $result = $this->api->getPayrollHistory($staffId, $startDate, $endDate);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $filters = array_merge($_GET ?? [], is_array($data) ? $data : []);
+            return $this->handleResponse(
+                $this->api->getPayrollHistory($staffId, $filters)
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -871,12 +907,18 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadP9($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->downloadP9Form($staffId, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->downloadP9Form($staffId, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -884,13 +926,19 @@ class StaffController extends BaseController
      */
     public function getPayrollDownloadPayslip($id = null, $data = [], $segments = [])
     {
-        if (!$this->access->authenticated()) return $this->unauthorized('Authentication required');
-        $staffId = $id ?? $data['staff_id'] ?? $this->access->staffId();
-        $month = $data['month'] ?? date('m');
-        $year = $data['year'] ?? date('Y');
-        
-        $result = $this->api->downloadPayslip($staffId, $month, $year);
-        return $this->handleResponse($result);
+        try {
+            $staffId = $this->resolveSelfOrManagedStaffId(
+                $id,
+                $data,
+                'staff.payslip.manage',
+                ['system administrator', 'school administrator', 'director', 'accountant']
+            );
+            $month = $data['month'] ?? $_GET['month'] ?? date('m');
+            $year = $data['year'] ?? $_GET['year'] ?? date('Y');
+            return $this->handleResponse($this->api->downloadPayslip($staffId, $month, $year));
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        }
     }
 
     /**
@@ -1659,6 +1707,19 @@ class StaffController extends BaseController
         return $this->handleResponse($this->leaveManager->getLeaveHistory($filters));
     }
 
+    /** GET /api/staff/leave-balance — authenticated staff member's own balance. */
+    public function getLeaveBalance($id = null, $data = [], $segments = [])
+    {
+        if (!$this->access->authenticated()) {
+            return $this->unauthorized('Authentication required');
+        }
+        $staffId = (int) ($this->access->staffId() ?? 0);
+        if ($staffId <= 0) {
+            return $this->forbidden('No staff profile is linked to this account');
+        }
+        return $this->handleResponse($this->leaveManager->getLeaveBalance($staffId));
+    }
+
     /** POST /api/staff/leave-requests */
     public function postLeaveRequests($id = null, $data = [], $segments = [])
     {
@@ -1737,6 +1798,140 @@ class StaffController extends BaseController
         } catch (\Throwable $e) {
             return $this->badRequest($e->getMessage());
         }
+    }
+
+
+    /** GET /api/staff/internal-opportunities */
+    public function getInternalOpportunities($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.opportunities.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            return $this->success(
+                $this->api->listInternalOpportunities($staffId),
+                'Internal opportunities retrieved'
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
+        }
+    }
+
+    /** POST /api/staff/internal-opportunities/apply */
+    public function postInternalOpportunitiesApply($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.opportunities.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            $result = $this->api->applyForInternalOpportunity(
+                $staffId,
+                $this->access->userId(),
+                $data
+            );
+            $this->access->audit(
+                'apply_internal_opportunity',
+                'job_application',
+                (int) $result['id'],
+                null,
+                $result
+            );
+            return $this->created($result, 'Internal application submitted');
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
+        }
+    }
+
+    /** GET /api/staff/incidents */
+    public function getIncidents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.incidents.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            return $this->success(
+                $this->api->listIncidentReports($staffId),
+                'Incident reports retrieved'
+            );
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
+        }
+    }
+
+    /** POST /api/staff/incidents */
+    public function postIncidents($id = null, $data = [], $segments = [])
+    {
+        try {
+            $this->access->require('staff.incidents.self');
+            $staffId = (int) ($this->access->staffId() ?? 0);
+            if ($staffId <= 0) {
+                throw new RuntimeException('No staff profile is linked to this account', 403);
+            }
+            $result = $this->api->createIncidentReport(
+                $staffId,
+                $this->access->userId(),
+                $data
+            );
+            $this->access->audit(
+                'create_incident_report',
+                'staff_incident_report',
+                (int) $result['id'],
+                null,
+                $result
+            );
+            return $this->created($result, 'Incident report submitted');
+        } catch (RuntimeException $error) {
+            return $this->selfServiceError($error);
+        } catch (\Throwable $error) {
+            return $this->serverError($error->getMessage());
+        }
+    }
+
+    private function resolveSelfOrManagedStaffId(
+        $id,
+        array $data,
+        string $permission,
+        array $fallbackRoles = []
+    ): int {
+        $requestedStaffId = (int) (
+            $id
+            ?? $_GET['staff_id']
+            ?? $data['staff_id']
+            ?? $this->access->staffId()
+            ?? 0
+        );
+
+        if ($requestedStaffId <= 0) {
+            throw new RuntimeException('No staff profile is linked to this account', 403);
+        }
+
+        return $this->access->requireSelfOr(
+            $permission,
+            $requestedStaffId,
+            $fallbackRoles
+        );
+    }
+
+    private function selfServiceError(RuntimeException $error)
+    {
+        $code = (int) $error->getCode();
+        if ($code === 401) return $this->unauthorized($error->getMessage());
+        if ($code === 403) return $this->forbidden($error->getMessage());
+        if ($code === 409) return $this->conflict($error->getMessage());
+        if ($code === 422) return $this->unprocessable($error->getMessage());
+        return $this->serverError($error->getMessage());
     }
 
 

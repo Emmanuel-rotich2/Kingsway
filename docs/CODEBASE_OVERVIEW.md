@@ -62,8 +62,11 @@ Resource path segments are joined with hyphens and converted to camel case for m
 
 - Browser auth state uses `localStorage` as the single cross-tab source for the access token, refresh token mirror, user envelope, permissions, roles, sidebar items, and dashboard route.
 - `js/api.js` owns API calls and access-token refresh. Refresh requests are coordinated across browser tabs with a short-lived localStorage lock, so only one tab renews the token while sibling tabs wait for the refreshed token.
-- User activity is tracked from real browser interaction events and state-changing API work. Active sessions refresh shortly before access-token expiry; idle sessions are allowed to expire and are redirected cleanly to `index.php` when the refresh session is rejected.
-- `js/core/session_manager.js` remains the app-level session facade. It delegates token renewal to `AuthContext.refreshToken()`, broadcasts login/logout/session-expiry events across tabs, and runs the active-session refresh monitor.
+- Access tokens live for one hour by default (`JWT_EXPIRY=3600`). An authenticated request or real browser interaction records activity only while the session is still valid.
+- Active sessions renew during the final ten minutes of access-token lifetime (`AUTH_REFRESH_WINDOW_SECONDS=600`). The refresh endpoint first confirms that the linked `auth_sessions` record has not exceeded the configured inactivity limit.
+- Sessions idle for 30 minutes by default (`AUTH_IDLE_TIMEOUT_SECONDS=1800`) are rejected by both `AuthMiddleware` and the refresh-token exchange. The browser clears its auth state and redirects to `index.php`; an expired dashboard must never remain usable.
+- `js/core/session_manager.js` is the app-level session facade. It delegates renewal to `AuthContext.refreshToken()`, broadcasts login/logout/session-expiry events across tabs, and checks the policy every 30 seconds by default.
+- `auth_sessions` is the canonical database session registry. It stores the access-token hash, refresh-token relationship, last activity, network metadata and registry expiry. `refresh_tokens` remains the refresh credential store; it cannot revive an idle canonical session.
 - `api/middleware/RateLimitMiddleware.php` rate-limits authenticated requests by decoded bearer-token user id (`user:<id>`) and anonymous requests by IP (`ip:<address>`). The decoded JWT payload is used only for bucket selection; authorization remains in the JWT/RBAC middleware.
 
 ## Configuration

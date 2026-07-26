@@ -2,9 +2,9 @@
    Direct portrait Staff Security Pass printing
    One 53.98 mm x 85.60 mm side per PDF page.
 
-   This follows the existing student ID direct-card strategy: the physical
-   pass is positioned inside a slightly smaller printer-safe canvas so Dompdf
-   cannot flow one side onto a second page.
+   This mirrors the proven student ID direct-card structure. Server print CSS
+   intentionally contains no @media screen rules because Dompdf may evaluate
+   the screen media type while rendering PDFs.
    ========================================================================== */
 
 @page {
@@ -78,35 +78,6 @@ body,
     break-before: auto;
     break-after: auto;
     break-inside: auto;
-}
-
-/* Browser-only preview of the exact server-rendered front/back templates. */
-@media screen {
-    html,
-    body,
-    .staff-pass-print-body {
-        width: auto;
-        height: auto;
-        min-height: 100%;
-        background: #eef1ef;
-    }
-
-    .staff-pass-direct-document {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 16px;
-        width: auto;
-        padding: 16px;
-    }
-
-    .staff-pass-direct-page {
-        flex: 0 0 53.98mm;
-        page-break-after: auto;
-        break-after: auto;
-        background: #ffffff;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
-    }
 }
 
 @media print {

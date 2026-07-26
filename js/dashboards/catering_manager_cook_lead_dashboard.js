@@ -1,80 +1,139 @@
 /**
- * Catering Manager / Cook Lead Dashboard Controller
- * Role: Cateress (ID 16)
+ * Catering Manager Dashboard Controller
+ * Composes existing CateringController/MealReportManager endpoints.
  */
-const cateringDashboardController = {
-    init: function () {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
+(() => {
+    const unwrap = (response) => {
+        let value = response;
+        for (let depth = 0; depth < 4; depth += 1) {
+            if (value && typeof value === 'object' && !Array.isArray(value)
+                && Object.prototype.hasOwnProperty.call(value, 'data')) {
+                value = value.data;
+                continue;
+            }
+            break;
         }
-        this.loadAll();
-    },
+        return value;
+    };
 
-    refresh: function () { this.loadAll(); },
+    const today = () => new Date().toISOString().slice(0, 10);
 
-    loadAll: async function () {
-        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
+    const controller = DashboardBaseController.create({
+        controllerName: 'CateringManagerDashboardController',
+        rootId: 'cateringDashboard',
+        refreshButtonId: 'cateringDashboardRefresh',
+        stateId: 'cateringDashboardState',
+        scopeId: 'cateringDashboardScope',
+        lastUpdatedId: 'cateringDashboardLastUpdated',
 
-        const today = new Date().toISOString().slice(0, 10);
-        const [stats, menu, stock] = await Promise.allSettled([
-            get('/api/catering/stats'),
-            get('/api/catering/menu?date=' + today),
-            get('/api/catering/food-stock?low_stock=1&limit=8')
-        ]);
+        async apiMethod() {
+            const date = today();
+            const [statsResponse, menuResponse, stockResponse] = await Promise.all([
+                window.API.catering.getStats({ date }),
+                window.API.catering.getMenu({ date }),
+                window.API.catering.getFoodStock({ low_stock: 1, limit: 10 })
+            ]);
 
-        if (stats.value) this.renderStats(stats.value?.data || stats.value);
-        if (menu.value) this.renderMenu(menu.value?.data || menu.value || []);
-        if (stock.value) this.renderStock(stock.value?.data || stock.value || []);
-    },
+            const stats = unwrap(statsResponse) || {};
+            const menu = unwrap(menuResponse);
+            const stock = unwrap(stockResponse);
+            const menuRows = Array.isArray(menu) ? menu : [];
+            const stockRows = Array.isArray(stock) ? stock : [];
 
-    renderStats: function (d) {
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
-        set('mealsToday', d.meals_today || d.meals || 0);
-        set('foodItems', d.food_items || d.total_items || 0);
-        set('lowFoodStock', d.low_stock || d.low_stock_count || 0);
-        const costEl = document.getElementById('dailyCost');
-        if (costEl) costEl.textContent = 'KES ' + (d.daily_cost || 0).toLocaleString();
-    },
+            const statusCounts = menuRows.reduce((counts, row) => {
+                const status = String(row.status || 'planned').toLowerCase();
+                counts[status] = (counts[status] || 0) + 1;
+                return counts;
+            }, {});
 
-    renderMenu: function (list) {
-        const el = document.getElementById('todaysMenuList');
-        if (!el) return;
-        if (!list.length) { el.innerHTML = '<div class="text-center text-muted py-3 small">No menu planned for today.</div>'; return; }
-        const mealOrder = ['breakfast', 'lunch', 'supper', 'snack'];
-        const byMeal = {};
-        list.forEach(m => { const meal = (m.meal_type || m.type || 'other').toLowerCase(); (byMeal[meal] = byMeal[meal] || []).push(m); });
-        el.innerHTML = Object.entries(byMeal).sort((a, b) => (mealOrder.indexOf(a[0]) + 1 || 99) - (mealOrder.indexOf(b[0]) + 1 || 99)).map(([meal, items]) => `
-            <div class="list-group-item py-2">
-                <div class="text-muted small text-uppercase fw-bold mb-1">${meal}</div>
-                ${items.map(i => '<div class="small">' + this.esc(i.name || i.dish || i.item_name) + '</div>').join('')}
-            </div>`).join('');
-    },
+            return {
+                meta: { scope_label: date },
+                cards: {
+                    meals_planned: Number(stats.meals_planned || 0),
+                    planned_servings: Number(stats.planned_servings || 0),
+                    prepared_meals: Number(stats.prepared_meals || 0),
+                    low_food_stock: Number(stats.low_stock || stockRows.length || 0)
+                },
+                charts: {
+                    meal_readiness: {
+                        labels: ['Planned', 'Prepared', 'Served', 'Cancelled'],
+                        data: [
+                            Number(statusCounts.planned || 0),
+                            Number(statusCounts.prepared || 0),
+                            Number(statusCounts.served || 0),
+                            Number(statusCounts.cancelled || 0)
+                        ]
+                    },
+                    serving_progress: {
+                        labels: menuRows.map((row) => row.meal_type || row.menu_item || 'Meal'),
+                        datasets: [
+                            {
+                                label: 'Planned',
+                                data: menuRows.map((row) => Number(row.planned_servings || 0)),
+                                borderWidth: 2
+                            },
+                            {
+                                label: 'Prepared',
+                                data: menuRows.map((row) => Number(row.prepared_quantity || 0)),
+                                borderWidth: 2
+                            },
+                            {
+                                label: 'Served',
+                                data: menuRows.map((row) => Number(row.actual_servings || 0)),
+                                borderWidth: 2
+                            }
+                        ]
+                    }
+                },
+                tables: {
+                    meal_plan: menuRows,
+                    low_stock: stockRows
+                }
+            };
+        },
 
-    renderStock: function (list) {
-        const tbody = document.getElementById('foodStockTableBody');
-        if (!tbody) return;
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">Stock levels OK.</td></tr>'; return; }
-        tbody.innerHTML = list.map(item => {
-            const qty = Number(item.current_quantity || item.quantity || 0);
-            const min = Number(item.minimum_quantity || item.min_level || 1);
-            const cls = qty <= 0 ? 'danger' : qty < min ? 'warning' : 'success';
-            return `<tr>
-                <td>${this.esc(item.name || item.item_name)}</td>
-                <td><span class="text-${cls} fw-bold">${qty}</span></td>
-                <td>${this.esc(item.unit || 'units')}</td>
-                <td><span class="badge bg-${cls}">${qty <= 0 ? 'Out of Stock' : qty < min ? 'Low' : 'OK'}</span></td>
-            </tr>`;
-        }).join('');
-    },
+        cards: [
+            { id: 'catMeals', path: 'cards.meals_planned', subtitleId: 'catMealsSub', subtitle: 'Breakfast, lunch, dinner and snacks' },
+            { id: 'catServings', path: 'cards.planned_servings', subtitleId: 'catServingsSub', subtitle: 'Total planned portions' },
+            { id: 'catPrepared', path: 'cards.prepared_meals', subtitleId: 'catPreparedSub', subtitle: 'Prepared or served' },
+            { id: 'catLowStock', path: 'cards.low_food_stock', subtitleId: 'catLowStockSub', subtitle: 'Food items needing replenishment' }
+        ],
+        chartDefinitions: [
+            { id: 'catMealChart', path: 'charts.meal_readiness', label: 'Meals', type: 'bar' },
+            { id: 'catConsumptionChart', path: 'charts.serving_progress', label: 'Servings', type: 'bar', showLegend: true }
+        ],
+        tableDefinitions: [
+            {
+                bodyId: 'catMenuBody',
+                path: 'tables.meal_plan',
+                emptyText: 'No meals planned for today.',
+                columns: [
+                    { key: 'meal_type' },
+                    { key: 'menu_item' },
+                    { key: 'planned_servings', format: 'number' },
+                    {
+                        key: 'status',
+                        render: (value, row, instance) => instance.badge(value, {
+                            planned: 'primary', prepared: 'warning', served: 'success', cancelled: 'danger'
+                        })
+                    }
+                ]
+            },
+            {
+                bodyId: 'catStockBody',
+                path: 'tables.low_stock',
+                emptyText: 'No food stock alerts.',
+                columns: [
+                    { key: 'name' },
+                    { key: 'category' },
+                    { key: 'current_quantity', format: 'number' },
+                    { key: 'minimum_quantity', format: 'number' }
+                ]
+            }
+        ]
+    });
 
-    navigate: function (route) {
-        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
-    },
-
-    esc: function (s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => cateringDashboardController.init());
+    window.CateringManagerDashboardController = controller;
+    window.cateringDashboardController = controller;
+    DashboardBaseController.boot(controller, 'CateringManagerDashboardController');
+})();

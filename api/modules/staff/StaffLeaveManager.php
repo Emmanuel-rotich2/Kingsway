@@ -1,446 +1,411 @@
 <?php
+
 namespace App\API\Modules\staff;
 
-use App\Config;
 use App\API\Includes\BaseAPI;
 use PDO;
-use Exception;
+use Throwable;
 use function App\API\Includes\formatResponse;
 
 /**
- * Staff Leave Manager
- * 
- * Handles CRUD operations for staff leave management
- * - Creates and manages leave requests
- * - Calculates leave balances
- * - Tracks leave history
- * - Handles different leave types (annual, sick, maternity, etc.)
- * - Respects staff types and leave entitlements
+ * Canonical Staff leave micro-manager.
+ *
+ * Owns leave request validation, persistence, approval and balance queries.
+ * Controllers only apply authenticated scope and expose these operations.
  */
 class StaffLeaveManager extends BaseAPI
 {
     public function __construct()
     {
-        parent::__construct();
+        parent::__construct('staff_leave');
     }
 
-    /**
-     * Create leave request
-     * @param array $data Leave request data
-     * @return array Response
-     */
-    public function createLeaveRequest($data)
+    public function createLeaveRequest(array $data): array
     {
-        try {
-            $required = ['staff_id', 'leave_type', 'start_date', 'end_date', 'reason'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
-            }
+        $required = ['staff_id', 'leave_type_id', 'start_date', 'end_date', 'reason'];
+        $missing = $this->validateRequired($data, $required);
+        if ($missing) {
+            return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+        }
 
+        $staffId = (int) $data['staff_id'];
+        $leaveTypeId = (int) $data['leave_type_id'];
+        $startDate = (string) $data['start_date'];
+        $endDate = (string) $data['end_date'];
+        $reason = trim((string) $data['reason']);
+
+        if ($staffId <= 0 || $leaveTypeId <= 0 || $reason === '') {
+            return formatResponse(false, null, 'Invalid leave request details');
+        }
+        if (!$this->validDate($startDate) || !$this->validDate($endDate)) {
+            return formatResponse(false, null, 'Leave dates must use YYYY-MM-DD');
+        }
+        if (strtotime($endDate) < strtotime($startDate)) {
+            return formatResponse(false, null, 'End date must be on or after the start date');
+        }
+
+        try {
             $this->db->beginTransaction();
 
-            // Get staff details
-            $stmt = $this->db->prepare("
-                SELECT s.*, st.name as staff_type, sc.category_name, d.name as department_name,
-                       CONCAT(sup.first_name, ' ', sup.last_name) as supervisor_name
-                FROM staff s
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-                LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN staff sup ON s.supervisor_id = sup.id
-                WHERE s.id = ? AND s.status = 'active'
-            ");
-            $stmt->execute([$data['staff_id']]);
-            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            $staffStmt = $this->db->prepare(
+                "SELECT id, first_name, last_name, staff_type_id, status
+                 FROM staff
+                 WHERE id = ? AND status IN ('active', 'on_leave')
+                 LIMIT 1"
+            );
+            $staffStmt->execute([$staffId]);
+            $staff = $staffStmt->fetch(PDO::FETCH_ASSOC);
             if (!$staff) {
                 $this->db->rollBack();
                 return formatResponse(false, null, 'Active staff member not found');
             }
 
-            // Validate leave type
-            $stmt = $this->db->prepare("SELECT * FROM leave_types WHERE code = ? AND is_active = 1");
-            $stmt->execute([$data['leave_type']]);
-            $leaveType = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            $typeStmt = $this->db->prepare(
+                "SELECT id, code, name, days_allowed, requires_approval, is_paid, applicable_to
+                 FROM leave_types
+                 WHERE id = ? AND status = 'active'
+                 LIMIT 1"
+            );
+            $typeStmt->execute([$leaveTypeId]);
+            $leaveType = $typeStmt->fetch(PDO::FETCH_ASSOC);
             if (!$leaveType) {
                 $this->db->rollBack();
-                return formatResponse(false, null, 'Invalid or inactive leave type');
+                return formatResponse(false, null, 'Leave type was not found or is inactive');
             }
 
-            // Calculate leave days
-            $startDate = new \DateTime($data['start_date']);
-            $endDate = new \DateTime($data['end_date']);
-
-            if ($startDate > $endDate) {
+            $overlapStmt = $this->db->prepare(
+                "SELECT id
+                 FROM staff_leaves
+                 WHERE staff_id = ?
+                   AND status IN ('pending', 'approved')
+                   AND start_date <= ?
+                   AND end_date >= ?
+                 LIMIT 1"
+            );
+            $overlapStmt->execute([$staffId, $endDate, $startDate]);
+            if ($overlapStmt->fetchColumn()) {
                 $this->db->rollBack();
-                return formatResponse(false, null, 'End date must be after start date');
+                return formatResponse(false, null, 'The requested dates overlap an existing pending or approved leave');
             }
 
-            $leaveDays = $this->calculateWorkingDays($startDate, $endDate);
-
-            // Note: Overlap validation handled by trg_check_leave_overlap trigger
-            // The trigger will automatically prevent overlapping leave requests
-
-            // Check leave balance if applicable using stored procedure
-            if ($leaveType['requires_balance_check']) {
-                $stmt = $this->db->prepare("CALL sp_calculate_staff_leave_balance(?, ?, @entitled, @used, @available)");
-                $stmt->execute([$data['staff_id'], $data['leave_type']]);
-                $stmt->closeCursor();
-
-                $result = $this->db->query("SELECT @entitled AS entitled, @used AS used, @available AS available")->fetch(PDO::FETCH_ASSOC);
-
-                if ($result['available'] < $leaveDays) {
+            $daysRequested = $this->calculateWorkingDays($startDate, $endDate);
+            $allowed = $leaveType['days_allowed'] !== null ? (int) $leaveType['days_allowed'] : null;
+            if ($allowed !== null) {
+                $usedStmt = $this->db->prepare(
+                    "SELECT COALESCE(SUM(days_requested), 0)
+                     FROM staff_leaves
+                     WHERE staff_id = ?
+                       AND leave_type_id = ?
+                       AND status = 'approved'
+                       AND YEAR(start_date) = YEAR(?)"
+                );
+                $usedStmt->execute([$staffId, $leaveTypeId, $startDate]);
+                $used = (int) $usedStmt->fetchColumn();
+                if (($used + $daysRequested) > $allowed) {
                     $this->db->rollBack();
                     return formatResponse(
                         false,
                         null,
-                        "Insufficient leave balance. Available: {$result['available']} days, Requested: {$leaveDays} days"
+                        sprintf(
+                            'Insufficient %s balance. Available: %d days, requested: %d days',
+                            $leaveType['name'],
+                            max(0, $allowed - $used),
+                            $daysRequested
+                        )
                     );
                 }
             }
 
-            // Create leave request
-            $sql = "INSERT INTO staff_leaves (
-                staff_id, leave_type, start_date, end_date, days_requested,
-                reason, relief_staff_id, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')";
-
-            $stmt = $this->db->prepare($sql);
+            $stmt = $this->db->prepare(
+                "INSERT INTO staff_leaves
+                    (staff_id, leave_type_id, leave_type, start_date, end_date,
+                     days_requested, reason, relief_staff_id, status, attachments_folder)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)"
+            );
             $stmt->execute([
-                $data['staff_id'],
-                $data['leave_type'],
-                $data['start_date'],
-                $data['end_date'],
-                $leaveDays,
-                $data['reason'],
-                $data['relief_staff_id'] ?? null
+                $staffId,
+                $leaveTypeId,
+                $leaveType['code'],
+                $startDate,
+                $endDate,
+                $daysRequested,
+                $reason,
+                !empty($data['relief_staff_id']) ? (int) $data['relief_staff_id'] : null,
+                $data['attachments_folder'] ?? null,
             ]);
 
-            $leaveId = $this->db->lastInsertId();
-
+            $leaveId = (int) $this->db->lastInsertId();
             $this->db->commit();
-            $this->logAction(
-                'create',
-                $leaveId,
-                "Created leave request for {$staff['first_name']} {$staff['last_name']} - {$leaveType['name']} ({$leaveDays} days)"
-            );
+            $this->logAction('create', $leaveId, 'Staff leave request submitted');
 
             return formatResponse(true, [
-                'leave_id' => $leaveId,
-                'staff_name' => $staff['first_name'] . ' ' . $staff['last_name'],
-                'leave_type' => $leaveType['name'],
-                'start_date' => $data['start_date'],
-                'end_date' => $data['end_date'],
-                'days_requested' => $leaveDays,
-                'status' => 'pending'
+                'id' => $leaveId,
+                'staff_id' => $staffId,
+                'leave_type_id' => $leaveTypeId,
+                'leave_type_name' => $leaveType['name'],
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'days_requested' => $daysRequested,
+                'status' => 'pending',
             ], 'Leave request created successfully');
-
-        } catch (Exception $e) {
+        } catch (Throwable $error) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return $this->handleException($e);
+            return $this->handleException($error);
         }
     }
 
-    /**
-     * Calculate working days between two dates (excluding weekends)
-     */
-    private function calculateWorkingDays(\DateTime $start, \DateTime $end)
-    {
-        $workingDays = 0;
-        $current = clone $start;
-
-        while ($current <= $end) {
-            $dayOfWeek = $current->format('N'); // 1 (Monday) to 7 (Sunday)
-            if ($dayOfWeek < 6) { // Monday to Friday
-                $workingDays++;
-            }
-            $current->modify('+1 day');
-        }
-
-        return $workingDays;
-    }
-
-    /**
-     * Update leave status (approve/reject)
-     * @param int $leaveId Leave ID
-     * @param array $data Status update data
-     * @return array Response
-     */
-    public function updateLeaveStatus($leaveId, $data)
+    public function getLeaveHistory(array $filters = []): array
     {
         try {
-            $required = ['status', 'approved_by'];
-            $missing = $this->validateRequired($data, $required);
-            if (!empty($missing)) {
-                return formatResponse(false, null, 'Missing required fields: ' . implode(', ', $missing));
+            $where = [];
+            $params = [];
+            if (!empty($filters['staff_id'])) {
+                $where[] = 'sl.staff_id = ?';
+                $params[] = (int) $filters['staff_id'];
+            }
+            if (!empty($filters['status'])) {
+                $where[] = 'sl.status = ?';
+                $params[] = (string) $filters['status'];
+            }
+            if (!empty($filters['year'])) {
+                $where[] = 'YEAR(sl.start_date) = ?';
+                $params[] = (int) $filters['year'];
             }
 
-            $validStatuses = ['approved', 'rejected', 'cancelled'];
-            if (!in_array($data['status'], $validStatuses)) {
-                return formatResponse(false, null, 'Invalid status. Must be: ' . implode(', ', $validStatuses));
+            $sql = "SELECT sl.id, sl.staff_id, sl.leave_type_id, sl.leave_type,
+                           lt.name AS leave_type_name, lt.code AS leave_type_code,
+                           sl.start_date, sl.end_date, sl.days_requested, sl.reason,
+                           sl.status, sl.approved_at, sl.rejection_reason, sl.created_at,
+                           CONCAT_WS(' ', s.first_name, s.last_name) AS staff_name,
+                           s.staff_no,
+                           CONCAT_WS(' ', approver.first_name, approver.last_name) AS approved_by_name
+                    FROM staff_leaves sl
+                    INNER JOIN staff s ON s.id = sl.staff_id
+                    INNER JOIN leave_types lt ON lt.id = sl.leave_type_id
+                    LEFT JOIN users au ON au.id = sl.approved_by
+                    LEFT JOIN staff approver ON approver.user_id = au.id";
+            if ($where) {
+                $sql .= ' WHERE ' . implode(' AND ', $where);
             }
+            $sql .= ' ORDER BY sl.created_at DESC, sl.id DESC LIMIT 100';
 
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            return formatResponse(true, $stmt->fetchAll(PDO::FETCH_ASSOC), 'Leave requests retrieved');
+        } catch (Throwable $error) {
+            return $this->handleException($error);
+        }
+    }
+
+    public function getLeaveBalance(int $staffId, ?string $leaveType = null): array
+    {
+        try {
+            $sql = "SELECT lt.id, lt.code, lt.name, lt.days_allowed,
+                           COALESCE(SUM(CASE
+                               WHEN sl.status = 'approved' AND YEAR(sl.start_date) = YEAR(CURDATE())
+                               THEN sl.days_requested ELSE 0 END), 0) AS used_days
+                    FROM leave_types lt
+                    LEFT JOIN staff_leaves sl
+                           ON sl.leave_type_id = lt.id
+                          AND sl.staff_id = ?
+                    WHERE lt.status = 'active'";
+            $params = [$staffId];
+            if ($leaveType !== null && trim($leaveType) !== '') {
+                $sql .= ' AND (lt.code = ? OR lt.name = ?)';
+                $params[] = trim($leaveType);
+                $params[] = trim($leaveType);
+            }
+            $sql .= ' GROUP BY lt.id, lt.code, lt.name, lt.days_allowed ORDER BY lt.name';
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($rows as &$row) {
+                $row['used_days'] = (int) $row['used_days'];
+                $row['available_days'] = $row['days_allowed'] === null
+                    ? null
+                    : max(0, (int) $row['days_allowed'] - $row['used_days']);
+            }
+            unset($row);
+            return formatResponse(true, $rows, 'Leave balances retrieved');
+        } catch (Throwable $error) {
+            return $this->handleException($error);
+        }
+    }
+
+    public function updateLeaveStatus(int $leaveId, array $data): array
+    {
+        $status = (string) ($data['status'] ?? '');
+        if (!in_array($status, ['approved', 'rejected', 'cancelled'], true)) {
+            return formatResponse(false, null, 'Invalid leave status');
+        }
+
+        try {
             $this->db->beginTransaction();
-
-            // Get leave details
-            $stmt = $this->db->prepare("
-                SELECT sl.*, s.first_name, s.last_name, lt.name as leave_type_name
-                FROM staff_leaves sl
-                JOIN staff s ON sl.staff_id = s.id
-                JOIN leave_types lt ON sl.leave_type = lt.code
-                WHERE sl.id = ?
-            ");
+            $stmt = $this->db->prepare('SELECT * FROM staff_leaves WHERE id = ? FOR UPDATE');
             $stmt->execute([$leaveId]);
             $leave = $stmt->fetch(PDO::FETCH_ASSOC);
-
             if (!$leave) {
                 $this->db->rollBack();
                 return formatResponse(false, null, 'Leave request not found');
             }
-
             if ($leave['status'] !== 'pending') {
                 $this->db->rollBack();
-                return formatResponse(false, null, "Cannot update leave with status: {$leave['status']}");
+                return formatResponse(false, null, 'Only pending leave requests can be updated');
             }
 
-            // Update status
-            $sql = "UPDATE staff_leaves SET
-                status = ?,
-                approved_by = ?,
-                approved_at = NOW(),
-                rejection_reason = ?
-            WHERE id = ?";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['status'],
-                $data['approved_by'],
-                $data['approval_comments'] ?? $data['rejection_reason'] ?? null,
-                $leaveId
-            ]);
-
-            $this->db->commit();
-            $this->logAction(
-                'update',
-                $leaveId,
-                "Updated leave status to: {$data['status']} for {$leave['first_name']} {$leave['last_name']}"
+            $actorId = !empty($data['approved_by']) ? (int) $data['approved_by'] : null;
+            $update = $this->db->prepare(
+                "UPDATE staff_leaves
+                 SET status = ?,
+                     approved_by = ?,
+                     approved_at = CASE WHEN ? = 'approved' THEN NOW() ELSE NULL END,
+                     rejection_reason = CASE WHEN ? = 'rejected' THEN ? ELSE NULL END
+                 WHERE id = ?"
             );
+            $update->execute([
+                $status,
+                $actorId,
+                $status,
+                $status,
+                $data['rejection_reason'] ?? null,
+                $leaveId,
+            ]);
+            $this->db->commit();
+            $this->logAction('update', $leaveId, "Leave request {$status}");
 
-            return formatResponse(true, [
-                'leave_id' => $leaveId,
-                'staff_name' => $leave['first_name'] . ' ' . $leave['last_name'],
-                'leave_type' => $leave['leave_type_name'],
-                'status' => $data['status']
-            ], "Leave request {$data['status']} successfully");
-
-        } catch (Exception $e) {
+            return formatResponse(true, ['id' => $leaveId, 'status' => $status], 'Leave request updated');
+        } catch (Throwable $error) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return $this->handleException($e);
+            return $this->handleException($error);
         }
     }
 
-    /**
-     * Get leave balance for a staff member
-     * Uses vw_staff_leave_balances view for automated calculations
-     * @param int $staffId Staff ID
-     * @param string $leaveTypeName Optional leave type name filter
-     * @return array Response
-     */
-    public function getLeaveBalance($staffId, $leaveTypeName = null)
-    {
-        try {
-            $sql = "SELECT * FROM vw_staff_leave_balances WHERE staff_id = ?";
-            $params = [$staffId];
-
-            if ($leaveTypeName) {
-                $sql .= " AND leave_type_name = ?";
-                $params[] = $leaveTypeName;
-            }
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $balances = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            if ($leaveTypeName) {
-                return formatResponse(true, $balances[0] ?? null, 'Leave balance retrieved successfully');
-            }
-
-            return formatResponse(true, [
-                'balances' => $balances,
-                'count' => count($balances)
-            ], 'Leave balances retrieved successfully');
-
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
 
     /**
-     * Get leave history
-     * @param array $filters Filter criteria
-     * @return array Response
+     * Preserve the existing public leave-accrual capability using the actual
+     * leave_types.days_allowed schema. This method is reusable by payroll and
+     * staff workflows; it is not dashboard-specific.
      */
-    public function getLeaveHistory($filters = [])
+    public function calculateAccruedLeave($staffId, $leaveType = 'ANNUAL'): array
     {
         try {
-            $sql = "SELECT sl.*,
-                       s.staff_no, s.first_name, s.last_name, s.position,
-                       st.name as staff_type, d.name as department_name,
-                       lt.name as leave_type_name,
-                       CONCAT(relief.first_name, ' ', relief.last_name) as relief_staff_name,
-                       CONCAT(approver.first_name, ' ', approver.last_name) as approver_name
-                FROM staff_leaves sl
-                JOIN staff s ON sl.staff_id = s.id
-                LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                LEFT JOIN departments d ON s.department_id = d.id
-                JOIN leave_types lt ON sl.leave_type = lt.code
-                LEFT JOIN staff relief ON sl.relief_staff_id = relief.id
-                LEFT JOIN users approver ON sl.approved_by = approver.id
-                WHERE 1=1";
-
-            $params = [];
-
-            if (!empty($filters['staff_id'])) {
-                $sql .= " AND sl.staff_id = ?";
-                $params[] = $filters['staff_id'];
-            }
-
-            if (!empty($filters['leave_type'])) {
-                $sql .= " AND sl.leave_type = ?";
-                $params[] = $filters['leave_type'];
-            }
-
-            if (!empty($filters['status'])) {
-                $sql .= " AND sl.status = ?";
-                $params[] = $filters['status'];
-            }
-
-            if (!empty($filters['department_id'])) {
-                $sql .= " AND s.department_id = ?";
-                $params[] = $filters['department_id'];
-            }
-
-            if (!empty($filters['year'])) {
-                $sql .= " AND YEAR(sl.start_date) = ?";
-                $params[] = $filters['year'];
-            }
-
-            $sql .= " ORDER BY sl.created_at DESC, sl.start_date DESC";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute($params);
-            $leaveRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            return formatResponse(true, [
-                'leave_records' => $leaveRecords,
-                'count' => count($leaveRecords)
-            ], 'Leave history retrieved successfully');
-
-        } catch (Exception $e) {
-            return $this->handleException($e);
-        }
-    }
-
-    /**
-     * Calculate accrued leave for a staff member
-     * @param int $staffId Staff ID
-     * @param string $leaveType Leave type code
-     * @return array Response
-     */
-    public function calculateAccruedLeave($staffId, $leaveType = 'ANNUAL')
-    {
-        try {
-            // Get staff employment date
-            $stmt = $this->db->prepare("
-                SELECT employment_date, DATEDIFF(CURDATE(), employment_date) as days_employed
-                FROM staff WHERE id = ?
-            ");
-            $stmt->execute([$staffId]);
-            $staff = $stmt->fetch(PDO::FETCH_ASSOC);
-
+            $staffStmt = $this->db->prepare(
+                'SELECT employment_date, DATEDIFF(CURDATE(), employment_date) AS days_employed
+                 FROM staff WHERE id = ? LIMIT 1'
+            );
+            $staffStmt->execute([(int) $staffId]);
+            $staff = $staffStmt->fetch(PDO::FETCH_ASSOC);
             if (!$staff) {
                 return formatResponse(false, null, 'Staff member not found');
             }
 
-            // Get leave type details
-            $stmt = $this->db->prepare("SELECT * FROM leave_types WHERE code = ?");
-            $stmt->execute([$leaveType]);
-            $lt = $stmt->fetch(PDO::FETCH_ASSOC);
-
-            if (!$lt) {
+            $typeStmt = $this->db->prepare(
+                "SELECT code, name, days_allowed
+                 FROM leave_types
+                 WHERE code = ? AND status = 'active'
+                 LIMIT 1"
+            );
+            $typeStmt->execute([(string) $leaveType]);
+            $type = $typeStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$type) {
                 return formatResponse(false, null, 'Leave type not found');
             }
 
-            $annualEntitlement = $lt['default_days_per_year'] ?? 21; // Default 21 days annual leave
-            $monthsEmployed = floor($staff['days_employed'] / 30);
-            $accruedDays = min($annualEntitlement, ($annualEntitlement / 12) * $monthsEmployed);
+            $annualEntitlement = $type['days_allowed'] !== null
+                ? (int) $type['days_allowed']
+                : null;
+            $monthsEmployed = max(0, (int) floor(((int) $staff['days_employed']) / 30));
+            $accruedDays = $annualEntitlement === null
+                ? null
+                : min(
+                    $annualEntitlement,
+                    ($annualEntitlement / 12) * $monthsEmployed
+                );
 
             return formatResponse(true, [
-                'staff_id' => $staffId,
-                'leave_type' => $leaveType,
+                'staff_id' => (int) $staffId,
+                'leave_type' => $type['code'],
+                'leave_name' => $type['name'],
                 'employment_date' => $staff['employment_date'],
                 'months_employed' => $monthsEmployed,
                 'annual_entitlement' => $annualEntitlement,
-                'accrued_days' => round($accruedDays, 2)
+                'accrued_days' => $accruedDays === null
+                    ? null
+                    : round($accruedDays, 2),
             ], 'Accrued leave calculated successfully');
-
-        } catch (Exception $e) {
-            return $this->handleException($e);
+        } catch (Throwable $error) {
+            return $this->handleException($error);
         }
     }
 
-    /**
-     * Cancel leave request
-     * @param int $leaveId Leave ID
-     * @param array $data Cancellation data
-     * @return array Response
-     */
-    public function cancelLeaveRequest($leaveId, $data = [])
+    /** Preserve the existing cancellation capability. */
+    public function cancelLeaveRequest($leaveId, $data = []): array
     {
         try {
             $this->db->beginTransaction();
-
-            $stmt = $this->db->prepare("
-                SELECT * FROM staff_leaves WHERE id = ? AND status IN ('pending', 'approved')
-            ");
-            $stmt->execute([$leaveId]);
+            $stmt = $this->db->prepare(
+                "SELECT id, status FROM staff_leaves
+                 WHERE id = ? AND status IN ('pending', 'approved')
+                 FOR UPDATE"
+            );
+            $stmt->execute([(int) $leaveId]);
             $leave = $stmt->fetch(PDO::FETCH_ASSOC);
-
             if (!$leave) {
                 $this->db->rollBack();
-                return formatResponse(false, null, 'Leave request not found or cannot be cancelled');
+                return formatResponse(
+                    false,
+                    null,
+                    'Leave request not found or cannot be cancelled'
+                );
             }
 
-            $sql = "UPDATE staff_leaves SET
-                status = 'cancelled',
-                rejection_reason = ?
-            WHERE id = ?";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
-                $data['cancellation_reason'] ?? 'Cancelled by staff',
-                $leaveId
+            $update = $this->db->prepare(
+                "UPDATE staff_leaves
+                 SET status = 'cancelled', rejection_reason = ?
+                 WHERE id = ?"
+            );
+            $update->execute([
+                trim((string) ($data['cancellation_reason'] ?? ''))
+                    ?: 'Cancelled by staff',
+                (int) $leaveId,
             ]);
-
             $this->db->commit();
-            $this->logAction('update', $leaveId, "Cancelled leave request");
+            $this->logAction('update', (int) $leaveId, 'Cancelled leave request');
 
             return formatResponse(true, [
-                'leave_id' => $leaveId,
-                'status' => 'cancelled'
+                'leave_id' => (int) $leaveId,
+                'status' => 'cancelled',
             ], 'Leave request cancelled successfully');
-
-        } catch (Exception $e) {
+        } catch (Throwable $error) {
             if ($this->db->inTransaction()) {
                 $this->db->rollBack();
             }
-            return $this->handleException($e);
+            return $this->handleException($error);
         }
+    }
+
+    private function validDate(string $date): bool
+    {
+        $parsed = \DateTime::createFromFormat('Y-m-d', $date);
+        return $parsed !== false && $parsed->format('Y-m-d') === $date;
+    }
+
+    private function calculateWorkingDays(string $startDate, string $endDate): int
+    {
+        $start = new \DateTime($startDate);
+        $end = new \DateTime($endDate);
+        $end->modify('+1 day');
+        $days = 0;
+        for ($date = clone $start; $date < $end; $date->modify('+1 day')) {
+            if ((int) $date->format('N') <= 5) {
+                $days++;
+            }
+        }
+        return max(1, $days);
     }
 }
