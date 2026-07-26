@@ -454,8 +454,8 @@ class MenuBuilderService
                 }
 
                 if ($treatAsClassTeacher) {
-                    // Find canonical teacher route/menu (route name 'teacher_dashboard')
-                    $routeId = $this->findRouteIdByName('teacher_dashboard');
+                    // Find canonical teacher route/menu (route name 'class_teacher_dashboard')
+                    $routeId = $this->findRouteIdByName('class_teacher_dashboard');
                     if ($routeId) {
                         $stmt3 = $this->db->query("SELECT id FROM sidebar_menu_items WHERE route_id = ? AND is_active = 1 LIMIT 1", [$routeId]);
                         $menuRow = $stmt3->fetch();

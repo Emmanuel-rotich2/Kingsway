@@ -1197,6 +1197,11 @@ class AttendanceController extends BaseController
      */
     public function getPermissionTypes($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance(
+            'attendance_boarding_view',
+            ['system administrator', 'school administrator', 'headteacher', 'director', 'boarding master']
+        )) return $denied;
+
         try {
             $sql = "SELECT * FROM student_permission_types WHERE status = 'active' ORDER BY name";
             $result = $this->db->query($sql);
@@ -1213,6 +1218,11 @@ class AttendanceController extends BaseController
      */
     public function getPermissions($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance(
+            'attendance_boarding_view',
+            ['system administrator', 'school administrator', 'headteacher', 'director', 'boarding master']
+        )) return $denied;
+
         try {
             $studentId = $data['student_id'] ?? $_GET['student_id'] ?? null;
             $status = $data['status'] ?? $_GET['status'] ?? null;
@@ -1318,6 +1328,11 @@ class AttendanceController extends BaseController
      */
     public function postPermissions($id = null, $data = [], $segments = [])
     {
+        if ($denied = $this->guardStaffAttendance(
+            'attendance_boarding_create',
+            ['system administrator', 'school administrator', 'headteacher', 'boarding master']
+        )) return $denied;
+
         try {
             $studentId = isset($data['student_id']) ? (int) $data['student_id'] : null;
             $permissionTypeId = isset($data['permission_type_id']) ? (int) $data['permission_type_id'] : null;
@@ -1366,7 +1381,7 @@ class AttendanceController extends BaseController
             }
 
             $studentTypeCode = strtoupper((string) ($student['student_type_code'] ?? ''));
-            $isBoarder = str_contains($studentTypeCode, 'BOARD');
+            $isBoarder = strpos($studentTypeCode, 'BOARD') !== false;
             if (($permissionType['applies_to'] ?? 'all') === 'boarders_only' && !$isBoarder) {
                 return $this->badRequest('This permission type is only available for boarders');
             }
@@ -1414,6 +1429,19 @@ class AttendanceController extends BaseController
      */
     public function putPermissions($id = null, $data = [], $segments = [])
     {
+        $requestedStatus = $data['status'] ?? null;
+        $approvalDecision = in_array($requestedStatus, ['approved', 'rejected'], true);
+        $permission = $approvalDecision
+            ? 'attendance_boarding_approve'
+            : 'attendance_boarding_edit';
+        $fallbackRoles = $approvalDecision
+            ? ['system administrator', 'school administrator', 'headteacher', 'director']
+            : ['system administrator', 'school administrator', 'headteacher', 'boarding master'];
+
+        if ($denied = $this->guardStaffAttendance($permission, $fallbackRoles)) {
+            return $denied;
+        }
+
         try {
             if (!$id) {
                 return $this->badRequest('Permission ID is required');

@@ -5,6 +5,7 @@ namespace App\API\Modules\staff;
 use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
 use App\API\Modules\system\MediaManager;
+use App\API\Services\StaffMigrationService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -77,16 +78,73 @@ class StaffAPI extends BaseAPI {
     // List all staff members with pagination and search
     public function list($params = []) {
         try {
+            $request = array_merge($_GET ?? [], $params);
             [$page, $limit, $offset] = $this->getPaginationParams();
             [$search, $sort, $order] = $this->getSearchParams();
+            $maxPageSize = defined('MAX_PAGE_SIZE') ? \MAX_PAGE_SIZE : 100;
+            if (isset($request['page'])) {
+                $page = max(1, (int) $request['page']);
+            }
+            if (isset($request['limit'])) {
+                $limit = min(max(1, (int) $request['limit']), $maxPageSize);
+            }
+            $offset = ($page - 1) * $limit;
+            $search = isset($request['search']) ? $this->sanitizeInput($request['search']) : $search;
+            $sort = isset($request['sort']) ? $this->sanitizeInput($request['sort']) : $sort;
+            $order = isset($request['order']) ? strtoupper($this->sanitizeInput($request['order'])) : $order;
+            $order = in_array($order, ['ASC', 'DESC'], true) ? $order : 'ASC';
 
-            $where = '';
+            $sortMap = [
+                'id' => 's.id',
+                'staff_no' => 's.staff_no',
+                'first_name' => 's.first_name',
+                'last_name' => 's.last_name',
+                'department' => 'd.name',
+                'position' => 'display_position',
+                'status' => 's.status',
+            ];
+            $sort = $sortMap[$sort] ?? 's.id';
+
+            $where = [];
             $bindings = [];
             if (!empty($search)) {
-                $where = "WHERE s.staff_no LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?";
+                $where[] = "(
+                    s.staff_no LIKE ?
+                    OR s.first_name LIKE ?
+                    OR s.last_name LIKE ?
+                    OR u.first_name LIKE ?
+                    OR u.last_name LIKE ?
+                    OR u.email LIKE ?
+                    OR d.name LIKE ?
+                    OR sc.category_name LIKE ?
+                    OR st.name LIKE ?
+                )";
                 $searchTerm = "%$search%";
-                $bindings = [$searchTerm, $searchTerm, $searchTerm, $searchTerm];
+                $bindings = [
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                    $searchTerm,
+                ];
             }
+            if (!empty($request['department_id'])) {
+                $where[] = 's.department_id = ?';
+                $bindings[] = (int) $request['department_id'];
+            }
+            if (!empty($request['staff_type_id'])) {
+                $where[] = 's.staff_type_id = ?';
+                $bindings[] = (int) $request['staff_type_id'];
+            }
+            if (!empty($request['status'])) {
+                $where[] = 's.status = ?';
+                $bindings[] = $request['status'];
+            }
+            $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
             // Get total count
             $sql = "
@@ -94,7 +152,9 @@ class StaffAPI extends BaseAPI {
                 FROM staff s
                 LEFT JOIN users u ON s.user_id = u.id
                 LEFT JOIN departments d ON s.department_id = d.id
-                $where
+                LEFT JOIN staff_types st ON s.staff_type_id = st.id
+                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
+                $whereSql
             ";
             $stmt = $this->db->prepare($sql);
             $stmt->execute($bindings);
@@ -104,16 +164,51 @@ class StaffAPI extends BaseAPI {
             $sql = "
                 SELECT
                     s.*,
-                    u.first_name,
-                    u.last_name,
-                    u.email,
+                    s.position AS raw_position,
+                    s.first_name AS first_name,
+                    s.last_name AS last_name,
+                    CONCAT_WS(' ', s.first_name, s.last_name) AS full_name,
+                    u.first_name AS user_first_name,
+                    u.last_name AS user_last_name,
+                    u.email AS email,
                     u.status as user_status,
                     r.id as role_id,
                     r.name as role_name,
                     d.name as department_name,
                     d.code as department_code,
                     d.name as department,
+                    sc.category_name AS staff_category_name,
                     st.name as staff_type_name,
+                    COALESCE(
+                        NULLIF((
+                            SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
+                            FROM user_roles ur
+                            INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
+                            WHERE ur.user_id = s.user_id
+                        ), ''),
+                        r.name
+                    ) AS role_names,
+                    CASE
+                        WHEN NULLIF(TRIM(s.position), '') IS NOT NULL
+                             AND LOWER(TRIM(s.position)) <> 'staff'
+                            THEN s.position
+                        WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
+                            THEN r.name
+                        WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
+                            THEN sc.category_name
+                        WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
+                            THEN st.name
+                        ELSE 'Staff'
+                    END AS position,
+                    CASE
+                        WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
+                            THEN r.name
+                        WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
+                            THEN sc.category_name
+                        WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
+                            THEN st.name
+                        ELSE 'Staff'
+                    END AS display_position,
                     CASE s.staff_type_id
                         WHEN 1 THEN 'teaching'
                         WHEN 2 THEN 'non-teaching'
@@ -126,7 +221,8 @@ class StaffAPI extends BaseAPI {
                 LEFT JOIN roles r ON u.role_id = r.id
                 LEFT JOIN departments d ON s.department_id = d.id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
-                $where
+                LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
+                $whereSql
                 ORDER BY $sort $order
                 LIMIT ? OFFSET ?
             ";
@@ -231,37 +327,505 @@ class StaffAPI extends BaseAPI {
     public function listTeachers(array $filters = []): array
     {
         try {
-            $where = ["s.status <> 'inactive'", "(LOWER(st.name) LIKE '%teach%' OR s.tsc_no IS NOT NULL)"];
+            $teachingRoleNames = [
+                'Class Teacher',
+                'Subject Teacher',
+                'Intern/Student Teacher',
+                'Headteacher',
+                'Deputy Head - Academic',
+                'Deputy Head - Discipline',
+            ];
+            $teachingRoleSql = implode(', ', array_map([$this->db, 'quote'], $teachingRoleNames));
+
+            $where = [
+                "s.status <> 'inactive'",
+                "(
+                    LOWER(COALESCE(st.name, '')) = 'teaching staff'
+                    OR NULLIF(TRIM(COALESCE(s.tsc_no, '')), '') IS NOT NULL
+                    OR COALESCE(assign.assignment_count, 0) > 0
+                    OR COALESCE(role_summary.teaching_role_count, 0) > 0
+                )",
+            ];
             $params = [];
             if (!empty($filters['department_id'])) {
                 $where[] = 's.department_id = ?';
                 $params[] = (int)$filters['department_id'];
             }
+            $subjectId = $filters['subject_id'] ?? $filters['learning_area_id'] ?? null;
+            if (!empty($subjectId)) {
+                $where[] = "EXISTS (
+                    SELECT 1
+                    FROM staff_class_assignments subject_filter
+                    LEFT JOIN academic_years subject_year
+                        ON subject_year.id = subject_filter.academic_year_id
+                    WHERE subject_filter.staff_id = s.id
+                      AND subject_filter.status = 'active'
+                      AND (subject_year.id IS NULL OR subject_year.status = 'active')
+                      AND subject_filter.subject_id = ?
+                )";
+                $params[] = (int) $subjectId;
+            }
+            if (!empty($filters['role'])) {
+                $where[] = "(
+                    FIND_IN_SET(?, REPLACE(COALESCE(assign.assignment_roles, ''), ', ', ','))
+                    OR FIND_IN_SET(?, REPLACE(COALESCE(role_summary.teaching_role_names, ''), ', ', ','))
+                )";
+                $params[] = (string) $filters['role'];
+                $params[] = (string) $filters['role'];
+            }
 
             $stmt = $this->db->prepare("
-                SELECT s.id, s.staff_no AS employee_id, s.staff_no, s.first_name, s.last_name,
-                       s.profile_pic_url AS photo_url, s.department_id, d.name AS department_name,
-                       s.position, s.status, s.user_id, s.tsc_no,
-                       GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS role_name,
-                       COUNT(DISTINCT tsa.subject_id) AS subjects_count,
-                       MAX(CASE WHEN cta.staff_id IS NOT NULL THEN 1 ELSE 0 END) AS is_class_teacher
+                SELECT
+                    s.id,
+                    s.staff_no AS employee_id,
+                    s.staff_no,
+                    s.first_name,
+                    s.last_name,
+                    s.phone,
+                    s.gender,
+                    s.employment_date,
+                    s.contract_type,
+                    s.work_start_time,
+                    s.work_end_time,
+                    u.email,
+                    s.profile_pic_url AS photo_url,
+                    s.department_id,
+                    d.name AS department_name,
+                    s.position,
+                    s.status,
+                    s.user_id,
+                    s.tsc_no,
+                    st.name AS staff_type_name,
+                    sc.category_name AS staff_category_name,
+                    COALESCE(role_summary.teaching_role_names, '') AS role_name,
+                    COALESCE(role_summary.teaching_role_names, '') AS role_names,
+                    COALESCE(assign.assignment_roles, '') AS assignment_roles,
+                    COALESCE(assign.subject_ids, '') AS subject_ids,
+                    COALESCE(assign.learning_areas, '') AS learning_areas,
+                    COALESCE(assign.learning_areas, '') AS subjects,
+                    COALESCE(assign.subjects_count, 0) AS subjects_count,
+                    COALESCE(assign.class_ids, '') AS class_ids,
+                    COALESCE(assign.classes, '') AS classes,
+                    COALESCE(assign.school_level_ids, '') AS school_level_ids,
+                    COALESCE(assign.school_levels, '') AS school_levels,
+                    COALESCE(assign.class_teacher_count, 0) AS class_teacher_count,
+                    COALESCE(assign.subject_teacher_count, 0) AS subject_teacher_count,
+                    COALESCE(assign.assistant_teacher_count, 0) AS assistant_teacher_count,
+                    COALESCE(assign.hod_count, 0) AS hod_count,
+                    COALESCE(assign.assignment_count, 0) AS assignment_count,
+                    COALESCE(assign.periods_per_week, 0) AS periods_per_week,
+                    CASE WHEN COALESCE(assign.class_teacher_count, 0) > 0
+                              OR FIND_IN_SET('Class Teacher', REPLACE(COALESCE(role_summary.teaching_role_names, ''), ', ', ','))
+                         THEN 1 ELSE 0 END AS is_class_teacher,
+                    CASE WHEN COALESCE(assign.hod_count, 0) > 0
+                         THEN 1 ELSE 0 END AS is_hod
                 FROM staff s
+                LEFT JOIN users u ON u.id = s.user_id
                 LEFT JOIN staff_types st ON st.id = s.staff_type_id
+                LEFT JOIN staff_categories sc ON sc.id = s.staff_category_id
                 LEFT JOIN departments d ON d.id = s.department_id
-                LEFT JOIN user_roles ur ON ur.user_id = s.user_id
-                LEFT JOIN roles r ON r.id = ur.role_id
-                LEFT JOIN staff_class_assignments tsa ON tsa.staff_id = s.id AND tsa.role = 'subject_teacher' AND tsa.status = 'active'
-                LEFT JOIN staff_class_assignments cta ON cta.staff_id = s.id AND cta.role = 'class_teacher' AND cta.status = 'active'
+                LEFT JOIN (
+                    SELECT
+                        ur.user_id,
+                        GROUP_CONCAT(DISTINCT r.name ORDER BY r.name SEPARATOR ', ') AS teaching_role_names,
+                        COUNT(DISTINCT r.id) AS teaching_role_count
+                    FROM user_roles ur
+                    INNER JOIN roles r ON r.id = ur.role_id
+                    WHERE r.scope = 'school'
+                      AND r.is_system = 0
+                      AND r.is_active = 1
+                      AND r.name IN ($teachingRoleSql)
+                    GROUP BY ur.user_id
+                ) role_summary ON role_summary.user_id = s.user_id
+                LEFT JOIN (
+                    SELECT
+                        sca.staff_id,
+                        GROUP_CONCAT(DISTINCT sca.role ORDER BY sca.role SEPARATOR ', ') AS assignment_roles,
+                        GROUP_CONCAT(DISTINCT sca.subject_id ORDER BY la.name SEPARATOR ',') AS subject_ids,
+                        GROUP_CONCAT(DISTINCT la.name ORDER BY la.name SEPARATOR ', ') AS learning_areas,
+                        COUNT(DISTINCT sca.subject_id) AS subjects_count,
+                        GROUP_CONCAT(DISTINCT sca.class_id ORDER BY c.name SEPARATOR ',') AS class_ids,
+                        GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR ', ') AS classes,
+                        GROUP_CONCAT(DISTINCT sl.id ORDER BY sl.id SEPARATOR ',') AS school_level_ids,
+                        GROUP_CONCAT(DISTINCT sl.name ORDER BY sl.id SEPARATOR ', ') AS school_levels,
+                        SUM(CASE WHEN sca.role = 'class_teacher' THEN 1 ELSE 0 END) AS class_teacher_count,
+                        SUM(CASE WHEN sca.role = 'subject_teacher' THEN 1 ELSE 0 END) AS subject_teacher_count,
+                        SUM(CASE WHEN sca.role = 'assistant_teacher' THEN 1 ELSE 0 END) AS assistant_teacher_count,
+                        SUM(CASE WHEN sca.role = 'head_of_department' THEN 1 ELSE 0 END) AS hod_count,
+                        COUNT(DISTINCT sca.id) AS assignment_count,
+                        SUM(COALESCE(sca.periods_per_week, 0)) AS periods_per_week
+                    FROM staff_class_assignments sca
+                    LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
+                    LEFT JOIN learning_areas la ON la.id = sca.subject_id
+                    INNER JOIN classes c ON c.id = sca.class_id
+                    LEFT JOIN school_levels sl ON sl.id = c.level_id
+                    WHERE sca.status = 'active'
+                      AND (ay.id IS NULL OR ay.status = 'active')
+                    GROUP BY sca.staff_id
+                ) assign ON assign.staff_id = s.id
                 WHERE " . implode(' AND ', $where) . "
-                GROUP BY s.id
                 ORDER BY s.first_name, s.last_name
             ");
             $stmt->execute($params);
 
-            return $this->response(['status' => 'success', 'data' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+            $teachers = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($teachers as &$teacher) {
+                $teacherId = (int) ($teacher['id'] ?? 0);
+                $assignmentRoles = $this->splitCsv($teacher['assignment_roles'] ?? '');
+                $systemRoles = $this->splitCsv($teacher['role_name'] ?? '');
+                $teacher['teaching_roles'] = array_values(array_unique(array_merge(
+                    $systemRoles,
+                    array_map([$this, 'formatAssignmentRole'], $assignmentRoles)
+                )));
+                $teacher['subject_ids'] = array_map('intval', $this->splitCsv($teacher['subject_ids'] ?? ''));
+                $teacher['learning_area_names'] = $this->splitCsv($teacher['learning_areas'] ?? '');
+                $teacher['subject_names'] = $teacher['learning_area_names'];
+                $teacher['class_ids'] = array_map('intval', $this->splitCsv($teacher['class_ids'] ?? ''));
+                $teacher['class_names'] = $this->splitCsv($teacher['classes'] ?? '');
+                $teacher['school_level_ids'] = array_map('intval', $this->splitCsv($teacher['school_level_ids'] ?? ''));
+                $teacher['school_level_names'] = $this->splitCsv($teacher['school_levels'] ?? '');
+                $teacher['is_class_teacher'] = (int) ($teacher['is_class_teacher'] ?? 0);
+                $teacher['is_hod'] = (int) ($teacher['is_hod'] ?? 0);
+                if ($teacherId > 0) {
+                    $teacher['insights'] = $this->getTeacherInsightBundle($teacherId);
+                }
+            }
+            unset($teacher);
+
+            return $this->response(['status' => 'success', 'data' => $teachers]);
         } catch (Exception $e) {
             return $this->handleException($e);
         }
+    }
+
+    private function splitCsv($value): array
+    {
+        if (is_array($value)) {
+            return array_values(array_filter($value, static function ($item) {
+                return trim((string) $item) !== '';
+            }));
+        }
+
+        return array_values(array_filter(array_map('trim', explode(',', (string) $value)), static function ($item) {
+            return $item !== '';
+        }));
+    }
+
+    private function formatAssignmentRole($role): string
+    {
+        $labels = [
+            'class_teacher' => 'Class Teacher',
+            'subject_teacher' => 'Subject Teacher',
+            'assistant_teacher' => 'Assistant Teacher',
+            'head_of_department' => 'Head of Department',
+        ];
+
+        return $labels[$role] ?? ucwords(str_replace('_', ' ', (string) $role));
+    }
+
+    private function ensureSubjectTeacherRoleForTeachingStaff(array $roleIds, array $staffInfo): array
+    {
+        $roleIds = array_values(array_unique(array_map('intval', array_filter($roleIds, 'is_numeric'))));
+        $subjectTeacherRoleId = $this->getSchoolRoleIdByName('Subject Teacher');
+
+        if (!$subjectTeacherRoleId || in_array($subjectTeacherRoleId, $roleIds, true)) {
+            return $roleIds;
+        }
+
+        if ((int) ($staffInfo['staff_type_id'] ?? 0) === 1 || $this->roleIdsRepresentTeachingDuty($roleIds)) {
+            $roleIds[] = $subjectTeacherRoleId;
+        }
+
+        return array_values(array_unique($roleIds));
+    }
+
+    private function roleIdsRepresentTeachingDuty(array $roleIds): bool
+    {
+        if (!$roleIds) {
+            return false;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($roleIds), '?'));
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*)
+            FROM roles
+            WHERE id IN ($placeholders)
+              AND scope = 'school'
+              AND is_active = 1
+              AND name IN (
+                  'Subject Teacher',
+                  'Class Teacher',
+                  'Intern/Student Teacher',
+                  'Headteacher',
+                  'Deputy Head - Academic',
+                  'Deputy Head - Discipline'
+              )
+        ");
+        $stmt->execute($roleIds);
+
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
+    private function getSchoolRoleIdByName(string $name): ?int
+    {
+        $stmt = $this->db->prepare("
+            SELECT id
+            FROM roles
+            WHERE name = ?
+              AND scope = 'school'
+              AND is_system = 0
+              AND is_active = 1
+            LIMIT 1
+        ");
+        $stmt->execute([$name]);
+        $roleId = $stmt->fetchColumn();
+
+        return $roleId ? (int) $roleId : null;
+    }
+
+    private function getTeacherInsightBundle(int $staffId): array
+    {
+        return [
+            'assignments' => $this->getTeacherAssignmentRows($staffId),
+            'workload' => $this->getTeacherWorkloadSnapshot($staffId),
+            'qualifications' => $this->getTeacherQualifications($staffId),
+            'experience' => $this->getTeacherExperience($staffId),
+            'attendance' => $this->getTeacherAttendanceSnapshot($staffId),
+            'performance' => $this->getTeacherPerformanceSnapshot($staffId),
+            'activities' => $this->getTeacherActivities($staffId),
+            'lesson_plans' => $this->getTeacherLessonPlanSnapshot($staffId),
+            'observations' => $this->getTeacherObservationSnapshot($staffId),
+        ];
+    }
+
+    private function getTeacherAssignmentRows(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT
+                sca.id,
+                sca.role,
+                sca.subject_id AS learning_area_id,
+                la.name AS learning_area_name,
+                c.id AS class_id,
+                c.name AS class_name,
+                sl.name AS school_level,
+                cs.stream_name,
+                ay.year_name AS academic_year,
+                sca.periods_per_week,
+                sca.start_date,
+                sca.end_date,
+                sca.status,
+                sca.notes
+            FROM staff_class_assignments sca
+            LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
+            LEFT JOIN learning_areas la ON la.id = sca.subject_id
+            INNER JOIN classes c ON c.id = sca.class_id
+            LEFT JOIN school_levels sl ON sl.id = c.level_id
+            LEFT JOIN class_streams cs ON cs.id = COALESCE(sca.stream_id, sca.class_stream_id)
+            WHERE sca.staff_id = ?
+              AND sca.status = 'active'
+              AND (ay.id IS NULL OR ay.status = 'active')
+            ORDER BY c.name, la.name, sca.role
+        ");
+        $stmt->execute([$staffId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $row['role_label'] = $this->formatAssignmentRole($row['role'] ?? '');
+        }
+        unset($row);
+        return $rows;
+    }
+
+    private function getTeacherWorkloadSnapshot(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT
+                COUNT(DISTINCT sca.id) AS active_assignments,
+                COUNT(DISTINCT CASE WHEN sca.role = 'class_teacher' THEN sca.class_id END) AS class_teacher_classes,
+                COUNT(DISTINCT CASE WHEN sca.role = 'subject_teacher' THEN sca.subject_id END) AS learning_areas_count,
+                COUNT(DISTINCT sca.class_id) AS classes_count,
+                SUM(COALESCE(sca.periods_per_week, 0)) AS assignment_periods_per_week
+            FROM staff_class_assignments sca
+            LEFT JOIN academic_years ay ON ay.id = sca.academic_year_id
+            WHERE sca.staff_id = ?
+              AND sca.status = 'active'
+              AND (ay.id IS NULL OR ay.status = 'active')
+        ");
+        $stmt->execute([$staffId]);
+        $assignment = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $stmt = $this->db->prepare("
+            SELECT
+                COUNT(*) AS scheduled_periods,
+                COUNT(DISTINCT subject_id) AS scheduled_learning_areas,
+                COUNT(DISTINCT class_id) AS scheduled_classes
+            FROM class_schedules
+            WHERE teacher_id = ?
+              AND status = 'active'
+        ");
+        $stmt->execute([$staffId]);
+        $schedule = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $periods = (int) ($schedule['scheduled_periods'] ?? 0);
+        if ($periods === 0) {
+            $periods = (int) ($assignment['assignment_periods_per_week'] ?? 0);
+        }
+
+        return [
+            'active_assignments' => (int) ($assignment['active_assignments'] ?? 0),
+            'class_teacher_classes' => (int) ($assignment['class_teacher_classes'] ?? 0),
+            'learning_areas_count' => (int) ($assignment['learning_areas_count'] ?? 0),
+            'classes_count' => (int) max((int) ($assignment['classes_count'] ?? 0), (int) ($schedule['scheduled_classes'] ?? 0)),
+            'periods_per_week' => $periods,
+            'scheduled_periods' => (int) ($schedule['scheduled_periods'] ?? 0),
+            'status' => $this->classifyTeachingLoad($periods),
+        ];
+    }
+
+    private function classifyTeachingLoad(int $periods): string
+    {
+        if ($periods === 0) {
+            return 'not scheduled';
+        }
+        if ($periods < 18) {
+            return 'underloaded';
+        }
+        if ($periods > 32) {
+            return 'overloaded';
+        }
+        return 'balanced';
+    }
+
+    private function getTeacherQualifications(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT qualification_type, title, institution, year_obtained, description
+            FROM staff_qualifications
+            WHERE staff_id = ?
+            ORDER BY year_obtained DESC, id DESC
+            LIMIT 5
+        ");
+        $stmt->execute([$staffId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function getTeacherExperience(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT organization, position, start_date, end_date, responsibilities
+            FROM staff_experience
+            WHERE staff_id = ?
+            ORDER BY start_date DESC, id DESC
+            LIMIT 5
+        ");
+        $stmt->execute([$staffId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function getTeacherAttendanceSnapshot(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT
+                COUNT(*) AS marked_days,
+                SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) AS present_days,
+                SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) AS late_days,
+                SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
+                MAX(date) AS last_marked_date
+            FROM staff_attendance
+            WHERE staff_id = ?
+              AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        ");
+        $stmt->execute([$staffId]);
+        $summary = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $marked = (int) ($summary['marked_days'] ?? 0);
+        $present = (int) ($summary['present_days'] ?? 0);
+        $late = (int) ($summary['late_days'] ?? 0);
+
+        return [
+            'marked_days' => $marked,
+            'present_days' => $present,
+            'late_days' => $late,
+            'absent_days' => (int) ($summary['absent_days'] ?? 0),
+            'last_marked_date' => $summary['last_marked_date'] ?? null,
+            'attendance_rate' => $marked > 0 ? round((($present + $late) / $marked) * 100, 1) : null,
+        ];
+    }
+
+    private function getTeacherPerformanceSnapshot(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT review_period, review_type, review_date, overall_score, performance_grade,
+                   overall_rating, strengths, areas_for_improvement, recommendations, status
+            FROM staff_performance_reviews
+            WHERE staff_id = ?
+            ORDER BY review_date DESC, id DESC
+            LIMIT 3
+        ");
+        $stmt->execute([$staffId]);
+        $reviews = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return [
+            'latest' => $reviews[0] ?? null,
+            'recent_reviews' => $reviews,
+        ];
+    }
+
+    private function getTeacherActivities(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT a.title, ac.name AS category, a.status, asp.joined_at
+            FROM activity_staff_participants asp
+            INNER JOIN activities a ON a.id = asp.activity_id
+            LEFT JOIN activity_categories ac ON ac.id = a.category_id
+            WHERE asp.staff_id = ?
+              AND asp.status = 'active'
+            ORDER BY a.title
+            LIMIT 5
+        ");
+        $stmt->execute([$staffId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    private function getTeacherLessonPlanSnapshot(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) AS submitted,
+                SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS drafts,
+                MAX(lesson_date) AS latest_lesson_date
+            FROM lesson_plans
+            WHERE teacher_id = ?
+        ");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'approved' => (int) ($row['approved'] ?? 0),
+            'submitted' => (int) ($row['submitted'] ?? 0),
+            'drafts' => (int) ($row['drafts'] ?? 0),
+            'latest_lesson_date' => $row['latest_lesson_date'] ?? null,
+        ];
+    }
+
+    private function getTeacherObservationSnapshot(int $staffId): array
+    {
+        $stmt = $this->db->prepare("
+            SELECT COUNT(*) AS total, AVG(rating) AS average_rating, MAX(observation_date) AS latest_observation_date
+            FROM lesson_observations
+            WHERE teacher_id = ?
+        ");
+        $stmt->execute([$staffId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'average_rating' => $row['average_rating'] !== null ? round((float) $row['average_rating'], 2) : null,
+            'latest_observation_date' => $row['latest_observation_date'] ?? null,
+        ];
     }
 
     public function listNonTeaching(array $filters = []): array
@@ -437,6 +1001,7 @@ class StaffAPI extends BaseAPI {
                     return $v !== null && $v !== '';
                 }));
             }
+            $roleIds = $this->ensureSubjectTeacherRoleForTeachingStaff($roleIds, $staffInfo);
 
             // Determine username: prefer provided username, else use email prefix sanitized
             $username = $data['username'] ?? null;
@@ -450,13 +1015,17 @@ class StaffAPI extends BaseAPI {
                 }
             }
 
+            $temporaryPassword = $data['password'] ?? $this->generateTemporaryPassword();
+
             $userPayload = [
                 'username' => $username,
                 'email' => $data['email'],
-                'password' => $data['password'] ?? 'changeme123',
+                'password' => $temporaryPassword,
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
                 'role_ids' => $roleIds,
+                'status' => 'active',
+                'force_password_change' => 1,
                 'staff_info' => $staffInfo
             ];
 
@@ -470,6 +1039,16 @@ class StaffAPI extends BaseAPI {
                 if (!isset($addResult['success']) || !$addResult['success']) {
                     throw new Exception('Failed to create staff for existing user: ' . ($addResult['error'] ?? json_encode($addResult)));
                 }
+                $stmt = $this->db->prepare("
+                    UPDATE users
+                    SET password = ?,
+                        status = 'active',
+                        force_password_change = 1,
+                        password_changed_at = NULL,
+                        updated_at = NOW()
+                    WHERE id = ?
+                ");
+                $stmt->execute([password_hash($temporaryPassword, PASSWORD_DEFAULT), $userId]);
             } else {
                 $userResult = $usersApi->create($userPayload);
                 if (!isset($userResult['success']) || !$userResult['success']) {
@@ -502,6 +1081,32 @@ class StaffAPI extends BaseAPI {
                 $docsFolder = $existing['documents_folder'] ?? null;
             } else {
                 throw new Exception('Staff record was not created by UsersAPI');
+            }
+
+            $this->ensureStaffOnboardingArtifacts(
+                (int) $staffId,
+                (int) $userId,
+                $staffInfo,
+                $data
+            );
+
+            $invitationToken = $this->createStaffInvitation(
+                (int) $userId,
+                (int) $staffId,
+                $data['email']
+            );
+            $this->queueStaffInvitationEmail(
+                (int) $userId,
+                $data['email'],
+                trim($data['first_name'] . ' ' . $data['last_name']),
+                $username,
+                $temporaryPassword,
+                $invitationToken
+            );
+            try {
+                (new StaffMigrationService($this->db))->processEmailQueue(1);
+            } catch (Exception $mailError) {
+                error_log('Manual staff invitation delivery failed: ' . $mailError->getMessage());
             }
 
             // Ensure placeholders for profile picture and documents folder
@@ -1024,20 +1629,31 @@ class StaffAPI extends BaseAPI {
     public function getProfile($id) {
         try {
             $sql = "
-                SELECT 
+                SELECT
                     s.*,
+                    u.email,
                     sc.category_name,
-                    d.name as department_name,
-                    COUNT(DISTINCT sca.class_id) as assigned_classes,
-                    COUNT(DISTINCT cs.subject_id) as assigned_subjects
+                    d.name AS department_name,
+                    CONCAT_WS(' ', supervisor.first_name, supervisor.last_name) AS supervisor_name,
+                    (
+                        SELECT COUNT(DISTINCT sca.class_id)
+                        FROM staff_class_assignments sca
+                        WHERE sca.staff_id = s.id
+                          AND sca.status = 'active'
+                    ) AS assigned_classes,
+                    (
+                        SELECT COUNT(DISTINCT cs.subject_id)
+                        FROM class_schedules cs
+                        WHERE cs.teacher_id = s.id
+                          AND cs.status = 'active'
+                    ) AS assigned_subjects
                 FROM staff s
+                INNER JOIN users u ON u.id = s.user_id
+                LEFT JOIN staff supervisor ON supervisor.id = s.supervisor_id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
                 LEFT JOIN departments d ON s.department_id = d.id
-                LEFT JOIN staff_class_assignments sca ON s.id = sca.staff_id AND sca.status = 'active'
-                LEFT JOIN classes c ON sca.class_id = c.id
-                LEFT JOIN class_schedules cs ON s.id = cs.teacher_id AND cs.status = 'active'
                 WHERE s.id = ?
-                GROUP BY s.id
+                LIMIT 1
             ";
 
             $stmt = $this->db->prepare($sql);
@@ -1151,26 +1767,32 @@ class StaffAPI extends BaseAPI {
 
     public function getAttendance($params) {
         try {
+            $params = is_array($params) ? $params : [];
             $sql = "
-                SELECT 
+                SELECT
                     sa.*,
                     s.first_name,
                     s.last_name,
                     s.staff_no,
-                    s.id as staff_id,
-                    d.name as department_name
+                    s.id AS staff_id,
+                    d.name AS department_name
                 FROM staff_attendance sa
                 JOIN staff s ON sa.staff_id = s.id
                 JOIN departments d ON s.department_id = d.id
                 WHERE sa.date BETWEEN ? AND ?
-                ORDER BY sa.date DESC, s.first_name, s.last_name
             ";
-
-            $stmt = $this->db->prepare($sql);
-            $stmt->execute([
+            $bindings = [
                 $params['start_date'] ?? date('Y-m-d', strtotime('-30 days')),
                 $params['end_date'] ?? date('Y-m-d')
-            ]);
+            ];
+            if (!empty($params['staff_id'])) {
+                $sql .= " AND sa.staff_id = ?";
+                $bindings[] = (int) $params['staff_id'];
+            }
+            $sql .= " ORDER BY sa.date DESC, s.first_name, s.last_name";
+
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($bindings);
 
             $attendance = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -1372,16 +1994,51 @@ class StaffAPI extends BaseAPI {
         $sql = "
             SELECT 
                 s.*,
-                u.first_name,
-                u.last_name,
-                u.email,
+                s.position AS raw_position,
+                s.first_name AS first_name,
+                s.last_name AS last_name,
+                CONCAT_WS(' ', s.first_name, s.last_name) AS full_name,
+                u.first_name AS user_first_name,
+                u.last_name AS user_last_name,
+                u.email AS email,
                 u.status as user_status,
                 r.id as role_id,
                 r.name as role_name,
                 d.name as department_name,
                 d.code as department_code,
                 d.name as department,
+                sc.category_name AS staff_category_name,
                 st.name as staff_type_name,
+                COALESCE(
+                    NULLIF((
+                        SELECT GROUP_CONCAT(DISTINCT ur_roles.name ORDER BY ur_roles.name SEPARATOR ', ')
+                        FROM user_roles ur
+                        INNER JOIN roles ur_roles ON ur_roles.id = ur.role_id
+                        WHERE ur.user_id = s.user_id
+                    ), ''),
+                    r.name
+                ) AS role_names,
+                CASE
+                    WHEN NULLIF(TRIM(s.position), '') IS NOT NULL
+                         AND LOWER(TRIM(s.position)) <> 'staff'
+                        THEN s.position
+                    WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
+                        THEN r.name
+                    WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
+                        THEN sc.category_name
+                    WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
+                        THEN st.name
+                    ELSE 'Staff'
+                END AS position,
+                CASE
+                    WHEN r.name IS NOT NULL AND TRIM(r.name) <> ''
+                        THEN r.name
+                    WHEN sc.category_name IS NOT NULL AND TRIM(sc.category_name) <> ''
+                        THEN sc.category_name
+                    WHEN st.name IS NOT NULL AND TRIM(st.name) <> ''
+                        THEN st.name
+                    ELSE 'Staff'
+                END AS display_position,
                 CASE s.staff_type_id
                     WHEN 1 THEN 'teaching'
                     WHEN 2 THEN 'non-teaching'
@@ -1393,6 +2050,7 @@ class StaffAPI extends BaseAPI {
             LEFT JOIN roles r ON u.role_id = r.id
             LEFT JOIN departments d ON s.department_id = d.id
             LEFT JOIN staff_types st ON s.staff_type_id = st.id
+            LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
             WHERE s.id = ?
         ";
 
@@ -1400,6 +2058,135 @@ class StaffAPI extends BaseAPI {
         $stmt->execute([$id]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    private function generateTemporaryPassword(): string
+    {
+        return 'Kwps-' . substr(bin2hex(random_bytes(4)), 0, 8) . '!';
+    }
+
+    private function ensureStaffOnboardingArtifacts(
+        int $staffId,
+        int $userId,
+        array $staffInfo,
+        array $data
+    ): void {
+        $stmt = $this->db->prepare('SELECT 1 FROM staff_onboarding_progress WHERE staff_id = ? LIMIT 1');
+        $stmt->execute([$staffId]);
+        if (!$stmt->fetchColumn()) {
+            $this->db->prepare("
+                INSERT INTO staff_onboarding_progress
+                    (staff_id, user_id, password_completed, profile_completed, communication_completed, onboarding_status, created_at, updated_at)
+                VALUES (?, ?, 0, 0, 0, 'invited', NOW(), NOW())
+            ")->execute([$staffId, $userId]);
+        }
+
+        $stmt = $this->db->prepare('SELECT 1 FROM staff_employment_profiles WHERE staff_id = ? LIMIT 1');
+        $stmt->execute([$staffId]);
+        if (!$stmt->fetchColumn()) {
+            $this->db->prepare("
+                INSERT INTO staff_employment_profiles
+                    (staff_id, department_id, position, employment_date, contract_type, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'active', NOW(), NOW())
+            ")->execute([
+                $staffId,
+                $staffInfo['department_id'] ?? null,
+                $staffInfo['position'] ?? 'Staff',
+                $staffInfo['employment_date'] ?? date('Y-m-d'),
+                $staffInfo['contract_type'] ?? 'permanent',
+            ]);
+        }
+
+        $stmt = $this->db->prepare('SELECT 1 FROM staff_communication_profiles WHERE staff_id = ? LIMIT 1');
+        $stmt->execute([$staffId]);
+        if (!$stmt->fetchColumn()) {
+            $this->db->prepare("
+                INSERT INTO staff_communication_profiles
+                    (staff_id, primary_email, primary_phone, created_at, updated_at)
+                VALUES (?, ?, ?, NOW(), NOW())
+            ")->execute([
+                $staffId,
+                $data['communication_email'] ?? $data['email'] ?? null,
+                $data['communication_phone'] ?? $staffInfo['phone'] ?? null,
+            ]);
+        }
+    }
+
+    private function createStaffInvitation(int $userId, int $staffId, string $email): string
+    {
+        $this->db->prepare("
+            UPDATE user_invitations
+            SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+            WHERE user_id = ? AND status = 'pending'
+        ")->execute([$userId]);
+
+        $token = bin2hex(random_bytes(32));
+        $actorId = (int)($this->user_id ?? 0);
+        $this->db->prepare("
+            INSERT INTO user_invitations
+                (user_id, staff_id, email, token_hash, status, expires_at, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 72 HOUR), ?, NOW(), NOW())
+        ")->execute([
+            $userId,
+            $staffId,
+            strtolower($email),
+            hash('sha256', $token),
+            $actorId,
+        ]);
+
+        return $token;
+    }
+
+    private function queueStaffInvitationEmail(
+        int $userId,
+        string $email,
+        string $name,
+        string $username,
+        string $temporaryPassword,
+        string $token
+    ): void {
+        $setupUrl = $this->staffSetupUrl($token);
+        $loginUrl = $this->appBaseUrl() . '/index.php';
+        $payload = [
+            'name' => $name,
+            'username' => $username,
+            'default_password' => $temporaryPassword,
+            'temporary_password' => $temporaryPassword,
+            'activation_url' => $setupUrl,
+            'setup_url' => $setupUrl,
+            'login_url' => $loginUrl,
+            'expires_hours' => 72,
+        ];
+
+        $this->db->prepare("
+            INSERT INTO outbound_messages
+                (user_id, channel, recipient, template_key, subject, payload_json, status, attempts, next_attempt_at, created_at, updated_at)
+            VALUES (?, 'email', ?, 'staff_account_invitation', 'Your Kingsway staff account is ready', ?, 'queued', 0, NOW(), NOW(), NOW())
+        ")->execute([
+            $userId,
+            strtolower($email),
+            json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        ]);
+    }
+
+    private function staffSetupUrl(string $token): string
+    {
+        return $this->appBaseUrl() . '/reset_default_password.php?token=' . rawurlencode($token);
+    }
+
+    private function appBaseUrl(): string
+    {
+        if (defined('BASE_URL')) {
+            return rtrim(BASE_URL, '/');
+        }
+
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+        $appBase = preg_replace('#/api$#', '', rtrim($scriptDir, '/'));
+        $appBase = ($appBase === '/' || $appBase === '.') ? '' : $appBase;
+
+        return $scheme . '://' . $host . $appBase;
     }
 
     // ===============================================================
@@ -1661,12 +2448,14 @@ class StaffAPI extends BaseAPI {
     /**
      * Get staff payroll history
      */
-    public function getPayrollHistory($staffId, $startDate = null, $endDate = null) {
+    public function getPayrollHistory($staffId, array $filters = []) {
         try {
-            $result = $this->service->getPayrollManager()->getPayrollHistory($staffId, $startDate, $endDate);
-            return formatResponse(true, $result, 'Payroll history retrieved successfully');
+            return $this->service->getPayrollManager()->getPayrollHistory(
+                (int) $staffId,
+                $filters
+            );
         } catch (Exception $e) {
-            $this->handleException($e);
+            return $this->handleException($e);
         }
     }
 
@@ -1970,5 +2759,226 @@ class StaffAPI extends BaseAPI {
             $this->handleException($e);
         }
     }
+
+    // ===============================================================
+    // STAFF SELF-SERVICE: INTERNAL OPPORTUNITIES AND INCIDENTS
+    // ===============================================================
+
+    public function listInternalOpportunities($staffId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT j.id, j.title, j.department, j.job_type, j.location,
+                    j.description, j.requirements, j.responsibilities,
+                    j.deadline, j.status,
+                    a.id AS application_id,
+                    a.status AS application_status,
+                    a.created_at AS applied_at
+             FROM job_vacancies j
+             LEFT JOIN job_applications a
+                    ON a.job_id = j.id
+                   AND a.applicant_type = 'internal'
+                   AND a.staff_id = ?
+             WHERE j.status = 'open'
+               AND j.deadline >= CURDATE()
+             ORDER BY j.deadline, j.title"
+        );
+        $stmt->execute([(int) $staffId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function applyForInternalOpportunity($staffId, $userId, array $data)
+    {
+        $jobId = (int) ($data['job_id'] ?? 0);
+        if ($jobId <= 0) {
+            throw new \RuntimeException('job_id is required', 422);
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            $jobStmt = $this->db->prepare(
+                "SELECT * FROM job_vacancies
+                 WHERE id = ? AND status = 'open' AND deadline >= CURDATE()
+                 FOR UPDATE"
+            );
+            $jobStmt->execute([$jobId]);
+            $job = $jobStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$job) {
+                throw new \RuntimeException('This internal opportunity is no longer open', 409);
+            }
+
+            $profileStmt = $this->db->prepare(
+                "SELECT s.id, s.first_name, s.last_name, s.phone, s.tsc_no,
+                        s.position, s.department_id, u.email
+                 FROM staff s
+                 INNER JOIN users u ON u.id = s.user_id
+                 WHERE s.id = ? AND s.status IN ('active', 'on_leave')
+                 LIMIT 1"
+            );
+            $profileStmt->execute([(int) $staffId]);
+            $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$profile) {
+                throw new \RuntimeException('Staff profile is unavailable', 403);
+            }
+
+            $existingStmt = $this->db->prepare(
+                "SELECT id FROM job_applications
+                 WHERE job_id = ?
+                   AND applicant_type = 'internal'
+                   AND staff_id = ?
+                 LIMIT 1"
+            );
+            $existingStmt->execute([$jobId, (int) $staffId]);
+            if ($existingStmt->fetchColumn()) {
+                throw new \RuntimeException('You have already applied for this opportunity', 409);
+            }
+
+            $statement = trim((string) ($data['cover_letter'] ?? $data['statement'] ?? ''));
+            $insertStmt = $this->db->prepare(
+                "INSERT INTO job_applications
+                    (job_id, job_title, first_name, last_name, email, phone,
+                     tsc_number, cover_letter, status, applicant_type, staff_id,
+                     current_position, current_department_id, ip_address,
+                     created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'received', 'internal', ?, ?, ?, ?, NOW(), NOW())"
+            );
+            $insertStmt->execute([
+                $jobId,
+                $job['title'],
+                $profile['first_name'],
+                $profile['last_name'],
+                $profile['email'],
+                $profile['phone'] ?: 'Not provided',
+                $profile['tsc_no'],
+                $statement !== ''
+                    ? $statement
+                    : 'Internal application submitted through staff self-service.',
+                (int) $staffId,
+                $profile['position'],
+                $profile['department_id'],
+                $_SERVER['REMOTE_ADDR'] ?? null,
+            ]);
+
+            $applicationId = (int) $this->db->lastInsertId();
+            $this->db->commit();
+            return [
+                'id' => $applicationId,
+                'job_id' => $jobId,
+                'status' => 'received',
+            ];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    public function listIncidentReports($staffId)
+    {
+        $stmt = $this->db->prepare(
+            "SELECT id, reference_no, category, occurred_at, location,
+                    severity, status, resolution, resolved_at, created_at
+             FROM staff_incident_reports
+             WHERE staff_id = ?
+             ORDER BY created_at DESC, id DESC
+             LIMIT 50"
+        );
+        $stmt->execute([(int) $staffId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    public function createIncidentReport($staffId, $userId, array $data)
+    {
+        $category = (string) ($data['category'] ?? '');
+        $severity = (string) ($data['severity'] ?? 'medium');
+        $occurredAt = trim((string) ($data['occurred_at'] ?? ''));
+        $location = trim((string) ($data['location'] ?? ''));
+        $description = trim((string) ($data['description'] ?? ''));
+        $allowedCategories = [
+            'workplace_accident', 'property_damage', 'safety_hazard',
+            'security_concern', 'harassment', 'maintenance',
+            'student_welfare', 'transport', 'kitchen', 'other',
+        ];
+
+        if (!in_array($category, $allowedCategories, true)) {
+            throw new \RuntimeException('Invalid incident category', 422);
+        }
+        if (!in_array($severity, ['low', 'medium', 'high', 'critical'], true)) {
+            throw new \RuntimeException('Invalid incident severity', 422);
+        }
+        if ($occurredAt === '' || strtotime($occurredAt) === false
+            || $location === '' || $description === '') {
+            throw new \RuntimeException(
+                'Incident date, location and description are required',
+                422
+            );
+        }
+
+        $profileStmt = $this->db->prepare(
+            'SELECT department_id FROM staff WHERE id = ? LIMIT 1'
+        );
+        $profileStmt->execute([(int) $staffId]);
+        $profile = $profileStmt->fetch(\PDO::FETCH_ASSOC);
+        if (!$profile) {
+            throw new \RuntimeException('Staff profile is unavailable', 403);
+        }
+
+        try {
+            $this->db->beginTransaction();
+            $reference = $this->nextStaffIncidentReference();
+            $stmt = $this->db->prepare(
+                "INSERT INTO staff_incident_reports
+                    (reference_no, staff_id, department_id, category,
+                     occurred_at, location, description, immediate_action,
+                     severity, status, created_by, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'reported', ?, NOW(), NOW())"
+            );
+            $stmt->execute([
+                $reference,
+                (int) $staffId,
+                $profile['department_id'],
+                $category,
+                date('Y-m-d H:i:s', strtotime($occurredAt)),
+                $location,
+                $description,
+                trim((string) ($data['immediate_action'] ?? '')) ?: null,
+                $severity,
+                (int) $userId,
+            ]);
+            $incidentId = (int) $this->db->lastInsertId();
+            $this->db->commit();
+            return [
+                'id' => $incidentId,
+                'reference_no' => $reference,
+                'status' => 'reported',
+            ];
+        } catch (\Throwable $error) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            throw $error;
+        }
+    }
+
+    private function nextStaffIncidentReference()
+    {
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $reference = sprintf(
+                'KSI-%s-%06d',
+                date('Ymd'),
+                random_int(0, 999999)
+            );
+            $stmt = $this->db->prepare(
+                'SELECT 1 FROM staff_incident_reports WHERE reference_no = ? LIMIT 1'
+            );
+            $stmt->execute([$reference]);
+            if (!$stmt->fetchColumn()) {
+                return $reference;
+            }
+        }
+        throw new \RuntimeException('Unable to generate incident reference', 500);
+    }
+
 }
      

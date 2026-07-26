@@ -68,7 +68,7 @@
 
 **all_teachers** - Teachers Directory
 - **Director**: View teaching workforce, strategic teacher management
-- **School Admin**: Full teacher management, onboarding, ID cards
+- **School Admin**: Full teacher management, onboarding, security passes
 - **Headteacher**: Teacher oversight, performance management
 - **Deputy Academic**: Primary teacher management authority
 - **Deputy Discipline**: View teachers for disciplinary matters
@@ -118,9 +118,9 @@
 
 #### Administrative Routes:
 
-**staff_id_cards** - Staff ID Cards
+**staff_id_cards** - Staff Security Passes
 - **Director**: No access (operational function)
-- **School Admin**: Generate and manage staff ID cards
+- **School Admin**: Generate, preview, print and issue staff security passes
 - **Headteacher**: No access
 - **Deputy Academic**: No access
 - **Deputy Discipline**: No access
@@ -147,7 +147,7 @@
 - Complete HR operational control
 - Staff onboarding, lifecycle management
 - Import existing staff records
-- Generate ID cards and assign system roles
+- Generate staff security passes and assign system roles
 - Process leave requests and manage attendance
 - Create payroll and handle disciplinary procedures
 

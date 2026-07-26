@@ -283,4 +283,14 @@ class TransportAPI extends BaseAPI
     }
 
 
+    public function getMyRoute($userId)
+    {
+        return $this->driverManager->getRouteForUser($userId);
+    }
+
+    public function getMyVehicle($userId)
+    {
+        return $this->driverManager->getVehicleForUser($userId);
+    }
+
 }

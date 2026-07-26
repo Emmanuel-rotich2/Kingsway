@@ -68,6 +68,19 @@ $newAccess = $r['json']['data']['token'] ?? $r['json']['data']['access_token'] ?
 check("refresh returns a new access token", is_string($newAccess) && $newAccess !== '');
 check("refreshed token differs from original", is_string($newAccess) && $newAccess !== $access);
 
+
+// 2b. Invalid refresh credentials must produce a real HTTP 401 so the browser
+// can distinguish session expiry from validation or server failures.
+$invalid = curlJson(
+    "$base/api/auth/refresh-token",
+    ['refresh_token' => 'invalid-refresh-token-for-session-policy-test']
+);
+check(
+    "invalid refresh token returns HTTP 401",
+    $invalid['http'] === 401,
+    "got {$invalid['http']}"
+);
+
 // 3. repaired orphan permission present in the login payload permissions
 $loginPerms = $r['json']['data']['user']['permissions'] ?? [];
 $termDatesGranted = in_array('term_dates_view', $loginPerms, true);

@@ -265,7 +265,7 @@ return [
             ['label' => 'Class Capacity',          'url' => 'class_capacity'],
         ]],
 
-        // STAFF — Admin handles full HR operations + onboarding
+        // STAFF — school Admin handles full HR operations + onboarding
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
@@ -273,7 +273,7 @@ return [
             ['label' => 'Staff Appointments',      'url' => 'staff_appointments'],
             ['label' => 'Import Existing Staff',   'url' => 'import_existing_staff'],
             ['label' => 'Teachers',                'url' => 'all_teachers'],
-            ['label' => 'Staff ID Cards',          'url' => 'staff_id_cards'],              // generate staff ID
+            ['label' => 'Staff Security Passes',   'url' => 'staff_id_cards'],              // generate and issue lanyard passes
             ['label' => 'Staff Role Assignments',   'url' => 'staff_role_assignments'],
             ['label' => 'Staff Attendance',        'url' => 'staff_attendance'],
             ['label' => 'Leave Management',        'url' => 'staff_leave'],
@@ -1129,42 +1129,52 @@ return [
 
     // =========================================================================
     // 32 — Kitchen Staff
-    // View menu and food stock — operational support only
+    // Shared support dashboard plus kitchen operations and personal self-service.
     // =========================================================================
     32 => [
-        ['label' => 'Dashboard',      'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        ['label' => 'Today\'s Menu',  'url' => 'manage_menus',            'icon' => 'fas fa-utensils',        'subitems' => []],
-        ['label' => 'Food Store',     'url' => 'food_store',              'icon' => 'fas fa-warehouse',       'subitems' => []],
-        ['label' => 'Announcements',  'url' => 'manage_announcements',    'icon' => 'fas fa-bullhorn',        'subitems' => []],
+        ['label' => 'Dashboard',       'url' => 'support_staff_dashboard',      'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'My Profile',      'url' => 'complete_staff_profile',        'icon' => 'fas fa-id-badge',       'subitems' => []],
+        ['label' => 'My Attendance',   'url' => 'my_attendance',                 'icon' => 'fas fa-clipboard-check','subitems' => []],
+        ['label' => 'Leave Requests',  'url' => 'staff_leave',                   'icon' => 'fas fa-calendar-check', 'subitems' => []],
+        ['label' => 'Payslips & P9',   'url' => 'detailed_payslip',              'icon' => 'fas fa-file-invoice',   'subitems' => []],
+        ['label' => 'Kitchen', 'url' => null, 'icon' => 'fas fa-utensils', 'subitems' => [
+            ['label' => 'Meal Planning', 'url' => 'catering_boarding_students'],
+            ['label' => 'Food Store',    'url' => 'food_store'],
+        ]],
+        ['label' => 'Announcements',   'url' => 'manage_announcements',          'icon' => 'fas fa-bullhorn',      'subitems' => []],
+        ['label' => 'Messages',        'url' => 'manage_communications',         'icon' => 'fas fa-comments',      'subitems' => []],
     ],
 
     // =========================================================================
     // 33 — Security Staff
-    // Student movement, verify exeats, attendance overview
+    // Shared support dashboard plus gate operations and personal self-service.
     // =========================================================================
     33 => [
-        ['label' => 'Dashboard',      'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-
-        ['label' => 'Permissions & Exeats', 'url' => null, 'icon' => 'fas fa-id-card', 'subitems' => [
-            ['label' => 'Verify Exeats',           'url' => 'permissions_exeats'],
-            ['label' => 'View Exeat List',         'url' => 'permissions_exeats'],
+        ['label' => 'Dashboard',       'url' => 'support_staff_dashboard',      'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'My Profile',      'url' => 'complete_staff_profile',        'icon' => 'fas fa-id-badge',       'subitems' => []],
+        ['label' => 'My Attendance',   'url' => 'my_attendance',                 'icon' => 'fas fa-clipboard-check','subitems' => []],
+        ['label' => 'Leave Requests',  'url' => 'staff_leave',                   'icon' => 'fas fa-calendar-check', 'subitems' => []],
+        ['label' => 'Payslips & P9',   'url' => 'detailed_payslip',              'icon' => 'fas fa-file-invoice',   'subitems' => []],
+        ['label' => 'Gate Operations', 'url' => null, 'icon' => 'fas fa-shield-alt', 'subitems' => [
+            ['label' => 'Permissions & Exeats', 'url' => 'permissions_exeats'],
         ]],
-
-        ['label' => 'Attendance', 'url' => null, 'icon' => 'fas fa-clipboard-check', 'subitems' => [
-            ['label' => 'View Today\'s Attendance','url' => 'view_attendance'],
-        ]],
-
-        ['label' => 'Announcements',  'url' => 'manage_announcements',    'icon' => 'fas fa-bullhorn',  'subitems' => []],
+        ['label' => 'Announcements',   'url' => 'manage_announcements',          'icon' => 'fas fa-bullhorn',      'subitems' => []],
+        ['label' => 'Messages',        'url' => 'manage_communications',         'icon' => 'fas fa-comments',      'subitems' => []],
     ],
 
     // =========================================================================
     // 34 — Janitor / Cleaner
-    // Very limited — log maintenance issues, view announcements
+    // Shared support dashboard and personal self-service. Assigned maintenance
+    // work is summarised on the dashboard until a dedicated staff task page exists.
     // =========================================================================
     34 => [
-        ['label' => 'Dashboard',      'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
-        ['label' => 'Announcements',  'url' => 'manage_announcements',    'icon' => 'fas fa-bullhorn',       'subitems' => []],
-        ['label' => 'Messages',       'url' => 'manage_communications',   'icon' => 'fas fa-comments',       'subitems' => []],
+        ['label' => 'Dashboard',       'url' => 'support_staff_dashboard',      'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'My Profile',      'url' => 'complete_staff_profile',        'icon' => 'fas fa-id-badge',       'subitems' => []],
+        ['label' => 'My Attendance',   'url' => 'my_attendance',                 'icon' => 'fas fa-clipboard-check','subitems' => []],
+        ['label' => 'Leave Requests',  'url' => 'staff_leave',                   'icon' => 'fas fa-calendar-check', 'subitems' => []],
+        ['label' => 'Payslips & P9',   'url' => 'detailed_payslip',              'icon' => 'fas fa-file-invoice',   'subitems' => []],
+        ['label' => 'Announcements',   'url' => 'manage_announcements',          'icon' => 'fas fa-bullhorn',      'subitems' => []],
+        ['label' => 'Messages',        'url' => 'manage_communications',         'icon' => 'fas fa-comments',      'subitems' => []],
     ],
 
     // =========================================================================
@@ -1198,7 +1208,7 @@ return [
             ['label' => 'Policy Violations',       'url' => 'policy_violations'],
         ]],
 
-        // ── ADMIN: STAFF (disciplinary oversight) ─────────────────────────────
+        // deputy HT Disciplinary: STAFF (disciplinary oversight) ─────────────────────────────
         ['label' => 'Staff', 'url' => null, 'icon' => 'fas fa-chalkboard-teacher', 'subitems' => [
             ['label' => 'All Staff',               'url' => 'manage_staff'],
             ['label' => 'Staff Onboarding',        'url' => 'staff_onboarding'],
@@ -1264,16 +1274,18 @@ return [
     ],
 
     // =========================================================================
-    // 64 — Generic Staff (office staff, support, etc.)
-    // Basic access: own timetable, own payslip, announcements, messages
+    // 64 — Generic Staff (office and operational staff)
+    // Shared department-aware dashboard and complete personal self-service.
     // =========================================================================
     64 => [
-        ['label' => 'Dashboard',     'url' => 'support_staff_dashboard', 'icon' => 'fas fa-tachometer-alt',  'subitems' => []],
-        ['label' => 'Timetable',     'url' => 'timetable',               'icon' => 'fas fa-calendar-alt',    'subitems' => []],
-        ['label' => 'My Attendance', 'url' => 'view_attendance',          'icon' => 'fas fa-clipboard-check', 'subitems' => []],
-        ['label' => 'My Payslip',    'url' => 'payslips',                 'icon' => 'fas fa-file-invoice',    'subitems' => []],
-        ['label' => 'Announcements', 'url' => 'manage_announcements',     'icon' => 'fas fa-bullhorn',        'subitems' => []],
-        ['label' => 'Messages',      'url' => 'manage_communications',    'icon' => 'fas fa-comments',        'subitems' => []],
+        ['label' => 'Dashboard',       'url' => 'support_staff_dashboard',      'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+        ['label' => 'My Profile',      'url' => 'complete_staff_profile',        'icon' => 'fas fa-id-badge',       'subitems' => []],
+        ['label' => 'Timetable',       'url' => 'timetable',                     'icon' => 'fas fa-calendar-alt',   'subitems' => []],
+        ['label' => 'My Attendance',   'url' => 'my_attendance',                 'icon' => 'fas fa-clipboard-check','subitems' => []],
+        ['label' => 'Leave Requests',  'url' => 'staff_leave',                   'icon' => 'fas fa-calendar-check', 'subitems' => []],
+        ['label' => 'Payslips & P9',   'url' => 'detailed_payslip',              'icon' => 'fas fa-file-invoice',   'subitems' => []],
+        ['label' => 'Announcements',   'url' => 'manage_announcements',          'icon' => 'fas fa-bullhorn',      'subitems' => []],
+        ['label' => 'Messages',        'url' => 'manage_communications',         'icon' => 'fas fa-comments',      'subitems' => []],
     ],
 
 ];

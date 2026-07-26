@@ -14,7 +14,7 @@ final class StaffMigrationController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->service = new StaffMigrationService($this->db);
+        $this->service = new StaffMigrationService($this->db->getConnection());
     }
 
     public function getReferenceData($id = null, $data = [], $segments = [])
@@ -44,52 +44,57 @@ final class StaffMigrationController extends BaseController
     {
         $this->guard('staff_import');
 
-        $headers = $this->service->templateHeaders();
-        $sample = [
-            'KWPS-001', 'Jane', 'Wanjiku', 'jane.wanjiku@example.com', '0712345678',
-            'ACA', 'Class Teacher', '2024-01-08', 'permanent', 'Class Teacher',
-            'female', '1993-02-10', 'single', 'Teaching', 'Teacher',
-            'A123456789B', 'NSSF001', 'NHIF001', 'TSC001', 'Nairobi',
-            'KCB', '1234567890', '45000', '08:00:00', '17:00:00',
-            '15', 'yes', '45000', 'jane.wanjiku@example.com', '0712345678',
-        ];
-        $csv = "\xEF\xBB\xBF"
-            . implode(',', array_map([$this, 'csvCell'], $headers))
-            . "\r\n"
-            . implode(',', array_map([$this, 'csvCell'], $sample))
-            . "\r\n";
-
         $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.csv');
-        $this->atomicWriteManagedFile($path, $csv);
-        $this->streamManagedFile($path, 'existing_staff_migration_template.csv', 'text/csv; charset=utf-8');
+        if (!$this->atomicWriteManagedFile($path, $this->service->templateCsv())) {
+            throw new RuntimeException('Unable to prepare staff import template.');
+        }
+        $this->downloads()->streamAbsolutePath($path, 'existing_staff_migration_template.csv', 'text/csv; charset=utf-8');
+    }
+
+    public function getTemplateXlsx($id = null, $data = [], $segments = []): never
+    {
+        $this->guard('staff_import');
+
+        $path = $this->managedPath('import_file', 'templates', 'existing_staff_migration_template.xlsx');
+        $this->ensureManagedDirectory(dirname($path));
+        $this->service->writeTemplateXlsx($path);
+        $this->downloads()->streamAbsolutePath(
+            $path,
+            'existing_staff_migration_template.xlsx',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        );
     }
 
     public function postStage($id = null, $data = [], $segments = [])
     {
         return $this->respondWithGuard('staff_import', function () {
             if (empty($_FILES['file'])) {
-                throw new RuntimeException('CSV file is required.');
+                throw new RuntimeException('CSV or Excel file is required.');
             }
 
             $stored = $this->uploadManaged($_FILES['file'], 'import_file', [
                 'subdirectory' => 'staff_migration',
-                'allowed_extensions' => ['csv'],
+                'allowed_extensions' => ['csv', 'xlsx', 'xls'],
                 'allowed_mime_types' => [
                     'text/csv',
                     'text/plain',
                     'application/vnd.ms-excel',
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     'application/octet-stream',
                 ],
             ]);
 
-            $csv = $this->readManagedFile($stored['absolute_path']);
+            $extension = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
+            $csv = in_array($extension, ['xlsx', 'xls'], true)
+                ? $this->service->spreadsheetToCsv($stored['absolute_path'])
+                : $this->readManagedFile($stored['absolute_path']);
             if ($csv === false) {
-                throw new RuntimeException('Uploaded CSV could not be read.');
+                throw new RuntimeException('Uploaded file could not be read.');
             }
 
             return $this->created(
                 $this->service->stage($_FILES['file']['name'], $stored['absolute_path'], $csv, $this->actorId()),
-                'CSV staged and validated.'
+                'Staff import file staged and validated.'
             );
         });
     }
@@ -184,7 +189,7 @@ final class StaffMigrationController extends BaseController
         }
 
         $roles = array_map(
-            fn($role) => strtolower(str_replace(' ', '_', is_array($role) ? ($role['name'] ?? '') : (string)$role)),
+            fn($role) => strtolower(str_replace(' ', '_', $this->roleName($role))),
             (array)($this->user['roles'] ?? [$this->user['role'] ?? ''])
         );
         $permissions = (array)($this->user['permissions'] ?? []);
@@ -197,8 +202,16 @@ final class StaffMigrationController extends BaseController
         }
     }
 
-    private function csvCell(string $value): string
+    private function roleName(mixed $role): string
     {
-        return '"' . str_replace('"', '""', $value) . '"';
+        if (is_array($role)) {
+            return (string)($role['name'] ?? $role['role_name'] ?? $role['code'] ?? '');
+        }
+
+        if (is_object($role)) {
+            return (string)($role->name ?? $role->role_name ?? $role->code ?? '');
+        }
+
+        return (string)$role;
     }
 }

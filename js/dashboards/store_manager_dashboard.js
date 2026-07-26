@@ -1,86 +1,106 @@
 /**
- * Store Manager (Inventory) Dashboard Controller
- * Role: Inventory Manager (ID 14)
+ * Inventory Manager Dashboard Controller
+ * Uses the canonical InventoryAPI dashboard summary backed by inventory views.
  */
-const storeDashboardController = {
-    init: function () {
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
+(() => {
+    const unwrap = (response) => {
+        let value = response;
+        for (let depth = 0; depth < 4; depth += 1) {
+            if (value && typeof value === 'object' && !Array.isArray(value)
+                && Object.prototype.hasOwnProperty.call(value, 'data')) {
+                value = value.data;
+                continue;
+            }
+            break;
         }
-        this.loadAll();
-    },
+        return value;
+    };
 
-    refresh: function () { this.loadAll(); },
+    const controller = DashboardBaseController.create({
+        controllerName: 'StoreManagerDashboardController',
+        rootId: 'inventoryDashboard',
+        refreshButtonId: 'inventoryDashboardRefresh',
+        stateId: 'inventoryDashboardState',
+        scopeId: 'inventoryDashboardScope',
+        lastUpdatedId: 'inventoryDashboardLastUpdated',
 
-    loadAll: async function () {
-        const get = url => API.callAPI(url.replace(/^\/api\//, ''), 'GET', null, null, { checkPermission: false }).then(r => r?.data || r).catch(() => null);
+        async apiMethod() {
+            const source = unwrap(await window.API.inventory.getDashboard({})) || {};
+            const summary = source.summary || {};
+            const categories = Array.isArray(source.by_category) ? source.by_category : [];
+            const health = Array.isArray(source.stock_health) ? source.stock_health : [];
 
-        const [stats, lowStock, requisitions] = await Promise.allSettled([
-            get('/inventory/dashboard'),
-            get('/inventory/items/low-stock?limit=8'),
-            get('/inventory/requisitions/list?status=pending&limit=8')
-        ]);
+            return {
+                meta: { scope_label: 'Inventory' },
+                cards: {
+                    active_items: Number(summary.active_items || 0),
+                    low_stock: Number(summary.low_stock || 0),
+                    out_of_stock: Number(summary.out_of_stock || 0),
+                    inventory_value: Number(summary.inventory_value || 0)
+                },
+                charts: {
+                    by_category: {
+                        labels: categories.map((row) => row.category || 'Uncategorised'),
+                        data: categories.map((row) => Number(row.item_count || 0))
+                    },
+                    health: {
+                        labels: health.map((row) => row.stock_status || 'Unknown'),
+                        data: health.map((row) => Number(row.item_count || 0))
+                    }
+                },
+                tables: {
+                    low_stock: Array.isArray(source.low_stock_items)
+                        ? source.low_stock_items
+                        : [],
+                    requisitions: Array.isArray(source.pending_requisitions)
+                        ? source.pending_requisitions
+                        : []
+                }
+            };
+        },
 
-        if (stats.value) this.renderStats(stats.value?.data || stats.value);
-        if (lowStock.value) this.renderLowStock(lowStock.value?.data || lowStock.value || []);
-        if (requisitions.value) this.renderRequisitions(requisitions.value?.data || requisitions.value || []);
-    },
+        cards: [
+            { id: 'invItems', path: 'cards.active_items', subtitleId: 'invItemsSub', subtitle: 'Items available for issue' },
+            { id: 'invLowStock', path: 'cards.low_stock', subtitleId: 'invLowStockSub', subtitle: 'At or below reorder level' },
+            { id: 'invOutStock', path: 'cards.out_of_stock', subtitleId: 'invOutStockSub', subtitle: 'Require replenishment' },
+            { id: 'invValue', path: 'cards.inventory_value', format: 'currency', subtitleId: 'invValueSub', subtitle: 'Current stock valuation' }
+        ],
+        chartDefinitions: [
+            { id: 'invCategoryChart', path: 'charts.by_category', label: 'Items', type: 'doughnut', showLegend: true },
+            { id: 'invStatusChart', path: 'charts.health', label: 'Items', type: 'bar' }
+        ],
+        tableDefinitions: [
+            {
+                bodyId: 'invLowStockBody',
+                path: 'tables.low_stock',
+                emptyText: 'No low-stock items.',
+                columns: [
+                    { key: 'name' },
+                    { key: 'category' },
+                    { key: 'current_quantity', format: 'number' },
+                    { key: 'minimum_quantity', format: 'number' }
+                ]
+            },
+            {
+                bodyId: 'invRequisitionsBody',
+                path: 'tables.requisitions',
+                emptyText: 'No pending requisitions.',
+                columns: [
+                    { key: 'requisition_number' },
+                    { key: 'department' },
+                    {
+                        key: 'priority',
+                        render: (value, row, instance) => instance.badge(value, {
+                            low: 'secondary', normal: 'info', high: 'warning', urgent: 'danger'
+                        })
+                    },
+                    { key: 'required_date', format: 'date' }
+                ]
+            }
+        ]
+    });
 
-    renderStats: function (d) {
-        const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v ?? 0; };
-        set('totalItems', d.total_items || d.total || 0);
-        set('lowStockCount', d.low_stock || d.low_stock_count || 0);
-        set('pendingRequisitions', d.pending_requisitions || d.pending || 0);
-        const stockEl = document.getElementById('stockValue');
-        if (stockEl) stockEl.textContent = 'KES ' + (d.stock_value || 0).toLocaleString();
-    },
-
-    renderLowStock: function (list) {
-        const tbody = document.getElementById('lowStockTableBody');
-        if (!tbody) return;
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No low stock items.</td></tr>'; return; }
-        tbody.innerHTML = list.map(item => {
-            const level = Number(item.current_quantity || item.quantity || 0);
-            const min = Number(item.minimum_quantity || item.min_level || 0);
-            const pct = min > 0 ? Math.round((level / min) * 100) : 100;
-            const cls = pct < 25 ? 'danger' : pct < 50 ? 'warning' : 'success';
-            return `<tr>
-                <td>${this.esc(item.name || item.item_name)}</td>
-                <td><span class="text-${cls} fw-bold">${level}</span></td>
-                <td>${min}</td>
-                <td>
-                    <button class="btn btn-xs btn-outline-primary btn-sm py-0 px-1"
-                        onclick="storeDashboardController.navigate('manage_stock')">
-                        Reorder
-                    </button>
-                </td>
-            </tr>`;
-        }).join('');
-    },
-
-    renderRequisitions: function (list) {
-        const tbody = document.getElementById('requisitionsTableBody');
-        if (!tbody) return;
-        if (!list.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">No pending requisitions.</td></tr>'; return; }
-        tbody.innerHTML = list.map(r => {
-            const s = r.status || 'pending';
-            return `<tr>
-                <td>${this.esc(r.item_name || r.name)}</td>
-                <td>${r.quantity || 0}</td>
-                <td>${this.esc(r.requested_by || r.requester || '—')}</td>
-                <td><span class="badge bg-${s === 'approved' ? 'success' : s === 'rejected' ? 'danger' : 'warning'} text-${s === 'pending' ? 'dark' : 'white'}">${s}</span></td>
-            </tr>`;
-        }).join('');
-    },
-
-    navigate: function (route) {
-        window.location.href = (window.APP_BASE || '') + '/home.php?route=' + route;
-    },
-
-    esc: function (s) {
-        return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-};
-
-document.addEventListener('DOMContentLoaded', () => storeDashboardController.init());
+    window.StoreManagerDashboardController = controller;
+    window.storeDashboardController = controller;
+    DashboardBaseController.boot(controller, 'StoreManagerDashboardController');
+})();

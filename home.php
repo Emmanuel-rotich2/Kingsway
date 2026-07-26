@@ -99,6 +99,26 @@ function asset_script(string $appBase, string $path): void
     <script>
         window.APP_BASE = <?= json_encode($appBase) ?>;
         window.REQUESTED_ROUTE = <?= json_encode($route) ?>;
+        window.AUTH_SESSION_CONFIG = {
+            accessTokenTtlSeconds: <?= (int) (
+                defined('JWT_EXPIRY') ? JWT_EXPIRY : 3600
+            ) ?>,
+            idleTimeoutSeconds: <?= (int) (
+                defined('AUTH_IDLE_TIMEOUT_SECONDS')
+                    ? AUTH_IDLE_TIMEOUT_SECONDS
+                    : 1800
+            ) ?>,
+            refreshWindowSeconds: <?= (int) (
+                defined('AUTH_REFRESH_WINDOW_SECONDS')
+                    ? AUTH_REFRESH_WINDOW_SECONDS
+                    : 600
+            ) ?>,
+            monitorIntervalSeconds: <?= (int) (
+                defined('AUTH_SESSION_MONITOR_INTERVAL_SECONDS')
+                    ? AUTH_SESSION_MONITOR_INTERVAL_SECONDS
+                    : 30
+            ) ?>
+        };
         window.USER_ROLES = ['user'];
         window.MAIN_ROLE = 'user';
         window.SCHOOL_CONFIG = {

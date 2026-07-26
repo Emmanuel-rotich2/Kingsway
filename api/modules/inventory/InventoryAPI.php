@@ -447,83 +447,77 @@ class InventoryAPI extends BaseAPI
     public function getDashboard()
     {
         try {
-            // Total items and value
-            $sql = "
-                SELECT 
-                    COUNT(*) as total_items,
-                    SUM(quantity_on_hand) as total_quantity,
-                    SUM(quantity_on_hand * unit_cost) as total_value,
-                    COUNT(CASE WHEN quantity_on_hand <= reorder_level THEN 1 END) as low_stock_count,
-                    COUNT(CASE WHEN quantity_on_hand = 0 THEN 1 END) as out_of_stock_count
-                FROM inventory_items
-                WHERE status = 'active'
-            ";
-            $stmt = $this->db->query($sql);
-            $summary = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $summaryStmt = $this->db->query(
+                "SELECT
+                    COUNT(*) AS active_items,
+                    COALESCE(SUM(current_quantity), 0) AS total_quantity,
+                    COALESCE(SUM(inventory_value), 0) AS inventory_value,
+                    SUM(stock_status IN ('REORDER', 'LOW STOCK')) AS low_stock,
+                    SUM(stock_status = 'OUT OF STOCK') AS out_of_stock
+                 FROM vw_inventory_health
+                 WHERE status = 'active'"
+            );
+            $summary = $summaryStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
 
-            // Recent movements (last 7 days)
-            $sql = "
-                SELECT 
-                    DATE(transaction_date) as date,
-                    transaction_type,
-                    COUNT(*) as count,
-                    SUM(total_cost) as value
-                FROM inventory_transactions
-                WHERE transaction_date >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-                GROUP BY DATE(transaction_date), transaction_type
-                ORDER BY date DESC
-            ";
-            $stmt = $this->db->query($sql);
-            $recentMovements = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $categoryStmt = $this->db->query(
+                "SELECT COALESCE(category, 'Uncategorised') AS category,
+                        COUNT(*) AS item_count,
+                        COALESCE(SUM(inventory_value), 0) AS inventory_value
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                 GROUP BY category
+                 ORDER BY inventory_value DESC, category"
+            );
 
-            // Active workflows
-            $sql = "
-                SELECT 
-                    wd.name as workflow_name,
-                    wi.current_stage,
-                    COUNT(*) as count
-                FROM workflow_instances wi
-                JOIN workflow_definitions wd ON wi.workflow_id = wd.id
-                WHERE wi.status IN ('pending', 'in_progress')
-                    AND wd.workflow_type IN ('stock_procurement', 'asset_disposal', 'stock_transfer', 'stock_audit')
-                GROUP BY wd.name, wi.current_stage
-            ";
-            $stmt = $this->db->query($sql);
-            $activeWorkflows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $healthStmt = $this->db->query(
+                "SELECT stock_status, COUNT(*) AS item_count
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                 GROUP BY stock_status
+                 ORDER BY FIELD(
+                    stock_status,
+                    'OUT OF STOCK', 'REORDER', 'LOW STOCK', 'ADEQUATE'
+                 )"
+            );
 
-            // Pending requisitions
-            $sql = "
-                SELECT COUNT(*) as pending_requisitions
-                FROM inventory_requisitions
-                WHERE status = 'pending'
-            ";
-            $stmt = $this->db->query($sql);
-            $pendingRequisitions = $stmt->fetchColumn();
+            $lowStockStmt = $this->db->query(
+                "SELECT id, name, code, category, current_quantity,
+                        minimum_quantity, reorder_level, stock_status,
+                        expiry_status, expiry_date, location, unit_cost,
+                        inventory_value, updated_at
+                 FROM vw_inventory_health
+                 WHERE status = 'active'
+                   AND stock_status IN ('OUT OF STOCK', 'REORDER', 'LOW STOCK')
+                 ORDER BY FIELD(
+                    stock_status,
+                    'OUT OF STOCK', 'REORDER', 'LOW STOCK'
+                 ), current_quantity, name
+                 LIMIT 25"
+            );
 
-            // Top categories by value
-            $sql = "
-                SELECT 
-                    c.category_name,
-                    COUNT(i.id) as item_count,
-                    SUM(i.quantity_on_hand * i.unit_cost) as total_value
-                FROM categories c
-                LEFT JOIN inventory_items i ON c.id = i.category_id
-                WHERE i.status = 'active'
-                GROUP BY c.id
-                ORDER BY total_value DESC
-                LIMIT 5
-            ";
-            $stmt = $this->db->query($sql);
-            $topCategories = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $requisitionStmt = $this->db->query(
+                "SELECT id, requisition_number, department, status, priority,
+                        requisition_date, required_date, item_count,
+                        total_quantity_requested, created_at
+                 FROM vw_pending_requisitions
+                 ORDER BY FIELD(priority, 'urgent', 'high', 'normal', 'low'),
+                          required_date, created_at DESC
+                 LIMIT 25"
+            );
 
             return formatResponse(true, [
-                'summary' => $summary,
-                'recent_movements' => $recentMovements,
-                'active_workflows' => $activeWorkflows,
-                'pending_requisitions' => $pendingRequisitions,
-                'top_categories' => $topCategories
-            ]);
-
+                'summary' => [
+                    'active_items' => (int) ($summary['active_items'] ?? 0),
+                    'total_quantity' => (int) ($summary['total_quantity'] ?? 0),
+                    'inventory_value' => (float) ($summary['inventory_value'] ?? 0),
+                    'low_stock' => (int) ($summary['low_stock'] ?? 0),
+                    'out_of_stock' => (int) ($summary['out_of_stock'] ?? 0),
+                ],
+                'by_category' => $categoryStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'stock_health' => $healthStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'low_stock_items' => $lowStockStmt->fetchAll(\PDO::FETCH_ASSOC),
+                'pending_requisitions' => $requisitionStmt->fetchAll(\PDO::FETCH_ASSOC),
+            ], 'Inventory overview retrieved');
         } catch (Exception $e) {
             return $this->handleException($e);
         }

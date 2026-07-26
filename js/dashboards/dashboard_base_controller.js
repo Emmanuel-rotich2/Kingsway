@@ -1,513 +1,481 @@
 /**
- * Dashboard Base Controller
- * 
- * Provides common patterns and utilities for ALL dashboard controllers
- * Ensures consistency across all 19 role-based dashboards
- * 
- * CRITICAL PRINCIPLE: Every dashboard follows ONE question:
- * "What does this role need to do its job — and nothing more?"
- * 
- * Usage:
- * const myDashboardController = Object.assign({}, dashboardBaseController, {
- *     dashboardName: 'Class Teacher',
- *     apiEndpoints: ['/api/endpoint1', '/api/endpoint2'],
- *     cardsCount: 6,
- *     chartsCount: 2,
- *     tablesCount: 3,
- *     refreshInterval: 900000, // 15 minutes
- *     
- *     // Override specific methods as needed
- *     processCustomData: function(data) { ... }
- * });
+ * Kingsway Dashboard Base Controller
+ *
+ * Shared lifecycle and rendering primitives for role dashboard controllers.
+ * Every concrete dashboard remains a named controller and supplies one
+ * canonical API method from js/api.js.
  */
+const DashboardBaseController = {
+    create(definition) {
+        const controller = {
+            initialized: false,
+            initializationPromise: null,
+            eventsBound: false,
+            charts: {},
+            state: {
+                data: null,
+                loading: false,
+                error: null,
+                lastLoadedAt: null
+            },
 
-const dashboardBaseController = {
-    
-    // ============= STATE MANAGEMENT =============
-    
-    state: {
-        summaryCards: {},
-        chartData: {},
-        tableData: {},
-        lastRefresh: null,
-        isLoading: false,
-        errorMessage: null
-    },
-    
-    charts: {}, // Stores Chart.js instances for proper cleanup
-    
-    // ============= CONFIGURATION =============
-    
-    config: {
-        refreshInterval: 900000, // 15 minutes (15 * 60 * 1000) - override per dashboard
-        maxRetries: 3,
-        retryDelay: 1000,
-        fallbackTimeout: 5000
-    },
-    
-    // ============= LIFECYCLE METHODS =============
-    
-    /**
-     * Initialize dashboard - ENTRY POINT
-     *
-     * AUTH FLOW (fixes the "bounced to login before session restored" bug):
-     * Authentication MUST complete BEFORE we decide to redirect or load data.
-     * We await AuthContext.ready() — the singleton boot promise that performs the
-     * silent refresh-cookie restore if web-storage has no token — so the gate
-     * below always sees settled auth state. No more "appears logged out for 1s
-     * then token arrives too late" race.
-     */
-    init: async function() {
-        const dashboardName = this.dashboardName || 'Dashboard';
-        console.log(`🚀 ${dashboardName} initializing...`);
+            ...definition,
 
-        // Settle authentication FIRST (network restore if needed), THEN gate.
-        if (typeof AuthContext !== 'undefined' && typeof AuthContext.ready === 'function') {
-            try {
-                await AuthContext.ready();
-            } catch (e) {
-                console.warn(`[${dashboardName}] auth ready() failed:`, e);
-            }
-        }
-
-        // Security: Check authentication
-        if (typeof AuthContext !== 'undefined' && !AuthContext.isAuthenticated()) {
-            console.error('❌ User not authenticated');
-            window.location.href = (window.APP_BASE || '') + '/index.php';
-            return;
-        }
-
-        // Load data and render
-        this.loadDashboardData();
-        this.setupEventListeners();
-        this.setupAutoRefresh();
-
-        console.log(`✓ ${dashboardName} initialized successfully`);
-    },
-    
-    /**
-     * Fetch all dashboard data in parallel
-     * Uses Promise.allSettled for resilience - one failing API doesn't crash dashboard
-     */
-    loadDashboardData: async function() {
-        if (this.isLoading) return;
-        
-        this.isLoading = true;
-        this.state.errorMessage = null;
-        const startTime = performance.now();
-        
-        try {
-            const dashboardName = this.dashboardName || 'Dashboard';
-            console.log(`📡 ${dashboardName}: Fetching data...`);
-            
-            // Get all API endpoints for this dashboard
-            const apiEndpoints = this.apiEndpoints || [];
-            
-            if (apiEndpoints.length === 0) {
-                console.warn(`⚠️  No API endpoints configured for ${dashboardName}`);
-                this.renderDashboard();
-                return;
-            }
-            
-            // Make parallel API calls
-            const apiPromises = apiEndpoints.map(endpoint => {
-                // Determine which API method to call
-                if (endpoint.includes('students')) return window.API.dashboard?.getStudentStats?.() || Promise.resolve(null);
-                if (endpoint.includes('staff')) return window.API.dashboard?.getTeachingStats?.() || Promise.resolve(null);
-                if (endpoint.includes('payments')) return window.API.dashboard?.getFeesCollected?.() || Promise.resolve(null);
-                if (endpoint.includes('attendance')) return window.API.dashboard?.getTodayAttendance?.() || Promise.resolve(null);
-                if (endpoint.includes('schedule')) return window.API.dashboard?.getScheduleStats?.() || Promise.resolve(null);
-                
-                // Generic fetch for other endpoints (route via API.callAPI)
-                const rel = endpoint.replace(/^\/api\//, '');
-                return API.callAPI(rel, 'GET', null, null, { checkPermission: false })
-                    .then(r => r?.data || r)
-                    .catch(e => {
-                        console.warn(`⚠️  API call failed: ${endpoint}`, e);
-                        return null;
-                    });
-            });
-            
-            const results = await Promise.allSettled(apiPromises);
-            
-            // Process each result
-            results.forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value) {
-                    console.log(`✓ API result ${index}:`, result.value);
-                    // Process will be handled by role-specific methods
-                } else {
-                    console.warn(`⚠️  API call ${index} failed or returned null`);
+            async init() {
+                if (this.initializationPromise) {
+                    return this.initializationPromise;
                 }
-            });
-            
-            // Render dashboard with whatever data we have (or fallback)
-            this.renderDashboard();
-            
-            this.state.lastRefresh = new Date();
-            const duration = (performance.now() - startTime).toFixed(2);
-            console.log(`✓ ${this.dashboardName}: Loaded in ${duration}ms`);
-            
-        } catch (error) {
-            console.error(`❌ ${this.dashboardName}: Loading failed`, error);
-            this.state.errorMessage = error.message;
-            this.showErrorState();
-        } finally {
-            this.isLoading = false;
-        }
-    },
-    
-    /**
-     * Render complete dashboard UI
-     * Override this in role-specific dashboards for custom layout
-     */
-    renderDashboard: function() {
-        console.log('🎨 Rendering dashboard...');
-        
-        const mainContent = document.getElementById('mainContent');
-        if (!mainContent) {
-            console.error('❌ mainContent div not found');
-            return;
-        }
-        
-        // Clear previous content
-        mainContent.innerHTML = '';
-        
-        // Render sections
-        this.renderSummaryCards();
-        this.renderCharts();
-        this.renderTables();
-        
-        console.log('✓ Dashboard rendered');
-    },
-    
-    /**
-     * Render summary cards section
-     */
-    renderSummaryCards: function() {
-      const cardsContainer = document.createElement("div");
-      cardsContainer.className = "row g-3 mb-4";
-      cardsContainer.id = "summaryCardsContainer";
 
-      // Render each card
-      Object.values(this.state.summaryCards).forEach((card) => {
-        if (!card) return;
-        const cardHTML = this.createCardHTML(card);
-        cardsContainer.innerHTML += cardHTML;
-      });
+                this.initializationPromise = this._initialize();
 
-      const mainContent = document.getElementById("mainContent");
-      if (mainContent) mainContent.appendChild(cardsContainer);
+                try {
+                    await this.initializationPromise;
+                    return this;
+                } catch (error) {
+                    this.initializationPromise = null;
+                    throw error;
+                }
+            },
 
-      // Attach click handlers for any cards that declare a data-route
-      try {
-        const routedCards = cardsContainer.querySelectorAll("[data-route]");
-        routedCards.forEach((el) => {
-          el.removeEventListener("click", el._routeHandler);
-          const handler = (ev) => {
-            ev.preventDefault();
-            const route = el.getAttribute("data-route");
-            if (route) {
-              const go = window.AppRouter?.go || window.navigateToRoute;
-              if (typeof go === "function") {
-                go(route);
-              } else {
+            async _initialize() {
+                if (this.initialized) {
+                    return this;
+                }
+
+                console.log(`[${this.controllerName}] Initializing...`);
+
+                if (window.AuthContext?.ready) {
+                    await window.AuthContext.ready();
+                }
+
+                if (!window.AuthContext?.isAuthenticated?.()) {
+                    window.location.replace(
+                        `${window.APP_BASE || ''}/index.php`
+                    );
+                    return this;
+                }
+
+                if (!document.getElementById(this.rootId)) {
+                    return this;
+                }
+
+                if (typeof this.apiMethod !== 'function') {
+                    throw new Error(
+                        `${this.controllerName} API method is unavailable.`
+                    );
+                }
+
+                this.setupEventListeners();
+                await this.loadDashboard({ throwOnError: true });
+                this.initialized = true;
+
+                console.log(`[${this.controllerName}] Initialized successfully`);
+                return this;
+            },
+
+            setupEventListeners() {
+                if (this.eventsBound) {
+                    return;
+                }
+
+                this.eventsBound = true;
+
+                document
+                    .getElementById(this.refreshButtonId)
+                    ?.addEventListener('click', () => {
+                        void this.loadDashboard({ force: true });
+                    });
+
+                document
+                    .getElementById(this.rootId)
+                    ?.addEventListener('click', (event) => {
+                        const routeElement = event.target.closest('[data-route]');
+                        if (!routeElement) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        this.navigate(routeElement.dataset.route);
+                    });
+            },
+
+            async loadDashboard(options = {}) {
+                if (this.state.loading && options.force !== true) {
+                    return this.state.data;
+                }
+
+                const throwOnError = options.throwOnError === true;
+
+                this.state.loading = true;
+                this.state.error = null;
+                this.renderLoadingState();
+                this.setRefreshBusy(true);
+
+                try {
+                    const response = await this.apiMethod();
+                    const data = this.normalizeResponse(response);
+
+                    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+                        throw new Error(
+                            `${this.controllerName} received an invalid dashboard payload.`
+                        );
+                    }
+
+                    this.state.data = data;
+                    this.state.lastLoadedAt = new Date();
+                    this.renderDashboard(data);
+                    this.renderSuccessState();
+                    return data;
+                } catch (error) {
+                    console.error(`[${this.controllerName}] Load failed:`, error);
+                    this.state.error = error;
+                    this.renderErrorState(
+                        error?.message || 'Unable to load dashboard data.'
+                    );
+
+                    if (throwOnError) {
+                        throw error;
+                    }
+
+                    return null;
+                } finally {
+                    this.state.loading = false;
+                    this.setRefreshBusy(false);
+                }
+            },
+
+            normalizeResponse(response) {
+                return response?.data?.data
+                    || response?.data
+                    || response
+                    || null;
+            },
+
+            renderDashboard(data) {
+                this.renderCards(data);
+                this.renderCharts(data);
+                this.renderTables(data);
+                this.renderMeta(data);
+
+                if (typeof this.afterRender === 'function') {
+                    this.afterRender(data);
+                }
+            },
+
+            renderCards(data) {
+                (this.cards || []).forEach((card) => {
+                    const value = typeof card.value === 'function'
+                        ? card.value(data, this)
+                        : this.getPath(data, card.path);
+
+                    this.setText(
+                        card.id,
+                        this.formatValue(value, card.format || 'number')
+                    );
+
+                    if (card.subtitleId) {
+                        const subtitle = typeof card.subtitle === 'function'
+                            ? card.subtitle(data, this)
+                            : card.subtitle;
+                        this.setText(card.subtitleId, subtitle || '');
+                    }
+                });
+            },
+
+            renderCharts(data) {
+                (this.chartDefinitions || []).forEach((definition) => {
+                    const payload = typeof definition.data === 'function'
+                        ? definition.data(data, this)
+                        : this.getPath(data, definition.path);
+
+                    this.renderChart(definition, payload || {});
+                });
+            },
+
+            renderChart(definition, payload) {
+                const canvas = document.getElementById(definition.id);
+                if (!canvas || typeof window.Chart !== 'function') {
+                    return;
+                }
+
+                if (this.charts[definition.id]) {
+                    this.charts[definition.id].destroy();
+                }
+
+                const labels = Array.isArray(payload.labels)
+                    ? payload.labels
+                    : [];
+
+                let datasets;
+                if (Array.isArray(payload.datasets)) {
+                    datasets = payload.datasets;
+                } else {
+                    datasets = [{
+                        label: definition.label || 'Value',
+                        data: Array.isArray(payload.data) ? payload.data : [],
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: definition.fill === true
+                    }];
+                }
+
+                this.charts[definition.id] = new window.Chart(canvas, {
+                    type: definition.type || 'line',
+                    data: { labels, datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: definition.showLegend === true
+                            }
+                        },
+                        scales: definition.type === 'doughnut'
+                            || definition.type === 'pie'
+                            ? undefined
+                            : definition.type === 'radar'
+                                ? {
+                                    r: {
+                                        beginAtZero: true,
+                                        ticks: { precision: 0 }
+                                    }
+                                }
+                                : {
+                                    y: {
+                                        beginAtZero: true,
+                                        ticks: { precision: 0 }
+                                    }
+                                }
+                    }
+                });
+            },
+
+            renderTables(data) {
+                (this.tableDefinitions || []).forEach((definition) => {
+                    const rows = typeof definition.rows === 'function'
+                        ? definition.rows(data, this)
+                        : this.getPath(data, definition.path);
+
+                    this.renderTable(
+                        definition,
+                        Array.isArray(rows) ? rows : []
+                    );
+                });
+            },
+
+            renderTable(definition, rows) {
+                const body = document.getElementById(definition.bodyId);
+                if (!body) {
+                    return;
+                }
+
+                if (!rows.length) {
+                    body.innerHTML = `
+                        <tr>
+                            <td colspan="${definition.columns.length}"
+                                class="text-center text-muted py-4">
+                                <i class="bi bi-inbox me-2"></i>
+                                ${this.escapeHtml(
+                                    definition.emptyText || 'No records found.'
+                                )}
+                            </td>
+                        </tr>`;
+                    return;
+                }
+
+                body.innerHTML = rows.map((row) => `
+                    <tr>
+                        ${definition.columns.map((column) => {
+                            const rawValue = typeof column.value === 'function'
+                                ? column.value(row, this)
+                                : this.getPath(row, column.key);
+
+                            if (typeof column.render === 'function') {
+                                return `<td>${column.render(rawValue, row, this)}</td>`;
+                            }
+
+                            return `<td>${this.escapeHtml(
+                                this.formatValue(rawValue, column.format || 'text')
+                            )}</td>`;
+                        }).join('')}
+                    </tr>`).join('');
+            },
+
+            renderMeta(data) {
+                const meta = data.meta || {};
+                const scope = meta.scope_label
+                    || meta.department_name
+                    || meta.class_name
+                    || meta.role_name
+                    || '';
+
+                this.setText(this.scopeId, scope);
+                this.setText(
+                    this.lastUpdatedId,
+                    this.state.lastLoadedAt
+                        ? this.state.lastLoadedAt.toLocaleTimeString('en-GB', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        })
+                        : ''
+                );
+            },
+
+            renderLoadingState() {
+                const state = document.getElementById(this.stateId);
+                if (!state) {
+                    return;
+                }
+
+                state.hidden = false;
+                state.className = 'alert alert-light border d-flex align-items-center';
+                state.innerHTML = `
+                    <span class="spinner-border spinner-border-sm me-2"
+                        aria-hidden="true"></span>
+                    Loading dashboard data...`;
+            },
+
+            renderSuccessState() {
+                const state = document.getElementById(this.stateId);
+                if (state) {
+                    state.hidden = true;
+                    state.textContent = '';
+                }
+            },
+
+            renderErrorState(message) {
+                const state = document.getElementById(this.stateId);
+                if (!state) {
+                    return;
+                }
+
+                state.hidden = false;
+                state.className = 'alert alert-danger d-flex align-items-center';
+                state.innerHTML = `
+                    <i class="bi bi-exclamation-triangle me-2"></i>
+                    <span>${this.escapeHtml(message)}</span>`;
+            },
+
+            setRefreshBusy(busy) {
+                const button = document.getElementById(this.refreshButtonId);
+                if (!button) {
+                    return;
+                }
+
+                button.disabled = busy;
+                button.querySelector('i')?.classList.toggle('spin', busy);
+            },
+
+            navigate(route) {
+                if (!route) {
+                    return;
+                }
+
+                if (window.AppRouter?.go) {
+                    window.AppRouter.go(route);
+                    return;
+                }
+
                 window.location.href = `${window.APP_BASE || ''}/home.php?route=${encodeURIComponent(route)}`;
-              }
-            }
-          };
-          el._routeHandler = handler;
-          el.addEventListener("click", handler);
-        });
-      } catch (e) {
-        console.warn("Failed to attach card route handlers", e);
-      }
-    },
-    
-    /**
-     * Create individual card HTML
-     */
-    createCardHTML: function(card) {
-        const colWidth = 12 / (Object.keys(this.state.summaryCards).length || 4); // Auto-width
-        const iconClass = card.icon || 'bi-graph-up';
-        const colorClass = `bg-${card.color || 'primary'}`;
-        const wrapperStart = card.route
-          ? `<a href="#" data-route="${card.route}" class="card-link text-decoration-none">`
-          : `<div class="card border-0 shadow-sm h-100">`;
-        const wrapperEnd = card.route ? `</a>` : `</div>`;
+            },
 
-        return `
-            <div class="col-md-6 col-lg-${colWidth}">
-                ${wrapperStart}
-                    <div class="card-body">
-                        <div class="d-flex justify-content-between align-items-start">
-                            <div>
-                                <h6 class="card-title text-muted text-uppercase fs-7 fw-600">${
-                                  card.title
-                                }</h6>
-                                <h2 class="card-text fw-bold mb-2">${
-                                  card.value
-                                }</h2>
-                                <p class="card-text text-muted small mb-1">${
-                                  card.subtitle
-                                }</p>
-                                <p class="card-text text-secondary fs-8">${
-                                  card.secondary || ""
-                                }</p>
-                            </div>
-                            <div class="text-${card.color || "primary"} fs-2">
-                                <i class="bi ${iconClass}"></i>
-                            </div>
-                        </div>
-                    </div>
-                ${wrapperEnd}
-            </div>
-        `;
-    },
-    
-    /**
-     * Render charts section
-     */
-    renderCharts: function() {
-        if (Object.keys(this.state.chartData).length === 0) return;
-        
-        const chartsContainer = document.createElement('div');
-        chartsContainer.className = 'row g-3 mb-4';
-        chartsContainer.id = 'chartsContainer';
-        
-        Object.entries(this.state.chartData).forEach(([chartName, chartData]) => {
-            const chartDiv = document.createElement('div');
-            chartDiv.className = 'col-md-6';
-            chartDiv.innerHTML = `
-                <div class="card border-0 shadow-sm">
-                    <div class="card-body">
-                        <h5 class="card-title">${chartName}</h5>
-                        <canvas id="chart_${chartName.replace(/\s+/g, '_')}"></canvas>
-                    </div>
-                </div>
-            `;
-            chartsContainer.appendChild(chartDiv);
-        });
-        
-        const mainContent = document.getElementById('mainContent');
-        if (mainContent) mainContent.appendChild(chartsContainer);
-        
-        // Draw charts after DOM is ready
-        setTimeout(() => this.drawCharts(), 100);
-    },
-    
-    /**
-     * Override in role-specific dashboard
-     */
-    drawCharts: function() {
-        // To be implemented by role-specific controller
-        console.log('⚠️  drawCharts() not implemented in ' + (this.dashboardName || 'this dashboard'));
-    },
-    
-    /**
-     * Render data tables section (tabbed interface)
-     */
-    renderTables: function() {
-        if (Object.keys(this.state.tableData).length === 0) return;
-        
-        const tablesContainer = document.createElement('div');
-        tablesContainer.className = 'card border-0 shadow-sm';
-        tablesContainer.id = 'tablesContainer';
-        
-        const tableNames = Object.keys(this.state.tableData);
-        
-        // Tab navigation
-        let tabsHTML = '<ul class="nav nav-tabs" role="tablist">';
-        tableNames.forEach((tableName, index) => {
-            const isActive = index === 0 ? 'active' : '';
-            tabsHTML += `
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link ${isActive}" id="tab_${tableName}" 
-                            data-bs-toggle="tab" data-bs-target="#content_${tableName}" 
-                            type="button" role="tab" aria-selected="${index === 0}">
-                        ${tableName}
-                    </button>
-                </li>
-            `;
-        });
-        tabsHTML += '</ul>';
-        
-        // Tab content
-        let contentHTML = '<div class="tab-content">';
-        tableNames.forEach((tableName, index) => {
-            const isActive = index === 0 ? 'active' : '';
-            const tableData = this.state.tableData[tableName] || [];
-            
-            contentHTML += `
-                <div class="tab-pane fade ${isActive}" id="content_${tableName}" role="tabpanel">
-                    <div class="table-responsive">
-                        <table class="table table-sm table-hover">
-                            <tbody id="tbody_${tableName}">
-                                <!-- Rows populated by renderTableRows -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            `;
-        });
-        contentHTML += '</div>';
-        
-        tablesContainer.innerHTML = `<div class="card-body">${tabsHTML}${contentHTML}</div>`;
-        
-        const mainContent = document.getElementById('mainContent');
-        if (mainContent) mainContent.appendChild(tablesContainer);
-    },
-    
-    /**
-     * Helper: render table rows (override for custom table rendering)
-     */
-    renderTableRows: function(tableBodyId, rows) {
-        const tbody = document.getElementById(tableBodyId);
-        if (!tbody) return;
-        
-        tbody.innerHTML = '';
-        rows.forEach(row => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = Object.values(row).map(v => `<td>${v}</td>`).join('');
-            tbody.appendChild(tr);
-        });
-    },
-    
-    // ============= ERROR HANDLING =============
-    
-    /**
-     * Show error state with user-friendly message
-     */
-    showErrorState: function() {
-        const mainContent = document.getElementById('mainContent');
-        if (!mainContent) return;
-        
-        mainContent.innerHTML = `
-            <div class="alert alert-danger" role="alert">
-                <h4 class="alert-heading">Unable to Load Dashboard</h4>
-                <p>${this.state.errorMessage || 'An unexpected error occurred. Please refresh the page.'}</p>
-                <hr>
-                <p class="mb-0">
-                    <button class="btn btn-sm btn-danger" onclick="location.reload()">Reload Page</button>
-                    <button class="btn btn-sm btn-secondary" onclick="window.history.back()">Go Back</button>
-                </p>
-            </div>
-        `;
-    },
-    
-    // ============= AUTO-REFRESH =============
-    
-    /**
-     * Setup automatic dashboard refresh
-     */
-    setupAutoRefresh: function() {
-        const interval = this.config.refreshInterval || 900000;
-        console.log(`⏱️  Setting up auto-refresh: every ${interval / 1000}s`);
-        
-        setInterval(() => {
-            if (!this.isLoading) {
-                console.log('🔄 Auto-refreshing dashboard...');
-                this.loadDashboardData();
+            getPath(object, path) {
+                if (!path) {
+                    return object;
+                }
+
+                return String(path)
+                    .split('.')
+                    .reduce((current, segment) => current?.[segment], object);
+            },
+
+            formatValue(value, format) {
+                if (value === null || value === undefined || value === '') {
+                    return format === 'number' || format === 'currency'
+                        || format === 'percent' ? '0' : '—';
+                }
+
+                const numericValue = Number(value);
+
+                switch (format) {
+                    case 'number':
+                        return new Intl.NumberFormat('en-GB').format(
+                            Number.isFinite(numericValue) ? numericValue : 0
+                        );
+                    case 'currency':
+                        return new Intl.NumberFormat('en-KE', {
+                            style: 'currency',
+                            currency: 'KES',
+                            maximumFractionDigits: 0
+                        }).format(Number.isFinite(numericValue) ? numericValue : 0);
+                    case 'percent':
+                        return `${Number.isFinite(numericValue)
+                            ? numericValue.toFixed(1)
+                            : '0.0'}%`;
+                    case 'date': {
+                        const date = new Date(value);
+                        return Number.isNaN(date.getTime())
+                            ? String(value)
+                            : date.toLocaleDateString('en-GB');
+                    }
+                    case 'datetime': {
+                        const date = new Date(value);
+                        return Number.isNaN(date.getTime())
+                            ? String(value)
+                            : date.toLocaleString('en-GB');
+                    }
+                    case 'time':
+                        return String(value).slice(0, 5);
+                    default:
+                        return String(value);
+                }
+            },
+
+            badge(value, map = {}) {
+                const normalized = String(value || 'unknown').toLowerCase();
+                const variant = map[normalized] || 'secondary';
+                return `<span class="badge bg-${variant}">${this.escapeHtml(
+                    String(value || 'Unknown')
+                )}</span>`;
+            },
+
+            setText(id, value) {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = String(value ?? '');
+                }
+            },
+
+            escapeHtml(value) {
+                const node = document.createElement('div');
+                node.textContent = String(value ?? '');
+                return node.innerHTML;
+            },
+
+            destroyCharts() {
+                Object.values(this.charts).forEach((chart) => chart?.destroy?.());
+                this.charts = {};
             }
-        }, interval);
-    },
-    
-    // ============= EVENT HANDLING =============
-    
-    /**
-     * Setup event listeners (override for role-specific handlers)
-     */
-    setupEventListeners: function() {
-        // Example: Listen for dynamic table actions
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('btn-action')) {
-                this.handleTableAction(e);
-            }
-        });
-    },
-    
-    /**
-     * Handle table action (override in role-specific dashboard)
-     */
-    handleTableAction: function(event) {
-        console.log('Table action triggered:', event.target);
-    },
-    
-    // ============= UTILITY FUNCTIONS =============
-    
-    /**
-     * Format large numbers with commas
-     */
-    formatNumber: function(num) {
-        if (typeof num !== 'number') return num;
-        return num.toLocaleString();
-    },
-    
-    /**
-     * Format currency (KES)
-     */
-    formatCurrency: function(amount) {
-        if (typeof amount !== 'number') return amount;
-        return new Intl.NumberFormat('en-KE', {
-            style: 'currency',
-            currency: 'KES',
-            minimumFractionDigits: 0
-        }).format(amount);
-    },
-    
-    /**
-     * Format percentage
-     */
-    formatPercent: function(value, decimals = 0) {
-        if (typeof value !== 'number') return value;
-        return value.toFixed(decimals) + '%';
-    },
-    
-    /**
-     * Format date
-     */
-    formatDate: function(date) {
-        if (!date) return '';
-        return new Date(date).toLocaleDateString();
-    },
-    
-    /**
-     * Format time
-     */
-    formatTime: function(time) {
-        if (!time) return '';
-        return new Date(time).toLocaleTimeString();
-    },
-    
-    /**
-     * Destroy all Chart.js instances before redraw
-     */
-    destroyCharts: function() {
-        Object.values(this.charts).forEach(chart => {
-            if (chart && typeof chart.destroy === 'function') {
-                chart.destroy();
-            }
-        });
-        this.charts = {};
-    },
-    
-    /**
-     * Get color based on value/status
-     */
-    getColorClass: function(status) {
-        const colorMap = {
-            'success': 'success',
-            'high': 'danger',
-            'warning': 'warning',
-            'info': 'info',
-            'primary': 'primary',
-            'secondary': 'secondary',
-            'danger': 'danger'
         };
-        return colorMap[status] || 'secondary';
+
+        return controller;
+    },
+
+    boot(controller, globalName) {
+        window[globalName] = controller;
+
+        const initialize = () => {
+            void controller.init().catch((error) => {
+                console.error(`[${globalName}] Initialization failed:`, error);
+            });
+        };
+
+        if (window.__APP_BOOTED__) {
+            initialize();
+        } else {
+            window.addEventListener('kingsway:ready', initialize, { once: true });
+        }
     }
 };
 
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = dashboardBaseController;
-}
+window.DashboardBaseController = DashboardBaseController;

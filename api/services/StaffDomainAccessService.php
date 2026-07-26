@@ -174,18 +174,22 @@ final class StaffDomainAccessService
     public function audit(string $action, string $entityType, ?int $entityId, array $before = null, array $after = null): void
     {
         try {
+            $details = [
+                'before' => $before,
+                'after' => $after,
+            ];
+
             $this->db->query(
                 'INSERT INTO staff_domain_audit
-                    (user_id, staff_id, action, entity_type, entity_id, before_json, after_json, ip_address, created_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                    (user_id, staff_id, action, entity_type, entity_id, details, ip_address, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
                 [
                     $this->userId() ?: null,
                     $this->staffId(),
                     $action,
                     $entityType,
-                    $entityId,
-                    $before ? json_encode($before, JSON_UNESCAPED_SLASHES) : null,
-                    $after ? json_encode($after, JSON_UNESCAPED_SLASHES) : null,
+                    $entityId !== null ? (string) $entityId : null,
+                    json_encode($details, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
                     $_SERVER['REMOTE_ADDR'] ?? null,
                 ]
             );

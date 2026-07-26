@@ -4,7 +4,7 @@ This is the single authoritative implementation-status document for Kingsway Sch
 Update it after every verified page implementation. Technical guides and audit documents may
 provide evidence, but they must not independently claim project completion.
 
-Last updated: 2026-07-24  
+Last updated: 2026-07-26  
 Canonical source baseline: `kingsway_updated_20260723_1525`  
 Runtime environment: Not available in this workspace; runtime verification remains pending.
 
@@ -126,6 +126,14 @@ Administrator sidebar. Because Kingsway is already configured and the present mi
 operational functionality, this workflow is `BLOCKED` pending a later School Domain configuration
 review. It must not be marked working or used as a reason to recreate existing configuration.
 
+## Phase 2 — Existing Staff Onboarding Page Matrix
+
+| Area | Route/page | Frontend owner | Canonical API/backend owner | Status | Verified gap / next evidence |
+|---|---|---|---|---|---|
+| Staff security credentials | `staff_id_cards` (human label: Staff Security Passes) | `pages/staff_id_cards.php` + `js/pages/staff_access.js` → `StaffAccessController` + `js/pages/staff_id_cards.js` → `StaffSecurityPassesController` | `API.staff` → `StaffController` → `StaffRecordsService` / compatibility `StaffIDCardGenerator` → `StaffSecurityPassCredentialService` → `PrintService` / `DownloadService` → `staff`, `staff_id_cards` | `STATICALLY_VERIFIED` | The page uses Bootstrap and shared `school-theme.css` with no inline page CSS; one list endpoint returns current staff plus latest pass; all eight visible table columns map to exact backend aliases; the modal previews server-rendered HTML from the same templates/CSS as Dompdf; Open uses `KingswayFileLifecycle`; Print uses `PrintManager`; direct front/back pagination follows the existing student printer-safe pattern; staff passes have employment-based validity with `expires_at = NULL`, and lifecycle/offboarding actions revoke passes. XAMPP/HostAfrica two-page PDF, duplex, scanner and role-runtime tests remain pending. |
+| Gate/attendance QR checkpoint | New route not yet approved | Must be a named `/js/pages/*.js` controller using a canonical `api.js` namespace | Security-domain ownership, verifier service, device registry and access-event service are not yet implemented | `BLOCKED` | Select checkpoint ownership and QR scanner model/protocol before adding routes, API wrappers or tables. |
+| Fingerprint enrollment and terminal events | New route not yet approved | Must be a named `/js/pages/*.js` controller using a canonical `api.js` namespace | No biometric/device registry exists; vendor adapter and attendance projection are pending | `BLOCKED` | Exact terminal model/protocol and an approved DPIA are required. Prefer device-local fingerprint matching; Kingsway should store external enrollment references rather than raw fingerprint images/templates where supported. |
+
 ## Active Implementation Slice
 
 Statically completed in the current milestone:
@@ -165,6 +173,7 @@ role sidebar
 
 | Date | Page/workflow | Previous status | New status | Evidence | Runtime pending |
 |---|---|---|---|---|---|
+| 2026-07-26 | Staff Security Passes | Blank embedded preview, direct browser print call, four-page front/back PDF and incorrect fixed expiry | `STATICALLY_VERIFIED` | Re-audited the full printing/file-lifecycle architecture; preview now uses `PrintService.preview_html` from the exact server templates, Open uses `KingswayFileLifecycle`, Print uses `PrintManager`, direct-card CSS reuses the student printer-safe fixed-canvas pattern, the register has eight aligned columns, and pass validity is linked to current employment with lifecycle/offboarding revocation | Yes — generate a real two-page front/back PDF, verify modal preview, direct printer output, A4 duplex and migration results in XAMPP/HostAfrica |
 | 2026-07-23 | Project baseline and Phase 0 inventory | No canonical tracker | `PARTIALLY_CONNECTED` | Updated ZIP, sidebar, pages, JS, API helpers, controllers, and SQL dump inspected | Yes |
 | 2026-07-23 | Role-Permission Matrix | `PARTIALLY_CONNECTED` | `STATICALLY_VERIFIED` | Dedicated page controller restored; canonical role/permission endpoints, `roles`, `permissions`, `role_permissions`, server RBAC, mutation audit records, and JavaScript syntax verified | Yes |
 | 2026-07-23 | Controller-format correction: Role-Permission Matrix | Incorrect helper structure | `STATICALLY_VERIFIED` | Reimplemented as `RolePermissionMatrixController`; auth settles before DOM/event/API initialization; all requests go through `API.system`; DELETE path/query contract corrected | Yes |

@@ -1,4 +1,8 @@
 const PermissionsExeatsController = (() => {
+  let initialized = false;
+  let initializationPromise = null;
+  let eventsBound = false;
+
   const state = {
     requests: [],
     allRequests: [],
@@ -47,6 +51,14 @@ const PermissionsExeatsController = (() => {
       return false;
     }
     return window.AuthContext.hasAnyPermission(permissions);
+  }
+
+  function canCreateOrEditRequests() {
+    return hasAnyPermission([
+      "attendance_boarding_create",
+      "attendance_boarding_submit",
+      "attendance_boarding_edit",
+    ]);
   }
 
   function statusBadgeClass(status) {
@@ -324,23 +336,39 @@ const PermissionsExeatsController = (() => {
 
   async function loadReferenceData() {
     try {
-      const [studentsResponse, permissionTypesResponse] = await Promise.all([
-        window.API.students.getAll({ limit: 500, status: "active" }),
-        window.API.attendance.getPermissionTypes(),
-      ]);
+      const permissionTypesResponse =
+        await window.API.attendance.getPermissionTypes();
 
-      state.students = Array.isArray(studentsResponse?.data)
-        ? studentsResponse.data
-        : [];
       state.permissionTypes = Array.isArray(permissionTypesResponse)
         ? permissionTypesResponse
         : [];
+
+      if (canCreateOrEditRequests()) {
+        const studentsResponse =
+          await window.API.students.getAll({ limit: 500, status: "active" });
+        state.students = Array.isArray(studentsResponse?.data)
+          ? studentsResponse.data
+          : Array.isArray(studentsResponse)
+            ? studentsResponse
+            : [];
+      } else {
+        state.students = [];
+      }
 
       populateStudentDropdown();
       populatePermissionTypeFilters();
       populateRequestTypeDropdown();
     } catch (error) {
-      notify(error.message || "Failed to load permission workflow reference data", "error");
+      state.students = [];
+      state.permissionTypes = [];
+      populateStudentDropdown();
+      populatePermissionTypeFilters();
+      populateRequestTypeDropdown();
+      notify(
+        error.message || "Failed to load permission workflow reference data",
+        "error",
+      );
+      throw error;
     }
   }
 
@@ -554,6 +582,11 @@ const PermissionsExeatsController = (() => {
   }
 
   function attachEventListeners() {
+    if (eventsBound) {
+      return;
+    }
+    eventsBound = true;
+
     document.getElementById("newRequestBtn")?.addEventListener("click", () => openRequestModal());
     document.getElementById("saveRequestBtn")?.addEventListener("click", () => saveRequest());
     document.getElementById("submitApprovalBtn")?.addEventListener("click", () => submitApproval());
@@ -594,27 +627,54 @@ const PermissionsExeatsController = (() => {
   }
 
   async function init() {
-    if (!window.AuthContext?.isAuthenticated()) {
-      window.location.href = (window.APP_BASE || "") + "/index.php";
-      return;
+    if (initializationPromise) {
+      return initializationPromise;
     }
 
-    const today = new Date();
-    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const dateFrom = document.getElementById("dateFrom");
-    const dateTo = document.getElementById("dateTo");
-    if (dateFrom) {
-      dateFrom.value = toDateInputValue(firstOfMonth);
-      filters.date_from = dateFrom.value;
-    }
-    if (dateTo) {
-      dateTo.value = toDateInputValue(today);
-      filters.date_to = dateTo.value;
-    }
+    initializationPromise = (async () => {
+      if (initialized) {
+        return PermissionsExeatsController;
+      }
 
-    attachEventListeners();
-    await loadReferenceData();
-    await loadData(1);
+      if (window.AuthContext?.ready) {
+        await window.AuthContext.ready();
+      }
+
+      if (!window.AuthContext?.isAuthenticated?.()) {
+        window.location.replace((window.APP_BASE || "") + "/index.php");
+        return PermissionsExeatsController;
+      }
+
+      if (!window.API?.attendance) {
+        throw new Error("Attendance API is unavailable.");
+      }
+
+      const today = new Date();
+      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const dateFrom = document.getElementById("dateFrom");
+      const dateTo = document.getElementById("dateTo");
+      if (dateFrom) {
+        dateFrom.value = toDateInputValue(firstOfMonth);
+        filters.date_from = dateFrom.value;
+      }
+      if (dateTo) {
+        dateTo.value = toDateInputValue(today);
+        filters.date_to = dateTo.value;
+      }
+
+      attachEventListeners();
+      await loadReferenceData();
+      await loadData(1);
+      initialized = true;
+      return PermissionsExeatsController;
+    })();
+
+    try {
+      return await initializationPromise;
+    } catch (error) {
+      initializationPromise = null;
+      throw error;
+    }
   }
 
   return {
@@ -627,5 +687,20 @@ const PermissionsExeatsController = (() => {
   };
 })();
 
-document.addEventListener("DOMContentLoaded", () => PermissionsExeatsController.init());
 window.PermissionsExeatsController = PermissionsExeatsController;
+
+function initializePermissionsExeatsController() {
+  void PermissionsExeatsController.init().catch((error) => {
+    console.error("[PermissionsExeatsController] Initialization failed:", error);
+  });
+}
+
+if (window.__APP_BOOTED__) {
+  initializePermissionsExeatsController();
+} else {
+  window.addEventListener(
+    "kingsway:ready",
+    initializePermissionsExeatsController,
+    { once: true },
+  );
+}

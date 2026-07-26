@@ -14,9 +14,18 @@ const staffOnboardingController = {
   _offcanvas: null,
 
   init: async function () {
+    if (window.AuthContext?.ready) {
+      await window.AuthContext.ready();
+    }
     if (!AuthContext.isAuthenticated()) return;
-    this._canCreate  = AuthContext.hasPermission('staff.create') || AuthContext.hasPermission('hr.manage');
-    this._canApprove = AuthContext.hasPermission('staff.approve') || AuthContext.hasPermission('hr.manage');
+    if (window.StaffAccess?.init) {
+      await StaffAccess.init();
+    }
+
+    this._canCreate = window.StaffAccess
+      ? StaffAccess.can('staff.onboarding.manage')
+      : AuthContext.hasPermission('staff_onboarding_manage') || AuthContext.hasPermission('staff_create') || AuthContext.hasPermission('staff_update');
+    this._canApprove = this._canCreate || AuthContext.hasPermission('staff_appointments_approve') || AuthContext.hasPermission('hr.manage');
 
     const addBtn = document.getElementById('newOnboardingBtn');
     if (addBtn) addBtn.style.display = this._canCreate ? '' : 'none';

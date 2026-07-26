@@ -472,6 +472,128 @@ final class PrintService
         return $this->printStudentIdCards([$card], $options);
     }
 
+
+    /**
+     * Generate portrait staff security passes.
+     *
+     * printerMode:
+     * - direct_card: one 53.98 x 85.60 mm portrait side per PDF page.
+     * - a4_pdf: six portrait passes per A4 side; backs are mirrored for duplex.
+     *
+     * @param array<int, array<string, mixed>> $passes
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function printStaffSecurityPasses(
+        array $passes,
+        array $options = []
+    ): array {
+        if ($passes === []) {
+            throw new InvalidArgumentException(
+                'No staff security passes were supplied.'
+            );
+        }
+
+        $options = array_merge(
+            [
+                'printerMode' => 'a4_pdf',
+                'side' => 'both',
+                'chunkSize' => 100,
+                'filename' => 'staff_security_passes_' . date('Ymd_His'),
+            ],
+            $options
+        );
+
+        $printerMode = strtolower(
+            trim((string) $options['printerMode'])
+        );
+        $side = strtolower(trim((string) $options['side']));
+
+        if (!in_array($printerMode, ['direct_card', 'a4_pdf'], true)) {
+            throw new InvalidArgumentException(
+                'Invalid staff security-pass printer mode.'
+            );
+        }
+
+        if (!in_array($side, ['front', 'back', 'both'], true)) {
+            throw new InvalidArgumentException(
+                'Invalid staff security-pass side.'
+            );
+        }
+
+        $chunkSize = max(1, min(200, (int) $options['chunkSize']));
+        $batchMode = count($passes) > 1 ? 'bulk' : 'single';
+
+        if ($batchMode === 'single') {
+            $chunkSize = 1;
+        }
+
+        $normalizedPasses = array_map(
+            fn (array $pass): array => $this->normalizeStaffSecurityPass($pass),
+            $passes
+        );
+
+        $chunks = array_chunk($normalizedPasses, $chunkSize);
+        $files = [];
+        $previewHtml = '';
+
+        foreach ($chunks as $index => $chunk) {
+            $chunkNumber = $index + 1;
+            $chunkSuffix = count($chunks) > 1
+                ? '_' . str_pad((string) $chunkNumber, 3, '0', STR_PAD_LEFT)
+                : '';
+
+            $generated = $this->generateStaffSecurityPassChunk(
+                $chunk,
+                [
+                    'printerMode' => $printerMode,
+                    'side' => $side,
+                    'filename' => $this->safeFilename(
+                        (string) $options['filename'] . $chunkSuffix
+                    ),
+                    'chunkNumber' => $chunkNumber,
+                    'totalChunks' => count($chunks),
+                ]
+            );
+
+            $files[] = $generated['path'];
+
+            if ($previewHtml === '') {
+                $previewHtml = $generated['html'];
+            }
+        }
+
+        $totalPasses = count($normalizedPasses);
+        $estimatedPages = $printerMode === 'direct_card'
+            ? $totalPasses * ($side === 'both' ? 2 : 1)
+            : (int) ceil($totalPasses / 6) * ($side === 'both' ? 2 : 1);
+
+        return [
+            'printer_mode' => $printerMode,
+            'batch_mode' => $batchMode,
+            'side' => $side,
+            'passes_per_a4_page' => $printerMode === 'a4_pdf' ? 6 : 1,
+            'total_passes' => $totalPasses,
+            'total_chunks' => count($chunks),
+            'chunk_size' => $chunkSize,
+            'estimated_pages' => $estimatedPages,
+            'preview_html' => $previewHtml,
+            'files' => $files,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $pass
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    public function printSingleStaffSecurityPass(
+        array $pass,
+        array $options = []
+    ): array {
+        return $this->printStaffSecurityPasses([$pass], $options);
+    }
+
     /**
      * Generate a PDF from arbitrary HTML.
      *
@@ -719,6 +841,227 @@ final class PrintService
     }
 
     /**
+     * @param array<int, array<string, mixed>> $passes
+     * @param array<string, mixed> $options
+     * @return array{path:string,html:string}
+     */
+    private function generateStaffSecurityPassChunk(
+        array $passes,
+        array $options
+    ): array {
+        $printerMode = (string) $options['printerMode'];
+        $side = (string) $options['side'];
+
+        $templateDirectory = defined('STAFF_SECURITY_PASS_TEMPLATES')
+            ? rtrim(
+                (string) STAFF_SECURITY_PASS_TEMPLATES,
+                DIRECTORY_SEPARATOR
+            ) . DIRECTORY_SEPARATOR
+            : $this->idCardTemplatesPath
+                . 'staff_security_pass'
+                . DIRECTORY_SEPARATOR;
+
+        $frontTemplatePath = $templateDirectory
+            . 'staff_security_pass_front.php';
+        $backTemplatePath = $templateDirectory
+            . 'staff_security_pass_back.php';
+        $layoutTemplatePath = $templateDirectory
+            . (
+                $printerMode === 'direct_card'
+                    ? 'staff_security_pass_two_pages.php'
+                    : 'staff_security_pass_a4.php'
+            );
+
+        foreach (
+            [$frontTemplatePath, $backTemplatePath, $layoutTemplatePath]
+            as $templatePath
+        ) {
+            if (!is_file($templatePath)) {
+                throw new RuntimeException(
+                    "Staff security-pass template was not found: {$templatePath}"
+                );
+            }
+        }
+
+        $body = $this->renderPhpTemplate(
+            $layoutTemplatePath,
+            [
+                'passes' => $passes,
+                'side' => $side,
+                'frontTemplatePath' => $frontTemplatePath,
+                'backTemplatePath' => $backTemplatePath,
+                'chunkNumber' => $options['chunkNumber'] ?? 1,
+                'totalChunks' => $options['totalChunks'] ?? 1,
+            ]
+        );
+
+        $css = $this->loadStaffSecurityPassStyles($printerMode);
+
+        $html = '<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Staff Security Passes</title>
+    <style>
+        ' . $css . '
+    </style>
+</head>
+<body class="staff-pass-print-body staff-pass-print-'
+            . $this->escape($printerMode)
+            . '">
+    ' . $body . '
+</body>
+</html>';
+
+        if ($printerMode === 'direct_card') {
+            $millimetreToPoint = 72 / 25.4;
+
+            $path = $this->generatePDF(
+                $html,
+                [
+                    'custom_width' => 53.98 * $millimetreToPoint,
+                    'custom_height' => 85.60 * $millimetreToPoint,
+                    'orientation' => 'portrait',
+                    'filename' => $options['filename'],
+                    'showPageNumbers' => false,
+                ]
+            );
+        } else {
+            $path = $this->generatePDF(
+                $html,
+                [
+                    'paperSize' => 'A4',
+                    'orientation' => 'portrait',
+                    'filename' => $options['filename'],
+                    'showPageNumbers' => false,
+                ]
+            );
+        }
+
+        return [
+            'path' => $path,
+            'html' => $html,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $pass
+     * @return array<string, mixed>
+     */
+    private function normalizeStaffSecurityPass(array $pass): array
+    {
+        $staffName = trim(
+            (string) (
+                $pass['staffName']
+                ?? $pass['staff_name']
+                ?? $pass['full_name']
+                ?? ''
+            )
+        );
+
+        if ($staffName === '') {
+            $staffName = trim(
+                implode(
+                    ' ',
+                    array_filter(
+                        [
+                            $pass['first_name'] ?? '',
+                            $pass['last_name'] ?? '',
+                        ]
+                    )
+                )
+            );
+        }
+
+        return array_merge(
+            [
+                'schoolName' => $this->schoolConfig['name'],
+                'schoolMotto' => $this->schoolConfig['motto'],
+                'schoolLogo' => $this->resolvePdfAsset(
+                    (string) $this->schoolConfig['logo']
+                ),
+                'schoolAddress' => $this->schoolConfig['address'],
+                'schoolPhone' => $this->schoolConfig['phone'],
+                'schoolEmail' => $this->schoolConfig['email'],
+                'staffPhoto' => '',
+                'staffName' => $staffName,
+                'staffNumber' => '',
+                'position' => '',
+                'departmentName' => '',
+                'passNumber' => '',
+                'qrCode' => '',
+            ],
+            [
+                'staffPhoto' => $this->resolvePdfAsset(
+                    (string) (
+                        $pass['staffPhoto']
+                        ?? $pass['profile_pic_url']
+                        ?? ''
+                    )
+                ),
+                'staffName' => $staffName,
+                'staffNumber' => (string) (
+                    $pass['staffNumber']
+                    ?? $pass['staff_no']
+                    ?? ''
+                ),
+                'position' => (string) ($pass['position'] ?? ''),
+                'departmentName' => (string) (
+                    $pass['departmentName']
+                    ?? $pass['department_name']
+                    ?? ''
+                ),
+                'passNumber' => (string) (
+                    $pass['passNumber']
+                    ?? $pass['card_number']
+                    ?? ''
+                ),
+                'qrCode' => $this->resolvePdfAsset(
+                    (string) (
+                        $pass['qrCode']
+                        ?? $pass['qr_code_data_uri']
+                        ?? ''
+                    )
+                ),
+            ],
+            $pass
+        );
+    }
+
+    private function loadStaffSecurityPassStyles(
+        string $printerMode
+    ): string {
+        if (!in_array($printerMode, ['direct_card', 'a4_pdf'], true)) {
+            throw new InvalidArgumentException(
+                'Invalid staff security-pass printer mode.'
+            );
+        }
+
+        $projectRoot = $this->resolveProjectRoot();
+        $cssDirectory = $projectRoot
+            . DIRECTORY_SEPARATOR
+            . 'public'
+            . DIRECTORY_SEPARATOR
+            . 'css'
+            . DIRECTORY_SEPARATOR;
+
+        $layoutFilename = $printerMode === 'direct_card'
+            ? 'staff-security-pass-cr80.css'
+            : 'staff-security-pass-a4.css';
+
+        return $this->loadRequiredStylesheet(
+            'staff-security-pass.css',
+            $cssDirectory . 'staff-security-pass.css'
+        )
+            . PHP_EOL
+            . PHP_EOL
+            . $this->loadRequiredStylesheet(
+                $layoutFilename,
+                $cssDirectory . $layoutFilename
+            );
+    }
+
+    /**
      * @param array<string, mixed> $card
      * @return array<string, mixed>
      */
@@ -947,7 +1290,7 @@ final class PrintService
         }
 
         throw new RuntimeException(
-            'The student ID stylesheet could not be loaded. '
+            'The required print stylesheet could not be loaded. '
             . 'Expected: public/css/'
             . $filename
         );

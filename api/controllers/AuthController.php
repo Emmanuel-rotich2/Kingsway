@@ -55,10 +55,40 @@ class AuthController extends BaseController
         return $this->handleResponse($result);
     }
 
+    // POST /api/auth/reset-default-password
+    public function postResetDefaultPassword($id = null, $data = [], $segments = [])
+    {
+        $result = $this->api->resetDefaultPassword($data);
+        return $this->handleResponse($result);
+    }
+
     // POST /api/auth/refresh-token
     public function postRefreshToken($id = null, $data = [], $segments = [])
     {
         $result = $this->api->exchangeRefreshToken($data);
+
+        if (
+            is_array($result) &&
+            array_key_exists('success', $result) &&
+            $result['success'] === false
+        ) {
+            $code = (int) ($result['code'] ?? 401);
+            $message = (string) (
+                $result['error']
+                    ?? $result['message']
+                    ?? 'Session refresh failed'
+            );
+
+            if ($code === 401) {
+                return $this->unauthorized($message);
+            }
+            if ($code >= 500) {
+                return $this->serverError($message);
+            }
+
+            return $this->badRequest($message);
+        }
+
         return $this->handleResponse($result);
     }
 

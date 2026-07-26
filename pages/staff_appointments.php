@@ -143,5 +143,9 @@ if (isset($staffAppointmentsContext) && is_array($staffAppointmentsContext)) {
     </div>
 </div>
 
-<script src="<?= $appBase ?>/js/pages/staff_access.js"></script>
-<script src="<?= $appBase ?>/js/pages/staff_appointments.js?v=<?= time() ?>"></script>
+<?php
+$staffAccessJs = __DIR__ . '/../js/pages/staff_access.js';
+$staffAppointmentsJs = __DIR__ . '/../js/pages/staff_appointments.js';
+?>
+<script src="<?= $appBase ?>/js/pages/staff_access.js?v=<?= file_exists($staffAccessJs) ? filemtime($staffAccessJs) : time() ?>"></script>
+<script src="<?= $appBase ?>/js/pages/staff_appointments.js?v=<?= file_exists($staffAppointmentsJs) ? filemtime($staffAppointmentsJs) : time() ?>"></script>

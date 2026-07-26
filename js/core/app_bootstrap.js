@@ -18,6 +18,7 @@ const KingswayBootstrap = (() => {
     bootPromise = (async () => {
       window.__APP_BOOTING__ = true;
       window.__APP_BOOTED__ = false;
+      const route = new URLSearchParams(location.search).get('route');
 
       await safe('authentication', async () => {
         if (window.AuthContext?.initialize) await AuthContext.initialize();
@@ -48,12 +49,13 @@ const KingswayBootstrap = (() => {
 
       window.SpeculativeLoader?.initialize?.({ enabled: false });
 
-      await safe('academic context', async () => {
-        if (window.AcademicContext?.init) await AcademicContext.init();
-        window.AcademicContext?.listenForChanges?.();
-      });
+      if (needsAcademicContext(route)) {
+        await safe('academic context', async () => {
+          if (window.AcademicContext?.init) await AcademicContext.init();
+          window.AcademicContext?.listenForChanges?.();
+        });
+      }
 
-      const route = new URLSearchParams(location.search).get('route');
       if (route && route !== 'loading' && window.AppRouteAccess?.authorizeRoute) {
         const access = await safe('route authorization', () => AppRouteAccess.authorizeRoute(route));
         if (access && !access.authorized) {
@@ -73,7 +75,37 @@ const KingswayBootstrap = (() => {
     return bootPromise;
   }
 
-  return { initialize };
+  function needsAcademicContext(route) {
+    const value = String(route || '').toLowerCase();
+    if (!value) return false;
+    return [
+      'academic',
+      'academics',
+      'class',
+      'stream',
+      'subject',
+      'learning',
+      'assessment',
+      'exam',
+      'result',
+      'grade',
+      'term',
+      'year',
+      'calendar',
+      'timetable',
+      'syllabus',
+      'scheme',
+      'lesson',
+      'curriculum',
+      'report_card',
+      'promotion',
+      'placement',
+      'teacher_workload',
+      'teacher_performance'
+    ].some((fragment) => value.includes(fragment));
+  }
+
+  return { initialize, needsAcademicContext };
 })();
 window.KingswayBootstrap = KingswayBootstrap;
 

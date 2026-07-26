@@ -365,8 +365,11 @@ class StaffPayrollManager extends BaseAPI
             $sql .= " ORDER BY payroll_year DESC, payroll_month DESC";
 
             if (!empty($filters['limit'])) {
-                $sql .= " LIMIT ?";
-                $params[] = (int)$filters['limit'];
+                // LIMIT placeholders are inconsistently handled by PDO MySQL
+                // when execute(array) binds every value as a string. Normalise
+                // and append a bounded integer instead.
+                $limit = max(1, min(100, (int) $filters['limit']));
+                $sql .= " LIMIT {$limit}";
             }
 
             $stmt = $this->db->prepare($sql);

@@ -12,7 +12,7 @@ This inventory reflects the cleaned staff navigation model. Runtime sidebar assi
 | `staff_lifecycle` | `pages/staff_lifecycle.php` | `js/pages/staff_lifecycle.js` | Promotions, transfers, suspension, reinstatement, termination, career history. |
 | `import_existing_staff` | `pages/import_existing_staff.php` | `js/pages/import_existing_staff.js` | Bulk CSV migration/import for existing staff records. |
 | `all_teachers` | `pages/all_teachers.php` | `js/pages/all_teachers.js` | Teacher-focused directory and teaching staff context. |
-| `staff_id_cards` | `pages/staff_id_cards.php` | `js/pages/staff_id_cards.js` | Staff ID card generation and issuing. |
+| `staff_id_cards` | `pages/staff_id_cards.php` | `js/pages/staff_id_cards.js` | Staff security-pass generation, preview, printing and issuing. |
 | `staff_role_assignments` | `pages/staff_role_assignments.php` | `js/pages/staff_role_assignments.js` | Assign system roles to staff. |
 | `staff_attendance` | `pages/staff_attendance.php` | `js/pages/staff_attendance.js` | Staff attendance register, marking, summaries, reports. |
 | `staff_leave` | `pages/staff_leave.php` | `js/pages/staff_leave.js` | Leave requests and approvals in one permission-aware page. |
@@ -62,7 +62,7 @@ The following wrapper routes were removed from sidebars, deleted as page files, 
 
 ## Endpoint Groups
 
-- `/api/staff`: directory, departments, teachers/non-teaching lists, leave, attendance helpers, performance, ID cards, role assignments, payroll self-service.
+- `/api/staff`: directory, departments, teachers/non-teaching lists, leave, attendance helpers, performance, security passes, role assignments, payroll self-service.
 - `/api/staff-appointments`: internal appointments, new staff appointment approval/rejection, onboarding.
 - `/api/stafflifecycle`: lifecycle actions and approvals.
 - `/api/staff-migration`: import templates, staging, commit, rollback.
