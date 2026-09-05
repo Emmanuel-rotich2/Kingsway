@@ -18,9 +18,11 @@ class MealReportManager extends BaseAPI
         parent::__construct('catering');
     }
 
-    public function getStats($date = null)
+    public function getStats($date = null, $dateFrom = null, $dateTo = null)
     {
         $date = $this->normaliseDate($date);
+        $dateFrom = $dateFrom ? $this->normaliseDate($dateFrom) : $date;
+        $dateTo = $dateTo ? $this->normaliseDate($dateTo) : $date;
 
         $mealStmt = $this->db->prepare(
             "SELECT COUNT(*) AS meals_planned,
@@ -28,9 +30,9 @@ class MealReportManager extends BaseAPI
                     SUM(status IN ('prepared', 'served')) AS prepared_meals,
                     COALESCE(SUM(actual_servings), 0) AS actual_servings
              FROM meal_plans
-             WHERE plan_date = ?"
+             WHERE plan_date BETWEEN ? AND ?"
         );
-        $mealStmt->execute([$date]);
+        $mealStmt->execute([$dateFrom, $dateTo]);
         $meal = $mealStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         $costStmt = $this->db->prepare(
@@ -38,9 +40,9 @@ class MealReportManager extends BaseAPI
                     COALESCE(SUM(quantity_used), 0) AS quantity_used,
                     COALESCE(SUM(waste_quantity), 0) AS waste_quantity
              FROM food_consumption_records
-             WHERE consumption_date = ?"
+             WHERE consumption_date BETWEEN ? AND ?"
         );
-        $costStmt->execute([$date]);
+        $costStmt->execute([$dateFrom, $dateTo]);
         $consumption = $costStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         $stockStmt = $this->db->query(
@@ -55,6 +57,8 @@ class MealReportManager extends BaseAPI
             'success' => true,
             'data' => [
                 'date' => $date,
+                'date_from' => $dateFrom,
+                'date_to' => $dateTo,
                 'meals_planned' => (int) ($meal['meals_planned'] ?? 0),
                 'planned_servings' => (int) ($meal['planned_servings'] ?? 0),
                 'prepared_meals' => (int) ($meal['prepared_meals'] ?? 0),
@@ -68,9 +72,11 @@ class MealReportManager extends BaseAPI
         ];
     }
 
-    public function getMenu($date = null)
+    public function getMenu($date = null, $dateFrom = null, $dateTo = null)
     {
         $date = $this->normaliseDate($date);
+        $dateFrom = $dateFrom ? $this->normaliseDate($dateFrom) : $date;
+        $dateTo = $dateTo ? $this->normaliseDate($dateTo) : $date;
         $stmt = $this->db->prepare(
             "SELECT mp.id, mp.plan_date, mp.meal_type,
                     mi.name AS menu_item, mi.description,
@@ -78,11 +84,11 @@ class MealReportManager extends BaseAPI
                     mp.actual_servings, mp.status, mp.prepared_at, mp.notes
              FROM meal_plans mp
              LEFT JOIN menu_items mi ON mi.id = mp.menu_item_id
-             WHERE mp.plan_date = ?
+             WHERE mp.plan_date BETWEEN ? AND ?
              ORDER BY FIELD(mp.meal_type, 'breakfast', 'snack', 'lunch', 'dinner'),
                       mp.id"
         );
-        $stmt->execute([$date]);
+        $stmt->execute([$dateFrom, $dateTo]);
 
         return [
             'success' => true,

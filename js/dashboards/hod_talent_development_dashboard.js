@@ -18,23 +18,25 @@
 
     const controller = DashboardBaseController.create({
         controllerName: 'TalentDevelopmentDashboardController',
-        rootId: 'talentDashboard',
-        refreshButtonId: 'talentDashboardRefresh',
-        stateId: 'talentDashboardState',
-        scopeId: 'talentDashboardScope',
-        lastUpdatedId: 'talentDashboardLastUpdated',
+        rootId: 'talentDevDashboard',
+        refreshButtonId: 'talentDevDashboardRefresh',
+        stateId: 'talentDevDashboardState',
+        scopeId: 'talentDevDashboardScope',
+        lastUpdatedId: 'talentDevDashboardLastUpdated',
+        defaultPeriod: 'week',
 
-        async apiMethod({ period } = {}) {
+        async apiMethod(filters = {}) {
             const [summaryResponse, activitiesResponse, schedulesResponse] = await Promise.all([
-                window.API.activities.getSummary({ period }),
-                window.API.activities.list({ limit: 20, period }),
-                window.API.activities.listSchedules({ period })
+                window.API.activities.getSummary(filters),
+                window.API.activities.list({ ...filters, limit: 20 }),
+                window.API.activities.listSchedules(filters)
             ]);
 
             const stats = unwrap(summaryResponse) || {};
-            const activitiesValue = unwrap(activitiesResponse);
             const schedulesValue = unwrap(schedulesResponse);
-            const activities = Array.isArray(activitiesValue) ? activitiesValue : [];
+            const activities = Array.isArray(unwrap(activitiesResponse))
+                ? unwrap(activitiesResponse)
+                : [];
             const schedules = Array.isArray(schedulesValue) ? schedulesValue : [];
 
             const categories = activities.reduce((totals, row) => {
@@ -55,8 +57,8 @@
                 cards: {
                     active_activities: Number(stats.planned || 0) + Number(stats.ongoing || 0),
                     student_participants: participantTotal,
-                    completed_activities: Number(stats.completed || 0),
-                    upcoming_sessions: schedules.length
+                    upcoming_sessions: schedules.length,
+                    events_this_month: Number(stats.completed || 0) + schedules.length
                 },
                 charts: {
                     by_category: {
@@ -68,18 +70,16 @@
                         data: activities.slice(0, 10).map((row) => Number(row.active_participants || 0))
                     }
                 },
-                tables: {
-                    activities: activeActivities,
-                    schedule: schedules.slice(0, 20)
-                }
+                activities: activeActivities,
+                schedule: schedules.slice(0, 20)
             };
         },
 
         cards: [
-            { id: 'talActivities', path: 'cards.active_activities', subtitleId: 'talActivitiesSub', subtitle: 'Planned or ongoing programmes' },
+            { id: 'talActiveActivities', path: 'cards.active_activities', subtitleId: 'talActiveSub', subtitle: 'Planned or ongoing programmes' },
             { id: 'talParticipants', path: 'cards.student_participants', subtitleId: 'talParticipantsSub', subtitle: 'Active student participation' },
-            { id: 'talStaff', path: 'cards.completed_activities', subtitleId: 'talStaffSub', subtitle: 'Programmes completed' },
-            { id: 'talUpcoming', path: 'cards.upcoming_sessions', subtitleId: 'talUpcomingSub', subtitle: 'Recurring schedule entries' }
+            { id: 'talUpcomingEvents', path: 'cards.upcoming_sessions', subtitleId: 'talUpcomingSub', subtitle: 'Upcoming schedule entries' },
+            { id: 'talEventsThisMonth', path: 'cards.events_this_month', subtitleId: 'talEventsSub', subtitle: 'Completed + scheduled' }
         ],
         chartDefinitions: [
             { id: 'talCategoryChart', path: 'charts.by_category', label: 'Activities', type: 'doughnut', showLegend: true },
@@ -87,13 +87,15 @@
         ],
         tableDefinitions: [
             {
-                bodyId: 'talActivitiesBody',
-                path: 'tables.activities',
+                bodyId: 'talCurrentActivitiesBody',
+                rows: (data) => Array.isArray(data.activities) ? data.activities : [],
                 emptyText: 'No active activities.',
                 columns: [
                     { key: 'title' },
-                    { value: (row) => row.category_name || 'Uncategorised' },
-                    { value: (row) => [row.start_date, row.end_date].filter(Boolean).join(' – ') },
+                    { key: 'category_name' },
+                    { key: 'active_participants', format: 'number' },
+                    { key: 'start_date', format: 'date' },
+                    { key: 'end_date', format: 'date' },
                     {
                         key: 'status',
                         render: (value, row, instance) => instance.badge(value, {
@@ -103,17 +105,40 @@
                 ]
             },
             {
-                bodyId: 'talScheduleBody',
-                path: 'tables.schedule',
+                bodyId: 'talWeeklyBody',
+                rows: (data) => Array.isArray(data.schedule) ? data.schedule : [],
                 emptyText: 'No activity schedule entries.',
                 columns: [
-                    { key: 'activity_title' },
                     { key: 'day_of_week' },
                     { value: (row) => `${String(row.start_time || '').slice(0, 5)}–${String(row.end_time || '').slice(0, 5)}` },
-                    { key: 'venue' }
+                    { key: 'activity_title' },
+                    { key: 'venue' },
+                    { key: 'category_name' }
                 ]
             }
-        ]
+        ],
+
+        afterRender() {
+            this.fillEmptyRows([
+                ['talUpcomingBody', 4, 'No upcoming events scheduled.'],
+                ['talPastEventsBody', 4, 'No past events recorded.'],
+                ['talBudgetBody', 4, 'No budget summary available.'],
+                ['talTopActivitiesBody', 4, 'No participation data recorded.'],
+                ['talStaffBody', 5, 'No coaches or supervisors assigned.'],
+                ['talResourcesBody', 4, 'No equipment resources recorded.'],
+                ['talAchievementsBody', 4, 'No recent achievements recorded.']
+            ]);
+        },
+
+        fillEmptyRows(definitions) {
+            definitions.forEach(([bodyId, colspan, message]) => {
+                const body = document.getElementById(bodyId);
+                if (!body) {
+                    return;
+                }
+                body.innerHTML = `<tr><td colspan="${colspan}" class="text-center text-muted py-4">${this.escapeHtml(message)}</td></tr>`;
+            });
+        }
     });
 
     window.TalentDevelopmentDashboardController = controller;

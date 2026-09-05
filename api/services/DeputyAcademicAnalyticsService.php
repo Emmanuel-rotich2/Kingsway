@@ -8,20 +8,23 @@ class DeputyAcademicAnalyticsService
 {
     private HeadteacherAnalyticsService $headteacher;
     private PDO $db;
+    private array $period;
 
     public function __construct()
     {
         $this->headteacher = new HeadteacherAnalyticsService();
         $this->db = Database::getInstance()->getConnection();
+        $this->period = DashboardPeriodService::resolve($this->db, []);
     }
 
     /**
      * Returns a focused academic view for deputy heads.
      * Includes admissions, timetables, assessments, comms, and key charts/tables.
      */
-    public function getFullDashboardData(): array
+    public function getFullDashboardData(array $filters = []): array
     {
-        $full = $this->headteacher->getFullDashboardData();
+        $this->period = DashboardPeriodService::resolve($this->db, $filters);
+        $full = $this->headteacher->getFullDashboardData($filters);
 
         $cards = $full['cards'] ?? [];
         $charts = $full['charts'] ?? [];
@@ -65,24 +68,29 @@ class DeputyAcademicAnalyticsService
                 'incomplete_grades' => $this->getIncompleteGrades(),
             ],
             'timestamp' => $full['timestamp'] ?? date('Y-m-d H:i:s'),
-            'meta' => ['scope_label' => 'Whole school academic oversight'],
+            'meta' => ['scope_label' => 'Whole school academic oversight', 'filters' => $this->period],
         ];
     }
 
     private function getLessonPlanSummary(): array
     {
-        $row = $this->db->query("SELECT
+        $stmt = $this->db->prepare("SELECT
                 SUM(status = 'draft') AS pending,
                 SUM(status IN ('approved','delivered')) AS approved
-            FROM lesson_plans")->fetch(PDO::FETCH_ASSOC) ?: [];
+            FROM lesson_plans WHERE DATE(created_at) BETWEEN ? AND ?");
+        $stmt->execute([$this->period['date_from'], $this->period['date_to']]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
         return ['pending' => (int) ($row['pending'] ?? 0), 'approved' => (int) ($row['approved'] ?? 0)];
     }
 
     private function countOverdueAssessments(): int
     {
-        return (int) $this->db->query("SELECT COUNT(*) FROM assessments
-            WHERE assessment_date < CURDATE() AND status <> 'approved'")->fetchColumn();
+        $stmt = $this->db->prepare("SELECT COUNT(*) FROM assessments
+            WHERE assessment_date BETWEEN ? AND ?
+              AND assessment_date < CURDATE() AND status <> 'approved'");
+        $stmt->execute([$this->period['date_from'], $this->period['date_to']]);
+        return (int) $stmt->fetchColumn();
     }
 
     private function countAtWorkflowStage(string $stage): int
@@ -90,8 +98,9 @@ class DeputyAcademicAnalyticsService
         $stmt = $this->db->prepare("SELECT COUNT(*) FROM workflow_instances wi
             JOIN admission_applications aa ON aa.id=wi.reference_id
             WHERE wi.reference_type='admission_application' AND wi.current_stage=?
-              AND aa.status NOT IN ('cancelled','enrolled')");
-        $stmt->execute([$stage]);
+              AND aa.status NOT IN ('cancelled','enrolled')
+              AND DATE(aa.created_at) BETWEEN ? AND ?");
+        $stmt->execute([$stage, $this->period['date_from'], $this->period['date_to']]);
         return (int) $stmt->fetchColumn();
     }
 
@@ -106,10 +115,11 @@ class DeputyAcademicAnalyticsService
 
     private function getLessonPlanTrend(): array
     {
-        $stmt = $this->db->query("SELECT DATE(created_at) plan_date, COUNT(*) total
+        $stmt = $this->db->prepare("SELECT DATE(created_at) plan_date, COUNT(*) total
             FROM lesson_plans
-            WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+            WHERE DATE(created_at) BETWEEN ? AND ?
             GROUP BY DATE(created_at) ORDER BY plan_date");
+        $stmt->execute([$this->period['date_from'], $this->period['date_to']]);
         $labels = [];
         $data = [];
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -121,7 +131,7 @@ class DeputyAcademicAnalyticsService
 
     private function getPendingPlacements(): array
     {
-        $stmt = $this->db->query("SELECT aa.applicant_name AS student_name,
+        $stmt = $this->db->prepare("SELECT aa.applicant_name AS student_name,
                 aa.grade_applying_for AS applied_class,
                 COALESCE(apt.percentage, 0) AS test_score,
                 wi.current_stage AS status
@@ -133,13 +143,15 @@ class DeputyAcademicAnalyticsService
             )
             WHERE wi.current_stage='class_placement'
               AND aa.status NOT IN ('cancelled','enrolled')
+              AND DATE(aa.created_at) BETWEEN ? AND ?
             ORDER BY aa.created_at LIMIT 20");
+        $stmt->execute([$this->period['date_from'], $this->period['date_to']]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     private function getIncompleteGrades(): array
     {
-        $stmt = $this->db->query("SELECT
+        $stmt = $this->db->prepare("SELECT
                 TRIM(CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,''))) AS teacher_name,
                 CONCAT(c.name, CASE WHEN s.name IS NULL OR s.name=c.name THEN '' ELSE CONCAT(' ',s.name) END) AS class_name,
                 ROUND(100 * (COUNT(DISTINCT sae.id) - COUNT(DISTINCT CASE WHEN ar.is_submitted=1 THEN sae.id END))
@@ -155,9 +167,11 @@ class DeputyAcademicAnalyticsService
             LEFT JOIN student_academic_enrollments sae ON sae.academic_year_class_stream_id=aycs.id AND sae.enrollment_status='active'
             LEFT JOIN assessment_results ar ON ar.assessment_id=a.id AND ar.student_academic_enrollment_id=sae.id
             WHERE a.status <> 'approved'
+              AND a.assessment_date BETWEEN ? AND ?
             GROUP BY a.id,p.first_name,p.last_name,c.name,s.name,a.assessment_date
             HAVING percent_pending > 0
             ORDER BY a.assessment_date LIMIT 20");
+        $stmt->execute([$this->period['date_from'], $this->period['date_to']]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

@@ -53,6 +53,15 @@ class SchedulesManager extends BaseAPI
                 $bindings[] = $dayOfWeek;
             }
 
+            if (!empty($params['start_date'])) {
+                $where[] = 'a.end_date >= ?';
+                $bindings[] = $params['start_date'];
+            }
+            if (!empty($params['end_date'])) {
+                $where[] = 'a.start_date <= ?';
+                $bindings[] = $params['end_date'];
+            }
+
             $whereClause = implode(' AND ', $where);
 
             $sql = "

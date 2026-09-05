@@ -4,6 +4,7 @@ namespace App\API\Modules\students;
 
 use App\API\Includes\BaseAPI;
 use PDO;
+use PDOStatement;
 use Exception;
 
 /**
@@ -281,9 +282,9 @@ class StudentProfileManager extends BaseAPI
                         s.admission_no,
                         CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                         p.gender,
-                        ayc.class_id,
-                        cls.name AS class_name,
-                        st.name AS stream_name,
+                        ayc_c.class_id AS class_id,
+                        cls_c.name AS class_name,
+                        st_c.name AS stream_name,
                         CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
                     FROM counseling_cases c
                     INNER JOIN students s ON s.id = c.student_id
@@ -301,12 +302,12 @@ class StudentProfileManager extends BaseAPI
             }
 
             if ($classId) {
-                $sql .= " AND ayc.class_id = ?";
+                $sql .= " AND ayc_c.class_id = ?";
                 $bindings[] = $classId;
             }
 
             if ($streamId) {
-                $sql .= " AND aycs.stream_id = ?";
+                $sql .= " AND aycs_c.stream_id = ?";
                 $bindings[] = $streamId;
             }
 
@@ -372,9 +373,9 @@ class StudentProfileManager extends BaseAPI
                     s.admission_no,
                     CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                     p.gender,
-                    ayc.class_id,
-                    cls.name AS class_name,
-                    st.name AS stream_name,
+                    ayc_c.class_id AS class_id,
+                    cls_c.name AS class_name,
+                    st_c.name AS stream_name,
                     CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
                  FROM counseling_cases c
                  INNER JOIN students s ON s.id = c.student_id
@@ -476,9 +477,9 @@ class StudentProfileManager extends BaseAPI
                         s.admission_no,
                         CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                         p.gender,
-                        ayc.class_id,
-                        cls.name AS class_name,
-                        st.name AS stream_name
+                        ayc_h.class_id AS class_id,
+                        cls_h.name AS class_name,
+                        st_h.name AS stream_name
                     FROM student_health_records h
                     INNER JOIN students s ON s.id = h.student_id
                     INNER JOIN persons p ON p.id = s.person_id
@@ -488,12 +489,12 @@ class StudentProfileManager extends BaseAPI
             $bindings = [];
 
             if ($classId) {
-                $sql .= " AND ayc.class_id = ?";
+                $sql .= " AND ayc_h.class_id = ?";
                 $bindings[] = $classId;
             }
 
             if ($streamId) {
-                $sql .= " AND aycs.stream_id = ?";
+                $sql .= " AND aycs_h.stream_id = ?";
                 $bindings[] = $streamId;
             }
 
@@ -563,9 +564,9 @@ class StudentProfileManager extends BaseAPI
                     CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS student_name,
                     p.gender,
                     s.blood_group,
-                    ayc.class_id,
-                    cls.name AS class_name,
-                    st.name AS stream_name
+                    ayc_h.class_id AS class_id,
+                    cls_h.name AS class_name,
+                    st_h.name AS stream_name
                  FROM student_health_records h
                  INNER JOIN students s ON s.id = h.student_id
                  INNER JOIN persons p ON p.id = s.person_id

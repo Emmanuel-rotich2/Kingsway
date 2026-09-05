@@ -134,19 +134,6 @@
     setText("#header-user-avatar", initials);
     setText("#menu-user-avatar", initials);
 
-    const testBanner = $("#test-workspace-banner");
-    const isTestUser = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
-    if (testBanner) {
-      testBanner.classList.toggle("d-none", !isTestUser);
-      document.body.classList.toggle("test-workspace", isTestUser);
-      const expiry = $("#test-workspace-expiry");
-      if (expiry) {
-        expiry.textContent = user.test_access_expires_at
-          ? `(access expires ${new Date(String(user.test_access_expires_at).replace(" ", "T")).toLocaleString()})`
-          : "(development access)";
-      }
-    }
-
     return true;
   }
 

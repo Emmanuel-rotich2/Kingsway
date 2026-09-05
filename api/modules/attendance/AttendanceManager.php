@@ -1485,6 +1485,210 @@ class AttendanceManager extends BaseAPI
         }
     }
 
+    /**
+     * GET /api/attendance/register-range
+     * Attendance register for one or more class streams over a date range.
+     *
+     * stream_id may be ommitted to cover every class stream the authenticated
+     * user is allowed to access (the client's default "All My Classes" scope).
+     * Returns the roster plus, for each learner, the effective class register
+     * status per date. When multiple class register records exist for one
+     * learner on one day (multiple class sessions), the latest entry wins — the
+     * same rule getDailyRegister applies when it is called without a session.
+     * Weekends/holidays carry no record and are shown by the client as
+     * 'not_marked'.
+     *
+     * Params: stream_id? (one id, or omit for all accessible), from (Y-m-d),
+     * to (Y-m-d), session_id?
+     */
+    public function getRegisterRange(array $data = [])
+    {
+        try {
+            $streamId = $data['stream_id'] ?? $_GET['stream_id'] ?? null;
+            $from = $data['from'] ?? $_GET['from'] ?? null;
+            $to   = $data['to'] ?? $_GET['to'] ?? null;
+            $sessionId = $data['session_id'] ?? $_GET['session_id'] ?? null;
+            if ($streamId === '' || $streamId === '0') {
+                $streamId = null;
+            }
+            if ($streamId !== null && (!is_numeric($streamId) || (int) $streamId < 1)) {
+                return $this->errorResponse('Invalid stream_id', 400);
+            }
+
+            foreach (['from' => $from, 'to' => $to] as $label => $value) {
+                if ($value !== null && $value !== '') {
+                    $parsed = date_parse((string) $value);
+                    if (!empty($parsed['error_count']) || !empty($parsed['warning_count'])) {
+                        return $this->errorResponse("Invalid {$label} date", 400);
+                    }
+                }
+            }
+
+            $from = $from ? date('Y-m-d', strtotime((string) $from)) : date('Y-m-d', strtotime('-29 days'));
+            $to   = $to   ? date('Y-m-d', strtotime((string) $to))   : date('Y-m-d');
+            if ($from > $to) {
+                return $this->errorResponse('The start date must be on or before the end date', 400);
+            }
+
+            $daySpan = (int) floor((strtotime($to) - strtotime($from)) / 86400) + 1;
+            if ($daySpan > 370) {
+                return $this->errorResponse('The date range is too wide. Choose a range of 12 months or less.', 400);
+            }
+
+            $scope = $this->getAccessibleClassScope();
+            $scopeStreamId = $streamId ? (int) $streamId : null;
+
+            // Class scope: honours 'all accessible' (null) with the same rules
+            // as the roster scope is valid (forbidden / empty).
+            $classScope = $this->buildStreamScopeClause($scopeStreamId, $scope, 'aycs.id');
+            if ($classScope['forbidden']) {
+                return $this->errorResponse('You are not allowed to access attendance for this class', 403);
+            }
+            if ($classScope['empty']) {
+                return $this->successResponse(['dates' => [], 'rows' => [], 'classes' => [], 'class' => null, 'from' => $from, 'to' => $to], 'Attendance register retrieved');
+            }
+
+            // Stream identities covered by the register (one row per stream).
+            $classesSql = "SELECT aycs.id AS stream_id, c.name AS class_name, stm.name AS stream_name,
+                          CONCAT(c.name,
+                              CASE
+                                  WHEN stm.name IS NULL OR stm.name = '' OR stm.name = c.name THEN ''
+                                  ELSE CONCAT(' - ', stm.name)
+                              END
+                          ) AS display_name
+                   FROM academic_year_class_streams aycs
+                   JOIN streams stm ON stm.id = aycs.stream_id
+                   JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                   JOIN classes c ON c.id = ayc.class_id
+                   WHERE 1=1";
+            $classesSql .= $classScope['sql'];
+            $classesSql .= " ORDER BY c.name, stm.name";
+            $classesStmt = $this->db->prepare($classesSql);
+            $classesStmt->execute($classScope['params']);
+            $classes = $classesStmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+
+            if ($classes === []) {
+                return $this->successResponse(['dates' => [], 'rows' => [], 'classes' => [], 'class' => null, 'from' => $from, 'to' => $to], 'Attendance register retrieved');
+            }
+
+            $combinedName = count($classes) === 1
+                ? $classes[0]['display_name']
+                : 'All Classes (' . count($classes) . ')';
+
+            // Calendar days in the range (every date; the client renders them all).
+            $dates = [];
+            $cursor = strtotime($from);
+            $end = strtotime($to);
+            while ($cursor <= $end) {
+                $dates[] = [
+                    'date' => date('Y-m-d', $cursor),
+                    'weekday' => date('w', $cursor),
+                    'day_name' => date('l', $cursor),
+                    'label' => date('D j M', $cursor),
+                ];
+                $cursor = strtotime('+1 day', $cursor);
+            }
+
+            // Roster: learners who were part of the covered streams by the end of range.
+            $rosterSql = "SELECT en.id AS enrollment_id, en.student_id,
+                                 en.academic_year_class_stream_id AS stream_id,
+                                 s.admission_no, p.first_name, p.last_name,
+                                 c.name AS class_name, stm.name AS stream_name,
+                                 CONCAT(c.name,
+                                     CASE
+                                         WHEN stm.name IS NULL OR stm.name = '' OR stm.name = c.name THEN ''
+                                         ELSE CONCAT(' - ', stm.name)
+                                     END
+                                 ) AS display_name,
+                                 st.name AS student_type, st.code AS student_type_code
+                          FROM student_academic_enrollments en
+                          JOIN students s ON s.id = en.student_id
+                          JOIN persons p ON p.id = s.person_id
+                          LEFT JOIN student_types st ON st.id = s.student_type_id
+                          LEFT JOIN academic_year_class_streams aycs ON aycs.id = en.academic_year_class_stream_id
+                          LEFT JOIN streams stm ON stm.id = aycs.stream_id
+                          LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                          LEFT JOIN classes c ON c.id = ayc.class_id
+                          WHERE s.status = 'active'
+                            AND en.enrollment_status IN ('active','completed','transferred','graduated')
+                            AND (en.enrolled_on IS NULL OR en.enrolled_on <= ?)";
+            $rosterParams = [$to];
+            $rosterScope = $this->buildStreamScopeClause($scopeStreamId, $scope);
+            $rosterSql .= $rosterScope['sql'];
+            $rosterParams = array_merge($rosterParams, $rosterScope['params']);
+            $rosterSql .= " ORDER BY c.name, stm.name, p.last_name, p.first_name";
+
+            $stmt = $this->db->prepare($rosterSql);
+            $stmt->execute($rosterParams);
+            $roster = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            // Attendance records for the roster within the range.
+            $days = [];
+            if ($roster !== []) {
+                $enrollmentIds = array_map('intval', array_column($roster, 'enrollment_id'));
+                $placeholders = implode(',', array_fill(0, count($enrollmentIds), '?'));
+                $attSql = "SELECT sa.id, sa.student_academic_enrollment_id, sa.date,
+                                  sa.status, sa.absence_reason
+                           FROM student_attendance sa
+                           WHERE sa.register_type = 'class'
+                             AND sa.date BETWEEN ? AND ?
+                             AND sa.student_academic_enrollment_id IN ({$placeholders})";
+                $attParams = array_merge([$from, $to], $enrollmentIds);
+                if ($sessionId) {
+                    $attSql .= " AND sa.session_id = ?";
+                    $attParams[] = (int) $sessionId;
+                }
+                $attSql .= " ORDER BY sa.student_academic_enrollment_id, sa.date, sa.id ASC";
+                $attStmt = $this->db->prepare($attSql);
+                $attStmt->execute($attParams);
+                $records = $attStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($records as $record) {
+                    $enrollmentId = (int) $record['student_academic_enrollment_id'];
+                    if (!isset($days[$enrollmentId])) {
+                        $days[$enrollmentId] = [];
+                    }
+                    $statusKey = strcasecmp((string) $record['absence_reason'], 'permission') === 0
+                        ? 'permission'
+                        : ((string) $record['status'] !== '' ? (string) $record['status'] : 'not_marked');
+                    // Latest entry wins (ORDER BY id ASC, so overwrite).
+                    $days[$enrollmentId][(string) $record['date']] = $statusKey;
+                }
+            }
+
+            $rows = [];
+            foreach ($roster as $learner) {
+                $enrollmentId = (int) $learner['enrollment_id'];
+                $rows[] = [
+                    'student_id' => (int) $learner['student_id'],
+                    'stream_id' => isset($learner['stream_id']) ? (int) $learner['stream_id'] : null,
+                    'admission_no' => $learner['admission_no'],
+                    'first_name' => $learner['first_name'],
+                    'last_name' => $learner['last_name'],
+                    'learner_name' => trim(($learner['first_name'] ?? '') . ' ' . ($learner['last_name'] ?? '')),
+                    'class_name' => $learner['class_name'],
+                    'stream_name' => $learner['stream_name'],
+                    'display_name' => $learner['display_name'],
+                    'student_type' => $learner['student_type'],
+                    'student_type_code' => $learner['student_type_code'],
+                    'days' => $days[$enrollmentId] ?? [],
+                ];
+            }
+
+            return $this->successResponse([
+                'dates' => $dates,
+                'rows' => $rows,
+                'classes' => $classes,
+                'class' => ['stream_id' => $streamId ? (int) $streamId : null, 'display_name' => $combinedName],
+                'from' => $from,
+                'to' => $to,
+            ], 'Attendance register retrieved');
+        } catch (Exception $e) {
+            $this->logError($e, 'getRegisterRange');
+            return $this->errorResponse('An internal error occurred.', 500);
+        }
+    }
+
     // ========================================================================
     // BOARDING ATTENDANCE ENDPOINTS
     // ========================================================================

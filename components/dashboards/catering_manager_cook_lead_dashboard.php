@@ -379,4 +379,4 @@ $escape = static function ($value): string {
 </div>
 
 <?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
-<?php asset_script($appBase, 'js/dashboards/catering_manager_dashboard.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/catering_manager_cook_lead_dashboard.js'); ?>

@@ -3018,6 +3018,12 @@ class FinanceAPI extends BaseAPI
                         CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                         s.position,
                         d.name AS department,
+                        spp.kra_pin,
+                        spp.nssf_no,
+                        spp.nhif_no,
+                        spp.bank_name,
+                        spp.bank_account,
+                        spp.bank_account AS bank_account_number,
                         ps.child_fees_deduction AS children_fees_deducted,
                         ps.payslip_status AS status,
                         ps.allowances_total AS allowances,
@@ -3030,6 +3036,7 @@ class FinanceAPI extends BaseAPI
                     LEFT JOIN payroll_runs pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year AND pr.data_scope COLLATE utf8mb4_unicode_ci = ps.data_scope COLLATE utf8mb4_unicode_ci
                     JOIN staff s ON ps.staff_id = s.id
                     LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
                     LEFT JOIN departments d ON d.id = sep.department_id
                     WHERE ps.data_scope=? AND s.data_scope=?";

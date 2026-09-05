@@ -1394,6 +1394,32 @@ const ENDPOINT_PERMISSIONS = {
   "/students/discipline-record": "students_discipline_create",
   "/students/discipline-update": "students_discipline_edit",
   "/students/discipline-resolve": "students_discipline_approve",
+  "/students/leadership": {
+    GET: "students_view",
+    POST: "student_leadership_manage",
+    PUT: "student_leadership_manage",
+    DELETE: "student_leadership_manage",
+  },
+  "/students/houses": {
+    GET: "students_view",
+    POST: "student_leadership_manage",
+    PUT: "student_leadership_manage",
+  },
+  "/students/awards": {
+    GET: "students_view",
+    POST: "student_leadership_manage",
+    PUT: "student_leadership_manage",
+    DELETE: "student_leadership_manage",
+  },
+  "/students/awards/catalogue": "students_view",
+  "/students/awards/categories": "students_view",
+  "/students/awards/types": {
+    GET: "students_view",
+    POST: "student_leadership_manage",
+    PUT: "student_leadership_manage",
+    DELETE: "student_leadership_manage",
+  },
+  "/students/awards/certificate": "student_leadership_manage",
   "/students/qr-code-generate": "students_qr_generate",
   "/students/qr-code-generate-enhanced": "students_qr_generate",
   "/students/id-card-generate": "students_qr_generate",
@@ -3528,6 +3554,49 @@ window.API = {
     getEnrollmentHistory: async (studentId) =>
       apiCall(`/students/enrollment-history/${studentId}`, "GET"),
 
+    // Student Leadership & Participation (single governed source)
+    leadership: {
+      list: async (params = {}) =>
+        apiCall("/students/leadership", "GET", null, params),
+      positions: async (params = {}) =>
+        apiCall("/students/leadership/positions", "GET", null, params),
+      history: async (studentId) =>
+        apiCall(`/students/leadership/history/${studentId}`, "GET"),
+      create: async (data) => apiCall("/students/leadership", "POST", data),
+      update: async (id, data) =>
+        apiCall(`/students/leadership/${id}`, "PUT", data),
+      delete: async (id) => apiCall(`/students/leadership/${id}`, "DELETE"),
+    },
+    houses: {
+      list: async (params = {}) => apiCall("/students/houses", "GET", null, params),
+      create: async (data) => apiCall("/students/houses", "POST", data),
+      update: async (id, data) => apiCall(`/students/houses/${id}`, "PUT", data),
+    },
+    awards: {
+      list: async (params = {}) => apiCall("/students/awards", "GET", null, params),
+      history: async (studentId) =>
+        apiCall(`/students/awards/history/${studentId}`, "GET"),
+      create: async (data) => apiCall("/students/awards", "POST", data),
+      update: async (id, data) => apiCall(`/students/awards/${id}`, "PUT", data),
+      delete: async (id) => apiCall(`/students/awards/${id}`, "DELETE"),
+      catalogue: async () => apiCall("/students/awards/catalogue", "GET"),
+      categories: async () => apiCall("/students/awards/categories", "GET"),
+      types: {
+        list: async (params = {}) =>
+          apiCall("/students/awards/types", "GET", null, params),
+        create: async (data) => apiCall("/students/awards/types", "POST", data),
+        update: async (id, data) =>
+          apiCall(`/students/awards/types/${id}`, "PUT", data),
+        delete: async (id) =>
+          apiCall(`/students/awards/types/${id}`, "DELETE"),
+      },
+      printCertificate: async (awardIds, data = {}) =>
+        apiCall("/students/awards/certificate", "POST", {
+          award_ids: Array.isArray(awardIds) ? awardIds : [awardIds],
+          ...data,
+        }),
+    },
+
     // Bulk operations
     bulkCreate: async (students) =>
       apiCall("/students/bulk-create", "POST", { students }),
@@ -4192,6 +4261,8 @@ window.API = {
       apiCall("/attendance/academic-summary", "GET", null, params),
     getDailyRegister: async (params = {}) =>
       apiCall("/attendance/daily-register", "GET", null, params),
+    getRegisterRange: async (params = {}) =>
+      apiCall("/attendance/register-range", "GET", null, params),
     getBoardingSummary: async (params = {}) =>
       apiCall("/attendance/boarding-summary", "GET", null, params),
     getDormitories: async (params = {}) =>
@@ -4307,7 +4378,8 @@ window.API = {
     delete: async (id) => apiCall(`/activities/${id}`, "DELETE"),
 
     // Statistics
-    getSummary: async () => apiCall("/activities/statistics/get", "GET"),
+    getSummary: async (params = {}) =>
+      apiCall("/activities/statistics/get", "GET", null, params),
     getUpcoming: async (limit = 10) =>
       apiCall("/activities/upcoming/list", "GET", null, { limit }),
 
@@ -4408,7 +4480,8 @@ window.API = {
     index: async () => apiCall("/counseling/index", "GET"),
 
     // Summary
-    getSummary: async () => apiCall("/counseling/summary", "GET"),
+    getSummary: async (params = {}) =>
+      apiCall("/counseling/summary", "GET", null, params),
 
     // CRUD
     list: async (params = {}) =>
@@ -5824,8 +5897,12 @@ window.API = {
       apiCall(`/transport/full-status?student_id=${studentId}`, "GET"),
 
     // Reports & Summary
-    getRouteManifest: async (routeId) =>
-      apiCall(`/transport/route-manifest?route_id=${routeId}`, "GET"),
+    getRouteManifest: async (routeId, month, year) => {
+      let url = `/transport/route-manifest?route_id=${routeId}`;
+      if (month) url += `&month=${month}`;
+      if (year) url += `&year=${year}`;
+      return apiCall(url, "GET");
+    },
     getDriverManifest: async (params = {}) =>
       apiCall("/transport/driver-manifest", "GET", null, params),
     getStudentSummary: async (studentId) =>
@@ -5863,6 +5940,75 @@ window.API = {
   chapel: {
     getServices: async (params = {}) =>
       apiCall("/chapel/services", "GET", null, params),
+  },
+
+  // Chaplaincy Department endpoints (owned by ChaplaincyController)
+  chaplaincy: {
+    getTeamRoles: async () => apiCall("/chaplaincy/team-roles", "GET"),
+    getTeam: async () => apiCall("/chaplaincy/team", "GET"),
+    addMember: async (data) =>
+      apiCall("/chaplaincy/team/member", "POST", data),
+    bulkAssignMembers: async (data) =>
+      apiCall("/chaplaincy/team/bulk-assign", "POST", data),
+    updateMember: async (id, data) =>
+      apiCall(`/chaplaincy/team/member/${id}`, "PUT", data),
+    getVolunteers: async (params = {}) =>
+      apiCall("/chaplaincy/volunteers", "GET", null, params),
+    addVolunteer: async (data) =>
+      apiCall("/chaplaincy/volunteers", "POST", data),
+    deactivateVolunteer: async (id) =>
+      apiCall(`/chaplaincy/volunteers/${id}`, "DELETE"),
+
+    // Spiritual programs, sessions & attendance (SDA)
+    getPrograms: async (params = {}) =>
+      apiCall("/chaplaincy/programs", "GET", null, params),
+    createProgram: async (data) =>
+      apiCall("/chaplaincy/programs", "POST", data),
+    updateProgram: async (id, data) =>
+      apiCall(`/chaplaincy/programs/${id}`, "PUT", data),
+    deleteProgram: async (id) =>
+      apiCall(`/chaplaincy/programs/${id}`, "DELETE"),
+    getNextDate: async (params = {}) =>
+      apiCall("/chaplaincy/programs/next-date", "GET", null, params),
+    getSessions: async (params = {}) =>
+      apiCall("/chaplaincy/sessions", "GET", null, params),
+    createSession: async (data) =>
+      apiCall("/chaplaincy/sessions", "POST", data),
+    updateSession: async (id, data) =>
+      apiCall(`/chaplaincy/sessions/${id}`, "PUT", data),
+    deleteSession: async (id) =>
+      apiCall(`/chaplaincy/sessions/${id}`, "DELETE"),
+    getSessionAttendance: async (id) =>
+      apiCall(`/chaplaincy/sessions/${id}/attendance`, "GET"),
+    saveAttendance: async (id, data) =>
+      apiCall(`/chaplaincy/sessions/${id}/attendance`, "PUT", data),
+
+    // Spiritual groups (recurring discipleship clubs)
+    getGroups: async (params = {}) => apiCall("/chaplaincy/groups", "GET", null, params),
+    createGroup: async (data) => apiCall("/chaplaincy/groups", "POST", data),
+    getGroupMembers: async (id) => apiCall(`/chaplaincy/groups/${id}/members`, "GET"),
+    addGroupMember: async (id, data) => apiCall(`/chaplaincy/groups/${id}/members`, "POST", data),
+    removeGroupMember: async (memberId) => apiCall(`/chaplaincy/group-members/${memberId}`, "DELETE"),
+    getGroupAttendance: async (id, params = {}) =>
+      apiCall(`/chaplaincy/groups/${id}/attendance`, "GET", null, params),
+    saveGroupAttendance: async (id, data) =>
+      apiCall(`/chaplaincy/groups/${id}/attendance`, "PUT", data),
+
+    // Confidential learner spiritual profiles & milestones
+    getSpiritualProfile: async (studentId) =>
+      apiCall(`/chaplaincy/spiritual-profiles/${studentId}`, "GET"),
+    updateSpiritualProfile: async (studentId, data) =>
+      apiCall(`/chaplaincy/spiritual-profiles/${studentId}`, "PUT", data),
+    addSpiritualMilestone: async (studentId, data) =>
+      apiCall(`/chaplaincy/spiritual-profiles/${studentId}/milestones`, "POST", data),
+
+    // Pastoral care visits
+    getPastoralVisits: async (params = {}) => apiCall("/chaplaincy/pastoral-visits", "GET", null, params),
+    createPastoralVisit: async (data) => apiCall("/chaplaincy/pastoral-visits", "POST", data),
+    updatePastoralVisit: async (id, data) => apiCall(`/chaplaincy/pastoral-visits/${id}`, "PUT", data),
+
+    // Dashboard
+    getDashboardSummary: async () => apiCall("/chaplaincy/dashboard-summary", "GET"),
   },
 
   boarding: {
@@ -6991,22 +7137,22 @@ window.API = {
      * Get full headteacher dashboard data in a single call
      * Returns: cards, charts, tables, timestamp
      */
-    getHeadteacherFull: async () => {
-      return await apiCall("/dashboard/headteacher/full", "GET");
+    getHeadteacherFull: async (params = {}) => {
+      return await apiCall("/dashboard/headteacher/full", "GET", null, params);
     },
 
     /**
      * Get Deputy Academic dashboard data
      */
-    getDeputyAcademicFull: async () => {
-      return await apiCall("/dashboard/deputy-academic/full", "GET");
+    getDeputyAcademicFull: async (params = {}) => {
+      return await apiCall("/dashboard/deputy-academic/full", "GET", null, params);
     },
 
     /**
      * Get Deputy Discipline dashboard data
      */
-    getDeputyDisciplineFull: async () => {
-      return await apiCall("/dashboard/deputy-discipline/full", "GET");
+    getDeputyDisciplineFull: async (params = {}) => {
+      return await apiCall("/dashboard/deputy-discipline/full", "GET", null, params);
     },
 
     /**

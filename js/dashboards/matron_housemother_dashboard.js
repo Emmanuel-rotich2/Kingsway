@@ -22,13 +22,14 @@
         scopeId: 'boardingDashboardScope',
         lastUpdatedId: 'boardingDashboardLastUpdated',
 
-        async apiMethod({ period } = {}) {
+        async apiMethod(filters = {}) {
+            const period = filters.period;
             try {
                 const [statsResponse, occupancyResponse, rollCallResponse, exeatResponse] = await Promise.all([
                     window.API.boarding.getStats(),
                     window.API.boarding.getOccupancy(),
-                    window.API.boarding.getRollCalls({ date: today() }),
-                    window.API.boarding.getExeats({})
+                    window.API.boarding.getRollCalls({ ...filters, date: filters.date_to }),
+                    window.API.boarding.getExeats(filters)
                 ]);
 
                 const stats = unwrap(statsResponse) || {};

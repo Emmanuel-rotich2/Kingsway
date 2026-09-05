@@ -52,7 +52,7 @@ class CounselingController extends BaseController
      */
     public function getSummary($id = null, $data = [], $segments = [])
     {
-        return $this->handleResponse($this->api->getSummary());
+        return $this->handleResponse($this->api->getSummary($_GET ?? []));
     }
 
     /**

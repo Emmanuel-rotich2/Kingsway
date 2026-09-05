@@ -14,6 +14,7 @@ use App\API\Modules\students\StudentIDCardService;
 use App\API\Modules\students\StudentTransferService;
 use App\API\Modules\students\StudentPromotionService;
 use App\API\Modules\students\StudentParentService;
+use App\API\Modules\students\StudentLeadershipService;
 use App\API\Modules\students\StudentProfileManager;
 use App\API\Modules\academic\AcademicYearManager;
 use Exception;
@@ -34,6 +35,7 @@ class StudentsController extends BaseController
     private StudentTransferService $transferService;
     private StudentPromotionService $promotionService;
     private StudentParentService $parentService;
+    private StudentLeadershipService $leadershipService;
     private StudentProfileManager $studentProfileManager;
     private const STUDENT_VIEW_PERMS = [
         'students_view',
@@ -49,6 +51,13 @@ class StudentsController extends BaseController
     private const STUDENT_CREATE_PERMS = ['students_create'];
     private const STUDENT_EDIT_PERMS = ['students_edit'];
     private const STUDENT_DELETE_PERMS = ['students_delete'];
+
+    /**
+     * Leadership/houses/awards records are managed only by the Student
+     * Organisation owners (School Admin, Headteacher, Deputies) — NOT by any
+     * staff holding generic students_edit (teachers get read-only access).
+     */
+    private const LEADERSHIP_MANAGE_PERMS = ['student_leadership_manage'];
     private const STUDENT_PROMOTE_PERMS = ['students_generate', 'students_edit'];
     private const STUDENT_TRANSFER_PERMS = [
         'students_transfers_create',
@@ -139,6 +148,7 @@ class StudentsController extends BaseController
         $this->transferService = new StudentTransferService($this->api);
         $this->promotionService = new StudentPromotionService($this->api, $this->promotionManager);
         $this->parentService = new StudentParentService($this->api, $this->familyGroupsManager);
+        $this->leadershipService = new StudentLeadershipService($connection);
         $this->studentProfileManager = new StudentProfileManager();
     }
 
@@ -1477,6 +1487,262 @@ class StudentsController extends BaseController
         return $this->parentService->getParentsGet($id, $data, $segments, $this);
     }
 
+    /* =====================================================================
+     * STUDENT LEADERSHIP, HOUSES & AWARDS
+     *
+     * Single governed source (school_leadership / houses / student_awards)
+     * feeding the student portfolio and longitudinal participation record.
+     * Guarded by the students view permission set; learner records are
+     * restricted to live (non-test) people server-side.
+     * =================================================================== */
+
+    /**
+     * GET /api/students/leadership
+     */
+    public function getLeadership($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view leadership records')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->list($data));
+    }
+
+    /**
+     * GET /api/students/leadership/positions
+     */
+    public function getLeadershipPositions($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view leadership positions')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->positions());
+    }
+
+    /**
+     * GET /api/students/leadership/history/{studentId}
+     */
+    public function getLeadershipHistory($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view leadership history')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->history((int) $id));
+    }
+
+    /**
+     * POST /api/students/leadership
+     */
+    public function postLeadership($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to assign leadership')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->create($data));
+    }
+
+    /**
+     * PUT /api/students/leadership/{id}
+     */
+    public function putLeadership($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit leadership')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->update((int) $id, $data));
+    }
+
+    /**
+     * DELETE /api/students/leadership/{id}
+     */
+    public function deleteLeadership($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove leadership')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->delete((int) $id));
+    }
+
+    /**
+     * GET /api/students/houses
+     */
+    public function getHouses($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view houses')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->listHouses($data));
+    }
+
+    /**
+     * POST /api/students/houses
+     */
+    public function postHouses($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to create a house')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->createHouse($data));
+    }
+
+    /**
+     * PUT /api/students/houses/{id}
+     */
+    public function putHouses($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit a house')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->updateHouse((int) $id, $data));
+    }
+
+    /**
+     * GET /api/students/awards
+     */
+    public function getAwards($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view awards')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->listAwards($data));
+    }
+
+    /**
+     * GET /api/students/awards/history/{studentId}
+     */
+    public function getAwardsHistory($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view award history')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->history((int) $id));
+    }
+
+    /**
+     * POST /api/students/awards
+     */
+    public function postAwards($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to issue an award')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->createAward($data));
+    }
+
+    /**
+     * PUT /api/students/awards/{id}
+     */
+    public function putAwards($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit an award')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->updateAward((int) $id, $data));
+    }
+
+    /**
+     * DELETE /api/students/awards/{id}
+     */
+    public function deleteAwards($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove an award')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->deleteAward((int) $id));
+    }
+
+    /**
+     * GET /api/students/awards/catalogue
+     *      Categories with their active types (cascade selects, modal).
+     */
+    public function getAwardsCatalogue($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view award types')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->getAwardCatalog());
+    }
+
+    /**
+     * GET /api/students/awards/types
+     */
+    public function getAwardsTypes($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view award types')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->listAwardTypes($data));
+    }
+
+    /**
+     * GET /api/students/awards/categories
+     */
+    public function getAwardsCategories($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_VIEW_PERMS, 'Insufficient permission to view award categories')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->listAwardCategories());
+    }
+
+    /**
+     * POST /api/students/awards/types
+     */
+    public function postAwardsTypes($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to create an award type')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->createAwardType($data));
+    }
+
+    /**
+     * PUT /api/students/awards/types/{id}
+     */
+    public function putAwardsTypes($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to edit an award type')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->updateAwardType((int) $id, $data));
+    }
+
+    /**
+     * DELETE /api/students/awards/types/{id}
+     */
+    public function deleteAwardsTypes($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to remove an award type')) {
+            return $auth;
+        }
+        return $this->handleResponse($this->leadershipService->deleteAwardType((int) $id));
+    }
+
+    /**
+     * POST /api/students/awards/certificate
+     *      POST /api/students/awards/certificate/{awardId}
+     *
+     * Generate certificate PDF(s) for one award or a batch of award IDs.
+     * Body (batch): { "award_ids": [5, 6] }
+     */
+    public function postAwardsCertificate($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to print certificates')) {
+            return $auth;
+        }
+        $service = new \App\API\Modules\students\AwardCertificateService($this->db->getConnection());
+        $operatorId = (int) $this->getUserId();
+        $awardIds = $data['award_ids'] ?? [];
+        if (is_array($awardIds) && !empty($awardIds)) {
+            $awardIds = array_values(array_unique(array_map('intval', $awardIds)));
+        } elseif ($id) {
+            $awardIds = [(int) $id];
+        } else {
+            return $this->badRequest('award_ids or an award ID is required');
+        }
+        $result = $service->generateForAwards($awardIds, $operatorId);
+        return $this->handleResponse($result);
+    }
+
     /**
      * GET /api/students/parents/list
      */
@@ -1491,7 +1757,7 @@ class StudentsController extends BaseController
         // request the full parent directory; everyone else is restricted to
         // students in their own class-teacher stream.
         $roles = $this->getUserRoleIds();
-        if (empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 63]))) {
+        if (empty(array_intersect($roles, [2, 3, 4, 5, 6, 10, 24, 63]))) {
             $data['class'] = 'self';
             $data['staff_user_id'] = (int) $this->getUserId();
         }
@@ -2391,6 +2657,28 @@ return $this->badRequest('An internal error occurred.');
         } catch (\Exception $e) {
             \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
 return $this->badRequest('An internal error occurred.');
+        }
+    }
+
+    /**
+     * POST /api/students/special-needs-ieps
+     * Creates a new IEP record for an active student.
+     */
+    public function postSpecialNeedsIeps($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->authorizeStudents(self::STUDENT_CREATE_PERMS, 'Insufficient permission to create IEP records')) {
+            return $auth;
+        }
+
+        try {
+            $payload = $this->studentInsightsService->createSpecialNeedsIep($data, (int)$this->user['id']);
+            return $this->success($payload, 'IEP record created successfully.');
+        } catch (\RuntimeException $e) {
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->badRequest($e->getMessage());
+        } catch (\Exception $e) {
+            \App\API\Services\Logger::legacyError('[StudentsController] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+            return $this->badRequest('An internal error occurred.');
         }
     }
 

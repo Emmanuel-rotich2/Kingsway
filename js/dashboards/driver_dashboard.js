@@ -22,7 +22,8 @@
         scopeId: 'driverDashboardScope',
         lastUpdatedId: 'driverDashboardLastUpdated',
 
-        async apiMethod({ period } = {}) {
+        async apiMethod(filters = {}) {
+            const period = filters.period;
             try {
                 const [routeResponse, vehicleResponse] = await Promise.all([
                     window.API.transport.getMyRoute(),
@@ -34,7 +35,12 @@
                 let manifest = [];
 
                 if (route?.id) {
-                    const manifestResponse = await window.API.transport.getRouteManifest(Number(route.id));
+                    const now = new Date();
+                    const manifestResponse = await window.API.transport.getRouteManifest(
+                        Number(route.id),
+                        now.getMonth() + 1,
+                        now.getFullYear()
+                    );
                     const manifestValue = unwrap(manifestResponse);
                     manifest = Array.isArray(manifestValue)
                         ? manifestValue
@@ -43,8 +49,14 @@
                             : [];
                 }
 
-                const schedules = Array.isArray(route?.schedules) ? route.schedules : [];
-                const incidents = Array.isArray(route?.recent_incidents) ? route.recent_incidents : [];
+                const inRange = row => {
+                    const value = row?.date || row?.incident_date || row?.created_at;
+                    if (!value) return true;
+                    const date = String(value).slice(0, 10);
+                    return date >= filters.date_from && date <= filters.date_to;
+                };
+                const schedules = (Array.isArray(route?.schedules) ? route.schedules : []).filter(inRange);
+                const incidents = (Array.isArray(route?.recent_incidents) ? route.recent_incidents : []).filter(inRange);
 
                 const dayTotals = {};
                 weekdayLabels.forEach(day => { dayTotals[day] = 0; });

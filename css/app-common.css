@@ -703,17 +703,3 @@ table.table thead th[scope="col"] {
   transform: translateY(-2px);
   box-shadow: 0 6px 18px rgba(16, 24, 40, 0.1);
 }
-body.test-workspace #main-content-area::before {
-    content: "TEST WORKSPACE";
-    position: fixed;
-    inset: 50% auto auto 50%;
-    z-index: 1040;
-    transform: translate(-50%, -50%) rotate(-24deg);
-    color: rgba(180, 83, 9, 0.08);
-    font-size: clamp(3rem, 9vw, 8rem);
-    font-weight: 800;
-    letter-spacing: 0.12em;
-    white-space: nowrap;
-    pointer-events: none;
-    user-select: none;
-}

@@ -2,6 +2,7 @@
 namespace App\API\Modules\counseling;
 
 use App\API\Includes\BaseAPI;
+use App\API\Services\DashboardPeriodService;
 use PDO;
 use Exception;
 
@@ -24,10 +25,14 @@ class CounselingAPI extends BaseAPI
      * Get summary statistics for counseling cases and sessions.
      * @return array
      */
-    public function getSummary()
+    public function getSummary(array $filters = [])
     {
         try {
-            $summaryStmt = $this->db->query(
+            $range = DashboardPeriodService::resolve($this->db, $filters);
+            $dateFrom = $range['date_from'];
+            $dateTo = $range['date_to'];
+
+            $summaryStmt = $this->db->prepare(
                 "SELECT COUNT(*) AS total_cases,
                         SUM(status IN ('open', 'in_progress')) AS open_cases,
                         SUM(priority = 'urgent' AND status IN ('open', 'in_progress')) AS urgent_cases,
@@ -36,39 +41,40 @@ class CounselingAPI extends BaseAPI
                             AND status IN ('open', 'in_progress')) AS follow_ups_due,
                         SUM(status = 'resolved') AS resolved_cases,
                         SUM(status = 'closed') AS closed_cases
-                 FROM counseling_cases"
+                 FROM counseling_cases
+                 WHERE DATE(opened_at) BETWEEN ? AND ?"
             );
+            $summaryStmt->execute([$dateFrom, $dateTo]);
             $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
-            $sessionStmt = $this->db->query(
+            $sessionStmt = $this->db->prepare(
                 "SELECT COUNT(*) AS sessions_this_month
                  FROM counseling_sessions
-                 WHERE session_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')
-                   AND session_date < DATE_ADD(
-                        DATE_FORMAT(CURDATE(), '%Y-%m-01'),
-                        INTERVAL 1 MONTH
-                   )"
+                 WHERE session_date BETWEEN ? AND ?"
             );
+            $sessionStmt->execute([$dateFrom, $dateTo]);
             $sessionsThisMonth = (int) ($sessionStmt->fetchColumn() ?: 0);
 
-            $typeStmt = $this->db->query(
+            $typeStmt = $this->db->prepare(
                 "SELECT case_type, COUNT(*) AS case_count
                  FROM counseling_cases
-                 WHERE status IN ('open', 'in_progress')
+                 WHERE status IN ('open', 'in_progress') AND DATE(opened_at) BETWEEN ? AND ?
                  GROUP BY case_type
                  ORDER BY case_count DESC, case_type"
             );
+            $typeStmt->execute([$dateFrom, $dateTo]);
 
-            $trendStmt = $this->db->query(
+            $trendStmt = $this->db->prepare(
                 "SELECT DATE_FORMAT(session_date, '%Y-%m') AS month,
                         COUNT(*) AS session_count
                  FROM counseling_sessions
-                 WHERE session_date >= DATE_SUB(CURDATE(), INTERVAL 5 MONTH)
+                 WHERE session_date BETWEEN ? AND ?
                  GROUP BY DATE_FORMAT(session_date, '%Y-%m')
                  ORDER BY month"
             );
+            $trendStmt->execute([$dateFrom, $dateTo]);
 
-            $caseStmt = $this->db->query(
+            $caseStmt = $this->db->prepare(
                 "SELECT c.id, c.case_code, c.title, c.counselee_type, c.case_type,
                         c.priority, c.status, c.next_follow_up_at, c.opened_at,
                         COALESCE(
@@ -81,13 +87,14 @@ class CounselingAPI extends BaseAPI
                  LEFT JOIN persons sp ON sp.id = s.person_id
                  LEFT JOIN staff st ON st.id = c.staff_id
                  LEFT JOIN persons stp ON stp.id = st.person_id
-                 WHERE c.status IN ('open', 'in_progress')
+                 WHERE c.status IN ('open', 'in_progress') AND DATE(c.opened_at) BETWEEN ? AND ?
                  ORDER BY FIELD(c.priority, 'urgent', 'high', 'medium', 'low'),
                           COALESCE(c.next_follow_up_at, c.created_at), c.id DESC
                  LIMIT 20"
             );
+            $caseStmt->execute([$dateFrom, $dateTo]);
 
-            $followStmt = $this->db->query(
+            $followStmt = $this->db->prepare(
                 "SELECT c.id, c.case_code, c.title, c.counselee_type, c.case_type,
                         c.priority, c.status, c.next_follow_up_at,
                         COALESCE(
@@ -103,24 +110,117 @@ class CounselingAPI extends BaseAPI
                  WHERE c.next_follow_up_at IS NOT NULL
                    AND c.next_follow_up_at <= DATE_ADD(NOW(), INTERVAL 14 DAY)
                    AND c.status IN ('open', 'in_progress')
+                   AND DATE(c.opened_at) BETWEEN ? AND ?
                  ORDER BY c.next_follow_up_at, FIELD(c.priority, 'urgent', 'high', 'medium', 'low')
                  LIMIT 20"
             );
+            $followStmt->execute([$dateFrom, $dateTo]);
 
-            $totalSessions = (int) $this->db->query("SELECT COUNT(*) FROM counseling_sessions")->fetchColumn();
-            $scheduled = (int) $this->db->query(
+            $periodStmt = $this->db->prepare("SELECT COUNT(*) FROM counseling_sessions WHERE session_date BETWEEN ? AND ?");
+            $periodStmt->execute([$dateFrom, $dateTo]);
+            $totalSessions = (int) $periodStmt->fetchColumn();
+            $scheduledStmt = $this->db->prepare(
                 "SELECT COUNT(*) FROM counseling_sessions
-                 WHERE session_date >= CURDATE() AND session_date < DATE_ADD(CURDATE(), INTERVAL 7 DAY)"
-            )->fetchColumn();
-            $referrals = (int) $this->db->query(
+                 WHERE session_date BETWEEN ? AND ?"
+            );
+            $scheduledStmt->execute([$dateFrom, $dateTo]);
+            $scheduled = (int) $scheduledStmt->fetchColumn();
+            $referralStmt = $this->db->prepare(
                 "SELECT COUNT(*) FROM counseling_cases
-                 WHERE referral_source IS NOT NULL AND referral_source <> ''"
-            )->fetchColumn();
-            $activeCounselees = (int) $this->db->query(
+                 WHERE referral_source IS NOT NULL AND referral_source <> ''
+                   AND DATE(opened_at) BETWEEN ? AND ?"
+            );
+            $referralStmt->execute([$dateFrom, $dateTo]);
+            $referrals = (int) $referralStmt->fetchColumn();
+            $counseleeStmt = $this->db->prepare(
                 "SELECT COUNT(DISTINCT IF(counselee_type = 'staff', staff_id, student_id))
                  FROM counseling_cases
-                 WHERE status IN ('open', 'in_progress')"
-            )->fetchColumn();
+                 WHERE status IN ('open', 'in_progress') AND DATE(opened_at) BETWEEN ? AND ?"
+            );
+            $counseleeStmt->execute([$dateFrom, $dateTo]);
+            $activeCounselees = (int) $counseleeStmt->fetchColumn();
+
+            $referralSourceStmt = $this->db->prepare(
+                "SELECT COALESCE(NULLIF(referral_source, ''), 'Not specified') AS source,
+                        COUNT(*) AS case_count
+                 FROM counseling_cases
+                 WHERE DATE(opened_at) BETWEEN ? AND ?
+                 GROUP BY referral_source
+                 ORDER BY case_count DESC, source
+                 LIMIT 10"
+            );
+            $referralSourceStmt->execute([$dateFrom, $dateTo]);
+
+            $gradeStmt = $this->db->prepare(
+                "SELECT COALESCE(cls.name, IF(c.counselee_type = 'staff', 'Staff', 'Unassigned')) AS grade,
+                        COUNT(*) AS case_count
+                 FROM counseling_cases c
+                 LEFT JOIN students s ON s.id = c.student_id
+                 LEFT JOIN student_academic_enrollments sae
+                     ON sae.student_id = c.student_id AND sae.enrollment_status = 'active'
+                 LEFT JOIN academic_year_class_streams aycs ON aycs.id = sae.academic_year_class_stream_id
+                 LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
+                 LEFT JOIN classes cls ON cls.id = ayc.class_id
+                 WHERE DATE(c.opened_at) BETWEEN ? AND ?
+                 GROUP BY grade
+                 ORDER BY case_count DESC, grade
+                 LIMIT 10"
+            );
+            $gradeStmt->execute([$dateFrom, $dateTo]);
+
+            $statusStmt = $this->db->prepare(
+                "SELECT status, COUNT(*) AS case_count
+                 FROM counseling_cases
+                 WHERE DATE(opened_at) BETWEEN ? AND ?
+                 GROUP BY status
+                 ORDER BY case_count DESC, status"
+            );
+            $statusStmt->execute([$dateFrom, $dateTo]);
+
+            $recentSessionsStmt = $this->db->prepare(
+                "SELECT cs.id, cs.case_id, cs.session_date, cs.session_type, cs.summary,
+                        c.case_code, c.case_type, c.counselee_type, c.priority, c.status,
+                        COALESCE(
+                            CONCAT_WS(' ', stp.first_name, stp.last_name),
+                            CONCAT_WS(' ', sp.first_name, sp.last_name)
+                        ) AS counselee_name,
+                        CONCAT_WS(' ', up.first_name, up.last_name) AS counselor_name
+                 FROM counseling_sessions cs
+                 JOIN counseling_cases c ON c.id = cs.case_id
+                 LEFT JOIN students s ON s.id = c.student_id
+                 LEFT JOIN persons sp ON sp.id = s.person_id
+                 LEFT JOIN staff st ON st.id = c.staff_id
+                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN users u ON u.id = c.assigned_to
+                 LEFT JOIN persons up ON up.id = u.person_id
+                 WHERE cs.session_date BETWEEN ? AND ?
+                 ORDER BY cs.session_date DESC, cs.id DESC
+                 LIMIT 8"
+            );
+            $recentSessionsStmt->execute([$dateFrom, $dateTo]);
+
+            $recentReferralsStmt = $this->db->prepare(
+                "SELECT c.id, c.case_code, c.case_type, c.title, c.referral_source,
+                        c.priority, c.status, c.opened_at,
+                        COALESCE(
+                            CONCAT_WS(' ', stp.first_name, stp.last_name),
+                            CONCAT_WS(' ', sp.first_name, sp.last_name)
+                        ) AS counselee_name,
+                        s.admission_no,
+                        CONCAT_WS(' ', op.first_name, op.last_name) AS referred_by
+                 FROM counseling_cases c
+                 LEFT JOIN students s ON s.id = c.student_id
+                 LEFT JOIN persons sp ON sp.id = s.person_id
+                 LEFT JOIN staff st ON st.id = c.staff_id
+                 LEFT JOIN persons stp ON stp.id = st.person_id
+                 LEFT JOIN users uo ON uo.id = c.opened_by
+                 LEFT JOIN persons op ON op.id = uo.person_id
+                 WHERE c.referral_source IS NOT NULL AND c.referral_source <> ''
+                   AND DATE(c.opened_at) BETWEEN ? AND ?
+                 ORDER BY c.opened_at DESC
+                 LIMIT 10"
+            );
+            $recentReferralsStmt->execute([$dateFrom, $dateTo]);
 
             $byType = $typeStmt->fetchAll(PDO::FETCH_ASSOC);
             $trend = $trendStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -144,8 +244,14 @@ class CounselingAPI extends BaseAPI
                     'referrals' => $referrals,
                     'by_type' => $byType,
                     'session_trend' => $trend,
+                    'referrals_by_source' => $referralSourceStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'cases_by_grade' => $gradeStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'by_status' => $statusStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'recent_sessions' => $recentSessionsStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'recent_referrals' => $recentReferralsStmt->fetchAll(PDO::FETCH_ASSOC),
                     'active_cases' => $caseStmt->fetchAll(PDO::FETCH_ASSOC),
                     'follow_ups' => $followStmt->fetchAll(PDO::FETCH_ASSOC),
+                    'meta' => ['filters' => $range],
                 ],
             ]);
         } catch (Exception $e) {

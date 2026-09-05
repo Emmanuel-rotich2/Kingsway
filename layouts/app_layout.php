@@ -9,7 +9,6 @@ ini_set('log_errors', '1');
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use App\Config\DashboardRouter;
-use App\Config\Config;
 
 $route = $_GET['route'] ?? 'loading';
 $route = is_string($route) ? trim($route) : 'loading';
@@ -59,7 +58,7 @@ $user_id = null;
 $sidebar_items = [];
 ?>
 
-<div class="app-shell" id="app-shell" data-environment="<?= htmlspecialchars(Config::getEnvironment(), ENT_QUOTES, 'UTF-8') ?>">
+<div class="app-shell" id="app-shell">
     <a href="#main-content-area" class="visually-hidden-focusable skip-link">
         Skip to main content
     </a>
@@ -81,13 +80,6 @@ $sidebar_items = [];
 
     <div class="app-main-column">
         <?php include __DIR__ . '/../components/global/header.php'; ?>
-
-        <div class="alert alert-warning rounded-0 border-0 border-bottom mb-0 text-center fw-semibold d-none"
-             id="test-workspace-banner" role="status">
-            <i class="bi bi-cone-striped me-2"></i>
-            TEST WORKSPACE — no action here may affect live school records
-            <span id="test-workspace-expiry" class="ms-2"></span>
-        </div>
 
         <main id="main-content-area" class="app-content" tabindex="-1" role="main">
             <div

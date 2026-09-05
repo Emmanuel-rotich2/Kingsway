@@ -281,18 +281,16 @@ final class PrintService
      */
     public function printCertificate(string $type, array $data): string
     {
-        $validTypes = [
-            'academic_excellence',
-            'sports_achievement',
-            'graduation',
-        ];
-
-        if (!in_array($type, $validTypes, true)) {
+        if (!preg_match('/^[a-z0-9_]{1,80}$/i', $type)) {
             throw new InvalidArgumentException(
-                "Invalid certificate type: {$type}"
+                "Invalid certificate template key: {$type}"
             );
         }
 
+        // The certificates directory is the template registry: a template_key
+        // is valid when a matching .php template exists (e.g. leadership_service,
+        // co_curricular, spiritual_chaplaincy). This removes the hardcoded
+        // three-type allowlist and lets every department own its own design.
         $templatePath = $this->certificatesPath . $type . '.php';
 
         if (!is_file($templatePath)) {
@@ -324,6 +322,14 @@ final class PrintService
                 'teacherName' => 'Class Teacher',
                 'sportsCoordinatorName' => 'Sports Coordinator',
                 'examOfficerName' => 'Examinations Officer',
+                'certificateTypeName' => '',
+                'certificateCategoryName' => '',
+                'admissionNo' => '',
+                'departmentName' => '',
+                'eventName' => '',
+                'signatoryRole' => '',
+                'secondarySignatoryRole' => '',
+                'verificationUrl' => '',
             ],
             $data
         );
@@ -2120,6 +2126,49 @@ final class PrintService
         );
     }
 
+    /**
+     * Resolve the stylesheet content a standalone print template needs,
+     * in an environment-agnostic way.
+     *
+     * Templates must NOT hard-code filesystem paths (e.g. dirname(__DIR__, N)
+     * combined with /public/css/...): the UPLOAD_PATH and the document root
+     * differ between localhost and production, so those paths break. Instead
+     * PrintService resolves the stylesheet from the canonical project root —
+     * the same root used for every other print asset — and hands its content
+     * to the template via the $printStyles variable.
+     *
+     * The file is looked up under both css/ and public/css/ so a relocation of
+     * the stylesheet never breaks an already-generated template.
+     *
+     * @return string Empty string when the stylesheet could not be found.
+     */
+    private function loadTemplateStylesheet(string $stylesheet): string
+    {
+        $projectRoot = rtrim($this->resolveProjectRoot(), DIRECTORY_SEPARATOR);
+        $stylesheet = trim((string) $stylesheet, '/\\');
+
+        if ($stylesheet === '') {
+            return '';
+        }
+
+        $candidates = [
+            $projectRoot . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . $stylesheet,
+            $projectRoot . DIRECTORY_SEPARATOR . 'public' . DIRECTORY_SEPARATOR . 'css' . DIRECTORY_SEPARATOR . $stylesheet,
+        ];
+
+        foreach ($candidates as $path) {
+            if (is_file($path) && is_readable($path)) {
+                $css = @file_get_contents($path);
+
+                if ($css !== false && trim($css) !== '') {
+                    return $css;
+                }
+            }
+        }
+
+        return '';
+    }
+
     private function addDompdfPageNumbers(
         Dompdf $dompdf,
         string $orientation,
@@ -2974,7 +3023,12 @@ final class PrintService
             throw new RuntimeException("Fee structure template not found: {$templatePath}");
         }
 
-        $variables = array_merge($this->buildTemplateVariables($config), $data, $config);
+        $variables = array_merge(
+            $this->buildTemplateVariables($config),
+            $data,
+            $config,
+            ['printStyles' => $this->loadTemplateStylesheet('fee-structure-print.css')]
+        );
         $html = $this->renderPhpTemplate($templatePath, $variables);
 
         return $this->generatePDF($html, [
@@ -3069,6 +3123,7 @@ final class PrintService
         }
         $variables = array_merge($this->buildTemplateVariables($config), $variables, $config);
         $variables['generatedAt'] = (new \DateTime('now', new \DateTimeZone('Africa/Nairobi')))->format('d M Y H:i');
+        $variables['printStyles'] = $this->loadTemplateStylesheet('fee-structure-print.css');
 
         $html = $this->renderPhpTemplate($templatePath, $variables);
 
@@ -3612,11 +3667,16 @@ final class PrintService
         // page rules, school header, watermark, content and footer; wrapping
         // it in renderDedicatedReportTemplate() would inject the generic
         // report header/footer and strip the template's own page styling.
+        // CSS is resolved centrally here from the project root (never by
+        // hard-coded upload/document-root paths inside the template).
         $variables = array_merge(
             $this->buildTemplateVariables($config),
             $config,
             $data,
-            ['useSharedReportShell' => false]
+            [
+                'useSharedReportShell' => false,
+                'printStyles' => $this->loadTemplateStylesheet('pay-slip-print.css'),
+            ]
         );
         $html = $this->renderPhpTemplate($templatePath, $variables);
 

@@ -224,6 +224,7 @@ return [
                 ['label' => 'Performance Overview', 'url' => 'student_performance'],
                 ['label' => 'Discipline Overview', 'url' => 'discipline_cases'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Alumni Management', 'url' => 'alumni_management'],
             ]
         ],
@@ -438,6 +439,7 @@ return [
             'icon' => 'fas fa-user-graduate',
             'subitems' => [
                 ['label' => 'All Students', 'url' => 'manage_students'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'ID Cards', 'url' => 'student_id_cards'],
                 ['label' => 'Family Groups', 'url' => 'manage_family_groups'],
@@ -790,6 +792,7 @@ return [
                 ['label' => 'Counseling', 'url' => 'student_counseling'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
                 ['label' => 'Health Records', 'url' => 'student_health'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Alumni Management', 'url' => 'alumni_management'],
             ]
         ],
@@ -988,6 +991,7 @@ return [
                 ['label' => 'Performance Overview', 'url' => 'student_performance'],
                 ['label' => 'Student Promotion', 'url' => 'student_promotion'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
             ]
         ],
 
@@ -1096,6 +1100,7 @@ return [
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'Class Performance', 'url' => 'my_students_performance'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
                 ['label' => 'Special Needs Students', 'url' => 'special_needs_students'],
             ]
         ],
@@ -1259,6 +1264,7 @@ return [
                 ['label' => 'Subject Learners', 'url' => 'students_by_class'],
                 ['label' => 'Performance Tracking', 'url' => 'student_subject_performance'],
                 ['label' => 'Student Portfolio', 'url' => 'student_portfolio'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
             ]
         ],
 
@@ -1404,6 +1410,7 @@ return [
             'subitems' => [
                 ['label' => 'View Student List', 'url' => 'view_class_lists'],
                 ['label' => 'View Student Info', 'url' => 'view_student_info'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
             ]
         ],
 
@@ -2036,8 +2043,28 @@ return [
     // 24 — Chaplain / School Counselor
     // Counseling sessions, chapel, student welfare, referrals from Discipline
     // =========================================================================
-    24 => [
+     24 => [
         ['label' => 'Dashboard', 'url' => 'school_counselor_chaplain_dashboard', 'icon' => 'fas fa-tachometer-alt', 'subitems' => []],
+
+        [
+            'label' => 'Chaplaincy Department',
+            'url' => null,
+            'icon' => 'fas fa-church',
+            'subitems' => [
+                ['label' => 'Department & Team', 'url' => 'chaplaincy_department'],
+                ['label' => 'Spiritual Programs', 'url' => 'chaplaincy_programs'],
+                ['label' => 'Groups & Pastoral Care', 'url' => 'chaplaincy_pastoral'],
+            ]
+        ],
+
+        [
+            'label' => 'Student Leadership',
+            'url' => null,
+            'icon' => 'fas fa-medal',
+            'subitems' => [
+                ['label' => 'Leadership & Offices', 'url' => 'student_leadership'],
+            ]
+        ],
 
         [
             'label' => 'Counseling',
@@ -2048,16 +2075,6 @@ return [
                 ['label' => 'Counseling Records', 'url' => 'counseling_records'],
                 ['label' => 'Referrals', 'url' => 'counseling_referrals'],      // from Discipline Deputy
                 ['label' => 'Case Management', 'url' => 'counseling_cases'],
-            ]
-        ],
-
-        [
-            'label' => 'Chapel',
-            'url' => null,
-            'icon' => 'fas fa-church',
-            'subitems' => [
-                ['label' => 'Chapel Services', 'url' => 'chapel_services'],
-                ['label' => 'Chapel Schedule', 'url' => 'chapel_schedule'],
             ]
         ],
 
@@ -2298,6 +2315,7 @@ return [
                 ['label' => 'Discipline Students', 'url' => 'discipline_students'],
                 ['label' => 'Student Profiles', 'url' => 'student_profiles'],
                 ['label' => 'Special Needs', 'url' => 'special_needs'],
+                ['label' => 'Student Leadership', 'url' => 'student_leadership'],
             ]
         ],
 
