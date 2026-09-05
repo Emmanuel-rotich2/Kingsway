@@ -46,12 +46,12 @@ class ActivitiesManager extends BaseAPI
 
             // Filter by date range
             if (!empty($params['start_date'])) {
-                $where[] = 'a.start_date >= ?';
+                $where[] = 'a.end_date >= ?';
                 $bindings[] = $params['start_date'];
             }
 
             if (!empty($params['end_date'])) {
-                $where[] = 'a.end_date <= ?';
+                $where[] = 'a.start_date <= ?';
                 $bindings[] = $params['end_date'];
             }
 
@@ -520,12 +520,12 @@ class ActivitiesManager extends BaseAPI
             }
 
             if (!empty($params['start_date'])) {
-                $where[] = 'start_date >= ?';
+                $where[] = 'end_date >= ?';
                 $bindings[] = $params['start_date'];
             }
 
             if (!empty($params['end_date'])) {
-                $where[] = 'end_date <= ?';
+                $where[] = 'start_date <= ?';
                 $bindings[] = $params['end_date'];
             }
 

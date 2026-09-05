@@ -77,7 +77,9 @@ class BoardingController extends BaseController
     public function getRollCall($id = null, $data = [], $segments = [])
     {
         $date = $_GET['date'] ?? $data['date'] ?? date('Y-m-d');
-        return $this->handleApiResponse($this->manager->getRollCall($date));
+        $dateFrom = $_GET['date_from'] ?? $data['date_from'] ?? $date;
+        $dateTo = $_GET['date_to'] ?? $data['date_to'] ?? $date;
+        return $this->handleApiResponse($this->manager->getRollCall($date, $dateFrom, $dateTo));
     }
 
     public function postRollCall($id = null, $data = [], $segments = [])
@@ -89,7 +91,11 @@ class BoardingController extends BaseController
     public function getExeats($id = null, $data = [], $segments = [])
     {
         $status = $_GET['status'] ?? $data['status'] ?? '';
-        return $this->handleApiResponse($this->manager->getExeats($status));
+        return $this->handleApiResponse($this->manager->getExeats(
+            $status,
+            $_GET['date_from'] ?? $data['date_from'] ?? null,
+            $_GET['date_to'] ?? $data['date_to'] ?? null
+        ));
     }
 
     public function postExeats($id = null, $data = [], $segments = [])

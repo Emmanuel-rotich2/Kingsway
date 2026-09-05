@@ -6,6 +6,7 @@ use App\API\Includes\ValidationHelper;
 use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
+use App\API\Services\TestAccountAccessService;
 use App\API\Services\UsernameService;
 use Firebase\JWT\JWT;
 use PDO;
@@ -223,19 +224,29 @@ class UsersAPI extends BaseAPI
     {
         // Never expose password hashes through the user-management API.
         $stmt = $this->db->prepare(
-            'SELECT u.id, u.username, p.email, p.first_name, p.last_name,
+            "SELECT u.id, u.username, p.email, p.first_name, p.last_name,
                     r.id AS role_id, r.name AS role_name, u.status, u.last_login,
                     u.password_changed_at, u.created_at, u.updated_at,
                     u.failed_login_attempts, u.account_locked_until,
-                    u.password_expires_at, u.force_password_change, u.is_test_user
+                    u.password_expires_at, u.force_password_change, u.is_test_user,
+                    u.account_type, u.data_scope,
+                    g.id AS test_access_grant_id, g.purpose AS test_access_purpose,
+                    g.starts_at AS test_access_starts_at,
+                    g.expires_at AS test_access_expires_at,
+                    g.status AS test_access_status
              FROM users u
              LEFT JOIN persons p ON p.id = u.person_id
+             LEFT JOIN test_account_access_grants g ON g.id = (
+                 SELECT tg.id FROM test_account_access_grants tg
+                 WHERE tg.user_id=u.id AND tg.environment=?
+                 ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
+             )
              LEFT JOIN roles r ON r.id = (
                  SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
              )
-             WHERE u.id = ?'
+             WHERE u.id = ?"
         );
-        $stmt->execute([$id]);
+        $stmt->execute([TestAccountAccessService::environment(), $id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($user) {
             return ['success' => true, 'data' => $user];
@@ -245,18 +256,29 @@ class UsersAPI extends BaseAPI
     }
     public function list($data = [])
     {
+        (new TestAccountAccessService($this->db))->expireDueGrants();
         // List all users (optionally filter by status, role, etc.)
-        $sql = 'SELECT u.id, u.username, p.email, p.first_name, p.last_name,
+        $sql = "SELECT u.id, u.username, p.email, p.first_name, p.last_name,
                        r.id AS role_id, r.name AS role_name, u.status, u.last_login,
                        u.password_changed_at, u.created_at, u.updated_at,
                        u.failed_login_attempts, u.account_locked_until,
-                       u.password_expires_at, u.force_password_change, u.is_test_user
+                       u.password_expires_at, u.force_password_change, u.is_test_user,
+                       u.account_type, u.data_scope,
+                       g.id AS test_access_grant_id, g.purpose AS test_access_purpose,
+                       g.starts_at AS test_access_starts_at,
+                       g.expires_at AS test_access_expires_at,
+                       g.status AS test_access_status
                 FROM users u
                 LEFT JOIN persons p ON p.id = u.person_id
+                LEFT JOIN test_account_access_grants g ON g.id = (
+                    SELECT tg.id FROM test_account_access_grants tg
+                    WHERE tg.user_id=u.id AND tg.environment=?
+                    ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
+                )
                 LEFT JOIN roles r ON r.id = (
                     SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
-                )';
-        $params = [];
+                )";
+        $params = [TestAccountAccessService::environment()];
         if (isset($data['status'])) {
             $sql .= ' WHERE u.status = ?';
             $params[] = $data['status'];
@@ -314,6 +336,19 @@ class UsersAPI extends BaseAPI
             }
         }
 
+        $accountType = strtolower((string) ($data['account_type']
+            ?? (TestAccountAccessService::environment() === 'development' ? 'test' : 'real')));
+        if (!in_array($accountType, ['real', 'test', 'service'], true)) {
+            return ['success' => false, 'error' => 'Invalid account type'];
+        }
+        $isTestAccount = $accountType === 'test';
+        $dataScope = $isTestAccount ? 'test' : 'live';
+        if ($isTestAccount && TestAccountAccessService::environment() !== 'development') {
+            if (empty($data['test_access_expires_at']) || empty($data['test_access_purpose'])) {
+                return ['success' => false, 'error' => 'Production and staging test accounts require a purpose and expiry date'];
+            }
+        }
+
         // Validate input data
         $validation = ValidationHelper::validateUserData($data, $this->db, false);
 
@@ -357,8 +392,8 @@ class UsersAPI extends BaseAPI
             // STEP 1: Create the person record (identity: names + email)
             $personId = $this->nextId('persons');
             $personStmt = $this->db->prepare(
-                'INSERT INTO persons (id, first_name, middle_name, last_name, email)
-                 VALUES (?, ?, ?, ?, ?)'
+                'INSERT INTO persons (id, first_name, middle_name, last_name, email, data_scope)
+                 VALUES (?, ?, ?, ?, ?, ?)'
             );
             $personOk = $personStmt->execute([
                 $personId,
@@ -366,6 +401,7 @@ class UsersAPI extends BaseAPI
                 $data['middle_name'] ?? null,
                 $validatedData['last_name'] ?? '',
                 $validatedData['email'] ?? null,
+                $dataScope,
             ]);
             if (!$personOk) {
                 throw new Exception('Person creation failed');
@@ -373,8 +409,8 @@ class UsersAPI extends BaseAPI
 
             // STEP 2: Create user record linked to the person (roles via user_roles)
             $userId = $this->nextId('users');
-            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
+            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
@@ -385,7 +421,10 @@ class UsersAPI extends BaseAPI
                 $validatedData['status'] ?? 'active',
                 $data['last_login'] ?? null,
                 $data['password_changed_at'] ?? null,
-                $data['force_password_change'] ?? 0
+                $data['force_password_change'] ?? 0,
+                $isTestAccount ? 1 : 0,
+                $accountType,
+                $dataScope,
             ]);
 
             if (!$ok) {
@@ -473,6 +512,15 @@ class UsersAPI extends BaseAPI
 
             // STEP 6: Audit log
             $currentUserId = $this->getCurrentUserId();
+            if ($isTestAccount && !empty($data['test_access_expires_at'])) {
+                (new TestAccountAccessService($this->db))->grant(
+                    $userId,
+                    (string) ($data['test_access_purpose'] ?? 'Feature testing'),
+                    (string) ($data['test_access_starts_at'] ?? date('Y-m-d H:i:s')),
+                    (string) $data['test_access_expires_at'],
+                    (int) $currentUserId
+                );
+            }
             $this->auditLogger->logUserCreate($currentUserId, $userId, $validatedData);
 
             if ($ownsTransaction) {
@@ -493,6 +541,11 @@ class UsersAPI extends BaseAPI
                 ]
             ];
 
+        } catch (\DomainException|\InvalidArgumentException $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+            return ['success' => false, 'error' => $e->getMessage()];
         } catch (Exception $e) {
             if ($ownsTransaction && $this->db->inTransaction()) {
                 $this->db->rollBack();
@@ -535,8 +588,8 @@ class UsersAPI extends BaseAPI
         $failed = [];
 
         try {
-            $personStmt = $this->db->prepare('INSERT INTO persons (id, first_name, middle_name, last_name, email) VALUES (?, ?, ?, ?, ?)');
-            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
+            $personStmt = $this->db->prepare('INSERT INTO persons (id, first_name, middle_name, last_name, email, data_scope) VALUES (?, ?, ?, ?, ?, ?)');
+            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
                 // Normalize top-level staff fields into staff_info for each user record
@@ -602,6 +655,19 @@ class UsersAPI extends BaseAPI
                 }
 
                 try {
+                    $this->db->exec('SAVEPOINT bulk_user_row');
+                    $accountType = strtolower((string) ($userData['account_type']
+                        ?? (TestAccountAccessService::environment() === 'development' ? 'test' : 'real')));
+                    if (!in_array($accountType, ['real', 'test', 'service'], true)) {
+                        throw new Exception('Invalid account type');
+                    }
+                    $isTestAccount = $accountType === 'test';
+                    $dataScope = $isTestAccount ? 'test' : 'live';
+                    if ($isTestAccount && TestAccountAccessService::environment() !== 'development'
+                        && (empty($userData['test_access_purpose']) || empty($userData['test_access_expires_at']))) {
+                        throw new Exception('Production and staging test accounts require a purpose and expiry date');
+                    }
+
                     // Create person record
                     $personId = $this->nextId('persons');
                     $personOk = $personStmt->execute([
@@ -609,7 +675,8 @@ class UsersAPI extends BaseAPI
                         $userData['first_name'] ?? '',
                         $userData['middle_name'] ?? null,
                         $userData['last_name'] ?? '',
-                        $userData['email']
+                        $userData['email'],
+                        $dataScope,
                     ]);
                     if (!$personOk) {
                         throw new Exception('Person creation failed');
@@ -625,7 +692,10 @@ class UsersAPI extends BaseAPI
                         $userData['status'] ?? 'active',
                         $userData['last_login'] ?? null,
                         $userData['password_changed_at'] ?? null,
-                        $userData['force_password_change'] ?? 0
+                        $userData['force_password_change'] ?? 0,
+                        $isTestAccount ? 1 : 0,
+                        $accountType,
+                        $dataScope,
                     ]);
 
                     if (!$ok) {
@@ -668,6 +738,18 @@ class UsersAPI extends BaseAPI
                         $staffAdded = $this->addToStaffTable($userId, $staffInfo, $roleIds);
                     }
 
+                    if ($isTestAccount && !empty($userData['test_access_expires_at'])) {
+                        (new TestAccountAccessService($this->db))->grant(
+                            $userId,
+                            (string) $userData['test_access_purpose'],
+                            (string) ($userData['test_access_starts_at'] ?? date('Y-m-d H:i:s')),
+                            (string) $userData['test_access_expires_at'],
+                            (int) $this->getCurrentUserId()
+                        );
+                    }
+
+                    $this->db->exec('RELEASE SAVEPOINT bulk_user_row');
+
                     $created[] = [
                         'index' => $index,
                         'user_id' => $userId,
@@ -678,6 +760,8 @@ class UsersAPI extends BaseAPI
                     ];
 
                 } catch (Exception $e) {
+                    $this->db->exec('ROLLBACK TO SAVEPOINT bulk_user_row');
+                    $this->db->exec('RELEASE SAVEPOINT bulk_user_row');
                     $failed[] = [
                         'index' => $index,
                         'data' => $userData,
@@ -713,6 +797,12 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'User not found'];
         }
         $oldData = $oldDataResult['data'];
+
+        if (isset($data['account_type']) && $data['account_type'] !== $oldData['account_type']) {
+            return ['success' => false, 'error' => 'Account type is immutable; create a clean account instead of converting test and real identities'];
+        }
+        $testAccessAction = strtolower((string) ($data['test_access_action'] ?? ''));
+        $hasTestAccessChange = in_array($testAccessAction, ['grant', 'revoke'], true);
 
         // Validate input data
         $validation = ValidationHelper::validateUserData($data, $this->db, true, $id);
@@ -752,7 +842,7 @@ class UsersAPI extends BaseAPI
             $userParams[] = password_hash($validatedData['password'], PASSWORD_DEFAULT);
         }
 
-        if (empty($userFields) && empty($personFields) && empty($validatedData['role_ids'])) {
+        if (empty($userFields) && empty($personFields) && empty($validatedData['role_ids']) && !$hasTestAccessChange) {
             return ['success' => false, 'error' => 'No fields to update'];
         }
 
@@ -782,11 +872,29 @@ class UsersAPI extends BaseAPI
                 }
             }
 
+            if ($testAccessAction === 'grant') {
+                (new TestAccountAccessService($this->db))->grant(
+                    (int) $id,
+                    (string) ($data['test_access_purpose'] ?? ''),
+                    (string) ($data['test_access_starts_at'] ?? date('Y-m-d H:i:s')),
+                    (string) ($data['test_access_expires_at'] ?? ''),
+                    (int) $this->getCurrentUserId()
+                );
+            } elseif ($testAccessAction === 'revoke') {
+                (new TestAccountAccessService($this->db))->revoke(
+                    (int) $id,
+                    (int) $this->getCurrentUserId(),
+                    (string) ($data['test_access_revocation_reason'] ?? 'Revoked by System Administrator')
+                );
+            }
+
             // Audit log
             $currentUserId = $this->getCurrentUserId();
             $this->auditLogger->logUserUpdate($currentUserId, $id, $oldData, $validatedData);
 
             return ['success' => true, 'data' => $this->get($id)['data']];
+        } catch (\DomainException|\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("User update error: " . $e->getMessage());
             return ['success' => false, 'error' => 'Database error occurred'];
@@ -805,6 +913,23 @@ class UsersAPI extends BaseAPI
         $currentUserId = $this->getCurrentUserId();
         if ($currentUserId == $id) {
             return ['success' => false, 'error' => 'Cannot delete your own account'];
+        }
+
+        if (
+            ($userData['account_type'] ?? '') === 'test' ||
+            (int) ($userData['is_test_user'] ?? 0) === 1
+        ) {
+            try {
+                $result = (new \App\API\Services\TestDataManagementService($this->db))
+                    ->purgeAccount((int) $id, (int) $currentUserId, 'Deleted from System Administrator User Accounts');
+                $this->auditLogger->logUserDelete($currentUserId, $id, $userData);
+                return ['success' => true, 'data' => $result];
+            } catch (\DomainException $error) {
+                return ['success' => false, 'error' => $error->getMessage()];
+            } catch (\Throwable $error) {
+                \App\API\Services\Logger::legacyError('Test account deletion failed and was rolled back: ' . $error->getMessage());
+                return ['success' => false, 'error' => 'Test account and related test data could not be deleted'];
+            }
         }
 
         try {
@@ -1105,6 +1230,8 @@ class UsersAPI extends BaseAPI
                 u.status,
                 u.force_password_change,
                 u.is_test_user,
+                u.account_type,
+                u.data_scope,
                 CASE
                     WHEN ' . $failureDayColumn . ' = CURDATE()
                     THEN COALESCE(u.failed_login_attempts, 0)
@@ -1180,6 +1307,22 @@ class UsersAPI extends BaseAPI
                 'account_inactive'
             );
             return ['success' => false, 'error' => 'Account is not active'];
+        }
+
+        try {
+            $accessContext = (new TestAccountAccessService($this->db))
+                ->requireAccess((int) $user['id']);
+            $user['account_type'] = $accessContext['account_type'];
+            $user['data_scope'] = $accessContext['data_scope'];
+            $user['test_access_expires_at'] = $accessContext['test_access_expires_at'];
+        } catch (\DomainException $error) {
+            $this->recordAuthenticationAttempt(
+                $username,
+                (int) $user['id'],
+                'failed',
+                'test_access_expired'
+            );
+            return ['success' => false, 'error' => $error->getMessage()];
         }
 
         // Get roles and permissions.
@@ -1264,6 +1407,9 @@ class UsersAPI extends BaseAPI
                     'status' => $user['status'] ?? null,
                     'force_password_change' => (int)($user['force_password_change'] ?? 0),
                     'is_test_user' => (int)($user['is_test_user'] ?? 0),
+                    'account_type' => $user['account_type'] ?? 'real',
+                    'data_scope' => $user['data_scope'] ?? 'live',
+                    'test_access_expires_at' => $user['test_access_expires_at'] ?? null,
                     'roles' => $roles['data'] ?? [],
                     'permissions' => $permissionCodes  // In response body, NOT in token
                 ]
@@ -1644,7 +1790,7 @@ class UsersAPI extends BaseAPI
             }
 
             // Get user data (identity lives on the person record)
-            $userStmt = $this->db->prepare('SELECT u.person_id, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
+            $userStmt = $this->db->prepare('SELECT u.person_id, u.data_scope, p.first_name, p.last_name, p.email FROM users u JOIN persons p ON p.id = u.person_id WHERE u.id = ?');
             $userStmt->execute([$userId]);
             $user = $userStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -1738,8 +1884,8 @@ class UsersAPI extends BaseAPI
 
             // Insert staff record (id is manual, identity via person_id)
             $staffId = $this->nextId('staff');
-            $sql = 'INSERT INTO staff (id, person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            $sql = 'INSERT INTO staff (id, person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, data_scope, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
@@ -1753,6 +1899,7 @@ class UsersAPI extends BaseAPI
                 $staffInfo['contract_type'] ?? 'permanent',
                 $staffInfo['employment_date'] ?? date('Y-m-d'),
                 $staffInfo['status'] ?? 'active',
+                ($user['data_scope'] ?? 'live') === 'test' ? 'test' : 'live',
                 $staffInfo['supervisor_id'] ?? null,
                 $staffInfo['salary'] ?? null,
                 $staffInfo['bank_name'] ?? null,

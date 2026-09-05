@@ -7,8 +7,13 @@
  * - Any Scope + Single Type (D/B)   => 100% Full Width Table
  */
 $tplDir = __DIR__;
-$cssFile = dirname(__DIR__, 5) . '/public/css/fee-structure-print.css';
-$cssText = is_file($cssFile) ? file_get_contents($cssFile) : '';
+/*
+ * CSS is always supplied by PrintService ($printStyles), which resolves the
+ * stylesheet from the canonical project root. Templates must NOT resolve
+ * filesystem paths themselves (dirname(__DIR__, N) breaks in production where
+ * UPLOAD_PATH lives outside the project root).
+ */
+$cssText = trim((string) ($printStyles ?? ''));
 if (!function_exists('fsMoney')) { 
     function fsMoney($amount) { return number_format((float) $amount); } 
 }

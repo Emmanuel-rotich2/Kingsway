@@ -18,6 +18,7 @@ use App\API\Services\payments\MpesaB2CService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbFundsTransferService;
 use App\API\Services\workflows\PayrollApprovalWorkflow;
+use App\API\Services\DataScopeService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -853,6 +854,7 @@ class FinanceAPI extends BaseAPI
 
     public function listPayrolls($params = [])
     {
+        $dataScope = DataScopeService::current();
         $page = $params['page'] ?? 1;
         $limit = $params['limit'] ?? 20;
         $offset = ($page - 1) * $limit;
@@ -868,17 +870,19 @@ class FinanceAPI extends BaseAPI
                     pr.status,
                     pr.created_at
                 FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                WHERE pr.data_scope=?
                 GROUP BY pr.id, pr.month, pr.year, pr.status, pr.created_at
                 ORDER BY pr.year DESC, pr.month DESC
                 LIMIT ? OFFSET ?";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$limit, $offset]);
+        $stmt->execute([$dataScope, $limit, $offset]);
         $payrolls = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $countSql = "SELECT COUNT(*) FROM payroll_runs";
-        $total = $this->db->query($countSql)->fetchColumn();
+        $countStmt = $this->db->prepare("SELECT COUNT(*) FROM payroll_runs WHERE data_scope=?");
+        $countStmt->execute([$dataScope]);
+        $total = $countStmt->fetchColumn();
 
         return formatResponse(true, [
             'payrolls' => $payrolls,
@@ -900,11 +904,12 @@ class FinanceAPI extends BaseAPI
                 FROM payslips ps
                 JOIN staff s ON ps.staff_id = s.id
                 JOIN persons p ON p.id = s.person_id
-                WHERE ps.id = ?
+                WHERE ps.id = ? AND ps.data_scope=? AND s.data_scope=?
                 ORDER BY p.last_name, p.first_name";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$payrollId]);
+        $scope = DataScopeService::current();
+        $stmt->execute([$payrollId, $scope, $scope]);
         $payments = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return formatResponse(true, ['payslips' => $payments], 'Staff payments retrieved successfully');
@@ -912,9 +917,10 @@ class FinanceAPI extends BaseAPI
 
     public function getPayroll($id)
     {
-        $sql = "SELECT * FROM payslips WHERE id = ?";
+        $sql = "SELECT * FROM payslips WHERE id = ? AND data_scope=?";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$id]);
+        $scope = DataScopeService::current();
+        $stmt->execute([$id, $scope]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$payroll) {
@@ -929,11 +935,11 @@ class FinanceAPI extends BaseAPI
                 FROM payslips ps
                 JOIN staff s ON ps.staff_id = s.id
                 JOIN persons p ON p.id = s.person_id
-                WHERE ps.payroll_month = ? AND ps.payroll_year = ?
+                WHERE ps.payroll_month = ? AND ps.payroll_year = ? AND ps.data_scope=? AND s.data_scope=?
                 ORDER BY p.last_name, p.first_name";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$payroll['payroll_month'], $payroll['payroll_year']]);
+        $stmt->execute([$payroll['payroll_month'], $payroll['payroll_year'], $scope, $scope]);
         $payroll['staff_payments'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         return formatResponse(true, ['payroll' => $payroll], 'Payroll retrieved successfully');
@@ -945,20 +951,21 @@ class FinanceAPI extends BaseAPI
             $month = (int) ($data['month'] ?? $data['payroll_month'] ?? 0);
             $year = (int) ($data['year'] ?? $data['payroll_year'] ?? 0);
             $createdBy = (int) ($data['created_by'] ?? $this->getCurrentUserId());
+            $dataScope = DataScopeService::current();
 
             if ($month < 1 || $month > 12 || $year < 2000) {
                 return formatResponse(false, null, 'A valid payroll month and year are required');
             }
 
-            $existingStmt = $this->db->prepare('SELECT id, status FROM payroll_runs WHERE month = ? AND year = ? LIMIT 1');
-            $existingStmt->execute([$month, $year]);
+            $existingStmt = $this->db->prepare('SELECT id, status FROM payroll_runs WHERE month = ? AND year = ? AND data_scope=? LIMIT 1');
+            $existingStmt->execute([$month, $year, $dataScope]);
             $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
             if ($existing) {
                 return formatResponse(false, null, 'A payroll run already exists for this period');
             }
 
-            $this->db->prepare("INSERT INTO payroll_runs (month, year, status, workflow, created_by) VALUES (?, ?, 'draft', 'draft', ?)")
-                ->execute([$month, $year, $createdBy ?: null]);
+            $this->db->prepare("INSERT INTO payroll_runs (month, year, data_scope, status, workflow, created_by) VALUES (?, ?, ?, 'draft', 'draft', ?)")
+                ->execute([$month, $year, $dataScope, $createdBy ?: null]);
             $runId = (int) $this->db->lastInsertId();
 
             $staffIds = $data['staff_ids'] ?? null;
@@ -969,8 +976,9 @@ class FinanceAPI extends BaseAPI
             if (is_array($staffIds)) {
                 $staffIds = array_values(array_unique(array_map('intval', $staffIds)));
             } else {
-                $staffIds = $this->db->query("SELECT id FROM staff WHERE status = 'active' ORDER BY id")
-                    ->fetchAll(PDO::FETCH_COLUMN);
+                $staffStmt = $this->db->prepare("SELECT id FROM staff WHERE status='active' AND data_scope=? ORDER BY id");
+                $staffStmt->execute([$dataScope]);
+                $staffIds = $staffStmt->fetchAll(PDO::FETCH_COLUMN);
             }
 
             $processed = [];
@@ -1023,8 +1031,8 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll ID required');
         }
 
-        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ?");
-        $stmt->execute([$payrollId]);
+        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ? AND data_scope=?");
+        $stmt->execute([$payrollId, DataScopeService::current()]);
         $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$payroll) {
             return formatResponse(false, null, 'Payroll not found', 404);
@@ -1071,8 +1079,9 @@ class FinanceAPI extends BaseAPI
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
         // Minimal inline transition to satisfy tests
-        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ?");
-        $stmt->execute([$payrollId]);
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ? AND data_scope=?");
+        $stmt->execute([$payrollId, DataScopeService::current()]);
+        if ($stmt->rowCount() === 0) return formatResponse(false, null, 'Payroll not found', 404);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'verification'], 'Payroll verified');
     }
 
@@ -1085,8 +1094,9 @@ class FinanceAPI extends BaseAPI
         if (!$payrollId || !$userId) {
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
-        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'draft' WHERE id = ?");
-        $stmt->execute([$payrollId]);
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'draft' WHERE id = ? AND data_scope=?");
+        $stmt->execute([$payrollId, DataScopeService::current()]);
+        if ($stmt->rowCount() === 0) return formatResponse(false, null, 'Payroll not found', 404);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'rejected', 'reason' => $reason], 'Payroll rejected');
     }
 
@@ -1098,8 +1108,9 @@ class FinanceAPI extends BaseAPI
         if (!$payrollId || !$userId) {
             return formatResponse(false, null, 'Payroll ID and User ID required');
         }
-        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ?");
-        $stmt->execute([$payrollId]);
+        $stmt = $this->db->prepare("UPDATE payroll_runs SET status = 'processing' WHERE id = ? AND data_scope=?");
+        $stmt->execute([$payrollId, DataScopeService::current()]);
+        if ($stmt->rowCount() === 0) return formatResponse(false, null, 'Payroll not found', 404);
         return formatResponse(true, ['payroll_id' => $payrollId, 'status' => 'processing'], 'Payroll processing');
     }
 
@@ -1123,9 +1134,10 @@ class FinanceAPI extends BaseAPI
         }
 
         // Cancel/delete payroll
-        $sql = "UPDATE payslips SET payslip_status = 'cancelled', updated_at = NOW() WHERE id = ?";
+        $sql = "UPDATE payslips SET payslip_status = 'cancelled', updated_at = NOW() WHERE id = ? AND data_scope=?";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$payrollId]);
+        $stmt->execute([$payrollId, DataScopeService::current()]);
+        if ($stmt->rowCount() === 0) return formatResponse(false, null, 'Payroll not found', 404);
 
         return formatResponse(true, null, 'Payroll cancelled successfully');
     }
@@ -1144,12 +1156,12 @@ class FinanceAPI extends BaseAPI
                     pr.status,
                     COUNT(ps.id) AS staff_count
                 FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-                WHERE pr.id = ?
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                WHERE pr.id = ? AND pr.data_scope=?
                 GROUP BY pr.id, pr.month, pr.year, pr.status";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$payrollId]);
+        $stmt->execute([$payrollId, DataScopeService::current()]);
         $status = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$status) {
@@ -1195,9 +1207,9 @@ class FinanceAPI extends BaseAPI
 
         $sql = "SELECT ps.*, ps.payroll_month as month, ps.payroll_year as year, ps.payslip_status as payroll_status
                 FROM payslips ps
-                WHERE 1=1";
+                WHERE ps.data_scope=?";
 
-        $bindings = [];
+        $bindings = [DataScopeService::current()];
         if ($staffId) {
             $sql .= " AND ps.staff_id = ?";
             $bindings[] = $staffId;
@@ -1229,8 +1241,8 @@ class FinanceAPI extends BaseAPI
         }
 
         // Fallback: treat staff payroll as a payable item for receipt generation
-        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ?");
-        $stmt->execute([$paymentId]);
+        $stmt = $this->db->prepare("SELECT * FROM payslips WHERE id = ? AND data_scope=?");
+        $stmt->execute([$paymentId, DataScopeService::current()]);
         $sp = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$sp) {
             return formatResponse(false, null, 'Payment not found', 404);
@@ -1265,10 +1277,11 @@ class FinanceAPI extends BaseAPI
                 FROM payslips ps
                 JOIN staff s ON ps.staff_id = s.id
                 JOIN persons p ON p.id = s.person_id
-                WHERE ps.id = ?";
+                WHERE ps.id = ? AND ps.data_scope=? AND s.data_scope=?";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$staffPaymentId]);
+        $scope = DataScopeService::current();
+        $stmt->execute([$staffPaymentId, $scope, $scope]);
         $payment = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$payment) {
@@ -1295,10 +1308,10 @@ class FinanceAPI extends BaseAPI
                     COALESCE(SUM(ps.net_salary), 0) AS total_net,
                     pr.created_at
                 FROM payroll_runs pr
-                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year
-                WHERE 1=1";
+                LEFT JOIN payslips ps ON ps.payroll_month = pr.month AND ps.payroll_year = pr.year AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
+                WHERE pr.data_scope=?";
 
-        $bindings = [];
+        $bindings = [DataScopeService::current()];
         if (!empty($params['start_date'])) {
             $sql .= " AND pr.created_at >= ?";
             $bindings[] = $params['start_date'];
@@ -1401,8 +1414,9 @@ class FinanceAPI extends BaseAPI
     public function sendPaymentNotification($paymentId, $recipient, $method = 'email')
     {
         try {
+            DataScopeService::requireLiveExternalAction('Payroll payment notification');
             // Get payment details
-            $sql = "SELECT * FROM payslips WHERE id = ?";
+            $sql = "SELECT * FROM payslips WHERE id = ? AND data_scope='live'";
             $stmt = $this->db->prepare($sql);
             $stmt->execute([$paymentId]);
             $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -2088,6 +2102,7 @@ class FinanceAPI extends BaseAPI
     public function getStaffForPayroll()
     {
         try {
+            $scope = DataScopeService::current();
             $sql = "SELECT
                         s.id,
                         s.staff_no,
@@ -2114,10 +2129,11 @@ class FinanceAPI extends BaseAPI
                     LEFT JOIN departments d ON d.id = sep.department_id
                     LEFT JOIN users u ON u.person_id = s.person_id
                     LEFT JOIN user_roles ur ON ur.user_id = u.id
-                    WHERE s.status = 'active'
+                    WHERE s.status = 'active' AND s.data_scope=?
                     GROUP BY s.id
                     ORDER BY p.first_name, p.last_name";
-            $stmt = $this->db->query($sql);
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$scope]);
             $staff = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             foreach ($staff as &$member) {
@@ -2149,10 +2165,10 @@ class FinanceAPI extends BaseAPI
                 $eligible = !empty($staff['payroll_eligible']);
                 $existingStmt = $this->db->prepare(
                     'SELECT id, payslip_status FROM payslips
-                     WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                     WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ? AND data_scope=?
                      LIMIT 1'
                 );
-                $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year]);
+                $existingStmt->execute([(int) $staff['id'], (int) $month, (int) $year, DataScopeService::current()]);
                 $existing = $existingStmt->fetch(PDO::FETCH_ASSOC) ?: null;
                 $basicSalary = (float) ($staff['basic_salary'] ?? 0);
                 $allowances = $eligible && !$preparationOnly ? $this->getActiveStaffAllowancesTotal($staff['id'], $periodStart, $periodEnd) : 0;
@@ -2364,6 +2380,15 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'Staff ID required');
             }
 
+            DataScopeService::requireStaff($this->db, (int) $staffId);
+            $isTestWorkspace = DataScopeService::current() === 'test';
+            if ($isTestWorkspace) {
+                // Test payroll calculations may exercise payroll logic, but may
+                // never create fee transfers or touch live learner invoices.
+                $childrenDeductions = [];
+                $childrenDeductionsExplicit = true;
+            }
+
             $this->assertPayrollEligible($staffId);
 
             // Authorised child-fee deductions are policy data, not a value the
@@ -2515,13 +2540,17 @@ class FinanceAPI extends BaseAPI
             $breakdownJson = !empty($childFeesBreakdown) ? json_encode($childFeesBreakdown) : null;
 
             // Ensure a payroll run (period-level master) exists for this month/year
-            $runStmt = $this->db->prepare("SELECT id FROM payroll_runs WHERE month = ? AND year = ? LIMIT 1");
-            $runStmt->execute([$payrollMonth, $payrollYear]);
+            $dataScope = DataScopeService::current();
+            $runStmt = $this->db->prepare("SELECT id FROM payroll_runs WHERE month = ? AND year = ? AND data_scope=? LIMIT 1");
+            $runStmt->execute([$payrollMonth, $payrollYear, $dataScope]);
             $runId = $runStmt->fetchColumn();
             if (!$runId) {
                 $runId = $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM payroll_runs")->fetchColumn();
-                $insRun = $this->db->prepare("INSERT INTO payroll_runs (id, month, year, status, created_by) VALUES (?, ?, ?, 'draft', ?)");
-                $insRun->execute([$runId, $payrollMonth, $payrollYear, $processedBy ?: $this->getCurrentUserId()]);
+                $insRun = $this->db->prepare("INSERT INTO payroll_runs (id, month, year, data_scope, status, created_by) VALUES (?, ?, ?, ?, 'draft', ?)");
+                $insRun->execute([$runId, $payrollMonth, $payrollYear, $dataScope, $processedBy ?: $this->getCurrentUserId()]);
+            }
+            if (!empty($data['source_financial_account_id']) && $isTestWorkspace) {
+                throw new \DomainException('Live source accounts cannot be assigned in the test workspace');
             }
             if (!empty($data['source_financial_account_id']) && !$preparationOnly) {
                 $sourceAccountId = (int) $data['source_financial_account_id'];
@@ -2611,7 +2640,9 @@ class FinanceAPI extends BaseAPI
                 $payrollId = $this->db->lastInsertId();
             }
 
-            $this->persistPayrollChildFeeTransfers($payrollId, $childFeesBreakdown);
+            if (!$isTestWorkspace) {
+                $this->persistPayrollChildFeeTransfers($payrollId, $childFeesBreakdown);
+            }
             $this->persistPayrollBreakdown($payrollId, $payrollMonth, $payrollYear, $nssf, $shif, $paye, $housingLevy, $employerNssf, $employerHousingLevy, $totalChildrenFees, $configuredDeductions + $manualOtherDeductions, $childrenDeductions, $staffId);
             $this->db->commit();
 
@@ -2736,6 +2767,10 @@ class FinanceAPI extends BaseAPI
                 ->execute([$payslipId, 'child_fees', 'CHILD_FEES', 'Children school fees deduction', $amount, (int) ($child['student_id'] ?? 0) ?: null, 'students']);
         }
 
+        if (DataScopeService::current() === 'test') {
+            return;
+        }
+
         $statutory = [
             ['KRA', $paye, 'employee'], ['NSSF', $nssf, 'employee'], ['SHIF', $shif, 'employee'], ['Housing Levy', $housingLevy, 'employee'],
             ['NSSF', $employerNssf, 'employer'], ['Housing Levy', $employerHousingLevy, 'employer']
@@ -2755,7 +2790,7 @@ class FinanceAPI extends BaseAPI
             }
             $this->db->prepare('DELETE FROM statutory_remittance_items WHERE remittance_id=? AND contribution_side=?')->execute([$remittanceId, $side]);
             $column = $agency === 'KRA' ? 'paye_tax' : ($agency === 'NSSF' ? ($side === 'employer' ? 'employer_nssf_contribution' : 'nssf_contribution') : ($agency === 'SHIF' ? 'shif_contribution' : ($side === 'employer' ? 'employer_housing_levy' : 'housing_levy')));
-            $rows = $this->db->prepare("SELECT id, staff_id, {$column} AS amount FROM payslips WHERE payroll_month=? AND payroll_year=? AND {$column}>0");
+            $rows = $this->db->prepare("SELECT id, staff_id, {$column} AS amount FROM payslips WHERE payroll_month=? AND payroll_year=? AND data_scope='live' AND {$column}>0");
             $rows->execute([$month, $year]);
             $insert = $this->db->prepare('INSERT INTO statutory_remittance_items (remittance_id,payslip_id,staff_id,amount,contribution_side) VALUES (?,?,?,?,?)');
             while ($item = $rows->fetch(PDO::FETCH_ASSOC)) $insert->execute([$remittanceId, $item['id'], $item['staff_id'], $item['amount'], $side]);
@@ -2790,9 +2825,10 @@ class FinanceAPI extends BaseAPI
                     LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
                     LEFT JOIN departments d ON d.id = sep.department_id
-                    WHERE ps.id = ?";
+                    WHERE ps.id = ? AND ps.data_scope=? AND s.data_scope=?";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$payrollId]);
+            $scope = DataScopeService::current();
+            $stmt->execute([$payrollId, $scope, $scope]);
             $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if (!$payroll) {
@@ -2876,12 +2912,15 @@ class FinanceAPI extends BaseAPI
             $year = $year ?: date('Y');
 
             // Total staff
-            $staffSql = "SELECT COUNT(*) FROM staff WHERE status = 'active'";
-            $totalStaff = $this->db->query($staffSql)->fetchColumn();
+            $scope = DataScopeService::current();
+            $staffStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status='active' AND data_scope=?");
+            $staffStmt->execute([$scope]);
+            $totalStaff = $staffStmt->fetchColumn();
 
             // Staff with children
-            $childrenSql = "SELECT COUNT(DISTINCT staff_id) FROM staff_children";
-            $staffWithChildren = $this->db->query($childrenSql)->fetchColumn();
+            $childrenStmt = $this->db->prepare("SELECT COUNT(DISTINCT sc.staff_id) FROM staff_children sc JOIN staff s ON s.id=sc.staff_id WHERE s.data_scope=?");
+            $childrenStmt->execute([$scope]);
+            $staffWithChildren = $childrenStmt->fetchColumn();
 
             // This month's totals
             $payrollSql = "SELECT 
@@ -2890,17 +2929,17 @@ class FinanceAPI extends BaseAPI
                                 COALESCE(SUM(gross_salary), 0) AS total_gross,
                                 COALESCE(SUM(gross_salary - net_salary), 0) AS total_deductions
                            FROM payslips 
-                           WHERE payroll_month = ? AND payroll_year = ?";
+                           WHERE payroll_month = ? AND payroll_year = ? AND data_scope=?";
             $payrollStmt = $this->db->prepare($payrollSql);
-            $payrollStmt->execute([$month, $year]);
+            $payrollStmt->execute([$month, $year, $scope]);
             $payrollStats = $payrollStmt->fetch(PDO::FETCH_ASSOC);
 
             // Children fees deducted this month
             $feesSql = "SELECT COALESCE(SUM(child_fees_deduction), 0) 
                         FROM payslips 
-                        WHERE payroll_month = ? AND payroll_year = ?";
+                        WHERE payroll_month = ? AND payroll_year = ? AND data_scope=?";
             $feesStmt = $this->db->prepare($feesSql);
-            $feesStmt->execute([$month, $year]);
+            $feesStmt->execute([$month, $year, $scope]);
             $childrenFees = $feesStmt->fetchColumn();
 
             return formatResponse(true, [
@@ -2979,6 +3018,12 @@ class FinanceAPI extends BaseAPI
                         CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                         s.position,
                         d.name AS department,
+                        spp.kra_pin,
+                        spp.nssf_no,
+                        spp.nhif_no,
+                        spp.bank_name,
+                        spp.bank_account,
+                        spp.bank_account AS bank_account_number,
                         ps.child_fees_deduction AS children_fees_deducted,
                         ps.payslip_status AS status,
                         ps.allowances_total AS allowances,
@@ -2988,13 +3033,15 @@ class FinanceAPI extends BaseAPI
                         ps.other_deductions_total AS other_deductions,
                         pr.status AS payroll_run_status
                     FROM payslips ps
-                    LEFT JOIN payroll_runs pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year
+                    LEFT JOIN payroll_runs pr ON pr.month = ps.payroll_month AND pr.year = ps.payroll_year AND pr.data_scope COLLATE utf8mb4_unicode_ci = ps.data_scope COLLATE utf8mb4_unicode_ci
                     JOIN staff s ON ps.staff_id = s.id
                     LEFT JOIN persons p ON p.id = s.person_id
+                    LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                     LEFT JOIN staff_employment_profiles sep ON sep.staff_id = s.id
                     LEFT JOIN departments d ON d.id = sep.department_id
-                    WHERE 1=1";
-            $params = [];
+                    WHERE ps.data_scope=? AND s.data_scope=?";
+            $scope = DataScopeService::current();
+            $params = [$scope, $scope];
 
             if (!empty($filters['month'])) {
                 $sql .= " AND ps.payroll_month = ?";
@@ -3359,8 +3406,9 @@ class FinanceAPI extends BaseAPI
     public function approvePayroll($payrollId, $approvedBy = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? LIMIT 1");
-            $stmt->execute([$payrollId]);
+            $scope = DataScopeService::current();
+            $stmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? AND data_scope=? LIMIT 1");
+            $stmt->execute([$payrollId, $scope]);
             $current = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$current) {
                 return formatResponse(false, null, 'Payroll not found');
@@ -3370,11 +3418,11 @@ class FinanceAPI extends BaseAPI
             }
 
             $sql = "UPDATE payslips SET payslip_status = 'approved', signed_by = ?, paid_at = NULL, updated_at = NOW()
-                    WHERE payroll_month = ? AND payroll_year = ? AND payslip_status <> 'paid'";
+                    WHERE payroll_month = ? AND payroll_year = ? AND data_scope=? AND payslip_status <> 'paid'";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$approvedBy, $current['payroll_month'], $current['payroll_year']]);
-            $run = $this->db->prepare("UPDATE payroll_runs SET status='approved', workflow='approved' WHERE month=? AND year=?");
-            $run->execute([$current['payroll_month'], $current['payroll_year']]);
+            $stmt->execute([$approvedBy, $current['payroll_month'], $current['payroll_year'], $scope]);
+            $run = $this->db->prepare("UPDATE payroll_runs SET status='approved', workflow='approved' WHERE month=? AND year=? AND data_scope=?");
+            $run->execute([$current['payroll_month'], $current['payroll_year'], $scope]);
 
             return formatResponse(true, ['payroll_id' => $payrollId, 'payroll_month' => $current['payroll_month'], 'payroll_year' => $current['payroll_year'], 'status' => 'approved'], 'Payroll approved for payment release');
         } catch (Exception $e) {
@@ -3405,10 +3453,10 @@ class FinanceAPI extends BaseAPI
                 if ($preparationOnly) {
                     $existingStmt = $this->db->prepare(
                         'SELECT id, payslip_status FROM payslips
-                         WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ?
+                         WHERE staff_id = ? AND payroll_month = ? AND payroll_year = ? AND data_scope=?
                          LIMIT 1'
                     );
-                    $existingStmt->execute([(int) $staffId, (int) $month, (int) $year]);
+                    $existingStmt->execute([(int) $staffId, (int) $month, (int) $year, DataScopeService::current()]);
                     $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
                     if ($existing) {
                         $skipped[] = [
@@ -3460,7 +3508,8 @@ class FinanceAPI extends BaseAPI
     public function markPayrollPaid($payrollId, $paymentRef = null, $paymentMode = null, $sourceFinancialAccountId = null, $userId = null, array $selectedPayslipIds = [])
     {
         try {
-            $statusStmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? LIMIT 1");
+            DataScopeService::requireLiveExternalAction('Payroll payment release');
+            $statusStmt = $this->db->prepare("SELECT payslip_status, payroll_month, payroll_year FROM payslips WHERE id = ? AND data_scope='live' LIMIT 1");
             $statusStmt->execute([$payrollId]);
             $payroll = $statusStmt->fetch(PDO::FETCH_ASSOC);
             if (!$payroll) {
@@ -3470,14 +3519,14 @@ class FinanceAPI extends BaseAPI
                 throw new Exception('Payroll must be approved by the director before payment can be released');
             }
 
-            $runStmt = $this->db->prepare('SELECT id, month, year, status FROM payroll_runs WHERE month = (SELECT payroll_month FROM payslips WHERE id = ?) AND year = (SELECT payroll_year FROM payslips WHERE id = ?) LIMIT 1');
+            $runStmt = $this->db->prepare("SELECT id, month, year, status FROM payroll_runs WHERE data_scope='live' AND month = (SELECT payroll_month FROM payslips WHERE id = ? AND data_scope='live') AND year = (SELECT payroll_year FROM payslips WHERE id = ? AND data_scope='live') LIMIT 1");
             $runStmt->execute([$payrollId, $payrollId]);
             $run = $runStmt->fetch(PDO::FETCH_ASSOC);
             if (!$run || $run['status'] !== 'approved') {
                 throw new Exception('The payroll run must be approved before payment can be released.');
             }
             $method = in_array($paymentMode, ['mpesa', 'airtel_money'], true) ? 'mobile_money' : 'bank';
-            $this->db->prepare('UPDATE payslips SET payment_method = ?, payment_reference = NULL, payment_status = \'pending\', updated_at = NOW() WHERE payroll_month = ? AND payroll_year = ? AND payslip_status = \'approved\'')
+            $this->db->prepare("UPDATE payslips SET payment_method = ?, payment_reference = NULL, payment_status = 'pending', updated_at = NOW() WHERE payroll_month = ? AND payroll_year = ? AND data_scope='live' AND payslip_status = 'approved'")
                 ->execute([$method, $run['month'], $run['year']]);
             $releaseData = $sourceFinancialAccountId ? ['source_financial_account_id' => (int)$sourceFinancialAccountId] : [];
             if ($selectedPayslipIds) {

@@ -292,6 +292,15 @@ return $this->serverError('An internal error occurred.');
         return $this->handleApiResponse($this->manager->getDailyRegister($data));
     }
 
+    /**
+     * GET /api/attendance/register-range
+     * Attendance register for a class stream over a date range (history view).
+     */
+    public function getRegisterRange($id = null, $data = [], $segments = [])
+    {
+        return $this->handleApiResponse($this->manager->getRegisterRange($data));
+    }
+
     // ========================================================================
     // BOARDING ATTENDANCE METHODS
     // ========================================================================

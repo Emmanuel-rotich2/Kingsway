@@ -47,6 +47,24 @@ const StudentCounselingController = {
       refreshBtn: $("refreshBtn"),
       exportBtn: $("exportBtn"),
       addCaseBtn: $("addCaseBtn"),
+      addCaseModal: $("addCaseModal"),
+      addCaseForm: $("addCaseForm"),
+      addCaseStudentSearch: $("addCaseStudentSearch"),
+      addCaseStudentResults: $("addCaseStudentResults"),
+      addCaseStudentId: $("addCaseStudentId"),
+      addCaseStudentSelected: $("addCaseStudentSelected"),
+      addCaseTitle: $("addCaseTitle"),
+      addCaseType: $("addCaseType"),
+      addCasePriority: $("addCasePriority"),
+      addCaseReferral: $("addCaseReferral"),
+      addCaseAssignedTo: $("addCaseAssignedTo"),
+      addCaseDescription: $("addCaseDescription"),
+      addCaseSessionType: $("addCaseSessionType"),
+      addCaseSessionDate: $("addCaseSessionDate"),
+      addCaseSessionNotes: $("addCaseSessionNotes"),
+      addCaseActionPlan: $("addCaseActionPlan"),
+      addCaseFollowUpDate: $("addCaseFollowUpDate"),
+      addCaseSaveBtn: $("addCaseSaveBtn"),
 
       totalCases: $("totalCases"),
       openCases: $("openCases"),
@@ -76,6 +94,18 @@ const StudentCounselingController = {
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
     this.ui.refreshBtn?.addEventListener("click", () => this.loadCases());
     this.ui.exportBtn?.addEventListener("click", () => this.exportData());
+
+    this.ui.addCaseBtn?.addEventListener("click", () => this.openAddCaseModal());
+    this.ui.addCaseSaveBtn?.addEventListener("click", () => this.saveCase());
+
+    this.ui.addCaseStudentSearch?.addEventListener(
+      "input",
+      this.debounce((e) => this.searchStudents(e), 300)
+    );
+    this.ui.addCaseStudentResults?.addEventListener(
+      "click",
+      (e) => this.selectStudent(e)
+    );
 
     this.ui.searchBox?.addEventListener(
       "input",
@@ -240,6 +270,141 @@ const StudentCounselingController = {
           </tr>`;
       })
       .join("");
+  },
+
+  openAddCaseModal() {
+    this.resetAddCaseForm();
+
+    if (typeof bootstrap !== "undefined" && this.ui.addCaseModal) {
+      const modalInstance = new bootstrap.Modal(this.ui.addCaseModal);
+      modalInstance.show();
+    }
+  },
+
+  resetAddCaseForm() {
+    this.ui.addCaseForm?.reset();
+    this.ui.addCaseStudentId && (this.ui.addCaseStudentId.value = "");
+    this.ui.addCaseStudentResults?.classList.add("d-none");
+    this.ui.addCaseStudentResults && (this.ui.addCaseStudentResults.innerHTML = "");
+    this.ui.addCaseStudentSelected?.classList.add("d-none");
+    if (this.ui.addCaseSessionDate) this.ui.addCaseSessionDate.value = new Date().toISOString().slice(0, 10);
+  },
+
+  async searchStudents(event) {
+    const term = (event.target.value || "").trim();
+    const resultsBox = this.ui.addCaseStudentResults;
+
+    if (!resultsBox) return;
+
+    if (term.length < 2) {
+      resultsBox.classList.add("d-none");
+      resultsBox.innerHTML = "";
+      return;
+    }
+
+    try {
+      const response = await this.api(
+        `/students/student?search=${encodeURIComponent(term)}&status=active&limit=20`,
+        "GET"
+      );
+      const students = this.unwrap(response) || [];
+      const list = Array.isArray(students) ? students : [];
+
+      if (!list.length) {
+        resultsBox.innerHTML = `<div class="list-group-item text-muted">No students found.</div>`;
+      } else {
+        resultsBox.innerHTML = list
+          .map(
+            (s) => `
+              <button type="button" class="list-group-item list-group-item-action"
+                data-id="${s.id}" data-name="${this.escapeHtml((s.first_name || "") + " " + (s.last_name || ""))}"
+                data-adm="${this.escapeHtml(s.admission_no || "")}">
+                <strong>${this.escapeHtml((s.first_name || "") + " " + (s.last_name || ""))}</strong>
+                <small class="text-muted ms-2">${this.escapeHtml(s.admission_no || "")}</small>
+              </button>`
+          )
+          .join("");
+      }
+      resultsBox.classList.remove("d-none");
+    } catch (error) {
+      console.error("Student search failed:", error);
+    }
+  },
+
+  selectStudent(event) {
+    const btn = event.target.closest("[data-id]");
+    if (!btn) return;
+
+    this.ui.addCaseStudentId.value = btn.dataset.id;
+    const selected = this.ui.addCaseStudentSelected.querySelector("span");
+    if (selected) {
+      selected.textContent = `${btn.dataset.name} (${btn.dataset.adm || "no adm no"})`;
+    }
+    this.ui.addCaseStudentSelected.classList.remove("d-none");
+    this.ui.addCaseStudentResults.classList.add("d-none");
+    this.ui.addCaseStudentResults.innerHTML = "";
+    this.ui.addCaseStudentSearch.value = "";
+  },
+
+  async saveCase() {
+    const studentId = this.ui.addCaseStudentId.value;
+    const title = this.ui.addCaseTitle?.value.trim();
+    const description = this.ui.addCaseDescription?.value.trim();
+    const sessionNotes = this.ui.addCaseSessionNotes?.value.trim();
+
+    if (!studentId) {
+      this.notify("Please select a student", "warning");
+      return;
+    }
+    if (!title) {
+      this.notify("Please enter a case title", "warning");
+      return;
+    }
+    if (!description) {
+      this.notify("Please enter a case description", "warning");
+      return;
+    }
+    if (!sessionNotes) {
+      this.notify("Please enter session notes", "warning");
+      return;
+    }
+
+    const payload = {
+      studentId: Number(studentId),
+      title,
+      caseType: this.ui.addCaseType?.value || "other",
+      priority: this.ui.addCasePriority?.value || "medium",
+      referralSource: this.ui.addCaseReferral?.value || "",
+      assignedTo: this.ui.addCaseAssignedTo?.value || "",
+      issueSummary: sessionNotes,
+      description,
+      sessionType: this.ui.addCaseSessionType?.value || "individual",
+      sessionDate: this.ui.addCaseSessionDate?.value || undefined,
+      actionPlan: this.ui.addCaseActionPlan?.value.trim() || "",
+      followUpDate: this.ui.addCaseFollowUpDate?.value || "",
+    };
+
+    const saveBtn = this.ui.addCaseSaveBtn;
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+    }
+
+    try {
+      await this.api("/counseling/session", "POST", payload);
+      this.notify("Counseling case created successfully", "success");
+      const modalInstance = bootstrap.Modal.getInstance(this.ui.addCaseModal);
+      modalInstance?.hide();
+      await this.loadCases();
+    } catch (error) {
+      console.error("Failed to create case:", error);
+      this.notify(error.message || "Failed to create counseling case", "error");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Create Case';
+      }
+    }
   },
 
   resetFilters() {

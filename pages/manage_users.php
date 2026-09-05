@@ -23,6 +23,30 @@
         </div>
     </div>
 
+    <div class="card border-warning shadow-sm mb-4" id="operatingModeCard">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+                <div>
+                    <h3 class="h5 mb-1">Environment and test-data control</h3>
+                    <p class="text-muted mb-0" id="operatingModeDescription">Loading the authoritative operating mode...</p>
+                </div>
+                <span class="badge text-bg-secondary fs-6" id="operatingModeBadge">Loading</span>
+            </div>
+            <div class="row g-3 mt-1" id="testDataInventory"></div>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+                <button type="button" class="btn btn-warning" id="enableProductionTestModeBtn" hidden>
+                    Enable production test mode
+                </button>
+                <button type="button" class="btn btn-success" id="enableProductionLiveModeBtn" hidden>
+                    Switch production to live mode
+                </button>
+                <button type="button" class="btn btn-outline-danger ms-auto" id="purgeAllTestDataBtn">
+                    Permanently delete all test data
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-3 mb-4" id="userAccountsSummary"></div>
 
     <div

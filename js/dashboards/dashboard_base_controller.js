@@ -202,8 +202,12 @@ const DashboardBaseController = {
                 }
 
                 try {
-                    const response = await this.apiMethod({ period: this.period });
-                    const data = this.normalizeResponse(response);
+                    const filters = this.resolvePeriodFilters(this.period);
+                    const response = await this.apiMethod(filters);
+                    const data = this.filterDateBearingData(
+                        this.normalizeResponse(response),
+                        filters
+                    );
 
                     if (!data || typeof data !== 'object' || Array.isArray(data)) {
                         throw new Error(
@@ -245,6 +249,85 @@ const DashboardBaseController = {
                     || response?.data
                     || response
                     || null;
+            },
+
+            resolvePeriodFilters(period) {
+                const pad = value => String(value).padStart(2, '0');
+                const format = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+                const today = new Date();
+                const from = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                const to = new Date(from);
+
+                if (period === 'week') {
+                    const weekday = from.getDay() || 7;
+                    from.setDate(from.getDate() - weekday + 1);
+                } else if (period === 'month') {
+                    from.setDate(1);
+                } else if (period === 'year') {
+                    from.setMonth(0, 1);
+                } else if (period === 'term') {
+                    const context = window.AcademicContext?.state || {};
+                    const startValue = context.termStartDate;
+                    const endValue = context.termEndDate;
+                    const start = startValue ? new Date(`${startValue}T00:00:00`) : null;
+                    const end = endValue ? new Date(`${endValue}T00:00:00`) : null;
+                    if (start && !Number.isNaN(start.getTime())) {
+                        from.setTime(start.getTime());
+                    } else {
+                        from.setMonth(0, 1);
+                    }
+                    if (end && !Number.isNaN(end.getTime()) && end < to) {
+                        to.setTime(end.getTime());
+                    }
+                }
+
+                return {
+                    period: period || 'today',
+                    date_from: format(from),
+                    date_to: format(to),
+                    start_date: format(from),
+                    end_date: format(to),
+                    term_id: window.AcademicContext?.state?.termId || undefined,
+                    academic_year_id: window.AcademicContext?.state?.academicYearId || undefined
+                };
+            },
+
+            filterDateBearingData(data, filters) {
+                if (!data || typeof data !== 'object') return data;
+                const dateKeys = [
+                    'date', 'created_at', 'updated_at', 'submitted_at',
+                    'incident_date', 'assessment_date', 'observation_date',
+                    'session_date', 'start_date', 'event_date', 'required_date',
+                    'payment_date', 'transaction_date', 'due_date'
+                ];
+                const from = new Date(`${filters.date_from}T00:00:00`).getTime();
+                const to = new Date(`${filters.date_to}T23:59:59`).getTime();
+                const filterRows = rows => {
+                    if (!Array.isArray(rows)) return rows;
+                    return rows.filter(row => {
+                        if (!row || typeof row !== 'object') return true;
+                        const key = dateKeys.find(candidate => row[candidate]);
+                        if (!key) return true;
+                        const timestamp = new Date(String(row[key]).replace(' ', 'T')).getTime();
+                        return Number.isNaN(timestamp) || (timestamp >= from && timestamp <= to);
+                    });
+                };
+
+                if (data.tables && typeof data.tables === 'object') {
+                    Object.keys(data.tables).forEach(key => {
+                        const table = data.tables[key];
+                        if (Array.isArray(table)) {
+                            data.tables[key] = filterRows(table);
+                        } else if (table && Array.isArray(table.data)) {
+                            table.data = filterRows(table.data);
+                            if (Object.prototype.hasOwnProperty.call(table, 'total')) {
+                                table.total = table.data.length;
+                            }
+                        }
+                    });
+                }
+                data.meta = { ...(data.meta || {}), filters };
+                return data;
             },
 
             renderDashboard(data) {

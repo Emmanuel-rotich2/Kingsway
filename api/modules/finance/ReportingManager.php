@@ -47,6 +47,8 @@ class ReportingManager extends FileLifecycleBase
     {
         try {
             $academicYear = $filters['academic_year'] ?? date('Y');
+            $filterStart = $filters['date_from'] ?? ($academicYear . '-01-01');
+            $filterEnd = $filters['date_to'] ?? ($academicYear . '-12-31');
 
             // Get current term
             $stmt = $this->db->query("SELECT ayt.id AS id, t.name AS name, CAST(SUBSTRING(t.code,2) AS UNSIGNED) AS term_number FROM academic_year_terms ayt JOIN academic_years ay ON ay.id = ayt.academic_year_id JOIN terms t ON t.id = ayt.term_id WHERE ay.is_current = 1 AND ayt.status = 'current' LIMIT 1");
@@ -205,21 +207,20 @@ class ReportingManager extends FileLifecycleBase
                     COUNT(*) as transaction_count,
                     SUM(p.amount) as total_amount
                 FROM payments p
-                JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date
-                WHERE p.status = 'confirmed' AND ay.year_code = ?
+                WHERE p.status = 'confirmed' AND DATE(p.payment_date) BETWEEN ? AND ?
                 GROUP BY p.method
             ");
-            $stmt->execute([$academicYear]);
+            $stmt->execute([$filterStart, $filterEnd]);
             $paymentMethods = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             // Average payment & counts for reconciliation (include 'confirmed' status)
-            $stmt = $this->db->prepare("SELECT AVG(p.amount) as avg_amount, COUNT(*) as completed_count FROM payments p JOIN academic_years ay ON p.payment_date >= ay.start_date AND p.payment_date <= ay.end_date WHERE p.status = 'confirmed' AND ay.year_code = ?");
-            $stmt->execute([$academicYear]);
+            $stmt = $this->db->prepare("SELECT AVG(p.amount) as avg_amount, COUNT(*) as completed_count FROM payments p WHERE p.status = 'confirmed' AND DATE(p.payment_date) BETWEEN ? AND ?");
+            $stmt->execute([$filterStart, $filterEnd]);
             $avgRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
             // Unmatched MPESA summary (within academic year period, excluding reconciled ones)
-            $startDate = $academicYear . '-01-01';
-            $endDate = $academicYear . '-12-31';
+            $startDate = $filterStart;
+            $endDate = $filterEnd;
             $stmt = $this->db->prepare("
                 SELECT COUNT(*) as unmatched_count, COALESCE(SUM(mt.amount),0) as unmatched_total
                 FROM mpesa_transactions mt
@@ -406,13 +407,27 @@ return formatResponse(false, null, 'An internal error occurred.');
      * @param int $limit Number of recent transactions to return
      * @return array Response with recent transactions
      */
-    public function getRecentTransactions($limit = 10)
+    public function getRecentTransactions($limit = 10, array $filters = [])
     {
         try {
             $limit = (int) $limit;
             // Accept both 'completed' and 'confirmed' statuses (confirmed is used in production)
-            $stmt = $this->db->prepare("SELECT p.id, p.reference AS reference, p.payment_date, p.method AS method, p.amount AS amount, CONCAT(COALESCE(pn.first_name,''),' ',COALESCE(pn.last_name,'')) as student_name FROM payments p JOIN students s ON s.id = p.student_id LEFT JOIN persons pn ON s.person_id = pn.id WHERE p.status = 'confirmed' ORDER BY p.payment_date DESC LIMIT ?");
-            $stmt->bindValue(1, $limit, PDO::PARAM_INT);
+            $sql = "SELECT p.id, p.reference AS reference, p.payment_date, p.method AS method, p.amount AS amount, CONCAT(COALESCE(pn.first_name,''),' ',COALESCE(pn.last_name,'')) as student_name FROM payments p JOIN students s ON s.id = p.student_id LEFT JOIN persons pn ON s.person_id = pn.id WHERE p.status = 'confirmed'";
+            $params = [];
+            if (!empty($filters['date_from'])) {
+                $sql .= " AND DATE(p.payment_date) >= ?";
+                $params[] = $filters['date_from'];
+            }
+            if (!empty($filters['date_to'])) {
+                $sql .= " AND DATE(p.payment_date) <= ?";
+                $params[] = $filters['date_to'];
+            }
+            $sql .= " ORDER BY p.payment_date DESC LIMIT ?";
+            $stmt = $this->db->prepare($sql);
+            foreach ($params as $index => $value) {
+                $stmt->bindValue($index + 1, $value);
+            }
+            $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
             $stmt->execute();
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

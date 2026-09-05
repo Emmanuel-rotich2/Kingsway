@@ -336,4 +336,139 @@ if (!isset($appBase)) {
     </div>
 </div>
 
+<!-- Add Case Modal -->
+<div class="modal fade" id="addCaseModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-plus-circle me-2"></i> New Counseling Case
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <form id="addCaseForm" novalidate>
+
+                    <!-- Student Search -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Student <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="addCaseStudentSearch"
+                               placeholder="Type name or admission number to search..." autocomplete="off">
+                        <input type="hidden" id="addCaseStudentId">
+                        <div id="addCaseStudentResults" class="list-group mt-1 d-none"></div>
+                        <small id="addCaseStudentSelected" class="text-success d-none">
+                            <i class="bi bi-check-circle me-1"></i><span></span>
+                        </small>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Case Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="addCaseTitle" required
+                                   placeholder="e.g. Academic performance concern">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Case Type</label>
+                            <select class="form-select" id="addCaseType">
+                                <option value="other">Other</option>
+                                <option value="academic">Academic</option>
+                                <option value="behavioral">Behavioral</option>
+                                <option value="personal">Personal</option>
+                                <option value="family">Family</option>
+                                <option value="career">Career</option>
+                                <option value="disciplinary">Disciplinary</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Priority</label>
+                            <select class="form-select" id="addCasePriority">
+                                <option value="medium" selected>Medium</option>
+                                <option value="low">Low</option>
+                                <option value="high">High</option>
+                                <option value="urgent">Urgent</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Referral Source</label>
+                            <select class="form-select" id="addCaseReferral">
+                                <option value="">-- Select --</option>
+                                <option value="teacher">Teacher</option>
+                                <option value="parent">Parent</option>
+                                <option value="self">Self-referral</option>
+                                <option value="admin">Administration</option>
+                                <option value="peer">Peer</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Assigned To</label>
+                            <select class="form-select" id="addCaseAssignedTo">
+                                <option value="">-- Unassigned --</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Description <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="addCaseDescription" rows="3" required
+                                  placeholder="Describe the case..."></textarea>
+                    </div>
+
+                    <hr class="my-4">
+                    <h6 class="text-muted mb-3">Initial Session Note</h6>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Session Type</label>
+                            <select class="form-select" id="addCaseSessionType">
+                                <option value="individual">Individual</option>
+                                <option value="group">Group</option>
+                                <option value="follow_up">Follow-up</option>
+                                <option value="crisis">Crisis</option>
+                                <option value="assessment">Assessment</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Session Date</label>
+                            <input type="date" class="form-control" id="addCaseSessionDate">
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Session Notes <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="addCaseSessionNotes" rows="3" required
+                                  placeholder="Notes from this session..."></textarea>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Action Plan</label>
+                            <textarea class="form-control" id="addCaseActionPlan" rows="2"
+                                      placeholder="Planned actions..."></textarea>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Follow-up Date</label>
+                            <input type="date" class="form-control" id="addCaseFollowUpDate">
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info" id="addCaseSaveBtn">
+                    <i class="bi bi-check-lg me-1"></i> Create Case
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <script src="<?php echo $appBase; ?>/js/pages/student_counseling.js?v=<?php echo time(); ?>"></script>

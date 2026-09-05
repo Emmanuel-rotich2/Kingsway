@@ -224,7 +224,7 @@ class StaffController extends BaseController
         $supervisors = $pdo->query("
             SELECT s.id, s.staff_no, CONCAT_WS(' ', p.first_name, p.middle_name, p.last_name) AS name
             FROM staff s JOIN persons p ON p.id = s.person_id
-            WHERE s.status = 'active' ORDER BY name
+            WHERE s.status = 'active' AND s.data_scope='live' ORDER BY name
         ")->fetchAll(\PDO::FETCH_ASSOC);
 
         return $this->success([
@@ -291,7 +291,7 @@ class StaffController extends BaseController
             return $this->badRequest('Select a valid active department, staff type and matching staff category.');
         }
         if (!empty($data['supervisor_id'])) {
-            $supervisor = $pdo->prepare("SELECT 1 FROM staff WHERE id=? AND status='active'");
+            $supervisor = $pdo->prepare("SELECT 1 FROM staff WHERE id=? AND status='active' AND data_scope='live'");
             $supervisor->execute([(int)$data['supervisor_id']]);
             if (!$supervisor->fetchColumn()) return $this->badRequest('Select a valid active supervisor.');
         }

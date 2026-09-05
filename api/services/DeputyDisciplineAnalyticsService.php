@@ -14,9 +14,9 @@ class DeputyDisciplineAnalyticsService
      * Returns a discipline-centric view for deputy heads.
      * Surfaces cases, attendance, communications, and key events.
      */
-    public function getFullDashboardData(): array
+    public function getFullDashboardData(array $filters = []): array
     {
-        $full = $this->headteacher->getFullDashboardData();
+        $full = $this->headteacher->getFullDashboardData($filters);
 
         $cards = $full['cards'] ?? [];
         $charts = $full['charts'] ?? [];

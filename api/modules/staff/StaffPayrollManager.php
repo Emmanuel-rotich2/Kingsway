@@ -321,7 +321,7 @@ class StaffPayrollManager extends BaseAPI
                 SELECT ps.*, s.staff_no,
                     CONCAT(p.first_name, ' ', p.last_name) AS staff_name,
                     s.position, s.bank_account, spp.nssf_no, spp.nhif_no, spp.kra_pin,
-                    st.name AS staff_type, d.name AS department_name,
+                    spp.bank_name, st.name AS staff_type, d.name AS department_name,
                     CONCAT(ap.first_name, ' ', ap.last_name) AS approved_by_name
                 FROM payslips ps
                 INNER JOIN staff s ON ps.staff_id = s.id

@@ -83,7 +83,13 @@
       const el = document.getElementById('about-leadership');
       if (!el) return;
       const levels = Array.isArray(data) ? data : [];
-      if (!levels.length) { el.innerHTML = PS.emptyHTML(); return; }
+      const section = el.closest('section');
+      if (!levels.length) {
+        el.innerHTML = '';
+        if (section) section.hidden = true;
+        return;
+      }
+      if (section) section.hidden = false;
 
       const fallbackColors = ['#198754', '#0d6efd', '#6f42c1', '#fd7e14', '#dc3545'];
 

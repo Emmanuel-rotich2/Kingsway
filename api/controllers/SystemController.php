@@ -7,6 +7,8 @@ use App\API\Modules\system\DashboardRegistryManager;
 use App\API\Services\AuthSessionService;
 use App\API\Services\IpAccessControlService;
 use App\API\Services\SystemAdminAnalyticsService;
+use App\API\Services\OperatingModeService;
+use App\API\Services\TestDataManagementService;
 use App\API\Services\Logger;
 use Exception;
 
@@ -776,6 +778,67 @@ class SystemController extends BaseController
             return $auth;
         }
         return $this->handleApiResponse($this->systemAdminManager->getStateToggleList('feature_flags', 'Feature flags retrieved'));
+    }
+
+    // GET /api/system/operating-mode
+    public function getOperatingMode($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        return $this->success(
+            (new OperatingModeService($this->db->getConnection()))->current(),
+            'Operating mode retrieved'
+        );
+    }
+
+    // PUT /api/system/operating-mode
+    public function putOperatingMode($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            $actorId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            $result = (new OperatingModeService($this->db->getConnection()))->change(
+                (string) ($data['mode'] ?? ''),
+                $actorId,
+                (string) ($data['reason'] ?? ''),
+                (string) ($data['confirmation'] ?? '')
+            );
+            return $this->success($result, 'Production operating mode updated');
+        } catch (\DomainException|\InvalidArgumentException $error) {
+            return $this->badRequest($error->getMessage());
+        } catch (\Throwable $error) {
+            Logger::legacyError('Operating mode update failed: ' . $error->getMessage());
+            return $this->serverError('Operating mode could not be updated');
+        }
+    }
+
+    // GET /api/system/test-data
+    public function getTestData($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        return $this->success(
+            (new TestDataManagementService($this->db->getConnection()))->inventory(),
+            'Test-data inventory retrieved'
+        );
+    }
+
+    // DELETE /api/system/test-data
+    public function deleteTestData($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            $actorId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
+            $result = (new TestDataManagementService($this->db->getConnection()))->purgeAll(
+                $actorId,
+                (string) ($data['confirmation'] ?? ''),
+                (string) ($data['reason'] ?? '')
+            );
+            return $this->success($result, 'Test accounts and classified test data were permanently deleted');
+        } catch (\DomainException|\InvalidArgumentException $error) {
+            return $this->badRequest($error->getMessage());
+        } catch (\Throwable $error) {
+            Logger::legacyError('Test-realm purge failed and was rolled back: ' . $error->getMessage());
+            return $this->serverError('Test data could not be deleted; no partial purge was retained');
+        }
     }
 
     // PUT /api/system/feature-flags

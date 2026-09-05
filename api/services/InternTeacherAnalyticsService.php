@@ -26,11 +26,13 @@ class InternTeacherAnalyticsService
 {
     private $db;
     private $userId;
+    private array $period;
 
     public function __construct($userId)
     {
         $this->db = Database::getInstance();
         $this->userId = $userId;
+        $this->period = DashboardPeriodService::resolve($this->db->getConnection(), []);
     }
 
     // =========================================================================
@@ -85,8 +87,8 @@ class InternTeacherAnalyticsService
                         SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as pending,
                         AVG(rating) as average_rating
                       FROM lesson_observations 
-                      WHERE intern_id = ?";
-            $stmt = $this->db->query($query, [$this->userId]);
+                      WHERE intern_id = ? AND observation_date BETWEEN ? AND ?";
+            $stmt = $this->db->query($query, [$this->userId, $this->period['date_from'], $this->period['date_to']]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
@@ -150,9 +152,13 @@ class InternTeacherAnalyticsService
                       JOIN academic_year_class_learning_areas aycla ON aycla.academic_year_class_id = ayc.id
                       JOIN academic_year_class_learning_area_teachers ayclat ON ayclat.academic_year_class_learning_area_id = aycla.id
                       LEFT JOIN assessment_results ar ON sae.id = ar.student_academic_enrollment_id
-                      WHERE ayclat.staff_id = ? 
+                      WHERE ayclat.staff_id = ?
+                        AND EXISTS (
+                            SELECT 1 FROM assessments a
+                            WHERE a.id=ar.assessment_id AND a.assessment_date BETWEEN ? AND ?
+                        )
                         AND sae.enrollment_status = 'active'";
-            $stmt = $this->db->query($query, [$this->userId]);
+            $stmt = $this->db->query($query, [$this->userId, $this->period['date_from'], $this->period['date_to']]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return [
@@ -268,10 +274,10 @@ class InternTeacherAnalyticsService
                       LEFT JOIN learning_areas la ON lo.learning_area_id = la.id
                       LEFT JOIN staff m ON lo.observer_id = m.id
                       LEFT JOIN persons p ON m.person_id = p.id
-                      WHERE lo.intern_id = ?
+                      WHERE lo.intern_id = ? AND lo.observation_date BETWEEN ? AND ?
                       ORDER BY lo.observation_date DESC
                       LIMIT 20";
-            $stmt = $this->db->query($query, [$this->userId]);
+            $stmt = $this->db->query($query, [$this->userId, $this->period['date_from'], $this->period['date_to']]);
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError("getObservationsTable error: " . $e->getMessage());
@@ -311,8 +317,9 @@ class InternTeacherAnalyticsService
     /**
      * Get full dashboard data in a single call
      */
-    public function getFullDashboardData(): array
+    public function getFullDashboardData(array $filters = []): array
     {
+        $this->period = DashboardPeriodService::resolve($this->db->getConnection(), $filters);
         return [
             'cards' => [
                 'assigned_classes' => $this->getAssignedClassesStats(),
@@ -327,7 +334,8 @@ class InternTeacherAnalyticsService
                 'observations' => $this->getObservationsTable(),
                 'competencies' => $this->getCompetenciesTable()
             ],
-            'timestamp' => date('Y-m-d H:i:s')
+            'timestamp' => date('Y-m-d H:i:s'),
+            'meta' => ['filters' => $this->period]
         ];
     }
 }

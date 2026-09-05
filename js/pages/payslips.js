@@ -200,12 +200,59 @@ const payslipsController = {
 
   _printRow: function (row) {
     if (!window.PrintManager?.printDedicatedPayslip) return;
+
+    // payslips has no total_deductions column. Derive the figure from the
+    // authoritative stored Gross and Net so the printed document reconciles
+    // with its own NET PAY line rather than implying a zero-total document.
+    const grossPay = Number(row.gross_salary ?? row.gross_pay ?? 0);
+    const netPay   = Number(row.net_salary ?? row.net_pay ?? 0);
+    const totalDeductions = (grossPay || netPay)
+      ? Math.max(0, grossPay - netPay)
+      : 0;
+
+    const statutory = {
+      paye: row.paye_tax || row.paye_deduction || 0,
+      nssf: row.nssf_contribution || row.nssf_deduction || 0,
+      nhif_shif: row.shif_contribution || row.shif_deduction || row.nhif_contribution || 0,
+      housing_levy: row.housing_levy || 0,
+    };
+
+    const parseJson = (value) => {
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string' && value) {
+        try { const v = JSON.parse(value); return Array.isArray(v) ? v : []; }
+        catch (_) { return []; }
+      }
+      return [];
+    };
+    const allowances = parseJson(row.allowances_breakdown);
+    const childrenDeductions = parseJson(row.child_fees_breakdown);
+
     return window.PrintManager.printDedicatedPayslip({
-      employeeName: row.staff_name || '', staffNo: row.staff_no || row.staff_number || '',
-      period: row.period_display || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`,
-      basicSalary: row.basic_salary || 0, grossPay: row.gross_salary || row.gross_pay || 0,
-      totalDeductions: row.total_deductions || 0, netPay: row.net_salary || row.net_pay || 0,
-      statutory: { paye: row.paye_tax || row.paye_deduction || 0, nssf: row.nssf_contribution || row.nssf_deduction || 0, nhif_shif: row.shif_contribution || row.shif_deduction || 0 },
+      employeeName: row.staff_name || '',
+      staffNo: row.staff_no || row.staff_number || '',
+      designation: row.position || row.designation || '',
+      department: row.department || row.department_name || '',
+      kraPin: row.kra_pin || '',
+      nssfNo: row.nssf_no || '',
+      shifNo: row.shif_no || row.nhif_no || '',
+      bankName: row.bank_name || '',
+      bankAccountNumber: row.bank_account_number || row.bank_account || '',
+      paymentMethod: row.payment_method || row.payment_mode || '',
+      paymentReference: row.payment_reference || '',
+      datePaid: row.payment_date || row.paid_at || '',
+      status: row.payslip_status || row.payment_status || row.status || '',
+      period: row.period_display || row.month_label || `${row.payroll_year}-${String(row.payroll_month).padStart(2, '0')}`,
+      basicSalary: row.basic_salary || 0,
+      allowances,
+      statutory,
+      grossPay,
+      netPay,
+      totalDeductions,
+      employerNssf: row.employer_nssf_contribution || 0,
+      employerHousing: row.employer_housing_levy || 0,
+      otherDeductions: row.other_deductions_total != null ? row.other_deductions_total : null,
+      childrenDeductions,
       filename: `payslip_${row.staff_no || row.staff_id}_${row.payroll_year}_${row.payroll_month}`,
     });
   },
@@ -373,6 +420,12 @@ const payslipsController = {
     const payslip = this._currentSlipData;
     const staff = payslip;
 
+    // payslips has no total_deductions column; derive from stored Gross/Net
+    // so the printed total reconciles with the NET PAY line.
+    const grossPay = Number(payslip.gross_pay ?? payslip.gross_salary ?? 0);
+    const netPay   = Number(payslip.net_pay ?? payslip.net_salary ?? 0);
+    const totalDeductions = (grossPay || netPay) ? Math.max(0, grossPay - netPay) : 0;
+
     if (window.PrintManager && window.PrintManager.printDedicatedPayslip) {
       window.PrintManager.printDedicatedPayslip({
         employeeName: staff.employee_name || staff.staff_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim(),
@@ -380,6 +433,14 @@ const payslipsController = {
         department: staff.department_name || staff.department || '',
         designation: staff.designation || staff.position || '',
         kraPin: staff.kra_pin || '',
+        nssfNo: staff.nssf_no || '',
+        shifNo: staff.shif_no || staff.nhif_no || '',
+        bankName: staff.bank_name || '',
+        bankAccountNumber: staff.bank_account_number || staff.bank_account || '',
+        paymentMethod: staff.payment_method || staff.payment_mode || '',
+        paymentReference: staff.payment_reference || '',
+        datePaid: staff.payment_date || staff.paid_at || '',
+        status: staff.payslip_status || staff.payment_status || staff.status || '',
         period: payslip.period || payslip.payroll_period || `${payslip.payroll_year || new Date().getFullYear()}-${String(payslip.payroll_month || new Date().getMonth() + 1).padStart(2, '0')}`,
         basicSalary: payslip.basic_salary || payslip.basic_pay || 0,
         allowances: (payslip.earnings || []).map(e => ({ name: e.description || e.name || '', amount: e.amount || e.value || 0 })),
@@ -390,10 +451,13 @@ const payslipsController = {
           nhif_shif: payslip.nhif || payslip.shif || 0,
           housing_levy: payslip.housing_levy || 0,
         },
-        grossPay: payslip.gross_pay || payslip.gross_salary || 0,
-        totalDeductions: payslip.total_deductions || 0,
-        netPay: payslip.net_pay || payslip.net_salary || 0,
-        bankAccount: staff.bank_account || '',
+        grossPay,
+        netPay,
+        totalDeductions,
+        employerNssf: payslip.employer_nssf_contribution || 0,
+        employerHousing: payslip.employer_housing_levy || 0,
+        otherDeductions: payslip.other_deductions_total != null ? payslip.other_deductions_total : null,
+        childrenDeductions: Array.isArray(payslip.children_deductions) ? payslip.children_deductions : [],
         filename: `payslip_${staff.staff_no || staff.id || 'staff'}_${payslip.period || new Date().toISOString().slice(0, 7)}`,
       });
     } else {

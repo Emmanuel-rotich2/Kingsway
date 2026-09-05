@@ -12,6 +12,8 @@ const ManageUsersController = {
     eventsBound: false,
     initializationPromise: null,
     loading: false,
+    operatingMode: null,
+    testInventory: null,
   },
 
   elements: {},
@@ -82,6 +84,12 @@ const ManageUsersController = {
       form: document.getElementById("userAccountForm"),
       formFields: document.getElementById("userAccountFormFields"),
       saveButton: document.getElementById("saveUserBtn"),
+      modeDescription: document.getElementById("operatingModeDescription"),
+      modeBadge: document.getElementById("operatingModeBadge"),
+      inventory: document.getElementById("testDataInventory"),
+      testModeButton: document.getElementById("enableProductionTestModeBtn"),
+      liveModeButton: document.getElementById("enableProductionLiveModeBtn"),
+      purgeButton: document.getElementById("purgeAllTestDataBtn"),
     };
 
     const required = [
@@ -99,6 +107,12 @@ const ManageUsersController = {
       "form",
       "formFields",
       "saveButton",
+      "modeDescription",
+      "modeBadge",
+      "inventory",
+      "testModeButton",
+      "liveModeButton",
+      "purgeButton",
     ];
 
     const missing = required.filter((key) => !this.elements[key]);
@@ -137,6 +151,9 @@ const ManageUsersController = {
     this.elements.modalElement.addEventListener("hidden.bs.modal", () => {
       this.resetForm();
     });
+    this.elements.testModeButton.addEventListener("click", () => void this.changeOperatingMode("test"));
+    this.elements.liveModeButton.addEventListener("click", () => void this.changeOperatingMode("live"));
+    this.elements.purgeButton.addEventListener("click", () => void this.purgeAllTestData());
 
     this.state.eventsBound = true;
   },
@@ -163,14 +180,19 @@ const ManageUsersController = {
     this.showTableLoading();
 
     try {
-      const [usersResponse, rolesResponse] = await Promise.all([
+      const [usersResponse, rolesResponse, modeResponse, inventoryResponse] = await Promise.all([
         window.API.users.index(),
         window.API.system.getRoles(),
+        window.API.system.getOperatingMode(),
+        window.API.system.getTestDataInventory(),
       ]);
 
       this.state.users = this.extractRows(usersResponse);
       this.state.roles = this.extractRows(rolesResponse);
+      this.state.operatingMode = this.extractData(modeResponse);
+      this.state.testInventory = this.extractData(inventoryResponse);
 
+      this.renderEnvironmentControl();
       this.renderSummary();
       this.renderTable();
 
@@ -204,6 +226,84 @@ const ManageUsersController = {
     }
   },
 
+  renderEnvironmentControl() {
+    const state = this.state.operatingMode || {};
+    const environment = String(state.environment || "development");
+    const mode = String(state.mode || environment);
+    const isProduction = environment === "production";
+    const isTest = mode === "test";
+    this.elements.modeBadge.className = `badge fs-6 text-bg-${isTest ? "warning" : mode === "live" ? "success" : "info"}`;
+    this.elements.modeBadge.textContent = `${this.formatStatus(environment)} · ${this.formatStatus(mode)}`;
+    this.elements.modeDescription.textContent = isProduction
+      ? (isTest
+        ? "Production test mode admits approved, unexpired test accounts in the isolated test workspace. Real accounts remain in the live workspace."
+        : "Production live mode blocks every test account. Only real and service accounts can operate on live data.")
+      : "Development uses its separate local database. Real and test accounts work normally; test grants and the production switch are not required.";
+    this.elements.testModeButton.hidden = !isProduction || isTest;
+    this.elements.liveModeButton.hidden = !isProduction || !isTest;
+
+    const counts = this.state.testInventory?.counts || {};
+    const items = [
+      ["Test accounts", counts.test_accounts],
+      ["Test staff", counts.test_staff],
+      ["Test payroll profiles", counts.test_payroll_profiles],
+      ["Test payslips", counts.test_payslips],
+      ["Test payroll runs", counts.test_payroll_runs],
+    ];
+    this.elements.inventory.innerHTML = items.map(([label, value]) => `
+      <div class="col-6 col-lg">
+        <div class="border rounded p-2 h-100">
+          <div class="small text-muted">${this.escapeHtml(label)}</div>
+          <strong>${Number(value || 0)}</strong>
+        </div>
+      </div>`).join("");
+    this.elements.purgeButton.disabled = Number(counts.classified_records || 0) === 0;
+  },
+
+  async changeOperatingMode(mode) {
+    const phrase = mode === "live" ? "SWITCH TO LIVE" : "ENABLE TEST MODE";
+    const reason = window.prompt(`Reason for changing production to ${mode} mode:`);
+    if (!reason?.trim()) return;
+    const confirmation = window.prompt(`Type ${phrase} to confirm:`);
+    if (confirmation !== phrase) {
+      this.notify("The confirmation phrase did not match. No mode change was made.", "error");
+      return;
+    }
+    try {
+      await window.API.system.updateOperatingMode({ mode, reason: reason.trim(), confirmation });
+      this.notify(`Production is now in ${mode} mode.`, "success");
+      await this.loadData();
+    } catch (error) {
+      this.notify(this.formatError(error, "Operating mode could not be changed."), "error");
+    }
+  },
+
+  async purgeAllTestData() {
+    const counts = this.state.testInventory?.counts || {};
+    const approved = await window.confirmAction(
+      "Permanent test-data deletion",
+      `This permanently deletes ${Number(counts.test_accounts || 0)} test accounts and all records classified in their test realm. This cannot be undone.`,
+      { confirmText: "Continue", danger: true },
+    );
+    if (!approved) return;
+    const reason = window.prompt("Reason for permanently deleting the test realm:");
+    if (!reason?.trim()) return;
+    const phrase = "PERMANENTLY DELETE ALL TEST DATA";
+    const confirmation = window.prompt(`Final confirmation: type ${phrase}`);
+    if (confirmation !== phrase) {
+      this.notify("The confirmation phrase did not match. Nothing was deleted.", "error");
+      return;
+    }
+    this.showState("Permanently deleting the classified test realm...", "danger");
+    try {
+      await window.API.system.purgeTestData({ confirmation, reason: reason.trim() });
+      this.notify("All classified test accounts and related test data were permanently deleted.", "success");
+      await this.loadData();
+    } catch (error) {
+      this.showState(this.formatError(error, "Test data could not be deleted."), "danger");
+    }
+  },
+
   renderSummary() {
     const totals = this.state.users.reduce(
       (result, user) => {
@@ -216,17 +316,23 @@ const ManageUsersController = {
       { active: 0, pending: 0, suspended: 0 },
     );
 
+    const testAccounts = this.state.users.filter(
+      (user) => Number(user.is_test_user || 0) === 1 || user.account_type === "test",
+    ).length;
+
     const cards = [
       ["Total accounts", this.state.users.length, "primary"],
       ["Active", totals.active, "success"],
       ["Pending", totals.pending, "warning"],
       ["Suspended", totals.suspended, "danger"],
+      ["Real accounts", this.state.users.length - testAccounts, "success"],
+      ["Test accounts", testAccounts, "warning"],
     ];
 
     this.elements.summary.innerHTML = cards
       .map(
         ([label, value, color]) => `
-          <div class="col-6 col-xl-3">
+          <div class="col-6 col-xl-2">
             <div class="card border-0 shadow-sm h-100">
               <div class="card-body">
                 <div class="text-muted small">${this.escapeHtml(label)}</div>
@@ -260,6 +366,7 @@ const ManageUsersController = {
         <th>User</th>
         <th>Email</th>
         <th>Primary role</th>
+        <th>Account type</th>
         <th>Status</th>
         <th>Last login</th>
         <th class="text-end">Actions</th>
@@ -283,6 +390,12 @@ const ManageUsersController = {
           user.username ||
           "Unnamed user";
         const isCurrentUser = userId === authenticatedUserId;
+        const isTestUser = Number(user.is_test_user || 0) === 1 || user.account_type === "test";
+        const testAccess = isTestUser
+          ? (user.test_access_status
+            ? `${this.formatStatus(user.test_access_status)} until ${this.formatDateTime(user.test_access_expires_at)}`
+            : "No current grant")
+          : "Live workspace";
 
         return `
           <tr>
@@ -293,12 +406,27 @@ const ManageUsersController = {
             <td>${this.escapeHtml(user.email || "—")}</td>
             <td>${this.escapeHtml(user.role_name || "Unassigned")}</td>
             <td>
+              <span class="badge text-bg-${isTestUser ? "warning" : "success"}">
+                ${isTestUser ? "Test" : "Real"}
+              </span>
+              <div class="small text-muted mt-1">${this.escapeHtml(testAccess)}</div>
+            </td>
+            <td>
               <span class="badge text-bg-${this.statusColor(user.status)}">
                 ${this.escapeHtml(this.formatStatus(user.status))}
               </span>
             </td>
             <td>${this.escapeHtml(this.formatDateTime(user.last_login, "Never"))}</td>
             <td class="text-end">
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-warning ms-1"
+                data-user-action="revoke-test-access"
+                data-user-id="${userId}"
+                ${!isTestUser || !["scheduled", "active"].includes(String(user.test_access_status || "").toLowerCase()) ? "disabled" : ""}
+              >
+                <i class="fas fa-ban me-1"></i>Revoke test access
+              </button>
               <button
                 type="button"
                 class="btn btn-sm btn-outline-primary"
@@ -359,6 +487,27 @@ const ManageUsersController = {
 
     if (button.dataset.userAction === "reset-mfa") {
       await this.resetMfa(user);
+      return;
+    }
+
+    if (button.dataset.userAction === "revoke-test-access") {
+      await this.revokeTestAccess(user);
+    }
+  },
+
+  async revokeTestAccess(user) {
+    const userId = Number(user.id ?? user.user_id ?? 0);
+    const reason = window.prompt("Reason for immediately revoking this test account:", "Feature test completed");
+    if (!reason || !reason.trim()) return;
+    try {
+      await window.API.users.update(userId, {
+        test_access_action: "revoke",
+        test_access_revocation_reason: reason.trim(),
+      });
+      this.notify("Test access revoked and active sessions terminated.", "success");
+      await this.loadData();
+    } catch (error) {
+      this.notify(this.formatError(error, "Failed to revoke test access."), "error");
     }
   },
 
@@ -384,6 +533,9 @@ const ManageUsersController = {
       : null;
 
     const editing = this.state.editingUserId !== null;
+    const environment = document.getElementById("app-shell")?.dataset.environment || "development";
+    const defaultAccountType = environment === "development" ? "test" : "real";
+    const selectedAccountType = user?.account_type || defaultAccountType;
     this.elements.modalTitle.textContent = editing
       ? "Edit User Account"
       : "Create User Account";
@@ -392,7 +544,11 @@ const ManageUsersController = {
       : "Create user";
 
     const roleOptions = this.state.roles
-      .filter((role) => String(role.scope || "").toLowerCase() === "system" || Number(role.is_system) === 1)
+      .filter((role) =>
+        String(role.scope || "").toLowerCase() === "system" ||
+        Number(role.is_system) === 1 ||
+        Number(role.id ?? role.role_id ?? 0) === Number(user?.role_id ?? user?.main_role_id ?? 0)
+      )
       .map((role) => {
         const roleId = Number(role.id ?? role.role_id ?? 0);
         const selected =
@@ -420,6 +576,15 @@ const ManageUsersController = {
             </div>`
       }
       <div class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label" for="userAccountType">Account type</label>
+          <select class="form-select" id="userAccountType" name="account_type" ${editing ? "disabled" : ""} required>
+            <option value="real" ${selectedAccountType === "real" ? "selected" : ""}>Real account</option>
+            <option value="test" ${selectedAccountType === "test" ? "selected" : ""}>Temporary test account</option>
+            <option value="service" ${selectedAccountType === "service" ? "selected" : ""}>Service account</option>
+          </select>
+          <div class="form-text">Account type cannot be converted after creation.</div>
+        </div>
         <div class="col-md-6">
           <label class="form-label" for="userUsername">Username</label>
           <input
@@ -494,7 +659,42 @@ const ManageUsersController = {
             At least 10 characters with uppercase, lowercase, number and special character.
           </div>
         </div>
+        <div class="col-12" id="testAccessFields" hidden>
+          <div class="border border-warning rounded p-3 bg-warning-subtle">
+            <div class="fw-semibold mb-2">Temporary test access</div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label" for="testAccessPurpose">Testing purpose</label>
+                <input class="form-control" id="testAccessPurpose" name="test_access_purpose" maxlength="500"
+                       value="${this.escapeHtml(user?.test_access_purpose || "")}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="testAccessStartsAt">Starts at</label>
+                <input class="form-control" id="testAccessStartsAt" name="test_access_starts_at" type="datetime-local"
+                       value="${this.toDateTimeLocal(user?.test_access_starts_at || new Date())}">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="testAccessExpiresAt">Expires at</label>
+                <input class="form-control" id="testAccessExpiresAt" name="test_access_expires_at" type="datetime-local"
+                       value="${this.toDateTimeLocal(user?.test_access_expires_at || new Date(Date.now() + 7 * 86400000))}">
+              </div>
+            </div>
+          </div>
+        </div>
       </div>`;
+
+    const accountType = document.getElementById("userAccountType");
+    const syncTestFields = () => {
+      const isTest = accountType?.value === "test";
+      const wrap = document.getElementById("testAccessFields");
+      if (wrap) wrap.hidden = !isTest;
+      ["testAccessPurpose", "testAccessStartsAt", "testAccessExpiresAt"].forEach((id) => {
+        const field = document.getElementById(id);
+        if (field) field.required = isTest;
+      });
+    };
+    accountType?.addEventListener("change", syncTestFields);
+    syncTestFields();
 
     this.elements.modal.show();
   },
@@ -506,6 +706,10 @@ const ManageUsersController = {
       new FormData(this.elements.form).entries(),
     );
     payload.role_id = Number(payload.role_id);
+    if (!payload.account_type && this.state.editingUserId !== null) {
+      const current = this.state.users.find((row) => Number(row.id) === this.state.editingUserId);
+      payload.account_type = current?.account_type || "real";
+    }
 
     if (!Number.isInteger(payload.role_id) || payload.role_id <= 0) {
       this.notify("Select a valid primary role.", "error");
@@ -520,6 +724,9 @@ const ManageUsersController = {
     if (!editing) {
       payload.status = "pending";
       payload.force_password_change = 1;
+    }
+    if (payload.account_type === "test" && editing) {
+      payload.test_access_action = "grant";
     }
 
     this.setSaveButtonBusy(true);
@@ -562,7 +769,9 @@ const ManageUsersController = {
       `user ${userId}`;
     const confirmed = await window.confirmAction(
       'Confirm Deletion',
-      `Delete ${label}? The server will reject deletion when protected school records depend on this account.`,
+      `${(Number(user.is_test_user || 0) === 1 || user.account_type === "test")
+        ? `Permanently delete ${label} and all directly related test identity, staff and payroll records?`
+        : `Delete ${label}? The server will reject deletion when protected school records depend on this real account.`}`,
       { confirmText: 'Delete', danger: true },
     );
     if (!confirmed) return;
@@ -629,7 +838,7 @@ const ManageUsersController = {
 
     this.elements.tableBody.innerHTML = `
       <tr>
-        <td colspan="6" class="text-center py-5 ${className}">
+        <td colspan="7" class="text-center py-5 ${className}">
           ${this.escapeHtml(message)}
         </td>
       </tr>`;
@@ -669,6 +878,13 @@ const ManageUsersController = {
       response?.data?.users,
     ];
     return candidates.find(Array.isArray) || [];
+  },
+
+  extractData(response) {
+    if (response?.data && typeof response.data === "object" && !Array.isArray(response.data)) {
+      return response.data;
+    }
+    return response && typeof response === "object" ? response : {};
   },
 
   isForbidden(error) {
@@ -711,6 +927,13 @@ const ManageUsersController = {
     if (!value) return fallback;
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+  },
+
+  toDateTimeLocal(value) {
+    const date = value instanceof Date ? value : new Date(String(value || "").replace(" ", "T"));
+    if (Number.isNaN(date.getTime())) return "";
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   },
 
   escapeHtml(value) {

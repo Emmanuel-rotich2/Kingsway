@@ -6,6 +6,7 @@ use App\Database\Database;
 use PDO;
 use Exception;
 use App\API\Services\Logger;
+use App\API\Services\DataScopeService;
 
 /**
  * DisbursementManager
@@ -48,25 +49,26 @@ class DisbursementManager
     /** Assign source accounts to one or more unpaid payslips in a payroll run. */
     public function assignPayrollSourceAccounts(int $payrollId, array $allocations, int $userId): array
     {
+        DataScopeService::requireLiveExternalAction('Payroll source-account allocation');
         if ($payrollId <= 0 || !$allocations) throw new Exception('Payroll and at least one source allocation are required.');
-        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? LIMIT 1');
+        $run = $this->db->prepare("SELECT id,month,year,status FROM payroll_runs WHERE id=? AND data_scope='live' LIMIT 1");
         $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? LIMIT 1');
+            $run = $this->db->prepare("SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND pr.data_scope='live' AND ps.data_scope='live' LIMIT 1");
             $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
         }
         if (!$period) throw new Exception('Payroll run not found.');
         if (in_array($period['status'], ['processing','completed','cancelled'], true)) throw new Exception('Source accounts cannot be changed after payroll disbursement has started.');
         $this->db->beginTransaction();
         try {
-            $update = $this->db->prepare("UPDATE payslips SET source_financial_account_id=?, updated_at=NOW() WHERE id=? AND payroll_month=? AND payroll_year=? AND payslip_status='approved' AND payment_status IN ('pending','failed')");
+            $update = $this->db->prepare("UPDATE payslips SET source_financial_account_id=?, updated_at=NOW() WHERE id=? AND payroll_month=? AND payroll_year=? AND data_scope='live' AND payslip_status='approved' AND payment_status IN ('pending','failed')");
             $changed = 0;
             foreach ($allocations as $allocation) {
                 $accountId = (int)($allocation['source_financial_account_id'] ?? 0);
                 $payslipIds = array_values(array_filter(array_map('intval', (array)($allocation['payslip_ids'] ?? []))));
                 if ($accountId <= 0 || !$payslipIds) throw new Exception('Each allocation requires a source account and payslip IDs.');
                 foreach ($payslipIds as $payslipId) {
-                    $q = $this->db->prepare("SELECT payment_method FROM payslips WHERE id=? AND payroll_month=? AND payroll_year=? AND payslip_status='approved' AND payment_status IN ('pending','failed') LIMIT 1");
+                    $q = $this->db->prepare("SELECT payment_method FROM payslips WHERE id=? AND payroll_month=? AND payroll_year=? AND data_scope='live' AND payslip_status='approved' AND payment_status IN ('pending','failed') LIMIT 1");
                     $q->execute([$payslipId,$period['month'],$period['year']]); $method = (string)$q->fetchColumn();
                     if (!$method) throw new Exception('One or more selected payslips are not eligible for source allocation.');
                     $channel = in_array(strtolower($method), ['mpesa','mobile_money','mpesa_b2c'], true) ? 'mpesa_b2c' : 'buni_transfer';
@@ -83,15 +85,16 @@ class DisbursementManager
 
     public function payrollSourceAllocationRows(int $payrollId): array
     {
-        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? LIMIT 1');
-        $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+        $scope = DataScopeService::current();
+        $run = $this->db->prepare('SELECT id,month,year,status FROM payroll_runs WHERE id=? AND data_scope=? LIMIT 1');
+        $run->execute([$payrollId,$scope]); $period = $run->fetch(PDO::FETCH_ASSOC);
         if (!$period) {
-            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? LIMIT 1');
-            $run->execute([$payrollId]); $period = $run->fetch(PDO::FETCH_ASSOC);
+            $run = $this->db->prepare('SELECT pr.id,pr.month,pr.year,pr.status FROM payroll_runs pr JOIN payslips ps ON ps.payroll_month=pr.month AND ps.payroll_year=pr.year WHERE ps.id=? AND pr.data_scope=? AND ps.data_scope=? LIMIT 1');
+            $run->execute([$payrollId,$scope,$scope]); $period = $run->fetch(PDO::FETCH_ASSOC);
         }
         if (!$period) throw new Exception('Payroll run not found.');
-        $q=$this->db->prepare("SELECT ps.id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(p.first_name,' ',p.last_name) staff_name FROM payslips ps JOIN staff s ON s.id=ps.staff_id JOIN persons p ON p.id=s.person_id WHERE ps.payroll_month=? AND ps.payroll_year=? ORDER BY p.last_name,p.first_name");
-        $q->execute([$period['month'],$period['year']]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
+        $q=$this->db->prepare("SELECT ps.id,ps.staff_id,ps.net_salary,ps.payment_method,ps.payment_status,ps.payslip_status,ps.source_financial_account_id,CONCAT(p.first_name,' ',p.last_name) staff_name FROM payslips ps JOIN staff s ON s.id=ps.staff_id JOIN persons p ON p.id=s.person_id WHERE ps.payroll_month=? AND ps.payroll_year=? AND ps.data_scope=? ORDER BY p.last_name,p.first_name");
+        $q->execute([$period['month'],$period['year'],$scope]); return ['payroll_id'=>(int)$period['id'],'run_status'=>$period['status'] ?? null,'rows'=>$q->fetchAll(PDO::FETCH_ASSOC)];
     }
 
     /**
@@ -100,8 +103,9 @@ class DisbursementManager
     public function processPayrollDisbursement($payrollId, $approvedBy, array $data = [])
     {
         try {
+            DataScopeService::requireLiveExternalAction('Payroll disbursement');
             $payroll = $this->db->prepare(
-                "SELECT * FROM payroll_runs WHERE id = ? AND status = 'approved' LIMIT 1"
+                "SELECT * FROM payroll_runs WHERE id = ? AND status = 'approved' AND data_scope='live' LIMIT 1"
             );
             $payroll->execute([$payrollId]);
             $payrollRow = $payroll->fetch(PDO::FETCH_ASSOC);
@@ -125,7 +129,8 @@ class DisbursementManager
                  LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
                  WHERE ps.payroll_month = ? AND ps.payroll_year = ?
                    AND ps.payslip_status = 'approved'
-                   AND ps.payment_status IN ('pending', 'failed')";
+                   AND ps.payment_status IN ('pending', 'failed')
+                   AND ps.data_scope = 'live' AND st.data_scope = 'live'";
             $paymentParams = [$payrollRow['month'], $payrollRow['year']];
             if ($selectedPayslipIds) {
                 $paymentSql .= ' AND ps.id IN (' . implode(',', array_fill(0, count($selectedPayslipIds), '?')) . ')';
@@ -413,6 +418,7 @@ class DisbursementManager
      */
     public function retryFailedPayment($staffPaymentId, int $actorUserId = 0)
     {
+        DataScopeService::requireLiveExternalAction('Payroll payment retry');
         $kcb = $this->db->prepare("SELECT id FROM disbursement_transactions WHERE payslip_id=? AND channel='kcb_bank' ORDER BY id DESC LIMIT 1");
         $kcb->execute([$staffPaymentId]);
         $kcbDisbursementId = (int) ($kcb->fetchColumn() ?: 0);
@@ -427,7 +433,8 @@ class DisbursementManager
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
-             WHERE ps.id = ? AND ps.payment_status = 'failed'"
+             WHERE ps.id = ? AND ps.payment_status = 'failed'
+               AND ps.data_scope='live' AND st.data_scope='live'"
         );
         $stmt->execute([$staffPaymentId]);
         $payment = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -511,7 +518,7 @@ class DisbursementManager
         }
 
         $this->db->prepare(
-            "UPDATE payroll_runs SET status = ?, workflow = ? WHERE id = ?"
+            "UPDATE payroll_runs SET status = ?, workflow = ? WHERE id = ? AND data_scope='live'"
         )->execute([$status, $status === 'paid' ? 'completed' : 'processing', $payrollId]);
     }
 
@@ -520,17 +527,19 @@ class DisbursementManager
      */
     public function getDisbursementReport($payrollId)
     {
+        $scope = DataScopeService::current();
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name, st.staff_no AS employee_number,
                     ps.payment_method, ps.payment_status AS status
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
-             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ?)
-               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ?)
+             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND data_scope=?)
+               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND data_scope=?)
+               AND ps.data_scope=? AND st.data_scope=?
              ORDER BY ps.payment_status DESC, p.last_name ASC"
         );
-        $stmt->execute([$payrollId, $payrollId]);
+        $stmt->execute([$payrollId, $scope, $payrollId, $scope, $scope, $scope]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -539,16 +548,18 @@ class DisbursementManager
      */
     public function getFailedPayments($payrollId)
     {
+        $scope = DataScopeService::current();
         $stmt = $this->db->prepare(
             "SELECT ps.*, p.first_name, p.last_name
              FROM payslips ps
              JOIN staff st ON ps.staff_id = st.id
              JOIN persons p ON p.id = st.person_id
-             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ?)
-               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ?)
+             WHERE ps.payroll_month = (SELECT month FROM payroll_runs WHERE id = ? AND data_scope=?)
+               AND ps.payroll_year = (SELECT year FROM payroll_runs WHERE id = ? AND data_scope=?)
+               AND ps.data_scope=? AND st.data_scope=?
                AND ps.payment_status = 'failed'"
         );
-        $stmt->execute([$payrollId, $payrollId]);
+        $stmt->execute([$payrollId, $scope, $payrollId, $scope, $scope, $scope]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 

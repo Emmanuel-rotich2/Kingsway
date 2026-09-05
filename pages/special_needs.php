@@ -377,4 +377,105 @@ if (!isset($appBase)) {
     </div>
 </div>
 
+<!-- Add IEP Modal -->
+<div class="modal fade" id="addIepModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title">
+                    <i class="bi bi-file-medical me-2"></i> New IEP Record
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+
+            <div class="modal-body">
+                <form id="addIepForm" novalidate>
+
+                    <!-- Student Search -->
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Student <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="addIepStudentSearch"
+                               placeholder="Type name or admission number to search..." autocomplete="off">
+                        <input type="hidden" id="addIepStudentId">
+                        <div id="addIepStudentResults" class="list-group mt-1 d-none"></div>
+                        <small id="addIepStudentSelected" class="text-success d-none">
+                            <i class="bi bi-check-circle me-1"></i><span></span>
+                        </small>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Academic Year <span class="text-danger">*</span></label>
+                            <select class="form-select" id="addIepAcademicYear">
+                                <option value="">-- Select --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">IEP Type</label>
+                            <select class="form-select" id="addIepType">
+                                <option value="">-- Select --</option>
+                                <option value="learning">Learning</option>
+                                <option value="behavioral">Behavioral</option>
+                                <option value="physical">Physical</option>
+                                <option value="medical">Medical</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mt-1">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Category</label>
+                            <input type="text" class="form-control" id="addIepCategory"
+                                   placeholder="e.g. Dyslexia, ADHD, Visual impairment">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Status</label>
+                            <select class="form-select" id="addIepStatus">
+                                <option value="draft" selected>Draft</option>
+                                <option value="active">Active</option>
+                                <option value="completed">Completed</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Goals Summary <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="addIepGoals" rows="3" required
+                                  placeholder="Describe the goals for this learner..."></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Strategies</label>
+                        <textarea class="form-control" id="addIepStrategies" rows="3"
+                                  placeholder="Teaching/Intervention strategies..."></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Accommodations</label>
+                        <textarea class="form-control" id="addIepAccommodations" rows="3"
+                                  placeholder="Accommodations provided..."></textarea>
+                    </div>
+
+                    <div class="mt-3">
+                        <label class="form-label fw-semibold">Progress Monitoring Plan</label>
+                        <textarea class="form-control" id="addIepProgress" rows="3"
+                                  placeholder="How progress will be monitored..."></textarea>
+                    </div>
+
+                </form>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-info" id="addIepSaveBtn">
+                    <i class="bi bi-check-lg me-1"></i> Create IEP
+                </button>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <script src="<?php echo $appBase; ?>/js/pages/special_needs.js?v=<?php echo time(); ?>"></script>

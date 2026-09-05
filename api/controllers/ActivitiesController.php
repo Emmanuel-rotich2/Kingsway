@@ -58,7 +58,7 @@ class ActivitiesController extends BaseController
             return $this->routeNestedGet($resource, $id, $data, $segments);
         }
         
-        $result = $this->api->listActivities($data);
+        $result = $this->api->listActivities(array_merge($_GET ?? [], $data));
         return $this->handleResponse($result);
     }
 
@@ -125,7 +125,7 @@ class ActivitiesController extends BaseController
      */
     public function getStatisticsGet($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->getActivityStatistics($data);
+        $result = $this->api->getActivityStatistics(array_merge($_GET ?? [], $data));
         return $this->handleResponse($result);
     }
 
@@ -481,7 +481,7 @@ class ActivitiesController extends BaseController
      */
     public function getSchedulesList($id = null, $data = [], $segments = [])
     {
-        $result = $this->api->listSchedules($data);
+        $result = $this->api->listSchedules(array_merge($_GET ?? [], $data));
         return $this->handleResponse($result);
     }
 

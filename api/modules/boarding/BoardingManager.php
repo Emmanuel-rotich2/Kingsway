@@ -315,24 +315,30 @@ class BoardingManager extends BaseAPI
         }
     }
 
-    public function getRollCall($date)
+    public function getRollCall($date, $dateFrom = null, $dateTo = null)
     {
         try {
             $validDate = date('Y-m-d', strtotime($date));
             if ($validDate === false) {
                 return $this->errorResponse('Invalid roll-call date', 400);
             }
+            $validFrom = $dateFrom ? date('Y-m-d', strtotime($dateFrom)) : $validDate;
+            $validTo = $dateTo ? date('Y-m-d', strtotime($dateTo)) : $validDate;
             $stmt = $this->db->prepare(
                 "SELECT dormitory_id, dormitory_name, dormitory_code,
-                        house_parent, date, session_name, session_code,
-                        total_students, present_count, absent_count,
-                        permission_count, sick_bay_count,
-                        attendance_percentage
+                        house_parent, MIN(date) AS date, session_name, session_code,
+                        SUM(total_students) AS total_students,
+                        SUM(present_count) AS present_count,
+                        SUM(absent_count) AS absent_count,
+                        SUM(permission_count) AS permission_count,
+                        SUM(sick_bay_count) AS sick_bay_count,
+                        ROUND(100 * SUM(present_count) / NULLIF(SUM(total_students), 0), 1) AS attendance_percentage
                  FROM vw_boarding_roll_call
-                 WHERE date = ?
+                 WHERE date BETWEEN ? AND ?
+                 GROUP BY dormitory_id, dormitory_name, dormitory_code, house_parent, session_name, session_code
                  ORDER BY dormitory_name, session_name"
             );
-            $stmt->execute([$validDate]);
+            $stmt->execute([$validFrom, $validTo]);
             return $this->successResponse($this->allRows($stmt));
         } catch (Exception $e) {
             $this->logError($e, 'BoardingManager::getRollCall');
@@ -410,7 +416,7 @@ class BoardingManager extends BaseAPI
         }
     }
 
-    public function getExeats($status = '')
+    public function getExeats($status = '', $dateFrom = null, $dateTo = null)
     {
         try {
             $where = ['1=1'];
@@ -418,6 +424,14 @@ class BoardingManager extends BaseAPI
             if ($status !== '') {
                 $where[] = 'e.status = ?';
                 $params[] = $status;
+            }
+            if ($dateFrom) {
+                $where[] = 'e.end_date >= ?';
+                $params[] = date('Y-m-d', strtotime($dateFrom));
+            }
+            if ($dateTo) {
+                $where[] = 'e.start_date <= ?';
+                $params[] = date('Y-m-d', strtotime($dateTo));
             }
 
             $sql = "SELECT e.*,
