@@ -888,7 +888,19 @@ class WebsiteManager extends BaseAPI
                 }
 
                 // ── Computed: headteacher name from staff table ──
-                $hStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position = 'Headteacher' LIMIT 1");
+                $hStmt = $this->db->query(
+                    "SELECT CONCAT(p.first_name,' ',p.last_name)
+                     FROM staff s
+                     JOIN persons p ON s.person_id = p.id
+                     WHERE s.position = 'Headteacher'
+                       AND s.data_scope = 'live'
+                       AND p.data_scope = 'live'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM users u
+                           WHERE u.person_id = p.id AND u.is_test_user = 1
+                       )
+                     LIMIT 1"
+                );
                 $headteacher = $hStmt->fetchColumn();
                 if ($headteacher) {
                     $maxId++;
@@ -896,7 +908,19 @@ class WebsiteManager extends BaseAPI
                 }
 
                 // ── Computed: all school leaders from staff table ──
-                $lStmt = $this->db->query("SELECT CONCAT(p.first_name,' ',p.last_name) AS name, s.position FROM staff s JOIN persons p ON s.person_id = p.id WHERE s.position IN ('Director','Headteacher','Deputy Headteacher','School Administrator','Accountant') ORDER BY FIELD(s.position,'Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')");
+                $lStmt = $this->db->query(
+                    "SELECT CONCAT(p.first_name,' ',p.last_name) AS name, s.position
+                     FROM staff s
+                     JOIN persons p ON s.person_id = p.id
+                     WHERE s.position IN ('Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')
+                       AND s.data_scope = 'live'
+                       AND p.data_scope = 'live'
+                       AND NOT EXISTS (
+                           SELECT 1 FROM users u
+                           WHERE u.person_id = p.id AND u.is_test_user = 1
+                       )
+                     ORDER BY FIELD(s.position,'Director','Headteacher','Deputy Headteacher','School Administrator','Accountant')"
+                );
                 $leaders = $lStmt->fetchAll(\PDO::FETCH_ASSOC);
                 if ($leaders) {
                     $maxId++;
@@ -962,6 +986,12 @@ class WebsiteManager extends BaseAPI
                      JOIN persons p ON p.id = sl.person_id
                      LEFT JOIN staff s ON s.id = sl.staff_id
                      WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+                       AND p.data_scope = 'live'
+                       AND (s.id IS NULL OR s.data_scope = 'live')
+                       AND NOT EXISTS (
+                           SELECT 1 FROM users u
+                           WHERE u.person_id = sl.person_id AND u.is_test_user = 1
+                       )
                      ORDER BY ll.display_order, sl.display_order"
                 );
                 $lStmt->execute([$ayId]);

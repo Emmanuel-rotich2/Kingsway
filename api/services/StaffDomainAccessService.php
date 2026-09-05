@@ -151,8 +151,8 @@ final class StaffDomainAccessService
              FROM staff s
              JOIN persons p ON p.id = s.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
-             WHERE s.id = ? LIMIT 1',
-            [$staffId]
+             WHERE s.id = ? AND s.data_scope = ? LIMIT 1',
+            [$staffId, DataScopeService::current()]
         )->fetch(PDO::FETCH_ASSOC);
 
         if (!$staff) {

@@ -9,10 +9,12 @@ use PDO;
 class HeadteacherAnalyticsService
 {
     protected $db;
+    private array $period;
 
-    public function __construct()
+    public function __construct(array $filters = [])
     {
         $this->db = Database::getInstance();
+        $this->period = DashboardPeriodService::resolve($this->db->getConnection(), $filters);
     }
 
     public function getOverview()
@@ -34,7 +36,7 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN status = 'absent' THEN 1 ELSE 0 END) as absent,
             SUM(CASE WHEN status = 'late' THEN 1 ELSE 0 END) as late,
             COUNT(*) as total
-            FROM student_attendance WHERE date = CURDATE()");
+            FROM student_attendance WHERE date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         $present = (int) ($row['present'] ?? 0);
         $absent = (int) ($row['absent'] ?? 0);
@@ -52,26 +54,43 @@ class HeadteacherAnalyticsService
 
     public function getSchedules()
     {
-        // Count today's timetable sessions based on day_of_week (1=Mon..7=Sun)
-        $today = date('N');
+        // Expand recurring timetable entries across the selected calendar range.
         $currentTime = date('H:i:s');
-
-        $stmt = $this->db->query("SELECT 
-            COUNT(*) as total_sessions,
-            SUM(CASE WHEN start_time <= ? AND end_time >= ? THEN 1 ELSE 0 END) as in_progress,
-            SUM(CASE WHEN end_time < ? THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN start_time > ? THEN 1 ELSE 0 END) as upcoming
-            FROM vw_timetable_entries 
-            WHERE day_of_week = ? AND status = 'scheduled'",
-            [$currentTime, $currentTime, $currentTime, $currentTime, $today]
+        $today = date('Y-m-d');
+        $totals = ['total_sessions' => 0, 'in_progress' => 0, 'completed' => 0, 'upcoming' => 0];
+        $stmt = $this->db->getConnection()->prepare(
+            "SELECT COUNT(*) AS total_sessions,
+                    SUM(start_time <= ? AND end_time >= ?) AS in_progress,
+                    SUM(end_time < ?) AS completed_today,
+                    SUM(start_time > ?) AS upcoming_today
+             FROM vw_timetable_entries
+             WHERE day_of_week = ? AND status = 'scheduled'"
         );
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        $cursor = new \DateTimeImmutable($this->period['date_from']);
+        $end = new \DateTimeImmutable($this->period['date_to']);
+        while ($cursor <= $end) {
+            $date = $cursor->format('Y-m-d');
+            $stmt->execute([$currentTime, $currentTime, $currentTime, $currentTime, (int) $cursor->format('N')]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+            $count = (int) ($row['total_sessions'] ?? 0);
+            $totals['total_sessions'] += $count;
+            if ($date < $today) {
+                $totals['completed'] += $count;
+            } elseif ($date > $today) {
+                $totals['upcoming'] += $count;
+            } else {
+                $totals['in_progress'] += (int) ($row['in_progress'] ?? 0);
+                $totals['completed'] += (int) ($row['completed_today'] ?? 0);
+                $totals['upcoming'] += (int) ($row['upcoming_today'] ?? 0);
+            }
+            $cursor = $cursor->modify('+1 day');
+        }
         return [
-            'total_sessions' => (int) ($row['total_sessions'] ?? 0),
-            'in_progress' => (int) ($row['in_progress'] ?? 0),
-            'completed' => (int) ($row['completed'] ?? 0),
-            'upcoming' => (int) ($row['upcoming'] ?? 0),
-            'total' => (int) ($row['total_sessions'] ?? 0),
+            'total_sessions' => $totals['total_sessions'],
+            'in_progress' => $totals['in_progress'],
+            'completed' => $totals['completed'],
+            'upcoming' => $totals['upcoming'],
+            'total' => $totals['total_sessions'],
             'unassigned' => $this->countUnassignedLessons(),
             'card_type' => 'schedules'
         ];
@@ -99,9 +118,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN status = 'enrolled' AND YEAR(created_at) = YEAR(NOW()) THEN 1 ELSE 0 END) as enrolled_this_year,
             SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
             COUNT(*) as total
-            FROM admission_applications 
-            WHERE status NOT IN ('enrolled', 'cancelled') 
-               OR (status IN ('enrolled', 'cancelled') AND YEAR(created_at) = YEAR(NOW()))");
+            FROM admission_applications
+            WHERE DATE(created_at) BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
             'pending_applications' => (int) ($row['pending_applications'] ?? 0),
@@ -124,7 +142,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN severity = 'medium' THEN 1 ELSE 0 END) as medium_severity,
             SUM(CASE WHEN severity = 'high' THEN 1 ELSE 0 END) as high_severity,
             SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) as escalated
-            FROM discipline_incidents");
+            FROM discipline_incidents
+            WHERE incident_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
             'open_cases' => (int) ($row['open_cases'] ?? 0),
@@ -150,7 +169,8 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN status = 'scheduled' THEN 1 ELSE 0 END) as scheduled,
             SUM(CASE WHEN status = 'sent' AND WEEK(created_at) = WEEK(NOW()) THEN 1 ELSE 0 END) as sent_this_week,
             COUNT(*) as total
-            FROM communications");
+            FROM communications
+            WHERE DATE(created_at) BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
             'sent_this_week' => (int) ($row['sent_this_week'] ?? 0),
@@ -174,14 +194,17 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN status = 'submitted' THEN 1 ELSE 0 END) as submitted,
             SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pending_approval,
             SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved
-            FROM assessments");
+            FROM assessments
+            WHERE assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         // Get average score from assessment_results
         $stmtResults = $this->db->query("SELECT 
             AVG(marks_obtained) as average_score,
             COUNT(*) as total_results
-            FROM assessment_results WHERE is_submitted = 1");
+            FROM assessment_results ar
+            JOIN assessments a ON a.id = ar.assessment_id
+            WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $resultsRow = $stmtResults->fetch(PDO::FETCH_ASSOC);
 
         return [
@@ -204,7 +227,9 @@ class HeadteacherAnalyticsService
             SUM(CASE WHEN marks_obtained >= 75 THEN 1 ELSE 0 END) as high_performers,
             SUM(CASE WHEN marks_obtained BETWEEN 50 AND 74 THEN 1 ELSE 0 END) as average_performers,
             SUM(CASE WHEN marks_obtained < 50 THEN 1 ELSE 0 END) as low_performers
-            FROM assessment_results WHERE is_submitted = 1");
+            FROM assessment_results ar
+            JOIN assessments a ON a.id = ar.assessment_id
+            WHERE ar.is_submitted = 1 AND a.assessment_date BETWEEN ? AND ?", [$this->period['date_from'], $this->period['date_to']]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
             'average_performance' => round($row['average_performance'] ?? 0, 2),
@@ -233,10 +258,11 @@ class HeadteacherAnalyticsService
             LEFT JOIN parents pa ON aa.parent_id = pa.id
             LEFT JOIN persons pp ON pa.person_id = pp.id
             WHERE aa.status IN ('submitted', 'documents_pending', 'documents_verified', 'placement_offered', 'fees_pending')
+              AND DATE(aa.created_at) BETWEEN ? AND ?
             ORDER BY aa.created_at ASC
             LIMIT 20
         ";
-        $stmt = $this->db->query($query);
+        $stmt = $this->db->query($query, [$this->period['date_from'], $this->period['date_to']]);
         $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return [
             'data' => $data,
@@ -273,6 +299,7 @@ class HeadteacherAnalyticsService
             LEFT JOIN classes c ON aac.class_id = c.id
             LEFT JOIN streams s ON aycs.stream_id = s.id
             WHERE di.status IN ('pending', 'escalated')
+              AND di.incident_date BETWEEN ? AND ?
             ORDER BY 
                 CASE di.severity 
                     WHEN 'high' THEN 1 
@@ -282,7 +309,7 @@ class HeadteacherAnalyticsService
                 di.incident_date DESC
             LIMIT 20
         ";
-        $stmt = $this->db->query($query);
+        $stmt = $this->db->query($query, [$this->period['date_from'], $this->period['date_to']]);
         $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
         return [
             'data' => $data,
@@ -303,10 +330,10 @@ class HeadteacherAnalyticsService
                         DATE(date) as attendance_date,
                         ROUND(AVG(CASE WHEN status = 'present' THEN 1 ELSE 0 END) * 100, 1) as percentage
                       FROM student_attendance 
-                      WHERE date >= DATE_SUB(CURDATE(), INTERVAL ? WEEK)
+                      WHERE date BETWEEN ? AND ?
                       GROUP BY DATE(date)
                       ORDER BY attendance_date ASC";
-            $stmt = $this->db->query($query, [$weeks]);
+            $stmt = $this->db->query($query, [$this->period['date_from'], $this->period['date_to']]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $labels = [];
@@ -340,16 +367,18 @@ class HeadteacherAnalyticsService
                         END as class_name,
                         AVG(ar.marks_obtained) as average_score
                       FROM assessment_results ar
+                      JOIN assessments a ON a.id = ar.assessment_id
                       JOIN student_academic_enrollments sae ON ar.student_academic_enrollment_id = sae.id
                       JOIN academic_year_class_streams aycs ON sae.academic_year_class_stream_id = aycs.id
                       JOIN academic_year_classes aac ON aycs.academic_year_class_id = aac.id
                       JOIN classes c ON aac.class_id = c.id
                       JOIN streams s ON aycs.stream_id = s.id
                       WHERE ar.is_submitted = 1 AND sae.enrollment_status = 'active'
+                        AND a.assessment_date BETWEEN ? AND ?
                       GROUP BY c.id, c.name, s.name
                       ORDER BY average_score DESC
                       LIMIT 10";
-            $stmt = $this->db->query($query);
+            $stmt = $this->db->query($query, [$this->period['date_from'], $this->period['date_to']]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             $labels = [];
@@ -379,10 +408,11 @@ class HeadteacherAnalyticsService
             // start -> end range) instead of one row per calendar day.
             $calendarSync = new CalendarSyncService($this->db->getConnection());
             $all = $calendarSync->getUnifiedEvents();
-            $today = date('Y-m-d');
-
-            $upcoming = array_values(array_filter($all, function ($ev) use ($today) {
-                return ($ev['start_date'] ?? '') >= $today
+            $dateFrom = $this->period['date_from'];
+            $dateTo = $this->period['date_to'];
+            $upcoming = array_values(array_filter($all, function ($ev) use ($dateFrom, $dateTo) {
+                return ($ev['start_date'] ?? '') <= $dateTo
+                    && ($ev['end_date'] ?? $ev['start_date'] ?? '') >= $dateFrom
                     && ($ev['status'] ?? '') !== 'cancelled';
             }));
 
@@ -405,8 +435,11 @@ class HeadteacherAnalyticsService
      * Get full dashboard data in a single call
      * @return array Complete dashboard data structure
      */
-    public function getFullDashboardData(): array
+    public function getFullDashboardData(array $filters = []): array
     {
+        if ($filters) {
+            $this->period = DashboardPeriodService::resolve($this->db->getConnection(), $filters);
+        }
         return [
             'cards' => [
                 'total_students' => $this->getOverview(),
@@ -427,7 +460,8 @@ class HeadteacherAnalyticsService
                 'discipline_cases' => $this->getDisciplineCases(),
                 'upcoming_events' => $this->getUpcomingEvents()
             ],
-            'timestamp' => date('Y-m-d H:i:s')
+            'timestamp' => date('Y-m-d H:i:s'),
+            'meta' => ['filters' => $this->period]
         ];
     }
 }

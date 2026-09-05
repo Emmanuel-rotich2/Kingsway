@@ -14,6 +14,7 @@ use App\API\Services\SystemConfigService;
 use App\Config\DashboardRouter;
 use App\API\Services\PolicyEngine;
 use App\API\Services\Logger;
+use App\API\Services\TestAccountAccessService;
 use Firebase\JWT\JWT;
 
 class AuthAPI extends BaseAPI
@@ -311,7 +312,10 @@ class AuthAPI extends BaseAPI
             $requiredMethod = $tfa->getRequiredMethod($userId);
             $policyForced   = $tfa->is2FARequiredByPolicy($userId);
 
-            if (!$isTestUser && ($requiredMethod || $policyForced)) {
+            $testMfaBypassAllowed = $isTestUser
+                && TestAccountAccessService::environment() === 'development';
+
+            if (!$testMfaBypassAllowed && ($requiredMethod || $policyForced)) {
                 // For policy-forced users who haven't set up 2FA yet,
                 // return 'setup_required' so the frontend can redirect them.
                 if (!$requiredMethod && $policyForced) {
@@ -343,7 +347,7 @@ class AuthAPI extends BaseAPI
                     'message' => 'Two-factor verification required.',
                 ];
             }
-            if ($isTestUser && ($requiredMethod || $policyForced)) {
+            if ($testMfaBypassAllowed && ($requiredMethod || $policyForced)) {
                 Logger::audit(
                     'test_mfa_bypass',
                     'user',
@@ -422,7 +426,7 @@ class AuthAPI extends BaseAPI
              $loginData['data']['csrf_token'] = $this->generateCsrfToken(
                  (int) $userData['id']
              );
-             $loginData['data']['test_mfa_bypassed'] = !empty($userData['is_test_user']);
+             $loginData['data']['test_mfa_bypassed'] = $testMfaBypassAllowed;
 
             try {
                 if (!empty($userData['force_password_change'])) {
@@ -506,6 +510,14 @@ class AuthAPI extends BaseAPI
 
         if (!$userData || empty($userData['id'])) {
             return ['status' => 'error', 'message' => 'User not found', 'data' => null];
+        }
+
+        try {
+            $accessContext = (new TestAccountAccessService($this->db))
+                ->requireAccess($userId);
+            $userData = array_merge($userData, $accessContext);
+        } catch (\DomainException $error) {
+            return ['status' => 'error', 'message' => $error->getMessage(), 'data' => null];
         }
 
         // Fetch roles/permissions (same as normal login)
@@ -1152,6 +1164,12 @@ class AuthAPI extends BaseAPI
             }
 
             $userId = (int) $result['user_id'];
+            try {
+                (new TestAccountAccessService($this->db))->requireAccess($userId);
+            } catch (\DomainException $error) {
+                $this->authSessionService->revokeByRefreshToken((string) $refreshToken);
+                return ['success' => false, 'code' => 403, 'message' => $error->getMessage()];
+            }
             $refreshTokenId = (int) $result['id'];
             $refreshSession = $this->authSessionService
                 ->validateRefreshSession($userId, $refreshTokenId);

@@ -21,6 +21,8 @@
             currentTerm: null,
             academicYearId: null,
             termId: null,
+            termStartDate: null,
+            termEndDate: null,
             calendarPeriod: null,
             schoolWeek: null,
             isAcademicOperationsOpen: false,
@@ -94,6 +96,8 @@
                     this.state.currentTerm = response.current_term;
                     this.state.academicYearId = response.academic_year_id;
                     this.state.termId = response.term_id;
+                    this.state.termStartDate = response.term_start_date || null;
+                    this.state.termEndDate = response.term_end_date || null;
                     this.state.calendarPeriod = response.calendar_period;
                     this.state.schoolWeek = response.school_week;
                     this.state.isAcademicOperationsOpen = response.operations_open || false;

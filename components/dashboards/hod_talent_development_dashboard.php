@@ -100,11 +100,10 @@ $escape = static function ($value): string {
                                     <th scope="col">Activity</th>
                                     <th scope="col">Venue</th>
                                     <th scope="col">Category</th>
-                                    <th scope="col" class="text-center">Participants</th>
                                 </tr>
                             </thead>
                             <tbody id="talWeeklyBody">
-                                <tr><td colspan="6" class="text-center text-muted py-4">
+                                <tr><td colspan="5" class="text-center text-muted py-4">
                                     <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading weekly activities...
                                 </td></tr>
                             </tbody>
@@ -158,11 +157,10 @@ $escape = static function ($value): string {
                                     <th scope="col">Start Date</th>
                                     <th scope="col">End Date</th>
                                     <th scope="col">Status</th>
-                                    <th scope="col">Budget</th>
                                 </tr>
                             </thead>
                             <tbody id="talCurrentActivitiesBody">
-                                <tr><td colspan="7" class="text-center text-muted py-4">Loading activities...</td></tr>
+                                <tr><td colspan="6" class="text-center text-muted py-4">Loading activities...</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -400,4 +398,4 @@ $escape = static function ($value): string {
 </div>
 
 <?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
-<?php asset_script($appBase, 'js/dashboards/hod_talent_development.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/hod_talent_development_dashboard.js'); ?>

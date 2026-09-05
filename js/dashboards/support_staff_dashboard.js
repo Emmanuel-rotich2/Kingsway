@@ -79,7 +79,7 @@
         scopeId: 'supportStaffDepartment',
         lastUpdatedId: 'supportStaffLastUpdated',
 
-        async apiMethod() {
+        async apiMethod(filters = {}) {
             const access = unwrap(await window.API.staff.getAccessContext()) || {};
             const staffId = Number(access.staff_id || 0);
             if (!staffId) {
@@ -87,7 +87,10 @@
             }
 
             const currentYear = new Date().getFullYear();
-            const attendanceRange = dateRange(14);
+            const attendanceRange = {
+                start_date: filters.date_from,
+                end_date: filters.date_to
+            };
 
             const [
                 profileResponse,
@@ -102,10 +105,10 @@
             ] = await Promise.all([
                 window.API.staff.getProfile(staffId),
                 window.API.staff.getAttendance(staffId, attendanceRange),
-                window.API.staff.getPayrollHistory(staffId, { limit: 6 }),
+                window.API.staff.getPayrollHistory(staffId, { ...filters, limit: 6 }),
                 window.API.staff.getLeaveTypes(),
                 window.API.staff.getLeaveBalance(),
-                window.API.staff.getLeaveRequests({ year: currentYear }),
+                window.API.staff.getLeaveRequests({ year: currentYear, ...filters }),
                 window.API.communications.getAnnouncement(),
                 window.API.staff.getInternalOpportunities(),
                 window.API.staff.getIncidentReports()

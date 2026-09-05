@@ -40,14 +40,22 @@ class CateringController extends BaseController
     public function getStats($id = null, $data = [], $segments = [])
     {
         return $this->delegate(function () {
-            return $this->reports->getStats($_GET['date'] ?? null);
+            return $this->reports->getStats(
+                $_GET['date'] ?? null,
+                $_GET['date_from'] ?? null,
+                $_GET['date_to'] ?? null
+            );
         });
     }
 
     public function getMenu($id = null, $data = [], $segments = [])
     {
         return $this->delegate(function () {
-            return $this->reports->getMenu($_GET['date'] ?? null);
+            return $this->reports->getMenu(
+                $_GET['date'] ?? null,
+                $_GET['date_from'] ?? null,
+                $_GET['date_to'] ?? null
+            );
         });
     }
 

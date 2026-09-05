@@ -3,6 +3,8 @@
 namespace App\API\Middleware;
 
 use App\API\Services\AuthSessionService;
+use App\API\Services\TestAccountAccessService;
+use App\API\Services\DataScopeService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -279,6 +281,28 @@ class AuthMiddleware
                     401,
                     'This authenticated session is no longer active'
                 );
+            }
+
+            try {
+                $accessContext = (new TestAccountAccessService())
+                    ->requireAccess($userId);
+            } catch (\DomainException $error) {
+                self::deny(403, $error->getMessage());
+            }
+
+            $authUser['account_type'] = $accessContext['account_type'];
+            $authUser['is_test_user'] = (int) $accessContext['is_test_user'];
+            $authUser['data_scope'] = $accessContext['data_scope'];
+            $authUser['test_access_expires_at'] = $accessContext['test_access_expires_at'];
+            $_SERVER['data_scope'] = $accessContext['data_scope'];
+
+            try {
+                DataScopeService::requireReviewedTestRoute(
+                    (string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'),
+                    (string) ($_SERVER['REQUEST_URI'] ?? '/')
+                );
+            } catch (\DomainException $error) {
+                self::deny(403, $error->getMessage());
             }
 
             // Attach the verified user and canonical session ID for controller

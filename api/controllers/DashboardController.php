@@ -569,7 +569,7 @@ class DashboardController extends BaseController
         }
         try {
             $service = new HeadteacherAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Headteacher dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -591,7 +591,7 @@ class DashboardController extends BaseController
         }
         try {
             $service = new DeputyAcademicAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Deputy Academic dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -611,7 +611,7 @@ class DashboardController extends BaseController
         }
         try {
             $service = new DeputyDisciplineAnalyticsService();
-            $result = $service->getFullDashboardData();
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Deputy Discipline dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());
@@ -862,6 +862,11 @@ class DashboardController extends BaseController
             // Standard financial dashboard
             $safeFilters = [];
             $safeFilters['academic_year'] = preg_match('/^\d{4}$/', $filters['academic_year'] ?? '') ? $filters['academic_year'] : date('Y');
+            foreach (['date_from', 'date_to'] as $dateKey) {
+                if (!empty($filters[$dateKey]) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $filters[$dateKey])) {
+                    $safeFilters[$dateKey] = $filters[$dateKey];
+                }
+            }
             $result = $reporting->getFinancialDashboard($safeFilters);
 
             if (isset($result['status']) && $result['status'] === 'error') {
@@ -908,7 +913,7 @@ class DashboardController extends BaseController
 
             // Recent transactions
             $limit = isset($filters['limit']) ? (int) $filters['limit'] : 10;
-            $recent = $reporting->getRecentTransactions($limit);
+            $recent = $reporting->getRecentTransactions($limit, $safeFilters);
             if (isset($recent['status']) && $recent['status'] === 'error') {
                 return $this->serverError($recent['message'] ?? 'Failed to fetch recent transactions');
             }
@@ -1580,7 +1585,7 @@ class DashboardController extends BaseController
         }
         try {
             $service = new InternTeacherAnalyticsService($this->getUserId());
-            $result = $service->getFullDashboardData();
+            $result = $service->getFullDashboardData($_GET ?? []);
             return $this->success($result, 'Intern Teacher dashboard data retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('Dashboard error: ' . $e->getMessage());

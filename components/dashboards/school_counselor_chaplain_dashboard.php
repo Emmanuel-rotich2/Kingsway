@@ -29,6 +29,83 @@ $escape = static function ($value): string {
         </button>
     </div>
 
+    <!-- CHAPLAINCY / SPIRITUAL MINISTRY KPIs (SDA) -->
+    <div class="row g-3 mb-2">
+        <div class="col-12">
+            <div class="dash-section-title d-flex align-items-center gap-2">
+                <i class="bi bi-stars text-danger"></i>
+                <h6 class="mb-0">Chaplaincy &amp; Spiritual Ministry</h6>
+                <span class="dash-badge bg-danger">Sabbath (Saturday)</span>
+                <button class="btn btn-sm btn-outline-primary ms-auto" data-route="chaplaincy_programs">
+                    Spiritual Programs
+                </button>
+                <button class="btn btn-sm btn-outline-info" data-route="chaplaincy_pastoral">
+                    Groups &amp; Pastoral
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-xl-4 col-md-6">
+            <div class="dash-stat dsc-purple">
+                <i class="bi bi-buildings dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpSabbathWeek">—</div>
+                <div class="dash-stat-label">Sabbath Services This Week</div>
+                <div class="dash-stat-sub" id="chpSabbathWeekSub">scheduled Saturday worship</div>
+            </div>
+        </div>
+        <div class="col-xl-4 col-md-6">
+            <div class="dash-stat dsc-indigo">
+                <i class="bi bi-calendar-event dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpSessionsWeek2">—</div>
+                <div class="dash-stat-label">Program Sessions This Week</div>
+                <div class="dash-stat-sub" id="chpSessionsWeek2Sub">all chaplaincy sessions</div>
+            </div>
+        </div>
+        <div class="col-xl-4 col-md-6">
+            <div class="dash-stat dsc-teal">
+                <i class="bi bi-clipboard-check dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpAttendanceWeek">—</div>
+                <div class="dash-stat-label">Attendance Recorded This Week</div>
+                <div class="dash-stat-sub" id="chpAttendanceWeekSub">present marks</div>
+            </div>
+        </div>
+    </div>
+    <div class="row g-3 mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="dash-stat dsc-green">
+                <i class="bi bi-people dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpActiveGroups">—</div>
+                <div class="dash-stat-label">Active Spiritual Groups</div>
+                <div class="dash-stat-sub" id="chpActiveGroupsSub">Pathfinders, AY, choirs…</div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="dash-stat dsc-blue">
+                <i class="bi bi-person-check dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpGroupMembers">—</div>
+                <div class="dash-stat-label">Active Group Members</div>
+                <div class="dash-stat-sub" id="chpGroupMembersSub">students &amp; staff</div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="dash-stat dsc-orange">
+                <i class="bi bi-flag dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpPastoralOverdue">—</div>
+                <div class="dash-stat-label">Pastoral Follow-ups Overdue</div>
+                <div class="dash-stat-sub" id="chpPastoralOverdueSub">open / follow-up visits</div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="dash-stat dsc-red">
+                <i class="bi bi-crosshair dash-stat-icon"></i>
+                <div class="dash-stat-value" id="chpBaptized">—</div>
+                <div class="dash-stat-label">Baptized Learners</div>
+                <div class="dash-stat-sub" id="chpBaptizedSub">spiritual profile</div>
+            </div>
+        </div>
+    </div>
+
     <!-- ROW 1: CASE SUMMARY — 6 KPIs -->
     <div class="row g-3 mb-3">
         <div class="col-xl-4 col-md-6">
@@ -145,12 +222,11 @@ $escape = static function ($value): string {
                                     <th scope="col">Type</th>
                                     <th scope="col">Priority</th>
                                     <th scope="col">Status</th>
-                                    <th scope="col">Last Session</th>
                                     <th scope="col">Next Follow-up</th>
                                 </tr>
                             </thead>
                             <tbody id="chpCasesBody">
-                                <tr><td colspan="7" class="text-center text-muted py-4">
+                                <tr><td colspan="6" class="text-center text-muted py-4">
                                     <div class="spinner-border spinner-border-sm me-2" role="status"></div>Loading cases...
                                 </td></tr>
                             </tbody>
@@ -351,4 +427,4 @@ $escape = static function ($value): string {
 </div>
 
 <?php asset_script($appBase, 'js/dashboards/dashboard_base_controller.js'); ?>
-<?php asset_script($appBase, 'js/dashboards/counselor_dashboard.js'); ?>
+<?php asset_script($appBase, 'js/dashboards/school_counselor_chaplain_dashboard.js'); ?>

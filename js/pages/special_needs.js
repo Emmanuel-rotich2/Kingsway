@@ -55,6 +55,21 @@ const SpecialNeedsController = {
       exportRecordsBtn: $("exportRecordsBtn"),
       printRecordsBtn: $("printRecordsBtn"),
       addRecordBtn: $("addRecordBtn"),
+      addIepModal: $("addIepModal"),
+      addIepForm: $("addIepForm"),
+      addIepStudentSearch: $("addIepStudentSearch"),
+      addIepStudentResults: $("addIepStudentResults"),
+      addIepStudentId: $("addIepStudentId"),
+      addIepStudentSelected: $("addIepStudentSelected"),
+      addIepAcademicYear: $("addIepAcademicYear"),
+      addIepType: $("addIepType"),
+      addIepCategory: $("addIepCategory"),
+      addIepStatus: $("addIepStatus"),
+      addIepGoals: $("addIepGoals"),
+      addIepStrategies: $("addIepStrategies"),
+      addIepAccommodations: $("addIepAccommodations"),
+      addIepProgress: $("addIepProgress"),
+      addIepSaveBtn: $("addIepSaveBtn"),
 
       totalIEPs: $("totalIEPs"),
       activeIEPs: $("activeIEPs"),
@@ -128,6 +143,18 @@ const SpecialNeedsController = {
     this.ui.resetFiltersBtn?.addEventListener("click", () => this.resetFilters());
     this.ui.printRecordsBtn?.addEventListener("click", () => this.printOverviewReport());
     this.ui.exportRecordsBtn?.addEventListener("click", () => this.exportRecords());
+
+    this.ui.addRecordBtn?.addEventListener("click", () => this.openAddIepModal());
+    this.ui.addIepSaveBtn?.addEventListener("click", () => this.saveIep());
+
+    this.ui.addIepStudentSearch?.addEventListener(
+      "input",
+      this.debounce((e) => this.searchStudents(e), 300)
+    );
+    this.ui.addIepStudentResults?.addEventListener(
+      "click",
+      (e) => this.selectStudent(e)
+    );
 
     this.ui.searchBox?.addEventListener(
       "input",
@@ -354,6 +381,132 @@ const SpecialNeedsController = {
     this.ui.strategies.textContent = iep.strategies || "-";
     this.ui.accommodations.textContent = iep.accommodations || "-";
     this.ui.progressMonitoring.textContent = iep.progress_monitoring_plan || "-";
+  },
+
+  openAddIepModal() {
+    this.resetAddIepForm();
+
+    if (typeof bootstrap !== "undefined" && this.ui.addIepModal) {
+      const modalInstance = new bootstrap.Modal(this.ui.addIepModal);
+      modalInstance.show();
+    }
+  },
+
+  resetAddIepForm() {
+    this.ui.addIepForm?.reset();
+    this.ui.addIepStudentId && (this.ui.addIepStudentId.value = "");
+    this.ui.addIepStudentResults?.classList.add("d-none");
+    this.ui.addIepStudentResults && (this.ui.addIepStudentResults.innerHTML = "");
+    this.ui.addIepStudentSelected?.classList.add("d-none");
+    this.fillSelect(this.ui.addIepAcademicYear, this.state.academicYears, "Select Academic Year");
+    const current = this.state.academicYears.find((y) => y.is_current);
+    if (current && this.ui.addIepAcademicYear) this.ui.addIepAcademicYear.value = current.id;
+  },
+
+  async searchStudents(event) {
+    const term = (event.target.value || "").trim();
+    const resultsBox = this.ui.addIepStudentResults;
+
+    if (!resultsBox) return;
+
+    if (term.length < 2) {
+      resultsBox.classList.add("d-none");
+      resultsBox.innerHTML = "";
+      return;
+    }
+
+    try {
+      const response = await this.api(
+        `/students/student?search=${encodeURIComponent(term)}&status=active&limit=20`,
+        "GET"
+      );
+      const students = this.unwrap(response) || [];
+      const list = Array.isArray(students) ? students : [];
+
+      if (!list.length) {
+        resultsBox.innerHTML = `<div class="list-group-item text-muted">No students found.</div>`;
+        resultsBox.classList.remove("d-none");
+        return;
+      }
+
+      resultsBox.innerHTML = list
+        .map(
+          (s) => `
+            <button type="button" class="list-group-item list-group-item-action"
+              data-id="${s.id}" data-name="${this.escapeHtml((s.first_name || "") + " " + (s.last_name || ""))}"
+              data-adm="${this.escapeHtml(s.admission_no || "")}">
+              <strong>${this.escapeHtml((s.first_name || "") + " " + (s.last_name || ""))}</strong>
+              <small class="text-muted ms-2">${this.escapeHtml(s.admission_no || "")}</small>
+            </button>`
+        )
+        .join("");
+      resultsBox.classList.remove("d-none");
+    } catch (error) {
+      console.error("SpecialNeedsController: Student search failed:", error);
+    }
+  },
+
+  selectStudent(event) {
+    const btn = event.target.closest("[data-id]");
+    if (!btn) return;
+
+    this.ui.addIepStudentId.value = btn.dataset.id;
+    const selected = this.ui.addIepStudentSelected.querySelector("span");
+    if (selected) {
+      selected.textContent = `${btn.dataset.name} (${btn.dataset.adm || "no adm no"})`;
+    }
+    this.ui.addIepStudentSelected.classList.remove("d-none");
+    this.ui.addIepStudentResults.classList.add("d-none");
+    this.ui.addIepStudentResults.innerHTML = "";
+    this.ui.addIepStudentSearch.value = "";
+  },
+
+  async saveIep() {
+    const studentId = this.ui.addIepStudentId.value;
+    const goals = this.ui.addIepGoals?.value.trim();
+
+    if (!studentId) {
+      this.notify("Please select a student", "warning");
+      return;
+    }
+    if (!goals) {
+      this.notify("Please enter a goals summary", "warning");
+      return;
+    }
+
+    const payload = {
+      student_id: Number(studentId),
+      academic_year: this.ui.addIepAcademicYear?.value || "",
+      iep_type: this.ui.addIepType?.value || "",
+      special_needs_category: this.ui.addIepCategory?.value.trim() || "",
+      status: this.ui.addIepStatus?.value || "draft",
+      goals_summary: goals,
+      strategies: this.ui.addIepStrategies?.value.trim() || "",
+      accommodations: this.ui.addIepAccommodations?.value.trim() || "",
+      progress_monitoring_plan: this.ui.addIepProgress?.value.trim() || "",
+    };
+
+    const saveBtn = this.ui.addIepSaveBtn;
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Saving...';
+    }
+
+    try {
+      await this.api("/students/special-needs-ieps", "POST", payload);
+      this.notify("IEP record created successfully", "success");
+      const modalInstance = bootstrap.Modal.getInstance(this.ui.addIepModal);
+      modalInstance?.hide();
+      await this.loadIEPs();
+    } catch (error) {
+      console.error("SpecialNeedsController: Failed to create IEP:", error);
+      this.notify(error.message || "Failed to create IEP record", "error");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i> Create IEP';
+      }
+    }
   },
 
   resetFilters() {

@@ -874,6 +874,7 @@ class SidebarConfigReader
             'competitions' => 'Activities & Clubs',
             'sports' => 'Activities & Clubs',
             'chapel_' => 'Spiritual Life',
+            'chaplaincy_' => 'Spiritual Life',
             'food_' => 'Catering & Food',
             'menu_' => 'Catering & Food',
             'manage_menus' => 'Catering & Food',

@@ -379,6 +379,11 @@ function kw_leadership(): array {
              JOIN leadership_levels ll ON ll.id = lp.level_id
              JOIN persons p ON p.id = sl.person_id
              WHERE sl.is_active = 1 AND sl.academic_year_id = ?
+               AND p.data_scope = 'live'
+               AND NOT EXISTS (
+                   SELECT 1 FROM users u
+                   WHERE u.person_id = sl.person_id AND u.is_test_user = 1
+               )
              ORDER BY ll.display_order, sl.display_order"
         );
         $stmt->execute([$ayId]);

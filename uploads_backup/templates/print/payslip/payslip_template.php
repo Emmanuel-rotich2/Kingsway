@@ -36,7 +36,13 @@ declare(strict_types=1);
 if (!function_exists('pe')) { function pe(mixed $v): string { return htmlspecialchars((string)($v ?? ''), ENT_QUOTES|ENT_SUBSTITUTE, 'UTF-8'); } }
 if (!function_exists('pm')) { function pm($v): string { return 'KES ' . number_format((float)($v ?? 0), 2); } }
 $tplDir = __DIR__;
-$cssFile = dirname(__DIR__, 4) . '/public/css/pay-slip-print.css';
+/*
+ * CSS is always supplied by PrintService ($printStyles), which resolves the
+ * stylesheet from the canonical project root. Templates must NOT resolve
+ * filesystem paths themselves (dirname(__DIR__, N) breaks in production where
+ * UPLOAD_PATH lives outside the project root).
+ */
+$cssText = trim((string) ($printStyles ?? ''));
 $period = $period ?? date('F Y');
 $employeeName = trim((string)($employeeName ?? '')) ?: '-';
 $staffNo = trim((string)($staffNo ?? '')) ?: '-';
@@ -83,7 +89,6 @@ $badgeClass = $badgeClassMap[$statusKey] ?? 'b-pending';
 
 $generatedOn = trim((string)($generatedOn ?? '')) ?: date('d/m/Y');
 
-$cssText = is_file($cssFile) ? file_get_contents($cssFile) : '';
 if (!function_exists('fsMoney')) {
     function fsMoney($amount) { return number_format((float) $amount); }
 }

@@ -6,6 +6,7 @@ use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
 use App\API\Modules\system\MediaManager;
 use App\API\Services\StaffMigrationService;
+use App\API\Services\DataScopeService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -111,8 +112,8 @@ class StaffAPI extends BaseAPI {
             ];
             $sort = $sortMap[$sort] ?? 's.id';
 
-            $where = [];
-            $bindings = [];
+            $where = ['s.data_scope = ?'];
+            $bindings = [DataScopeService::current()];
             if (!empty($search)) {
                 $where[] = "(
                     s.staff_no LIKE ?
@@ -124,7 +125,7 @@ class StaffAPI extends BaseAPI {
                     OR st.name LIKE ?
                 )";
                 $searchTerm = "%$search%";
-                $bindings = [
+                $bindings = array_merge($bindings, [
                     $searchTerm,
                     $searchTerm,
                     $searchTerm,
@@ -132,7 +133,7 @@ class StaffAPI extends BaseAPI {
                     $searchTerm,
                     $searchTerm,
                     $searchTerm,
-                ];
+                ]);
             }
             if (!empty($request['department_id'])) {
                 $where[] = 'sda.department_id = ?';
@@ -150,11 +151,16 @@ class StaffAPI extends BaseAPI {
 
             // Get total count
             $sql = "
-                SELECT COUNT(*)
+                SELECT COUNT(DISTINCT s.id)
                 FROM staff s
                 JOIN persons p ON p.id = s.person_id
                 LEFT JOIN users u ON u.person_id = s.person_id
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN staff_department_assignments sda ON sda.id = (
+                    SELECT latest_sda.id FROM staff_department_assignments latest_sda
+                    WHERE latest_sda.staff_id = s.id
+                      AND (latest_sda.effective_to IS NULL OR latest_sda.effective_to >= CURDATE())
+                    ORDER BY latest_sda.effective_from DESC, latest_sda.id DESC LIMIT 1
+                )
                 LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
                 LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
@@ -237,7 +243,12 @@ class StaffAPI extends BaseAPI {
                     WHERE ur2.user_id = u.id
                     ORDER BY ur2.id ASC LIMIT 1
                 )
-                LEFT JOIN staff_department_assignments sda ON sda.staff_id = s.id AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
+                LEFT JOIN staff_department_assignments sda ON sda.id = (
+                    SELECT latest_sda.id FROM staff_department_assignments latest_sda
+                    WHERE latest_sda.staff_id = s.id
+                      AND (latest_sda.effective_to IS NULL OR latest_sda.effective_to >= CURDATE())
+                    ORDER BY latest_sda.effective_from DESC, latest_sda.id DESC LIMIT 1
+                )
                 LEFT JOIN departments d ON d.id = sda.department_id
                 LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = s.id
                 LEFT JOIN staff_types st ON s.staff_type_id = st.id
@@ -304,18 +315,22 @@ class StaffAPI extends BaseAPI {
         try {
             $today = date('Y-m-d');
 
-            $totalStmt = $this->db->query("SELECT COUNT(*) FROM staff WHERE status = 'active'");
+            $scope = DataScopeService::current();
+            $totalStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND data_scope=?");
+            $totalStmt->execute([$scope]);
             $totalStaff = (int)$totalStmt->fetchColumn();
 
-            $teacherStmt = $this->db->query("SELECT COUNT(*) FROM staff WHERE status = 'active' AND staff_type_id = 1");
+            $teacherStmt = $this->db->prepare("SELECT COUNT(*) FROM staff WHERE status = 'active' AND staff_type_id = 1 AND data_scope=?");
+            $teacherStmt->execute([$scope]);
             $teacherCount = (int)$teacherStmt->fetchColumn();
 
             $presentStmt = $this->db->prepare("
-                SELECT COUNT(DISTINCT staff_id)
-                FROM staff_attendance
-                WHERE date = ? AND status = 'present'
+                SELECT COUNT(DISTINCT sa.staff_id)
+                FROM staff_attendance sa
+                JOIN staff s ON s.id=sa.staff_id
+                WHERE sa.date = ? AND sa.status = 'present' AND s.data_scope=?
             ");
-            $presentStmt->execute([$today]);
+            $presentStmt->execute([$today, $scope]);
             $staffPresentToday = (int)$presentStmt->fetchColumn();
 
             $deptStmt = $this->db->query("
@@ -325,7 +340,7 @@ class StaffAPI extends BaseAPI {
                     ON sda.staff_id = s.id
                    AND (sda.effective_to IS NULL OR sda.effective_to >= CURDATE())
                 LEFT JOIN departments d ON d.id = sda.department_id
-                WHERE s.status = 'active'
+                WHERE s.status = 'active' AND s.data_scope = " . $this->db->quote($scope) . "
                 GROUP BY sda.department_id, d.name
                 ORDER BY count DESC
             ");
@@ -369,7 +384,7 @@ class StaffAPI extends BaseAPI {
                    LEFT JOIN users u ON u.person_id = s.person_id
                    LEFT JOIN user_roles ul ON ul.user_id = u.id
                    LEFT JOIN roles ur ON ur.id = ul.role_id
-                  WHERE s.status = 'active'
+                  WHERE s.status = 'active' AND s.data_scope = ?
                     AND (
                            LOWER(COALESCE(ur.name, '')) IN (
                              'director', 'headteacher', 'school administrator',
@@ -392,7 +407,7 @@ class StaffAPI extends BaseAPI {
                            ),
                            p.first_name, p.last_name"
             );
-            $stmt->execute();
+            $stmt->execute([DataScopeService::current()]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
             foreach ($rows as &$row) {
                 $row['icon'] = '👤';
@@ -419,6 +434,7 @@ class StaffAPI extends BaseAPI {
             $teachingRoleSql = implode(', ', array_map([$this->db, 'quote'], $teachingRoleNames));
 
             $where = [
+                "s.data_scope = ?",
                 "s.status <> 'inactive'",
                 "(
                     LOWER(COALESCE(st.name, '')) = 'teaching staff'
@@ -426,7 +442,7 @@ class StaffAPI extends BaseAPI {
                     OR COALESCE(role_summary.teaching_role_count, 0) > 0
                 )",
             ];
-            $params = [];
+            $params = [DataScopeService::current()];
             if (!empty($filters['department_id'])) {
                 // Department membership now lives in staff_department_assignments (a staff may
                 // belong to several departments over time); match any active assignment.
@@ -942,8 +958,8 @@ class StaffAPI extends BaseAPI {
     public function listNonTeaching(array $filters = []): array
     {
         try {
-            $where = ["s.status <> 'inactive'", "LOWER(COALESCE(st.name,'')) NOT LIKE '%teach%'"];
-            $params = [];
+            $where = ["s.data_scope = ?", "s.status <> 'inactive'", "LOWER(COALESCE(st.name,'')) NOT LIKE '%teach%'"];
+            $params = [DataScopeService::current()];
             if (!empty($filters['department_id'])) {
                 $where[] = 'sda.department_id = ?';
                 $params[] = (int)$filters['department_id'];
@@ -2363,11 +2379,11 @@ class StaffAPI extends BaseAPI {
             LEFT JOIN departments d ON d.id = sda.department_id
             LEFT JOIN staff_types st ON s.staff_type_id = st.id
             LEFT JOIN staff_categories sc ON s.staff_category_id = sc.id
-            WHERE s.id = ?
+            WHERE s.id = ? AND s.data_scope = ?
         ";
 
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$id]);
+        $stmt->execute([$id, DataScopeService::current()]);
 
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -2849,13 +2865,13 @@ class StaffAPI extends BaseAPI {
             // as YYYY-MM, so it filters directly.
             $sql = "
                 SELECT *
-                FROM vw_payslip_detailed
-                WHERE payroll_period = ?
+                FROM vw_scoped_payslip_detailed
+                WHERE payroll_period = ? AND data_scope = ?
                 ORDER BY staff_name
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$period]);
+            $stmt->execute([$period, DataScopeService::current()]);
             $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             return $this->response([
@@ -2885,12 +2901,12 @@ class StaffAPI extends BaseAPI {
                     COALESCE(SUM(total_deductions), 0) as total_deductions,
                     COALESCE(SUM(net_salary), 0) as net_payroll,
                     SUM(CASE WHEN payment_status <> 'paid' THEN 1 ELSE 0 END) as pending_approval
-                FROM vw_payslip_detailed
-                WHERE payroll_period = ?
+                FROM vw_scoped_payslip_detailed
+                WHERE payroll_period = ? AND data_scope = ?
             ";
 
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$period]);
+            $stmt->execute([$period, DataScopeService::current()]);
             $summary = $stmt->fetch(PDO::FETCH_ASSOC);
 
             return $this->response([

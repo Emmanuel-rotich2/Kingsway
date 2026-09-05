@@ -2,6 +2,7 @@
 namespace App\API\Services\workflows;
 
 use App\API\Includes\WorkflowHandler;
+use App\API\Services\DataScopeService;
 use Exception;
 use PDO;
 
@@ -65,6 +66,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             $payrollId = $this->db->insert('payroll_runs', [
                 'month' => $data['month'],
                 'year' => $data['year'],
+                'data_scope' => DataScopeService::current(),
                 'status' => 'draft',
                 'created_by' => $data['created_by'],
                 'created_at' => date('Y-m-d H:i:s')
@@ -236,6 +238,7 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 "SELECT COUNT(*) FROM payslips ps
                  JOIN payroll_runs pr ON pr.id = ?
                  WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                   AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci
                    AND ps.payment_status = 'failed'",
                 [$payrollId]
             );
@@ -299,7 +302,8 @@ class PayrollApprovalWorkflow extends WorkflowHandler
              FROM staff st
              JOIN persons p ON p.id = st.person_id
              LEFT JOIN staff_payroll_profiles spp ON spp.staff_id = st.id
-             WHERE st.status = 'active'"
+             WHERE st.status = 'active' AND st.data_scope = ?",
+            [DataScopeService::current()]
         );
 
         foreach ($staff as $member) {
@@ -434,8 +438,8 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
         // Check if payroll already exists for this month/year (3NF: payroll_runs)
         $exists = $this->db->fetchOne(
-            "SELECT id FROM payroll_runs WHERE month = ? AND year = ? AND workflow != 'cancelled'",
-            [$data['month'], $data['year']]
+            "SELECT id FROM payroll_runs WHERE month = ? AND year = ? AND data_scope=? AND workflow != 'cancelled'",
+            [$data['month'], $data['year'], DataScopeService::current()]
         );
 
         if ($exists) {
@@ -449,10 +453,11 @@ class PayrollApprovalWorkflow extends WorkflowHandler
     private function validatePayrollComplete($payrollId)
     {
         // 3NF: check payslips for the payroll run month/year
-        $run = $this->db->fetchOne("SELECT month, year FROM payroll_runs WHERE id = ?", [$payrollId]);
+        $run = $this->db->fetchOne("SELECT month, year, data_scope FROM payroll_runs WHERE id = ? AND data_scope=?", [$payrollId, DataScopeService::current()]);
+        if (!$run) throw new Exception('Payroll not found in the active workspace');
         $paymentCount = $this->db->fetchColumn(
-            "SELECT COUNT(*) FROM payslips WHERE payroll_month = ? AND payroll_year = ?",
-            [$run['month'] ?? 0, $run['year'] ?? 0]
+            "SELECT COUNT(*) FROM payslips WHERE payroll_month = ? AND payroll_year = ? AND data_scope=?",
+            [$run['month'] ?? 0, $run['year'] ?? 0, $run['data_scope']]
         );
 
         if ($paymentCount === 0) {
@@ -470,8 +475,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             "SELECT COALESCE(SUM(ps.net_salary), 0) AS total_net
              FROM payslips ps
              JOIN payroll_runs pr ON pr.id = ?
-             WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year",
-            [$payrollId]
+             WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+               AND pr.data_scope=? AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci",
+            [$payrollId, DataScopeService::current()]
         );
 
         if (($totals['total_net'] ?? 0) <= 0) {
@@ -504,6 +510,12 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             throw new Exception("Payroll ID is required for workflow transition");
         }
 
+        $runScope = $this->db->prepare('SELECT id FROM payroll_runs WHERE id=? AND data_scope=? LIMIT 1');
+        $runScope->execute([$payrollId, DataScopeService::current()]);
+        if (!$runScope->fetchColumn()) {
+            throw new Exception('Payroll not found in the active workspace');
+        }
+
         // Validate specific transitions
         switch ($toStage) {
             case 'pending_approval':
@@ -518,9 +530,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'processing':
                 // Ensure payroll is approved (3NF: payroll_runs)
-                $sql = "SELECT status FROM payroll_runs WHERE id = ?";
+                $sql = "SELECT status FROM payroll_runs WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, DataScopeService::current()]);
                 $payroll = $stmt->fetch(PDO::FETCH_ASSOC);
 
                 if (!$payroll || $payroll['status'] !== 'approved') {
@@ -533,9 +545,10 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 $sql = "SELECT COUNT(*) FROM payslips ps
                         JOIN payroll_runs pr ON pr.id = ?
                         WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                          AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci AND pr.data_scope=?
                           AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, DataScopeService::current()]);
                 $failed = $stmt->fetchColumn();
 
                 if ($failed > 0) {
@@ -548,9 +561,10 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 $sql = "SELECT COUNT(*) FROM payslips ps
                         JOIN payroll_runs pr ON pr.id = ?
                         WHERE ps.payroll_month = pr.month AND ps.payroll_year = pr.year
+                          AND ps.data_scope COLLATE utf8mb4_unicode_ci = pr.data_scope COLLATE utf8mb4_unicode_ci AND pr.data_scope=?
                           AND ps.payment_status = 'failed'";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, DataScopeService::current()]);
                 $failed = $stmt->fetchColumn();
 
                 if ($failed === 0) {
@@ -592,23 +606,24 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             $this->logError("No payroll_id provided for stage processing", $stage);
             return;
         }
+        $dataScope = DataScopeService::current();
 
         // Execute stage-specific processing
         switch ($stage) {
             case 'draft':
                 // Initialize payroll draft
-                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'draft' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'draft' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll draft initialized", "Initialized payroll #{$payrollId}", $userId);
                 break;
 
             case 'pending_approval':
                 // Mark as pending approval (payroll_runs.status has no pending_approval —
                 // keep status=draft and record the workflow stage in the workflow column)
-                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'pending_approval' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'pending_approval' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll submitted for approval", "Payroll #{$payrollId} submitted for Director approval", $userId);
 
                 // Send notification to Director
@@ -617,9 +632,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'approved':
                 // Mark as approved
-                $sql = "UPDATE payroll_runs SET status = 'approved', workflow = 'approved' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'approved', workflow = 'approved' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll approved by Director", "Payroll #{$payrollId} approved and ready for processing", $userId);
 
                 // Notify HR/Accountant
@@ -629,9 +644,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
             case 'rejected':
                 // Mark as rejected (kept in draft status; stage recorded in workflow column)
                 $reason = $data['reason'] ?? 'No reason provided';
-                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'rejected' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'rejected' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll rejected", "Payroll #{$payrollId} rejected. Reason: {$reason}", $userId);
 
                 // Notify creator
@@ -640,17 +655,17 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'processing':
                 // Mark as processing
-                $sql = "UPDATE payroll_runs SET status = 'processing', workflow = 'processing' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'processing', workflow = 'processing' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll disbursement started", "Disbursement process started for payroll #{$payrollId}", $userId);
                 break;
 
             case 'completed':
                 // Mark as completed (payroll_runs 'paid' = fully disbursed)
-                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'completed' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'completed' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll completed successfully", "All payments for payroll #{$payrollId} completed successfully", $userId);
 
                 // Send completion notifications
@@ -664,9 +679,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
                 $stmt->execute([$payrollId]);
                 $failedCount = $stmt->fetchColumn();
 
-                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'partial' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'paid', workflow = 'partial' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll partially completed", "Payroll #{$payrollId} partially completed. {$failedCount} payments failed", $userId);
 
                 // Send alert about failed payments
@@ -675,9 +690,9 @@ class PayrollApprovalWorkflow extends WorkflowHandler
 
             case 'cancelled':
                 // Mark as cancelled
-                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'cancelled' WHERE id = ?";
+                $sql = "UPDATE payroll_runs SET status = 'draft', workflow = 'cancelled' WHERE id = ? AND data_scope=?";
                 $stmt = $this->db->prepare($sql);
-                $stmt->execute([$payrollId]);
+                $stmt->execute([$payrollId, $dataScope]);
                 $this->logAction("Payroll cancelled", "Payroll #{$payrollId} cancelled", $userId);
                 break;
         }

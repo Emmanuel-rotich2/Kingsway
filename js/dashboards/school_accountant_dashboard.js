@@ -24,12 +24,13 @@
         scopeId: 'accountantDashboardScope',
         lastUpdatedId: 'accountantDashboardLastUpdated',
 
-        async apiMethod({ period }) {
+        async apiMethod(filters = {}) {
+            const period = filters.period;
             const [financialResponse, paymentsResponse, defaultersResponse, unmatchedResponse] = await Promise.all([
-                window.API.dashboard.getAccountantFinancial({ period }),
-                window.API.dashboard.getAccountantPayments({ period, limit: 15 }),
-                window.API.dashboard.getAccountantFinancial({ pivot: 'top-defaulters', limit: 10 }),
-                window.API.dashboard.getAccountantUnmatchedPayments({ limit: 20 })
+                window.API.dashboard.getAccountantFinancial(filters),
+                window.API.dashboard.getAccountantPayments({ ...filters, limit: 15 }),
+                window.API.dashboard.getAccountantFinancial({ ...filters, pivot: 'top-defaulters', limit: 10 }),
+                window.API.dashboard.getAccountantUnmatchedPayments({ ...filters, limit: 20 })
             ]);
 
             const financial = unwrap(financialResponse) || {};

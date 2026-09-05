@@ -84,6 +84,9 @@ class UsersController extends BaseController
      */
     public function postBulkCreate($id = null, $data = [], $segments = [])
     {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         $result = $this->api->bulkCreate($data);
         return $this->handleResponse($result);
     }

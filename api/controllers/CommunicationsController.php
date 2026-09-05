@@ -2,6 +2,7 @@
 namespace App\API\Controllers;
 
 use App\API\Modules\communications\CommunicationsAPI;
+use App\API\Services\DataScopeService;
 use Exception;
 
 /**
@@ -578,6 +579,7 @@ class CommunicationsController extends BaseController
      */
     public function postSendSmsTemplate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('SMS delivery')) return $guard;
         return $this->handleResponse($this->api->postSendSmsTemplate());
     }
 
@@ -587,11 +589,13 @@ class CommunicationsController extends BaseController
      */
     public function postSendWhatsapp($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('WhatsApp delivery')) return $guard;
         return $this->handleResponse($this->api->postSendWhatsapp());
     }
 
     public function postSendWhatsappTemplate($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('WhatsApp template delivery')) return $guard;
         return $this->handleResponse($this->api->postSendWhatsappTemplate());
     }
 
@@ -616,6 +620,7 @@ class CommunicationsController extends BaseController
      */
     public function postSendSms($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('SMS delivery')) return $guard;
         return $this->handleResponse($this->api->postSendSms());
     }
 
@@ -625,6 +630,7 @@ class CommunicationsController extends BaseController
      */
     public function postSendEmail($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('Email delivery')) return $guard;
         return $this->handleResponse($this->api->postSendEmail());
     }
 
@@ -641,6 +647,7 @@ class CommunicationsController extends BaseController
      */
     public function postFeeReminder($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('Fee reminder delivery')) return $guard;
         return $this->handleResponse($this->api->sendFeeReminder($data));
     }
 
@@ -657,6 +664,7 @@ class CommunicationsController extends BaseController
      */
     public function postFeeReminderBulk($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('Bulk fee reminder delivery')) return $guard;
         return $this->handleResponse($this->api->sendBulkFeeReminders($data));
     }
 
@@ -677,6 +685,9 @@ class CommunicationsController extends BaseController
     }
     public function postCommunication($id = null, $data = [], $segments = [])
     {
+        if (DataScopeService::current() === 'test') {
+            return $this->forbidden('External communication creation is blocked in the test workspace until scoped communication storage is enabled.');
+        }
         $audience = strtolower((string) ($data['recipient_type'] ?? ''));
         $roles = $this->getUserRoleIds();
         $fullAudienceRoles = [2, 3, 4, 5, 6, 10, 63];
@@ -687,6 +698,7 @@ class CommunicationsController extends BaseController
     }
     public function postDispatchCommunication($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('Communication dispatch')) return $guard;
         if ($id === null || (int) $id < 1) {
             return $this->badRequest('Communication ID required');
         }
@@ -728,7 +740,18 @@ class CommunicationsController extends BaseController
      */
     public function postResend($id = null, $data = [], $segments = [])
     {
+        if ($guard = $this->guardLiveExternalCommunication('Communication resend')) return $guard;
         return $this->handleResponse($this->api->resendCommunication($data));
+    }
+
+    private function guardLiveExternalCommunication(string $operation)
+    {
+        try {
+            DataScopeService::requireLiveExternalAction($operation);
+            return null;
+        } catch (\DomainException $error) {
+            return $this->forbidden($error->getMessage());
+        }
     }
 
     // --- Internal User-to-User Messaging ---

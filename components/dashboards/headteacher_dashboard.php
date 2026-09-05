@@ -36,3 +36,4 @@
         </aside>
     </div>
 </section>
+<?php asset_script($appBase, 'js/dashboards/headteacher_dashboard.js'); ?>
