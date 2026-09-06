@@ -101,7 +101,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Product modal (add / edit) -->
 <div class="modal fade" id="ipcProductModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
         <div class="modal-content">
             <form id="ipcProductForm" novalidate>
                 <div class="modal-header">
@@ -170,7 +170,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Product image modal -->
 <div class="modal fade" id="ipcImageModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <form id="ipcImageForm" novalidate>
                 <div class="modal-header">

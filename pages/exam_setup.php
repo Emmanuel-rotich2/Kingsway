@@ -665,7 +665,7 @@
      IMPORT CONFIG MODAL
 ======================================================= -->
 <div class="modal fade" id="importConfigModal" tabindex="-1" aria-labelledby="importConfigModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header modal-header-academic">
                 <h5 class="modal-title" id="importConfigModalLabel">
@@ -722,7 +722,7 @@
      DELETE CONFIRMATION MODAL
 ======================================================= -->
 <div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-sm modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h6 class="modal-title">

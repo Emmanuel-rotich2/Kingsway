@@ -296,7 +296,7 @@ class ActionButtons {
             const modalId = 'confirm-modal-' + Math.random().toString(36).substr(2, 9);
             const html = `
                 <div class="modal fade" id="${modalId}" tabindex="-1" data-bs-backdrop="static">
-                    <div class="modal-dialog modal-sm">
+                    <div class="modal-dialog modal-dialog-scrollable modal-sm">
                         <div class="modal-content">
                             <div class="modal-header">
                                 <h5 class="modal-title">Confirm Action</h5>

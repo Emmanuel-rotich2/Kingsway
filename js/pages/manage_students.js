@@ -1414,7 +1414,7 @@ window.studentsManagementController = window.studentsManagementController || {
 
     let modalHtml = `
       <div class="modal fade" id="transferStudentModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
           <div class="modal-content">
             <div class="modal-header bg-info text-white">
               <h5 class="modal-title">Transfer Student — ${student ? student.first_name + " " + student.last_name : ""}</h5>
@@ -1757,7 +1757,7 @@ window.studentsManagementController = window.studentsManagementController || {
     modalEl.tabIndex = -1;
 
     const dialog = document.createElement("div");
-    dialog.className = "modal-dialog modal-dialog-centered";
+    dialog.className = "modal-dialog modal-dialog-scrollable modal-dialog-centered";
     const content = document.createElement("div");
     content.className = "modal-content";
 

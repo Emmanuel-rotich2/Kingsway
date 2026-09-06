@@ -1,6 +1,6 @@
 <!-- Notification Modal Component (Bootstrap 5) -->
 <div class="modal fade" id="notificationModal" tabindex="-1" aria-labelledby="notificationModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content p-0 border-0">
       <div class="modal-body d-flex align-items-center gap-3 py-4 px-4">
         <span class="notification-icon flex-shrink-0 fs-2">

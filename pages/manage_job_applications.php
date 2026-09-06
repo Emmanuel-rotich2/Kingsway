@@ -59,7 +59,7 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="jobInterviewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content">
       <form id="jobInterviewForm">
         <div class="modal-header"><h5 class="modal-title" id="jobInterviewModalTitle">Schedule interview</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>

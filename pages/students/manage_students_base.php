@@ -195,7 +195,7 @@
 
 <!-- Student Modal (Create/Edit) -->
 <div class="modal fade" id="studentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="studentModalLabel">Add Existing Learner</h5>
@@ -610,7 +610,7 @@
 
 <!-- Bulk Import Modal -->
 <div class="modal fade" id="bulkImportModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Bulk Import Students</h5>
@@ -647,7 +647,7 @@
 
 <!-- View Student Details Modal -->
 <div class="modal fade" id="viewStudentModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Student Details</h5>

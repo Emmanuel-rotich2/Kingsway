@@ -237,7 +237,7 @@
     aria-labelledby="logoutModalLabel"
     aria-hidden="true"
 >
-    <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered modal-sm">
         <div class="modal-content app-logout-modal">
             <div class="modal-body text-center p-4">
                 <span class="app-logout-icon">

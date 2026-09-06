@@ -179,7 +179,7 @@
 
 <!-- Add/Edit Transaction Modal -->
 <div class="modal" id="transactionModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Add Transaction</h3>
@@ -245,7 +245,7 @@
 
 <!-- Approval Modal -->
 <div class="modal" id="approvalModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Pending Approvals</h3>

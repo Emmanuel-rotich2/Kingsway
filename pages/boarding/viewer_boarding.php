@@ -209,7 +209,7 @@ $roleCategory = 'viewer';
 
 <!-- Request Leave Modal -->
 <div class="modal fade" id="requestLeaveModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Request Leave</h5>

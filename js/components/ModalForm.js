@@ -45,7 +45,7 @@ class ModalForm {
 
         const html = `
             <div class="modal fade" id="${this.modalId}" tabindex="-1" data-bs-backdrop="static">
-                <div class="modal-dialog modal-${this.size}">
+                <div class="modal-dialog modal-dialog-scrollable modal-${this.size}">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title" id="${this.modalId}-title">${this.title}</h5>

@@ -362,7 +362,7 @@ if (!isset($appBase)) {
 
 <!-- Meal Profile Modal -->
 <div class="modal fade" id="mealProfileModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-warning text-dark">
@@ -404,7 +404,7 @@ if (!isset($appBase)) {
 
 <!-- Meal Planning Modal -->
 <div class="modal fade" id="mealPlanModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-warning text-dark">

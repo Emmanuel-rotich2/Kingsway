@@ -1367,6 +1367,10 @@ const ENDPOINT_PERMISSIONS = {
     PUT: "users_update",
     DELETE: "users_delete",
   },
+  "/users/test-access-bulk": {
+    GET: "users_view",
+    POST: "users_update",
+  },
 
   // Students
   "/students/index": "students_view",
@@ -3010,7 +3014,7 @@ function ensureAppDialog() {
   _appDialogEl.setAttribute("tabindex", "-1");
   _appDialogEl.setAttribute("aria-hidden", "true");
   _appDialogEl.innerHTML = `
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title" id="appDialogTitle"></h5>
@@ -3320,6 +3324,12 @@ window.API = {
     delete: async (id) => apiCall(`/users/user/${id}`, "DELETE"),
     bulkCreate: async (users) =>
       apiCall("/users/bulk-create", "POST", { users }),
+    bulkTestAccess: async (userIds, action, data = {}) =>
+      apiCall("/users/test-access-bulk", "POST", {
+        user_ids: userIds,
+        action,
+        ...data,
+      }),
 
     // Profile
     getProfile: async (id = null) =>
@@ -6744,6 +6754,8 @@ window.API = {
     updateFeatureFlags: async (data) => apiCall("/system/feature-flags", "PUT", data),
     getOperatingMode: async () => apiCall("/system/operating-mode", "GET"),
     updateOperatingMode: async (data) => apiCall("/system/operating-mode", "PUT", data),
+    getEnvironmentPhase: async () => apiCall("/system/environment-phase", "GET"),
+    updateEnvironmentPhase: async (data) => apiCall("/system/environment-phase", "PUT", data),
     getTestDataInventory: async () => apiCall("/system/test-data", "GET"),
     purgeTestData: async (data) => apiCall("/system/test-data", "DELETE", data),
     getModuleEnablement: async () => apiCall("/system/module-enablement", "GET"),

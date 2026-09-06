@@ -12,7 +12,7 @@
     <div id="staffLifecycleEmpty" class="text-center text-muted py-5 d-none">No staff records match the current filters.</div>
   </div></div>
 </div>
-<div class="modal fade" id="lifecycleActionModal" tabindex="-1"><div class="modal-dialog modal-lg"><form class="modal-content" id="lifecycleActionForm"><div class="modal-header"><h5 class="modal-title">Create staff lifecycle action</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="row g-3">
+<div class="modal fade" id="lifecycleActionModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><form class="modal-content" id="lifecycleActionForm"><div class="modal-header"><h5 class="modal-title">Create staff lifecycle action</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="row g-3">
 <div class="col-md-6"><label class="form-label">Staff member</label><select class="form-select" name="staff_id" required></select></div>
 <div class="col-md-6"><label class="form-label">Action</label><select class="form-select" name="action_type" required></select></div>
 <div class="col-md-6"><label class="form-label">Effective date</label><input type="date" class="form-control" name="effective_date" required></div>
@@ -22,5 +22,5 @@
 <div class="col-12"><label class="form-label">Reason</label><textarea class="form-control" name="reason" rows="3" required></textarea></div>
 <div class="col-12"><label class="form-label">Notes</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
 </div></div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" type="submit">Submit for approval</button></div></form></div></div>
-<div class="modal fade" id="staffTimelineModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Staff career timeline</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="staffTimelineBody"></div></div></div></div>
+<div class="modal fade" id="staffTimelineModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-xl"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Staff career timeline</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="staffTimelineBody"></div></div></div></div>
 <?php asset_script($appBase, 'js/pages/staff_lifecycle.js'); ?>

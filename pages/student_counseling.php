@@ -293,7 +293,7 @@ if (!isset($appBase)) {
 
 <!-- Case Details Modal -->
 <div class="modal fade" id="caseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-info text-white">
@@ -338,7 +338,7 @@ if (!isset($appBase)) {
 
 <!-- Add Case Modal -->
 <div class="modal fade" id="addCaseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-info text-white">

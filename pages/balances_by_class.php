@@ -193,7 +193,7 @@
 
 <!-- Student Billing History Modal (shared with student_fees page) -->
 <div class="modal fade" id="studentBillingHistoryModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>

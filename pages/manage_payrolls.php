@@ -752,7 +752,7 @@
 
 <!-- Process Payroll Modal -->
 <div class="modal fade" id="processPayrollModal" tabindex="-1" data-bs-backdrop="static">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-credit-card me-2"></i><span id="processPayrollModalTitle">Prepare Staff Payroll</span></h5>
@@ -1045,7 +1045,7 @@
 
 <!-- View Payslip Modal -->
 <div class="modal fade" id="viewPayslipModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-file-invoice me-2"></i>Detailed Payslip</h5>
@@ -1071,7 +1071,7 @@
 
 <!-- Payroll Confirmation Modal -->
 <div class="modal fade" id="payrollConfirmModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content" style="border: none; border-radius: 12px; overflow: hidden;">
             <div class="modal-header border-0" id="payrollConfirmHeader" style="background: linear-gradient(135deg, #0d4f2a, #198754); color: white;">
                 <h5 class="modal-title" id="payrollConfirmTitle">
@@ -1097,7 +1097,7 @@
 
 <!-- Payroll Payment Mode Modal -->
 <div class="modal fade" id="payrollPaymentModeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content" style="border: none; border-radius: 12px; overflow: hidden;">
             <div class="modal-header border-0" style="background: linear-gradient(135deg, #0d4f2a, #198754); color: white;">
                 <h5 class="modal-title">

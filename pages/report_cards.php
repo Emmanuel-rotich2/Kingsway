@@ -263,7 +263,7 @@
      MODAL: START REPORT WORKFLOW
 ══════════════════════════════════════════════════ -->
 <div class="modal fade" id="startReportWorkflowModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header" style="background:var(--rc-primary);color:#fff">
                 <h5 class="modal-title"><i class="bi bi-diagram-3 me-2"></i>Start Report Card Workflow</h5>

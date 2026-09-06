@@ -311,7 +311,7 @@ $escape = static function ($value): string {
 
 <!-- Leave Request Modal -->
 <div class="modal fade" id="supportLeaveModal" tabindex="-1" aria-labelledby="supportLeaveModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <form class="modal-content" id="supportLeaveForm">
             <div class="modal-header">
                 <h5 class="modal-title" id="supportLeaveModalTitle">Request Leave</h5>
@@ -338,7 +338,7 @@ $escape = static function ($value): string {
 
 <!-- Incident Report Modal -->
 <div class="modal fade" id="supportIncidentModal" tabindex="-1" aria-labelledby="supportIncidentModalTitle" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered modal-lg">
         <form class="modal-content" id="supportIncidentForm">
             <div class="modal-header">
                 <h5 class="modal-title" id="supportIncidentModalTitle">Report Workplace Incident</h5>

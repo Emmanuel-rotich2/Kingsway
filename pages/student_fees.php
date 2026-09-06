@@ -131,7 +131,7 @@
 
 <!-- Student Fee Details Modal -->
 <div class="modal fade" id="feeDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-light">
                 <div>
@@ -217,7 +217,7 @@
 
 <!-- Scholarship award. A scholarship is a distinct sponsored-fee decision. -->
 <div class="modal fade" id="studentAssistanceModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <div>
@@ -251,7 +251,7 @@
 
 <!-- Fee waiver modal. A waiver clears all or part of an outstanding balance. -->
 <div class="modal fade" id="studentWaiverModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning">
                 <div><h5 class="modal-title"><i class="bi bi-shield-check me-2"></i>Waive Off School Fees</h5><small id="waiverStudentLabel"></small></div>
@@ -276,7 +276,7 @@
 
 <!-- Record Payment Modal -->
 <div class="modal fade" id="paymentModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Record Payment</h5>
@@ -327,7 +327,7 @@
 
 <!-- Student Billing History Modal -->
 <div class="modal fade" id="studentBillingHistoryModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="bi bi-clock-history me-2"></i>Full Billing History — <span id="historyStudentName"></span></h5>

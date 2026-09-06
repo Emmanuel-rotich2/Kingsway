@@ -120,7 +120,7 @@
 
 <!-- Add/Edit Assignment Modal -->
 <div class="modal fade" id="assignmentModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="assignmentModalLabel">New Assignment</h5>

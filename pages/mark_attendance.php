@@ -297,7 +297,7 @@ if (!isset($appBase)) {
 
 <!-- Save Confirmation Modal -->
 <div class="modal fade" id="saveConfirmationModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title mb-0">Confirm Attendance</h5>

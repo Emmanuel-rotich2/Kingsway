@@ -322,7 +322,7 @@ if (!isset($appBase)) {
 
 <!-- Welfare Case Modal -->
 <div class="modal fade" id="welfareCaseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-warning text-dark">
@@ -370,7 +370,7 @@ if (!isset($appBase)) {
 
 <!-- Add Note Modal -->
 <div class="modal fade" id="addNoteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title mb-0">Add Note</h5>
@@ -410,7 +410,7 @@ if (!isset($appBase)) {
 
 <!-- Schedule Follow-up Modal -->
 <div class="modal fade" id="scheduleFollowUpModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title mb-0">Schedule Follow-up</h5>
@@ -440,7 +440,7 @@ if (!isset($appBase)) {
 
 <!-- Resolve Case Modal -->
 <div class="modal fade" id="resolveCaseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title mb-0">Mark Case as Resolved</h5>
@@ -466,7 +466,7 @@ if (!isset($appBase)) {
 
 <!-- Escalate Case Modal -->
 <div class="modal fade" id="escalateCaseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title mb-0">Escalate Case</h5>
@@ -498,7 +498,7 @@ if (!isset($appBase)) {
 
 <!-- New Welfare Case Modal -->
 <div class="modal fade" id="newCaseModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-warning text-dark">

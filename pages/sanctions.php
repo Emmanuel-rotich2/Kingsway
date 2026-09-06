@@ -108,7 +108,7 @@
 
 <!-- LOG SANCTION MODAL -->
 <div class="modal fade" id="saModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Log Sanction</h5>
@@ -171,7 +171,7 @@
 
 <!-- LIFT SANCTION MODAL -->
 <div class="modal fade" id="saLiftModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Lift Sanction</h5>

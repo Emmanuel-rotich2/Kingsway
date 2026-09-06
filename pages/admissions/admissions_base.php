@@ -427,7 +427,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="scheduleInterviewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Schedule Interview</h5>
@@ -440,7 +440,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="recordInterviewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Results</h5>
@@ -453,7 +453,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="placementModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title"><i class="bi bi-award me-2"></i>Generate Placement Offer</h5>
@@ -466,7 +466,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="paymentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-cash-stack me-2"></i>Record Admission Payment</h5>
@@ -479,7 +479,7 @@ if (!isset($appBase)) {
 </div>
 
 <div class="modal fade" id="directorConfirmationModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <form id="directorConfirmationForm">
                 <div class="modal-header bg-success text-white">
@@ -505,7 +505,7 @@ if (!isset($appBase)) {
 
 <!-- Generic Confirm Modal -->
 <div class="modal fade" id="admissionsConfirmModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="admissionsConfirmTitle">Confirm</h5>

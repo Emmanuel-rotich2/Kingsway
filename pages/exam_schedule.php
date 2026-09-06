@@ -208,7 +208,7 @@
  ADD / EDIT EXAM MODAL
 ======================================================= -->
 <div class="modal fade" id="examModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="background: var(--acad-primary); color: #fff;">
                 <h5 class="modal-title" id="examModalTitle">Add Exam Schedule</h5>

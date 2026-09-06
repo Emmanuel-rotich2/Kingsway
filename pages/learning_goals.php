@@ -73,7 +73,7 @@
 
 <!-- Add/Edit Goal Modal -->
 <div class="modal fade" id="lgModal" tabindex="-1" aria-labelledby="lgModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header border-bottom">
         <h5 class="modal-title" id="lgModalLabel"><i class="bi bi-bullseye me-2 text-primary"></i>Learning Goal</h5>

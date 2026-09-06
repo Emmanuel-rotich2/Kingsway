@@ -143,7 +143,7 @@
 </div>
 
 <div class="modal fade" id="vendorModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="vendorModalTitle"><i class="bi bi-shop me-2"></i>Add Vendor</h5><button
@@ -209,7 +209,7 @@
 </div>
 
 <div class="modal fade" id="vendorAccountsModal" tabindex="-1">
-  <div class="modal-dialog modal-xl"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl"><div class="modal-content">
     <div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-credit-card me-2"></i><span id="vendorAccountsTitle">Vendor payment accounts</span></h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body"><input type="hidden" id="accountSupplierId">
       <div class="row g-3"><div class="col-lg-6"><div class="card border-0 bg-light"><div class="card-body"><h6>Bank account</h6><div class="row g-2"><div class="col-md-6"><input id="vaBankName" class="form-control form-control-sm" placeholder="Bank name"></div><div class="col-md-6"><input id="vaBankCode" class="form-control form-control-sm" placeholder="Bank code"></div><div class="col-md-6"><input id="vaBankAccountName" class="form-control form-control-sm" placeholder="Account name"></div><div class="col-md-6"><input id="vaBankAccountNumber" class="form-control form-control-sm" placeholder="Account number"></div></div><button class="btn btn-sm btn-outline-primary mt-2" id="vaSaveBank">Save bank account</button></div></div></div><div class="col-lg-6"><div class="card border-0 bg-light"><div class="card-body"><h6>M-Pesa account</h6><div class="row g-2"><div class="col-md-6"><input id="vaMobileName" class="form-control form-control-sm" placeholder="Account name"></div><div class="col-md-6"><input id="vaMobilePhone" class="form-control form-control-sm" placeholder="2547XXXXXXXX"></div></div><button class="btn btn-sm btn-outline-primary mt-2" id="vaSaveMobile">Save M-Pesa account</button></div></div></div></div>

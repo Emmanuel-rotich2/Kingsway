@@ -591,7 +591,7 @@ if ($appBase === '.')
 
 <!-- ID Card Preview Modal -->
 <div class="modal fade" id="previewModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Student ID Card Preview</h5>
@@ -650,7 +650,7 @@ if ($appBase === '.')
 
 <!-- Generate ID Card Modal -->
 <div class="modal fade" id="generateModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Generate ID Card</h5>
@@ -699,7 +699,7 @@ if ($appBase === '.')
 
 <!-- Renew ID Card Modal -->
 <div class="modal fade" id="renewModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title">Renew ID Card</h5>
@@ -752,7 +752,7 @@ if ($appBase === '.')
 
 <!-- Replace ID Card Modal -->
 <div class="modal fade" id="replaceModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title">Replace Lost/Damaged ID Card</h5>
@@ -806,7 +806,7 @@ if ($appBase === '.')
 
 <!-- Mark Issued Modal -->
 <div class="modal fade" id="issueModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Mark ID Card as Issued</h5>
@@ -850,7 +850,7 @@ if ($appBase === '.')
 
 <!-- History Modal -->
 <div class="modal fade" id="historyModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-secondary text-white">
                 <h5 class="modal-title">ID Card History</h5>

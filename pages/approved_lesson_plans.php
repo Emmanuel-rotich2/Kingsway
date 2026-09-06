@@ -45,7 +45,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- View Modal -->
 <div class="modal fade" id="alpViewModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="alpViewTitle">Lesson Plan</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

@@ -643,7 +643,7 @@ const MyFamilyController = {
         div.tabIndex = '-1';
         div.setAttribute('aria-hidden', 'true');
         div.innerHTML =
-            '<div class="modal-dialog modal-dialog-centered"><div class="modal-content border-0 shadow">' +
+            '<div class="modal-dialog modal-dialog-scrollable modal-dialog-centered"><div class="modal-content border-0 shadow">' +
             '<div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-phone me-2"></i>M-Pesa Payment</h5>' +
             '<button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
             '<div class="modal-body p-4">' +

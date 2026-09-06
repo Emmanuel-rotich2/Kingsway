@@ -105,7 +105,7 @@
      INITIATE ONBOARDING MODAL
      ============================================================ -->
 <div class="modal fade" id="initiateOnboardModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
         <h5 class="modal-title"><i class="bi bi-person-plus me-2"></i>Initiate Onboarding</h5>
@@ -245,7 +245,7 @@
      DOCUMENT COLLECTION MODAL
      ============================================================ -->
 <div class="modal fade" id="obDocModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-folder-plus me-2"></i>Record Document</h5>
@@ -306,7 +306,7 @@
      PROBATION REVIEW MODAL
      ============================================================ -->
 <div class="modal fade" id="obReviewModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-warning text-dark">
         <h5 class="modal-title"><i class="bi bi-clipboard2-check me-2"></i>Probation Review</h5>
