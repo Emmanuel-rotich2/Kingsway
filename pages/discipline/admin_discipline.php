@@ -140,7 +140,7 @@
 
 <!-- New/Edit Case Modal -->
 <div class="modal fade" id="caseModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title" id="caseModalTitle">New Discipline Case</h5>

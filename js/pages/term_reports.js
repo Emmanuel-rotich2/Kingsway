@@ -80,7 +80,7 @@ const termReportsCtrl = (() => {
         const wrapper = document.createElement('div');
         wrapper.innerHTML = `
             <div class="modal fade" id="trPreviewModal" tabindex="-1">
-                <div class="modal-dialog">
+                <div class="modal-dialog modal-dialog-scrollable">
                     <div class="modal-content">
                         <div class="modal-header">
                             <h5 class="modal-title">Term Report Preview</h5>

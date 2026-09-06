@@ -53,7 +53,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Job Modal -->
 <div class="modal fade" id="wsJobModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsJobModalTitle">Post Vacancy</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

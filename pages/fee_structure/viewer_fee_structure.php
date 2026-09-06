@@ -141,7 +141,7 @@
 
 <!-- View Fee Structure Details Modal (Read-Only) -->
 <div class="modal" id="viewFeeStructureModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
@@ -163,7 +163,7 @@
 
 <!-- Export Options Modal -->
 <div class="modal" id="exportModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Export Fee Structures</h3>

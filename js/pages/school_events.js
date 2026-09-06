@@ -150,7 +150,7 @@
 
             var modalHtml = [
                 '<div class="modal fade" id="addEventModal" tabindex="-1" aria-labelledby="addEventModalLabel" aria-hidden="true">',
-                '  <div class="modal-dialog">',
+                '  <div class="modal-dialog modal-dialog-scrollable">',
                 '    <div class="modal-content">',
                 '      <div class="modal-header">',
                 '        <h5 class="modal-title" id="addEventModalLabel">Add School Event</h5>',

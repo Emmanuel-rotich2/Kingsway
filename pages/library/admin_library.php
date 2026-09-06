@@ -183,7 +183,7 @@
 
 <!-- ADD BOOK MODAL -->
 <div class="modal fade" id="addBookModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="addBookModalTitle">Add Book</h5>
@@ -255,7 +255,7 @@
 
 <!-- ISSUE BOOK MODAL -->
 <div class="modal fade" id="issueBookModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Issue Book</h5>
@@ -297,7 +297,7 @@
 
 <!-- ADD CATEGORY MODAL -->
 <div class="modal fade" id="addCategoryModal" tabindex="-1">
-  <div class="modal-dialog modal-sm">
+  <div class="modal-dialog modal-dialog-scrollable modal-sm">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Add Category</h5>

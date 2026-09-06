@@ -289,7 +289,7 @@
  GENERATE TIMETABLE MODAL
 ======================================================= -->
 <div class="modal fade" id="generateTimetableModal" tabindex="-1" aria-labelledby="generateTimetableLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header" style="background: var(--acad-primary); color: #fff;">
                 <h5 class="modal-title" id="generateTimetableLabel">

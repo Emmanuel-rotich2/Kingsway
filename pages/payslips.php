@@ -98,7 +98,7 @@
 
   <!-- Payslip detail modal -->
   <div class="modal fade" id="payslipModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
       <div class="modal-content">
         <div class="modal-header bg-primary text-white">
           <h5 class="modal-title"><i class="bi bi-receipt me-2"></i>Payslip Detail</h5>

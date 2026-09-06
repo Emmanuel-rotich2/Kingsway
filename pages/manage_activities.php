@@ -179,7 +179,7 @@
 
 <!-- Add/Edit Activity Modal -->
 <div class="modal fade" id="activityModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="activityModalTitle">Add Activity</h5>
@@ -244,7 +244,7 @@
 
 <!-- Category Modal -->
 <div class="modal fade" id="categoryModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="categoryModalTitle">Add Category</h5>
@@ -271,7 +271,7 @@
 
 <!-- Participant Register Modal -->
 <div class="modal fade" id="participantModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Register Participant</h5>
@@ -301,7 +301,7 @@
 
 <!-- Schedule Modal -->
 <div class="modal fade" id="scheduleModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="scheduleModalTitle">Add Schedule</h5>
@@ -342,7 +342,7 @@
 
 <!-- Resource Modal -->
 <div class="modal fade" id="resourceModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="resourceModalTitle">Add Resource</h5>

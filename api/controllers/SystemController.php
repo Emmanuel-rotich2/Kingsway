@@ -8,6 +8,7 @@ use App\API\Services\AuthSessionService;
 use App\API\Services\IpAccessControlService;
 use App\API\Services\SystemAdminAnalyticsService;
 use App\API\Services\OperatingModeService;
+use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\TestDataManagementService;
 use App\API\Services\Logger;
 use Exception;
@@ -788,6 +789,44 @@ class SystemController extends BaseController
             (new OperatingModeService($this->db->getConnection()))->current(),
             'Operating mode retrieved'
         );
+    }
+
+    // GET /api/system/environment-phase
+    // Host (localhost|production) is resolved from config; the active phase and
+    // auto-lock flag are DB-driven per host. This is the System Administrator's
+    // view of which workspace the server is in.
+    public function getEnvironmentPhase($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        return $this->success(
+            (new EnvironmentPhaseService($this->db->getConnection()))->current(),
+            'Environment phase retrieved'
+        );
+    }
+
+    // PUT /api/system/environment-phase
+    // Switches the DB-driven phase for the supplied host (localhost|production)
+    // and optionally toggles auto-lock. Only mutates provider-independent phase;
+    // MPESA_ENVIRONMENT/KCB_ENVIRONMENT are never changed here.
+    public function putEnvironmentPhase($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureSystemAdminAccess()) return $auth;
+        try {
+            $actorId = (int) ($this->getUserId() ?? 0);
+            $host = (string) ($data['host'] ?? '');
+            $result = (new EnvironmentPhaseService($this->db->getConnection()))->setPhase(
+                $actorId,
+                $host,
+                isset($data['phase']) ? (string) $data['phase'] : null,
+                array_key_exists('auto_lock', $data) ? (bool) $data['auto_lock'] : null
+            );
+            return $this->success($result, 'Environment phase updated');
+        } catch (\DomainException|\InvalidArgumentException $error) {
+            return $this->badRequest($error->getMessage());
+        } catch (\Throwable $error) {
+            Logger::legacyError('Environment phase update failed: ' . $error->getMessage());
+            return $this->serverError('Environment phase could not be updated');
+        }
     }
 
     // PUT /api/system/operating-mode

@@ -123,7 +123,7 @@
      PETTY CASH TRANSACTION MODAL
      ============================================================ -->
 <div class="modal fade" id="pettyCashModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
         <h5 class="modal-title"><i class="bi bi-wallet2 me-2"></i>Record Petty Cash</h5>

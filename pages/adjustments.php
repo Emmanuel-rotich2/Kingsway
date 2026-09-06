@@ -109,7 +109,7 @@
 
 <!-- New Adjustment Modal -->
 <div class="modal fade" id="ajModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="bi bi-sliders me-2"></i>New Adjustment</h5>
@@ -171,7 +171,7 @@
 
 <!-- Approve / Reject Modal -->
 <div class="modal fade" id="ajApproveModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="ajApproveModalTitle">Approve / Reject Adjustment</h5>

@@ -336,7 +336,7 @@ if (!isset($appBase)) {
 
 <!-- Passenger Profile Modal -->
 <div class="modal fade" id="passengerModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-primary text-white">
@@ -384,7 +384,7 @@ if (!isset($appBase)) {
 
 <!-- Incident Modal -->
 <div class="modal fade" id="incidentModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-danger text-white">

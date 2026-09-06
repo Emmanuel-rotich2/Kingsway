@@ -109,7 +109,7 @@
 
 <!-- SCHEDULE INTERVIEW MODAL -->
 <div class="modal fade" id="aiScheduleModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>Schedule Interview</h5>
@@ -162,7 +162,7 @@
 
 <!-- RECORD OUTCOME MODAL -->
 <div class="modal fade" id="aiOutcomeModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-success text-white">
         <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Interview Assessment</h5>

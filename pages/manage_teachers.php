@@ -375,7 +375,7 @@
  ADD / EDIT TEACHER MODAL
 ======================================================= -->
 <div class="modal fade" id="teacherFormModal" tabindex="-1" aria-labelledby="teacherFormModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="background: linear-gradient(135deg, #198754, #20c997); color: #fff;">
                 <h5 class="modal-title" id="teacherFormModalLabel">
@@ -628,7 +628,7 @@
  VIEW TEACHER MODAL
 ======================================================= -->
 <div class="modal fade" id="viewTeacherModal" tabindex="-1" aria-labelledby="viewTeacherModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header" style="background: linear-gradient(135deg, #198754, #20c997); color: #fff;">
                 <h5 class="modal-title" id="viewTeacherModalLabel">
@@ -869,7 +869,7 @@
  DELETE CONFIRMATION MODAL
 ======================================================= -->
 <div class="modal fade" id="deleteTeacherModal" tabindex="-1" aria-labelledby="deleteTeacherModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-sm modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h6 class="modal-title" id="deleteTeacherModalLabel">

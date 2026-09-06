@@ -74,7 +74,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Catalog Management Modal -->
 <div class="modal fade" id="cpCatalogModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="bi bi-grid-1x2 me-1"></i>Manage Program Catalog</h5>
@@ -151,7 +151,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Schedule Session Modal -->
 <div class="modal fade" id="cpSessionModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Schedule Spiritual Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
@@ -228,7 +228,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Attendance Modal -->
 <div class="modal fade" id="cpAttModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Record Attendance</h5>

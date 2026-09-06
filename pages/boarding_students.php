@@ -303,7 +303,7 @@ if (!isset($appBase)) {
 
 <!-- Boarding Profile Modal -->
 <div class="modal fade" id="boardingProfileModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-success text-white">
@@ -345,7 +345,7 @@ if (!isset($appBase)) {
 
 <!-- Assign Dormitory Modal -->
 <div class="modal fade" id="assignDormModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-success text-white">
@@ -401,7 +401,7 @@ if (!isset($appBase)) {
 
 <!-- Roll Call Modal -->
 <div class="modal fade" id="rollCallModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-success text-white">
@@ -454,7 +454,7 @@ if (!isset($appBase)) {
 
 <!-- Exeat Modal -->
 <div class="modal fade" id="exeatModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-success text-white">
@@ -529,7 +529,7 @@ if (!isset($appBase)) {
 
 <!-- Add Boarding Note Modal -->
 <div class="modal fade" id="addBoardingNoteModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content border-0 shadow">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title mb-0">Add Boarding Note</h5>

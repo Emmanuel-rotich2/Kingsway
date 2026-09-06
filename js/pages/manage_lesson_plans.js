@@ -253,7 +253,7 @@ const lessonPlansController = (() => {
     const plan = allPlans.find((p) => p.id == id);
     if (!plan) return;
     const modal = document.createElement("div");
-    modal.innerHTML = `<div class="modal fade" id="viewPlanModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+    modal.innerHTML = `<div class="modal fade" id="viewPlanModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">${plan.topic || "Lesson Plan"}</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <div class="row mb-3">
@@ -304,7 +304,7 @@ const lessonPlansController = (() => {
     const schemeOpts = approvedSchemes.map((s) => `<option value="${s.id}" ${plan?.scheme_of_work_id == s.id ? "selected" : ""}>Week ${s.week_number || "-"} · ${s.class_name || ""} ${s.stream_name || ""} · ${s.learning_area_name || s.subject_name || ""} · ${s.strand_name || ""} / ${s.sub_strand_name || ""}</option>`).join("");
 
     const m = document.createElement("div");
-    m.innerHTML = `<div class="modal fade" id="lessonFormModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+    m.innerHTML = `<div class="modal fade" id="lessonFormModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">${isEdit ? "Edit" : "Create"} Lesson Plan from Approved Scheme</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
             <div class="modal-body">
                 <form id="lessonPlanForm">

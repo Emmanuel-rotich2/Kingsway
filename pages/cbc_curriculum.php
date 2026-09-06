@@ -212,7 +212,7 @@
 
 <!-- ==================== SUB-STRAND MODAL ==================== -->
 <div class="modal fade" id="subStrandModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="subStrandModalLabel">Add Sub-Strand</h5>
@@ -262,7 +262,7 @@
 
 <!-- ==================== LEARNING OUTCOME MODAL ==================== -->
 <div class="modal fade" id="loModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="loModalLabel">Add Learning Outcome</h5>
@@ -314,7 +314,7 @@
 
 <!-- ==================== CROSSWALK MODAL ==================== -->
 <div class="modal fade" id="crosswalkModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="crosswalkModalLabel">Add Strand-Competency Mapping</h5>

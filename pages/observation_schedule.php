@@ -87,7 +87,7 @@
 
 <!-- Schedule Observation Modal -->
 <div class="modal fade" id="osModal" tabindex="-1" aria-labelledby="osModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header border-bottom">
         <h5 class="modal-title" id="osModalLabel"><i class="bi bi-eye me-2 text-primary"></i>Schedule Observation</h5>

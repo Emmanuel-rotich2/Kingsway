@@ -298,7 +298,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- News Modal -->
 <div class="modal fade" id="wsNewsModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsNewsModalTitle">New Article</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -342,7 +342,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Event Modal -->
 <div class="modal fade" id="wsEventModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsEventModalTitle">New Event</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -382,7 +382,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Gallery Modal -->
 <div class="modal fade" id="wsGalleryModal" tabindex="-1">
-  <div class="modal-dialog"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold">Add Gallery Image</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -417,7 +417,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Download Modal -->
 <div class="modal fade" id="wsDownloadModal" tabindex="-1">
-  <div class="modal-dialog"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsDownloadModalTitle">Add Download</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -455,7 +455,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Job Modal -->
 <div class="modal fade" id="wsJobModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsJobModalTitle">Post Vacancy</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
@@ -489,7 +489,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Image Preview Modal -->
 <div class="modal fade" id="wsImgViewModal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content bg-transparent border-0">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered"><div class="modal-content bg-transparent border-0">
     <div class="modal-body p-0 text-center">
       <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal"></button>
       <img id="wsImgViewSrc" class="img-fluid rounded-4 shadow-lg" style="max-height:80vh">
@@ -499,7 +499,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Leadership Modal -->
 <div class="modal fade" id="wsLeadershipModal" tabindex="-1">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <h5 class="modal-title fw-bold" id="wsLeadershipModalTitle">Add Member</h5>
       <button type="button" class="btn-close" data-bs-dismiss="modal"></button>

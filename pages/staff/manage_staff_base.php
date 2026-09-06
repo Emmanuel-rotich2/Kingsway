@@ -719,7 +719,7 @@
 
 <!-- Assign Class Modal -->
 <div class="modal fade" id="assignClassModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Assign Staff to Class</h5>
@@ -765,7 +765,7 @@
 
 <!-- Assign Subject Modal -->
 <div class="modal fade" id="assignSubjectModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Assign Subject to Staff</h5>
@@ -803,7 +803,7 @@
 
 <!-- Payslip View Modal -->
 <div class="modal fade" id="payslipModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Staff Payslip</h5>
@@ -824,7 +824,7 @@
 
 <!-- Staff Modal (Create/Edit) -->
 <div class="modal fade" id="staffModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title" id="staffModalLabel">Add Staff Member</h5>
@@ -1023,7 +1023,7 @@
 
 <!-- View Staff Details Modal - Enhanced -->
 <div class="modal fade" id="viewStaffModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Staff Details</h5>
@@ -1044,7 +1044,7 @@
 
 <!-- Bulk Import Modal -->
 <div class="modal fade" id="bulkImportModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Bulk Import Staff</h5>
@@ -1072,7 +1072,7 @@
 
         <!-- Leave Requests Modal -->
         <div class="modal fade" id="leaveRequestsModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
                 <div class="modal-content">
                     <div class="modal-header bg-success text-white">
                         <h5 class="modal-title">Leave Requests</h5>
@@ -1106,7 +1106,7 @@
 
         <!-- Contract Modal -->
         <div class="modal fade" id="contractModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
+            <div class="modal-dialog modal-dialog-scrollable modal-lg">
                 <div class="modal-content">
                     <div class="modal-header bg-success text-white">
                         <h5 class="modal-title">Staff Contract</h5>

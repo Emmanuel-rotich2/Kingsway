@@ -133,7 +133,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ============ ASSIGN LEADERSHIP MODAL ============ -->
 <div class="modal fade" id="assignLeadershipModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="assignLeadershipTitle">Assign Leadership Position</h5>
@@ -187,7 +187,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ============ HOUSE MODAL ============ -->
 <div class="modal fade" id="houseModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="houseModalTitle">Add House</h5>
@@ -225,7 +225,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ============ AWARD MODAL ============ -->
 <div class="modal fade" id="awardModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="awardModalTitle">Issue Award</h5>
@@ -285,7 +285,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ============ AWARD TYPE MANAGEMENT MODAL ============ -->
 <div class="modal fade" id="awardTypesModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="fas fa-tags me-2"></i>Manage Award Types</h5>

@@ -112,7 +112,7 @@
 
 <!-- ENTER RESULTS MODAL -->
 <div class="modal fade" id="natEnterModal" tabindex="-1">
-  <div class="modal-dialog modal-xl">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Enter National Exam Results</h5>

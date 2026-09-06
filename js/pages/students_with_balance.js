@@ -300,7 +300,7 @@ const StudentsWithBalanceController = {
 
       let modalHtml = `
         <div class="modal fade" id="statementModal" tabindex="-1">
-          <div class="modal-dialog modal-lg">
+          <div class="modal-dialog modal-dialog-scrollable modal-lg">
             <div class="modal-content">
               <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Fee Statement — ${this.escapeHtml(student.first_name || "")} ${this.escapeHtml(student.last_name || "")}</h5>
@@ -369,7 +369,7 @@ const StudentsWithBalanceController = {
     // Show a quick payment recording modal
     let modalHtml = `
       <div class="modal fade" id="quickPaymentModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
           <div class="modal-content">
             <div class="modal-header bg-primary text-white">
               <h5 class="modal-title">Record Payment</h5>

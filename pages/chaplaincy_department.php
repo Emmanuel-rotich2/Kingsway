@@ -96,7 +96,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Assign Ministry Member Modal (tabbed multi-type staging) -->
 <div class="modal fade" id="chdMemberModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-fullscreen-xl-down">
+  <div class="modal-dialog modal-dialog-scrollable modal-xl modal-fullscreen-xl-down">
     <div class="modal-content">
       <div class="modal-header">
         <div>
@@ -248,7 +248,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Add Volunteer Modal -->
 <div class="modal fade" id="chdVolunteerModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Register Volunteer</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">

@@ -244,7 +244,7 @@ if (!isset($appBase)) {
 
 <!-- Family Detail Modal -->
 <div class="modal fade" id="familyModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-success text-white">

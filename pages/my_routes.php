@@ -123,7 +123,7 @@
 
 <!-- Route Details Modal -->
 <div class="modal fade" id="routeDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-light">
                 <h5 class="modal-title">Route Details</h5>
@@ -191,7 +191,7 @@
 
 <!-- Start Trip Modal -->
 <div class="modal fade" id="startTripModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">Start Trip</h5>

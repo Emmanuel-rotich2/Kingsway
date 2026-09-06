@@ -225,7 +225,7 @@
 
 <!-- Create/Edit Class Modal -->
 <div class="modal fade" id="classModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">
@@ -319,7 +319,7 @@
 
 <!-- Create/Edit Stream Modal -->
 <div class="modal fade" id="streamModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">
@@ -382,7 +382,7 @@
 
 <!-- Assign Teacher Modal -->
 <div class="modal fade" id="assignTeacherModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">

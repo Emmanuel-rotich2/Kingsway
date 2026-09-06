@@ -68,7 +68,7 @@
 
 <!-- Help modal: what counts as family -->
 <div class="modal fade" id="mfHelpModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-house-heart me-2"></i>What counts as my family?</h5>

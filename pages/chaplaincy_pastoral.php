@@ -84,7 +84,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ===== New Group Modal ===== -->
 <div class="modal fade" id="cpastGroupModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">New Spiritual Group</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
@@ -145,7 +145,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ===== Group Detail / Attendance Modal ===== -->
 <div class="modal fade" id="cpastGroupDetailModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="cpastGrpTitle"></h5>
@@ -187,7 +187,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- ===== Pastoral Visit Modal ===== -->
 <div class="modal fade" id="cpastVisitModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Record Pastoral Visit</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">

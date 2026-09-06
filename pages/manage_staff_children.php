@@ -100,7 +100,7 @@
 
 <!-- Add/Edit Staff Child Modal -->
 <div class="modal fade" id="staffChildModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title" id="staffChildModalTitle">Link Child to Staff</h5>
@@ -206,7 +206,7 @@
 
 <!-- Staff Fee Deductions Detail Modal -->
 <div class="modal fade" id="staffDeductionsModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title">

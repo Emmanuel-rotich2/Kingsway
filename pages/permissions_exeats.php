@@ -144,7 +144,7 @@
 
 <!-- New / Edit Request Modal -->
 <div class="modal fade" id="requestModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="requestModalTitle">New Permission / Exeat Request</h5>
@@ -223,7 +223,7 @@
 
 <!-- Approve / Deny Modal -->
 <div class="modal fade" id="approvalModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="approvalModalTitle">Review Request</h5>

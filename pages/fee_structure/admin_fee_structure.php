@@ -487,7 +487,7 @@ if (!isset($appBase)) {
 
 <!-- Create/Edit Fee Structure Modal -->
 <div class="modal" id="feeStructureModal">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Create New Fee Structure</h3>
@@ -506,7 +506,7 @@ if (!isset($appBase)) {
 
 <!-- View Fee Structure Details Modal -->
 <div class="modal" id="viewFeeStructureModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
@@ -527,7 +527,7 @@ if (!isset($appBase)) {
 
 <!-- Delete Confirmation Modal -->
 <div class="modal" id="deleteConfirmModal">
-    <div class="modal-dialog modal-sm">
+    <div class="modal-dialog modal-dialog-scrollable modal-sm">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Confirm Delete</h3>
@@ -548,7 +548,7 @@ if (!isset($appBase)) {
 
 <!-- Duplicate Structure Modal -->
 <div class="modal" id="duplicateStructureModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>

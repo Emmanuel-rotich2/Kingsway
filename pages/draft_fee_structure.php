@@ -79,7 +79,7 @@ if ($appBase === '.') $appBase = '';
 
 <!-- Print Dialog Modal -->
 <div class="modal fade" id="dfsPrintModal" tabindex="-1">
-  <div class="modal-dialog modal-md"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-md"><div class="modal-content">
     <div class="modal-header border-0 pb-0">
       <div>
         <h5 class="modal-title fw-bold"><i class="bi bi-printer text-success me-2"></i>Print Fee Structure</h5>

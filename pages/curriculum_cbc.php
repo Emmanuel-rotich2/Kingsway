@@ -121,7 +121,7 @@
 
 <!-- Add/Edit Curriculum Entry Modal -->
 <div class="modal fade" id="curriculumModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="curriculumModalLabel">Add Curriculum Entry</h5>

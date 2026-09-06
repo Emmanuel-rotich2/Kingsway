@@ -118,7 +118,7 @@
 
 <!-- Approval Details Modal -->
 <div class="modal fade" id="approvalModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-light">
                 <h5 class="modal-title">Approval Details</h5>

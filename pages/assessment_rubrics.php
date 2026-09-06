@@ -58,7 +58,7 @@
 </div>
 
 <div class="modal fade" id="assessmentToolModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">New Assessment Tool</h5>
@@ -104,7 +104,7 @@
 
 <!-- Rubric Modal -->
 <div class="modal fade" id="rubricModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="rubricModalLabel">Add Rubric Criterion</h5>

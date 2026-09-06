@@ -68,7 +68,7 @@
 
 <!-- CREATE/EDIT MODAL -->
 <div class="modal fade" id="ipModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="ipModalTitle">Create Intervention Plan</h5>
@@ -133,7 +133,7 @@
 
 <!-- VIEW DETAIL MODAL -->
 <div class="modal fade" id="ipViewModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title">Intervention Plan Details</h5>

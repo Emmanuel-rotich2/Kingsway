@@ -7,6 +7,7 @@ use App\API\Includes\AuditLogger;
 use App\API\Modules\communications\CommunicationsAPI;
 use App\API\Services\AuthSessionService;
 use App\API\Services\TestAccountAccessService;
+use App\API\Services\EnvironmentPhaseService;
 use App\API\Services\UsernameService;
 use Firebase\JWT\JWT;
 use PDO;
@@ -276,7 +277,11 @@ class UsersAPI extends BaseAPI
                     ORDER BY tg.created_at DESC,tg.id DESC LIMIT 1
                 )
                 LEFT JOIN roles r ON r.id = (
-                    SELECT ur.role_id FROM user_roles ur WHERE ur.user_id = u.id ORDER BY ur.id LIMIT 1
+                    SELECT ur.role_id
+                    FROM user_roles ur
+                    INNER JOIN roles rl ON rl.id = ur.role_id
+                    WHERE ur.user_id = u.id AND rl.is_active = 1
+                    ORDER BY ur.id LIMIT 1
                 )";
         $params = [TestAccountAccessService::environment()];
         if (isset($data['status'])) {
@@ -900,6 +905,70 @@ class UsersAPI extends BaseAPI
             return ['success' => false, 'error' => 'Database error occurred'];
         }
     }
+    /**
+     * Bulk grant/revoke temporary test access across several test accounts at
+     * once. Localhost is exempt from grants, so these are no-ops there but still
+     * return a clear result. Enforcement is decided by EnvironmentPhaseService.
+     */
+    public function bulkGrantTestAccess(array $userIds, array $data)
+    {
+        $host = (new EnvironmentPhaseService($this->db))->current()['host'];
+        if ($host === 'localhost') {
+            return [
+                'success' => true,
+                'data' => [
+                    'granted' => array_values(array_unique(array_map('intval', $userIds))),
+                    'skipped' => [],
+                    'message' => 'Development host: test accounts need no grant.',
+                ],
+            ];
+        }
+        try {
+            $service = new TestAccountAccessService($this->db);
+            $result = $service->grantBulk(
+                $userIds,
+                (string) ($data['test_access_purpose'] ?? ''),
+                (string) ($data['test_access_starts_at'] ?? date('Y-m-d H:i:s')),
+                (string) ($data['test_access_expires_at'] ?? ''),
+                (int) $this->getCurrentUserId()
+            );
+            return ['success' => true, 'data' => $result];
+        } catch (\DomainException|\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Bulk test grant failed: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Bulk test access could not be granted.'];
+        }
+    }
+
+    public function bulkRevokeTestAccess(array $userIds, array $data)
+    {
+        $host = (new EnvironmentPhaseService($this->db))->current()['host'];
+        if ($host === 'localhost') {
+            return [
+                'success' => true,
+                'data' => [
+                    'revoked' => array_values(array_unique(array_map('intval', $userIds))),
+                    'message' => 'Development host: test accounts need no grant to revoke.',
+                ],
+            ];
+        }
+        try {
+            $service = new TestAccountAccessService($this->db);
+            $revoked = $service->revokeBulk(
+                $userIds,
+                (int) $this->getCurrentUserId(),
+                (string) ($data['test_access_revocation_reason'] ?? 'Revoked by System Administrator')
+            );
+            return ['success' => true, 'data' => ['revoked' => $revoked]];
+        } catch (\DomainException|\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        } catch (Exception $e) {
+            \App\API\Services\Logger::legacyError('Bulk test revoke failed: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Bulk test access could not be revoked.'];
+        }
+    }
+
     public function delete($id)
     {
         // Get user data before deletion for audit log

@@ -148,7 +148,7 @@ $roleCategory = 'manager';
 
 <!-- Assign Room Modal -->
 <div class="modal fade" id="assignRoomModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-door-open me-2"></i>Assign Room</h5>
@@ -186,7 +186,7 @@ $roleCategory = 'manager';
 
 <!-- Leave Request Modal -->
 <div class="modal fade" id="leaveRequestModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title"><i class="bi bi-calendar-x me-2"></i>Leave Requests</h5>
@@ -217,7 +217,7 @@ $roleCategory = 'manager';
 
 <!-- Health Issue Modal -->
 <div class="modal fade" id="healthIssueModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title"><i class="bi bi-heart-pulse me-2"></i>Report Health Issue</h5>
