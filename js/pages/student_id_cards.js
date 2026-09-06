@@ -762,7 +762,7 @@ const StudentIdCardsController = {
         if (!modal) {
             const modalHTML = `
                 <div class="modal fade" id="bulkGenerateModal" tabindex="-1">
-                    <div class="modal-dialog">
+                    <div class="modal-dialog modal-dialog-scrollable">
                         <div class="modal-content">
                             <div class="modal-header">
                                 <h5 class="modal-title">Generate Bulk ID Cards</h5>

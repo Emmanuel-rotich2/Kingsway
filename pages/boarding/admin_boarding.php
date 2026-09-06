@@ -184,7 +184,7 @@ $roleCategory = 'admin';
 
 <!-- Add Dormitory Modal -->
 <div class="modal fade" id="addDormitoryModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-house-add me-2"></i>Add Dormitory</h5>
@@ -238,7 +238,7 @@ $roleCategory = 'admin';
 
 <!-- Leave Requests Modal -->
 <div class="modal fade" id="leaveRequestsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title"><i class="bi bi-calendar-x me-2"></i>Pending Leave Requests</h5>

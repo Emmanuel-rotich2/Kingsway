@@ -610,7 +610,7 @@
      MODAL: CREATE ASSESSMENT
 ════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="createAssessmentModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="background:var(--ex-primary);color:#fff">
                 <h5 class="modal-title"><i class="bi bi-clipboard-plus me-2"></i>Create Assessment</h5>
@@ -692,7 +692,7 @@
      MODAL: ENTER RESULTS
 ════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="enterResultsModal" tabindex="-1">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header" style="background:var(--ex-success);color:#fff">
                 <h5 class="modal-title"><i class="bi bi-pencil-square me-2"></i>Enter Assessment Results</h5>
@@ -743,7 +743,7 @@
      MODAL: START EXAM WORKFLOW
 ════════════════════════════════════════════════════════ -->
 <div class="modal fade" id="startExamWorkflowModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header" style="background:var(--ex-primary);color:#fff">
                 <h5 class="modal-title"><i class="bi bi-clipboard2-check me-2"></i>Start Exam Workflow</h5>

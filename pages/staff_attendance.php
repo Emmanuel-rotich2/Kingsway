@@ -351,7 +351,7 @@
      MARK STAFF ATTENDANCE MODAL
 ========================================================= -->
 <div class="modal fade" id="markStaffModal" tabindex="-1" aria-labelledby="markStaffModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="background:linear-gradient(135deg,var(--sa-primary),var(--sa-primary-dark));color:#fff;">
                 <h5 class="modal-title" id="markStaffModalLabel">

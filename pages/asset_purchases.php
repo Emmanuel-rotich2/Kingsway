@@ -170,7 +170,7 @@
 
 <!-- Add / Edit Asset Modal -->
 <div class="modal fade" id="apModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title" id="apModalTitle"><i class="bi bi-boxes me-2"></i>Add Asset Purchase</h5>
@@ -261,7 +261,7 @@
 
 <!-- Dispose Asset Modal -->
 <div class="modal fade" id="apDisposeModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-danger text-white">
                 <h5 class="modal-title"><i class="bi bi-trash me-2"></i>Dispose Asset</h5>

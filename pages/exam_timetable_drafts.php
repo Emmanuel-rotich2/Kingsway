@@ -18,7 +18,7 @@
 </div>
 
 <div class="modal fade" id="examDraftModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-fullscreen-xl-down modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-xl-down modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title">Exam Timetable Draft</h5>

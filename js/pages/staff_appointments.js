@@ -529,7 +529,7 @@ const StaffAppointmentsPage = {
     const wrapper = document.createElement("div");
     wrapper.innerHTML = `
       <div class="modal fade" id="staffAppointmentInternalModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
+        <div class="modal-dialog modal-dialog-scrollable modal-lg">
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title">Submit Internal Appointment</h5>
@@ -595,7 +595,7 @@ const StaffAppointmentsPage = {
         </div>
       </div>
       <div class="modal fade" id="staffAppointmentReasonModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
           <div class="modal-content">
             <div class="modal-header"><h5 class="modal-title" id="staffAppointmentReasonTitle">Appointment Action</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
             <div class="modal-body"><label class="form-label" for="staffAppointmentReasonText">Reason / remarks</label><textarea class="form-control" id="staffAppointmentReasonText" rows="4"></textarea></div>
@@ -604,7 +604,7 @@ const StaffAppointmentsPage = {
         </div>
       </div>
       <div class="modal fade" id="staffAppointmentOnboardModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
           <div class="modal-content">
             <div class="modal-header"><h5 class="modal-title">Onboard New Staff</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
             <div class="modal-body"><label class="form-label" for="staffAppointmentRoleId">Role for created user account</label><select class="form-select" id="staffAppointmentRoleId"><option value="">Select role</option></select><div class="form-text">Use the role that matches the approved staff position.</div></div>

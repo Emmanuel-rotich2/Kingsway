@@ -94,7 +94,7 @@
 
 <!-- View Staff Modal -->
 <div class="modal" id="staffModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Staff Details</h3>

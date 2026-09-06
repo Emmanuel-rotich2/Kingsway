@@ -199,7 +199,7 @@ if ($appBase === '.')
 
 <!-- Create Test Modal -->
 <div class="modal fade" id="createTestModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>Create Placement Test</h5>
@@ -245,7 +245,7 @@ if ($appBase === '.')
 
 <!-- Record Results Modal -->
 <div class="modal fade" id="recordResultsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Record Test Results</h5>

@@ -122,7 +122,7 @@
 
     <!-- Add Team Modal -->
     <div class="modal fade" id="addTeamModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-plus-circle me-2"></i>New Team</h5>
@@ -168,7 +168,7 @@
 
     <!-- Add Fixture Modal -->
     <div class="modal fade" id="addFixtureModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-calendar-plus me-2"></i>New Fixture</h5>
@@ -208,7 +208,7 @@
 
     <!-- Record Result Modal -->
     <div class="modal fade" id="recordResultModal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title"><i class="bi bi-trophy me-2"></i>Record Result</h5>

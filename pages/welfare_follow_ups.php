@@ -68,7 +68,7 @@
 
 <!-- ADD/EDIT MODAL -->
 <div class="modal fade" id="wfModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="wfModalTitle">Add Follow-up</h5>

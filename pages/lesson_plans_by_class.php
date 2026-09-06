@@ -115,7 +115,7 @@
 
 <!-- Class Detail Modal -->
 <div class="modal fade" id="classDetailModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="classDetailLabel">Class Lesson Plan Details</h5>

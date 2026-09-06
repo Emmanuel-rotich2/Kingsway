@@ -204,7 +204,7 @@
 
 <!-- Class Placement Modal -->
 <div class="modal fade" id="classPlacementModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-warning text-dark">
                 <h5 class="modal-title"><i class="bi bi-award me-2"></i>Class Placement</h5>

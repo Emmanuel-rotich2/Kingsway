@@ -207,7 +207,7 @@
 
 <!-- Add/Edit Menu Modal -->
 <div class="modal fade" id="menuModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="menuModalTitle">Add Menu Item</h5>

@@ -147,7 +147,7 @@
 
 <!-- View/Edit Staff Modal -->
 <div class="modal" id="staffModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title" id="modalTitle">Staff Details</h3>

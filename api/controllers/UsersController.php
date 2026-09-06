@@ -270,7 +270,31 @@ class UsersController extends BaseController
     }
 
     /**
-     * POST /api/users/{id}/role/assign
+     * POST /api/users/test-access-bulk
+     * Bulk grant or revoke temporary test access across many accounts at once.
+     * Body: { user_ids: int[], action: "grant"|"revoke", test_access_purpose?, starts?, expires?, reason? }
+     */
+    public function postTestAccessBulk($id = null, $data = [], $segments = [])
+    {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
+        $userIds = $data['user_ids'] ?? null;
+        if (!is_array($userIds) || empty($userIds)) {
+            return $this->badRequest('user_ids array is required and must not be empty');
+        }
+        $action = strtolower((string) ($data['action'] ?? ''));
+        if (!in_array($action, ['grant', 'revoke'], true)) {
+            return $this->badRequest('action must be grant or revoke');
+        }
+        $result = $action === 'grant'
+            ? $this->api->bulkGrantTestAccess($userIds, $data)
+            : $this->api->bulkRevokeTestAccess($userIds, $data);
+        return $this->handleResponse($result);
+    }
+
+    /**
+     * POST /api/users/role-assign
      */
     public function postRoleAssign($id = null, $data = [], $segments = [])
     {

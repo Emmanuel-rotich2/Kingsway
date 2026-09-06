@@ -65,7 +65,7 @@
 
 <!-- Write Entry Modal -->
 <div class="modal fade" id="rjModal" tabindex="-1" aria-labelledby="rjModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header border-bottom">
         <h5 class="modal-title" id="rjModalLabel"><i class="bi bi-pencil-square me-2 text-primary"></i>Reflection Entry</h5>

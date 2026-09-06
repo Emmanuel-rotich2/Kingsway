@@ -62,7 +62,7 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="transportEntitlementModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered modal-lg"><div class="modal-content">
     <form id="transportEntitlementForm">
       <div class="modal-header"><h5 class="modal-title"><i class="bi bi-calendar2-check text-success me-2"></i>Allocate transport coverage</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body"><p class="small text-muted">Record the transport arrangement agreed with this learner’s parent. The stop, eligible period and charge belong to the learner—not to the route.</p>

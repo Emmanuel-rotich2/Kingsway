@@ -133,7 +133,7 @@
 </div>
 
 <div class="modal fade" id="srRuleModal" tabindex="-1" aria-labelledby="srRuleTitle">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header bg-dark text-white"><h5 class="modal-title" id="srRuleTitle">Add Statutory Setting</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <p class="small text-muted">Add a new effective-dated setting when an official rate, band, cap or deadline changes. Updating a row creates a new version; existing payroll records are not rewritten.</p>
@@ -167,7 +167,7 @@
 </div>
 
 <div class="modal fade" id="srModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
     <div class="modal-content">
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-building me-2"></i><span id="srModalTitle">New Remittance</span></h5>
@@ -251,7 +251,7 @@
 </div>
 
 <div class="modal fade" id="srPaymentModal" tabindex="-1" aria-labelledby="srPaymentTitle">
-  <div class="modal-dialog"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
     <div class="modal-header bg-success text-white"><h5 class="modal-title" id="srPaymentTitle">Submit statutory payment</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <p class="small text-muted mb-3">Select the configured agency receiving account. The bank payment will remain pending until a verified callback or status confirmation is received.</p>
@@ -267,7 +267,7 @@
 </div>
 
 <div class="modal fade" id="srCertificateModal" tabindex="-1" aria-labelledby="srCertificateTitle">
-  <div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
     <div class="modal-header bg-secondary text-white"><h5 class="modal-title" id="srCertificateTitle">Record Certificate of Service</h5><button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <div class="row g-3">

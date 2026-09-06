@@ -55,7 +55,7 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="mapPromptModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">Send admission payment prompt</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body">
       <div id="mapPromptSummary" class="alert alert-light border small"></div>
@@ -71,7 +71,7 @@ if ($appBase === '.') $appBase = '';
 </div>
 
 <div class="modal fade" id="mapAuditModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg modal-dialog-centered"><div class="modal-content">
     <div class="modal-header"><h5 class="modal-title">Admission payment audit trail</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
     <div class="modal-body" id="mapAuditBody"><div class="text-center text-muted py-4"><span class="spinner-border spinner-border-sm"></span></div></div>
   </div></div>

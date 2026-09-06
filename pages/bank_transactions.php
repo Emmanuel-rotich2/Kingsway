@@ -182,7 +182,7 @@
 
 <!-- Add Transaction Modal -->
 <div class="modal fade" id="bankTransactionModal" tabindex="-1" aria-labelledby="bankTransactionModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title" id="bankTransactionModalLabel">

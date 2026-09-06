@@ -349,7 +349,7 @@ const ConductReportsController = {
       modal.id = "dynamicModal";
       modal.className = "modal fade";
       modal.tabIndex = -1;
-      modal.innerHTML = `<div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"></div></div></div>`;
+      modal.innerHTML = `<div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"></div></div></div>`;
       document.body.appendChild(modal);
     }
     modal.querySelector(".modal-title").textContent = title;

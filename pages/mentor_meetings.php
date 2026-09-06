@@ -87,7 +87,7 @@
 
 <!-- Schedule Meeting Modal -->
 <div class="modal fade" id="mmModal" tabindex="-1" aria-labelledby="mmModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
     <div class="modal-content border-0 shadow">
       <div class="modal-header border-bottom">
         <h5 class="modal-title" id="mmModalLabel"><i class="bi bi-calendar-plus me-2 text-primary"></i>Schedule Meeting</h5>

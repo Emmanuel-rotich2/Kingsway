@@ -270,7 +270,7 @@ if ($appBase === '.')
 
 <!-- Edit Placement Modal -->
 <div class="modal fade" id="editPlacementModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title"><i class="bi bi-pencil me-2"></i>Edit Placement</h5>

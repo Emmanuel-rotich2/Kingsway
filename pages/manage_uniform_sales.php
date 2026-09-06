@@ -209,7 +209,7 @@
 
 <!-- ── New Sale Modal ──────────────────────────────────────────────── -->
 <div class="modal fade" id="newSaleModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h5 class="modal-title"><i class="bi bi-cart-plus me-2"></i>New Uniform Sale</h5>
@@ -273,7 +273,7 @@
 
 <!-- ── Restock Modal ───────────────────────────────────────────────── -->
 <div class="modal fade" id="restockModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-boxes me-2"></i>Restock Uniform</h5>
@@ -322,7 +322,7 @@
 
 <!-- ── View Sizes Modal ────────────────────────────────────────────── -->
 <div class="modal fade" id="viewSizesModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="viewSizesTitle">Uniform Sizes</h5>
@@ -338,7 +338,7 @@
 
 <!-- ── Record Payment Modal ────────────────────────────────────────── -->
 <div class="modal fade" id="uniformPaymentModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-success text-white">
                 <h5 class="modal-title"><i class="bi bi-cash-coin me-2"></i>Record Payment</h5>

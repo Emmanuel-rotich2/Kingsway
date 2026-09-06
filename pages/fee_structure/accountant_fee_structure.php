@@ -179,7 +179,7 @@
 
 <!-- View Fee Structure Details Modal -->
 <div class="modal" id="viewFeeStructureModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Structure Details</h3>
@@ -197,7 +197,7 @@
 
 <!-- Duplicate Modal -->
 <div class="modal" id="duplicateModal">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Duplicate Fee Structure</h3>
@@ -227,7 +227,7 @@
 
 <!-- Reconciliation Modal -->
 <div class="modal" id="reconciliationModal">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content">
             <div class="modal-header">
                 <h3 class="modal-title">Fee Reconciliation</h3>
@@ -247,7 +247,7 @@
 
 <!-- Detailed Fee Structure Breakdown Modal -->
 <div class="modal" id="detailedFeeStructureModal">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-dialog-scrollable modal-lg">
         <div class="modal-content">
             <div class="modal-header bg-primary text-white">
                 <h3 class="modal-title">Fee Structure Breakdown</h3>

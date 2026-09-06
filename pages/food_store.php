@@ -123,7 +123,7 @@
 
 <!-- Add/Edit Item Modal -->
 <div class="modal fade" id="itemModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="itemModalTitle">Add Food Item</h5>
@@ -205,7 +205,7 @@
 
 <!-- Issue Items Modal -->
 <div class="modal fade" id="issueModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
                 <h5 class="modal-title">Issue Food Items</h5>

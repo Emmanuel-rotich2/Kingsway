@@ -350,7 +350,7 @@
 
 <!-- Confirmation Modal -->
 <div class="modal fade" id="confirmModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content" style="border: none; border-radius: 12px; overflow: hidden;">
             <div class="modal-header border-0" style="background: linear-gradient(135deg, #0d4f2a, #198754); color: white;">
                 <h5 class="modal-title">

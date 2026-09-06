@@ -822,7 +822,7 @@ const timetableController = (() => {
     // Remove previous modal if any
     document.getElementById("conflictModal")?.closest(".modal")?.remove();
     const modal = document.createElement("div");
-    modal.innerHTML = `<div class="modal fade" id="conflictModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+    modal.innerHTML = `<div class="modal fade" id="conflictModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
       <div class="modal-header"><h5 class="modal-title">Report Timetable Conflict</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <div class="mb-3"><label class="form-label">Describe the conflict</label><textarea class="form-control" id="conflictDesc" rows="3" placeholder="E.g. Teacher X is scheduled for two classes at the same time..."></textarea></div>
@@ -885,7 +885,7 @@ const timetableController = (() => {
       const existing = document.getElementById("conflictResultsModal");
       if (existing) existing.remove();
       const modal = document.createElement("div");
-      modal.innerHTML = `<div class="modal fade" id="conflictResultsModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+      modal.innerHTML = `<div class="modal fade" id="conflictResultsModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
         <div class="modal-header bg-warning text-dark"><h5 class="modal-title"><i class="bi bi-exclamation-triangle"></i> ${conflicts.length} Conflict(s) Detected</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body" style="max-height:400px;overflow-y:auto;">${list}</div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
@@ -920,7 +920,7 @@ const timetableController = (() => {
       const existing = document.getElementById("workloadModal");
       if (existing) existing.remove();
       const modal = document.createElement("div");
-      modal.innerHTML = `<div class="modal fade" id="workloadModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
+      modal.innerHTML = `<div class="modal fade" id="workloadModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-lg"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title"><i class="bi bi-person-lines-fill"></i> Teacher Workload</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body"><table class="table table-sm table-striped"><thead><tr><th>Teacher</th><th>Lessons/Week</th><th>Classes</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="text-center text-muted">No data</td></tr>'}</tbody></table></div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
@@ -954,7 +954,7 @@ const timetableController = (() => {
       const existing = document.getElementById("roomUtilModal");
       if (existing) existing.remove();
       const modal = document.createElement("div");
-      modal.innerHTML = `<div class="modal fade" id="roomUtilModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+      modal.innerHTML = `<div class="modal fade" id="roomUtilModal" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title"><i class="bi bi-door-open"></i> Room Utilization</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
         <div class="modal-body"><table class="table table-sm table-striped"><thead><tr><th>Room</th><th>Bookings</th><th>Utilization</th></tr></thead><tbody>${rows || '<tr><td colspan="3" class="text-center text-muted">No room assignments yet</td></tr>'}</tbody></table></div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">Close</button></div>
@@ -1018,7 +1018,7 @@ const timetableController = (() => {
     const modalId = "timetableMatrixModal";
     document.getElementById(modalId)?.remove();
     const modal = document.createElement("div");
-    modal.innerHTML = `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-xl" style="max-width:75vw;width:75vw"><div class="modal-content">
+    modal.innerHTML = `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-xl" style="max-width:75vw;width:75vw"><div class="modal-content">
       <div class="modal-header ${lowerPrimaryClassTeacher ? 'bg-primary' : 'bg-success'} text-white"><div><h5 class="modal-title"><i class="bi ${lowerPrimaryClassTeacher ? 'bi-pencil-square' : 'bi-grid-3x3-gap'} me-2"></i>${lowerPrimaryClassTeacher ? 'My Class Timetable Draft' : 'Timetable Matrix Draft'}</h5><small>${lowerPrimaryClassTeacher ? 'Plan your assigned stream and submit it for academic review.' : 'Work across assigned streams, save, and resume later. Nothing is published until approval.'}</small></div><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div>
       <div class="modal-body"><div class="row g-2 mb-3">${lowerPrimaryClassTeacher ? '<div class="col-md-6"><label class="form-label">Assigned class stream</label><div id="matrixAssignedStream" class="form-control-plaintext fw-semibold"></div></div>' : '<div class="col-md-3"><label class="form-label">Scope</label><select id="matrixScope" class="form-select"><option value="upper_primary">Grade 4–9 (subject timetable)</option><option value="whole_school">Whole school timetable</option></select></div>'}<div class="col-md-${lowerPrimaryClassTeacher ? '6' : '5'}"><label class="form-label">Draft title</label><input id="matrixTitle" class="form-control" value="${htmlEscape(lowerPrimaryClassTeacher ? `My class timetable ${new Date().getFullYear()}` : `Term timetable ${new Date().getFullYear()}`)}"></div>${lowerPrimaryClassTeacher ? '' : '<div class="col-md-4"><label class="form-label">Resume saved draft</label><select id="matrixExistingDraft" class="form-select"><option value="">New draft</option></select></div>'}</div><div class="alert alert-info py-2"><i class="bi bi-info-circle me-1"></i>${lowerPrimaryClassTeacher ? 'Each lesson belongs to your assigned class stream. Breaks and assembly are fixed by the school timetable.' : 'Select a scope, assign a learning area and responsible teacher in each cell, save your draft, then submit it for academic approval.'}</div><div id="matrixGrid" class="table-responsive" style="max-height:65vh;overflow:auto"></div></div>
       <div class="modal-footer"><span id="matrixDraftStatus" class="text-muted me-auto">Not saved</span><button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button><button class="btn ${lowerPrimaryClassTeacher ? 'btn-primary' : 'btn-success'}" onclick="timetableController.saveMatrixDraft()"><i class="bi bi-save me-1"></i>Save Draft</button><button class="btn btn-primary" onclick="timetableController.submitMatrixDraft()"><i class="bi bi-send me-1"></i>Submit for Review</button></div>
@@ -1058,7 +1058,7 @@ const timetableController = (() => {
         ].join(' ');
         return `<tr><td>${index + 1}</td><td>${htmlEscape(draft.title || 'Untitled draft')}</td><td>${htmlEscape(draft.scope || '')}</td><td>${htmlEscape(status)}</td><td>${draft.entry_count || 0}</td><td>${actions}</td></tr>`;
       }).join('');
-      modal.innerHTML = `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content"><div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Timetable Draft Review</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="text-muted">Review, return, approve, and publish timetable drafts across the school.</p><div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>#</th><th>Draft</th><th>Scope</th><th>Status</th><th>Entries</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted">No timetable drafts found.</td></tr>'}</tbody></table></div></div></div></div></div>`;
+      modal.innerHTML = `<div class="modal fade" id="${modalId}" tabindex="-1"><div class="modal-dialog modal-dialog-scrollable modal-xl"><div class="modal-content"><div class="modal-header bg-success text-white"><h5 class="modal-title"><i class="bi bi-clipboard-check me-2"></i>Timetable Draft Review</h5><button class="btn-close btn-close-white" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="text-muted">Review, return, approve, and publish timetable drafts across the school.</p><div class="table-responsive"><table class="table table-hover align-middle"><thead><tr><th>#</th><th>Draft</th><th>Scope</th><th>Status</th><th>Entries</th><th>Actions</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="text-center text-muted">No timetable drafts found.</td></tr>'}</tbody></table></div></div></div></div></div>`;
       document.body.appendChild(modal);
       new bootstrap.Modal(document.getElementById(modalId)).show();
     } catch (error) {

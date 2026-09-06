@@ -113,7 +113,7 @@
      REQUEST MODAL
      ============================================================ -->
 <div class="modal fade" id="advanceModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header bg-warning text-dark">
         <h5 class="modal-title"><i class="bi bi-cash-stack me-2"></i>Request Salary Advance</h5>
@@ -162,7 +162,7 @@
      APPROVAL MODAL
      ============================================================ -->
 <div class="modal fade" id="approveAdvModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header" id="approveAdvHeader">
         <h5 class="modal-title" id="approveAdvTitle">Approve Advance</h5>

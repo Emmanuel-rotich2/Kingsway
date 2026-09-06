@@ -277,7 +277,7 @@ if (!isset($appBase)) {
 
 <!-- Health Record Details Modal -->
 <div class="modal fade" id="recordModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-xl">
+    <div class="modal-dialog modal-dialog-scrollable modal-xl">
         <div class="modal-content border-0 shadow">
 
             <div class="modal-header bg-danger text-white">
