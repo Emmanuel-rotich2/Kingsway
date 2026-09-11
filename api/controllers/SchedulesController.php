@@ -20,7 +20,7 @@ class SchedulesController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new SchedulesAPI();
+        $this->api = $this->contract('App\API\Modules\schedules\SchedulesAPI');
     }
 
     private function guardSchedules(): ?array
@@ -97,7 +97,7 @@ class SchedulesController extends BaseController
             || strpos($role, 'headteacher') !== false || strpos($role, 'deputy') !== false;
         if ($isManagement) return $data;
 
-        $scope = (new TeacherScopeService($this->db->getConnection()))->forUser(
+        $scope = ($this->contract('App\API\Services\TeacherScopeService', $this->db->getConnection()))->forUser(
             $this->user ?: [],
             !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null,
             !empty($data['academic_year_term_id']) ? (int)$data['academic_year_term_id'] : null

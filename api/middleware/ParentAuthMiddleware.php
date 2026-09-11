@@ -51,6 +51,16 @@ class ParentAuthMiddleware
                  WHERE us.session_token = :token
                    AND us.session_status = 'active'
                    AND us.logout_time IS NULL
+                   AND u.data_scope = p.data_scope
+                   AND pr.status = 'active'
+                   AND EXISTS (
+                       SELECT 1
+                       FROM user_roles ur
+                       JOIN roles r ON r.id = ur.role_id
+                       WHERE ur.user_id = u.id
+                         AND r.id = 73
+                         AND r.name = 'Parent'
+                   )
                    AND us.login_time > DATE_SUB(NOW(), INTERVAL " . self::SESSION_TTL_DAYS . " DAY)
                  LIMIT 1",
                 [':token' => $token]

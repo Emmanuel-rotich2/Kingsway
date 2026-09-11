@@ -12,7 +12,7 @@ class SchoolConfigController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->systemApi = new SystemAPI();
+        $this->systemApi = $this->contract('App\API\Modules\system\SystemAPI');
     }
 
     public function index()

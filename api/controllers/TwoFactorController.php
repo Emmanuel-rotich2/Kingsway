@@ -35,9 +35,9 @@ class TwoFactorController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->tfa = new TwoFactorService();
-        $this->otpDelivery = new OTPDeliveryService();
-        $this->passkeys = new PasskeyService();
+        $this->tfa = $this->contract('App\API\Services\TwoFactorService');
+        $this->otpDelivery = $this->contract('App\API\Services\OTPDeliveryService');
+        $this->passkeys = $this->contract('App\API\Services\PasskeyService');
     }
 
     private function currentUser(): array

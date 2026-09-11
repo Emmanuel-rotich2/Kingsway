@@ -9,6 +9,7 @@ use App\API\Includes\WorkflowHandler;
 use App\API\Services\ExtraChargeService;
 use PDO;
 use Exception;
+use InvalidArgumentException;
 use function App\API\Includes\formatResponse;
 
 /**
@@ -283,31 +284,38 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
         $firstName = $nameParts[0] ?? '';
         $lastName = $nameParts[1] ?? $firstName;
 
-        $personId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM persons");
         $stmt = $this->db->prepare(
-            "INSERT INTO persons (id, first_name, last_name, email, phone, national_id_no)
-             VALUES (?, ?, ?, ?, ?, ?)"
+            "INSERT INTO persons (first_name, last_name, email, phone, national_id_no, data_scope)
+             VALUES (?, ?, ?, ?, ?, 'live')"
         );
         $stmt->execute([
-            $personId,
             $firstName,
             $lastName,
             $email !== '' ? $email : null,
             $phone !== '' ? $phone : null,
             $nationalId !== '' ? $nationalId : null,
         ]);
+        $personId = (int) $this->db->lastInsertId();
 
         return $this->createParentForPerson($personId, $address);
     }
 
     private function createParentForPerson(int $personId, string $address = ''): int
     {
-        $parentId = (int) $this->scalar("SELECT COALESCE(MAX(id), 0) + 1 FROM parents");
         $stmt = $this->db->prepare(
-            "INSERT INTO parents (id, person_id, address, status)
-             VALUES (?, ?, ?, 'active')"
+            "INSERT INTO parents (person_id, address, status)
+             VALUES (?, ?, 'active')"
         );
-        $stmt->execute([$parentId, $personId, $address !== '' ? $address : null]);
+        $stmt->execute([$personId, $address !== '' ? $address : null]);
+        $parentId = (int) $this->db->lastInsertId();
+        $this->db->prepare(
+            "INSERT INTO user_roles (user_id, role_id)
+             SELECT u.id, 73
+             FROM users u
+             JOIN roles r ON r.id = 73 AND r.name = 'Parent'
+             WHERE u.person_id = ?
+             ON DUPLICATE KEY UPDATE user_id = user_id"
+        )->execute([$personId]);
         return $parentId;
     }
 
@@ -461,7 +469,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             'other'                  => ['label' => 'Other (e.g. Student Portfolio)'],
         ];
 
-        $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+        $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
         $docInsert = $this->db->prepare(
             "INSERT INTO admission_documents
              (application_id, document_type, document_path, is_mandatory, verification_status, created_at)
@@ -556,7 +564,7 @@ class StudentAdmissionWorkflow extends WorkflowHandler {
             $preferredBaseName = $this->buildAdmissionDocumentFilenameBase($application, $document_type);
 
             // Upload admission documents under uploads/students/documents/{application_id}
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $mediaId = $mediaManager->upload(
                 $file,
                 'students/documents',
@@ -1145,6 +1153,25 @@ return formatResponse(false, null, 'An internal error occurred.');
         return true;
     }
 
+    /**
+     * RPC-shaped contract surface for the cross-module payment advancement boundary.
+     *
+     * @see admission.api.advance_after_payment in ServiceContractRegistry
+     */
+    public function advanceApplicationAfterConfirmedPayment(array $raw): array
+    {
+        $applicationId = $raw['application_id'] ?? null;
+        if (!is_numeric($applicationId) || (int) $applicationId <= 0) {
+            throw new InvalidArgumentException('application_id must be a positive integer.');
+        }
+        $applicationId = (int) $applicationId;
+        $advanced = $this->advanceAfterConfirmedPayment($applicationId);
+        return [
+            'advanced' => $advanced,
+            'application_id' => $applicationId,
+        ];
+    }
+
     /** Confirm a bank/M-Pesa record after staff have matched it to the statement/reconciliation feed. */
     public function confirmManualPayment(int $applicationId, int $paymentId, array $data = []): array
     {
@@ -1424,7 +1451,7 @@ return formatResponse(false, null, 'An internal error occurred.');
         try {
             $this->db->beginTransaction();
 
-            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1");
+            $stmt = $this->db->prepare("SELECT * FROM admission_applications WHERE id = :id LIMIT 1 FOR UPDATE");
             $stmt->execute(['id' => $applicationId]);
             $application = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$application) {
@@ -1524,7 +1551,7 @@ return formatResponse(false, null, 'An internal error occurred.');
                 throw new Exception('No student record linked to this application');
             }
 
-            $cardGenerator = new \App\API\Modules\students\StudentIDCardGenerator();
+            $cardGenerator = $this->contract('App\API\Modules\students\StudentIDCardGenerator');
             $qrResult = $cardGenerator->generateEnhancedQRCode($studentId);
             $qrToken = is_array($qrResult) && !empty($qrResult['data']['qr_token']) ? $qrResult['data']['qr_token'] : null;
             if (!$qrToken) {
@@ -1611,7 +1638,7 @@ return formatResponse(false, null, 'An internal error occurred.');
             }
 
             // Get application details
-            $sql = "SELECT * FROM admission_applications WHERE id = :id";
+            $sql = "SELECT * FROM admission_applications WHERE id = :id FOR UPDATE";
             $stmt = $this->db->prepare($sql);
             $stmt->execute(['id' => $application_id]);
             $application = $stmt->fetch(PDO::FETCH_ASSOC);

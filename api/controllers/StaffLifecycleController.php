@@ -7,7 +7,7 @@ use Throwable;
 final class StaffLifecycleController extends BaseController
 {
     private StaffLifecycleService $service;
-    public function __construct(){ parent::__construct(); $this->service=new StaffLifecycleService(); }
+    public function __construct(){ parent::__construct(); $this->service=$this->contract('App\API\Services\StaffLifecycleService'); }
 
     public function get($id=null,$data=[],$segments=[]){ return $this->guard(fn()=> $id ? $this->service->timeline((int)$id) : $this->service->dashboard($_GET)); }
     public function getReferenceData($id=null,$data=[],$segments=[]){ return $this->guard(fn()=> $this->service->referenceData()); }

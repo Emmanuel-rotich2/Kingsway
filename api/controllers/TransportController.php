@@ -26,10 +26,10 @@ class TransportController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api     = new TransportAPI();
-        $this->billing = new TransportBillingManager();
-        $this->entitlements = new StudentTransportEntitlementManager(Database::getInstance()->getConnection());
-        $this->transportPayments = new TransportPaymentService(Database::getInstance()->getConnection());
+        $this->api     = $this->contract('App\API\Modules\transport\TransportAPI');
+        $this->billing = $this->contract('App\API\Modules\finance\TransportBillingManager');
+        $this->entitlements = $this->contract('App\API\Modules\transport\StudentTransportEntitlementManager', Database::getInstance()->getConnection());
+        $this->transportPayments = $this->contract('App\API\Services\payments\TransportPaymentService', Database::getInstance()->getConnection());
     }
 
     private function guardTransport(): ?array

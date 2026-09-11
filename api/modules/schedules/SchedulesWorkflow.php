@@ -131,10 +131,8 @@ class SchedulesWorkflow extends WorkflowHandler
                 if ($timeSlotId === null) {
                     throw new \Exception('No time slot matches the entry start/end time');
                 }
-                $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-                $stmt = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (:id, :aycs, :stream_la, :term, :day, :ts, :la, :teacher, 'scheduled')");
+                $stmt = $this->db->prepare("INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (:aycs, :stream_la, :term, :day, :ts, :la, :teacher, 'scheduled')");
                 $stmt->execute([
-                    'id' => $entryId,
                     'aycs' => $classStreamId,
                     'stream_la' => $streamLearningAreaId,
                     'term' => $termId,

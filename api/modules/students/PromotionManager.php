@@ -650,12 +650,11 @@ class PromotionManager
 
                 $stmt = $this->db->prepare("
                     INSERT INTO student_transitions (
-                        id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                        student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                         academic_year_id, transition_type, reason, decided_by, decided_at
-                    ) VALUES (?, ?, ?, ?, ?, 'promotion', ?, ?, NOW())
+                    ) VALUES (?, ?, ?, ?, 'promotion', ?, ?, NOW())
                 ");
                 $stmt->execute([
-                    $this->nextTransitionId(),
                     $studentId,
                     $enrollment['id'],
                     $toEnrollmentId,
@@ -790,15 +789,13 @@ class PromotionManager
         $fromYear = $this->getYearValueFromId($data['from_academic_year_id'] ?? 0);
         $termId   = $this->getCurrentTermId($fromYear ?: (int)date('Y'));
 
-        $transitionId = $this->nextTransitionId();
         $stmt = $this->db->prepare("
             INSERT INTO student_transitions (
-                id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                 academic_year_id, transition_type, reason, decided_by, decided_at
-            ) VALUES (?, ?, ?, ?, ?, 'promotion', ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 'promotion', ?, ?, ?)
         ");
         $stmt->execute([
-            $transitionId,
             $data['student_id'],
             $data['from_enrollment_id'] ?? null,
             $data['to_enrollment_id'] ?? null,
@@ -808,7 +805,7 @@ class PromotionManager
             date('Y-m-d H:i:s'),
         ]);
 
-        return $transitionId;
+        return (int) $this->db->lastInsertId();
     }
 
     private function getClassStudents(int $classId, int $streamId, int $yearId): array
@@ -982,13 +979,6 @@ class PromotionManager
         return $row ? (int)$row['yr'] : null;
     }
 
-    /** Resolve the next manual id for the manual-id student_transitions table */
-    private function nextTransitionId(): int
-    {
-        $stmt = $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM student_transitions");
-        return (int) $stmt->fetchColumn();
-    }
-
     /** Get the current/last-completed term id for a given calendar year */
     private function getCurrentTermId(int $calYear): int
     {
@@ -1036,12 +1026,11 @@ class PromotionManager
 
         $stmt = $this->db->prepare("
             INSERT INTO student_transitions (
-                id, student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
+                student_id, from_student_academic_enrollment_id, to_student_academic_enrollment_id,
                 academic_year_id, transition_type, reason, decided_by, decided_at
-            ) VALUES (?, ?, ?, NULL, ?, 'graduation', ?, ?, NOW())
+            ) VALUES (?, ?, NULL, ?, 'graduation', ?, ?, NOW())
         ");
         $stmt->execute([
-            $this->nextTransitionId(),
             $data['student_id'],
             null,
             $data['academic_year_id'],

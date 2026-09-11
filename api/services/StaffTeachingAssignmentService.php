@@ -73,13 +73,6 @@ final class StaffTeachingAssignmentService
         return $id;
     }
 
-    /** Manual-id tables: next id is max+1 (no auto_increment on the target tables). */
-    private function nextId(string $table): int
-    {
-        $table = preg_replace('/[^A-Za-z0-9_]/', '', $table);
-        return (int)$this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM `$table`")->fetchColumn();
-    }
-
     // ---------------------------------------------------------------------
     // Class teachers  (academic_year_class_streams.class_teacher_id)
     // The row id exposed to callers is the academic_year_class_streams id.
@@ -278,14 +271,13 @@ final class StaffTeachingAssignmentService
         )->fetchColumn();
         if ($conflict) throw new RuntimeException('Duplicate active subject assignment', 409);
 
-        $newId = $this->nextId('academic_year_class_learning_area_teachers');
         $this->db->query(
             "INSERT INTO academic_year_class_learning_area_teachers
-                (id, academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
-             VALUES (?, ?, ?, ?, ?)",
-            [$newId, $areaId, $termId, $staffId, $role]
+                (academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
+             VALUES (?, ?, ?, ?)",
+            [$areaId, $termId, $staffId, $role]
         );
-        return (int)$newId;
+        return (int)$this->db->lastInsertId();
     }
 
     /** Remove a subject-teacher assignment row (no soft-delete column exists on the target table). */

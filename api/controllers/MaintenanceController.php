@@ -14,8 +14,8 @@ class MaintenanceController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new MaintenanceAPI();
-        $this->systemApi = new SystemAPI();
+        $this->api = $this->contract('App\API\Modules\maintenance\MaintenanceAPI');
+        $this->systemApi = $this->contract('App\API\Modules\system\SystemAPI');
     }
 
     private function guardMaintenance(): ?array

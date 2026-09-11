@@ -95,19 +95,22 @@ class StaffController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new StaffAPI();
-        $this->payroll = new StaffPayrollManager();
-        $this->idCardGenerator = new StaffIDCardGenerator();
-        $this->leaveManager = new StaffLeaveManager();
-        $this->onboardingManager = new StaffOnboardingManager();
-        $this->access = new StaffDomainAccessService($this->user);
-        $this->lifecycleService = new StaffLifecycleService();
-        $this->recordsService = new StaffRecordsService($this->db);
+        $this->api = $this->contract('App\API\Modules\staff\StaffAPI');
+        $this->payroll = $this->contract('App\API\Modules\staff\StaffPayrollManager');
+        $this->idCardGenerator = $this->contract('App\API\Modules\staff\StaffIDCardGenerator');
+        $this->leaveManager = $this->contract('App\API\Modules\staff\StaffLeaveManager');
+        $this->onboardingManager = $this->contract('App\API\Modules\staff\StaffOnboardingManager');
+        $this->access = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->lifecycleService = $this->contract('App\API\Services\StaffLifecycleService');
+        $this->recordsService = $this->contract('App\API\Services\StaffRecordsService', $this->db);
     }
 
     public function index()
     {
         // For /staff/index, return list to match frontend expectations
+        if (!$this->userHasPermission('staff_view') && !$this->userHasAnyRole(self::STAFF_DIRECTORY_VIEW_ROLES)) {
+            return $this->forbidden('You do not have permission to view the staff directory');
+        }
         $result = $this->api->list($_GET ?? []);
         return $this->handleResponse($result);
     }
@@ -118,6 +121,9 @@ class StaffController extends BaseController
      */
     public function getStats($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasPermission('staff_view') && !$this->userHasAnyRole(self::STAFF_DIRECTORY_VIEW_ROLES)) {
+            return $this->forbidden('You do not have permission to view staff statistics');
+        }
         return $this->handleResponse($this->api->stats());
     }
 
@@ -127,7 +133,7 @@ class StaffController extends BaseController
         if (empty($this->user)) return $this->unauthorized('Authentication required');
         $yearId = !empty($data['academic_year_id']) ? (int)$data['academic_year_id'] : null;
         $termId = !empty($data['academic_year_term_id']) ? (int)$data['academic_year_term_id'] : null;
-        return $this->success((new TeacherScopeService($this->db->getConnection()))->forUser($this->user, $yearId, $termId));
+        return $this->success(($this->contract('App\API\Services\TeacherScopeService', $this->db->getConnection()))->forUser($this->user, $yearId, $termId));
     }
 
 
@@ -335,7 +341,7 @@ class StaffController extends BaseController
                 ->execute([(int)$created['staff_id'], $data['work_start_time'], $data['work_end_time'], (int)$data['late_threshold_minutes']]);
             $pdo->commit();
             try {
-                (new StaffMigrationService($pdo))->processEmailQueue(1);
+                ($this->contract('App\API\Services\StaffMigrationService', $pdo))->processEmailQueue(1);
             } catch (\Throwable $mailError) {
                 \App\API\Services\Logger::legacyError('[SchoolAdministratorBootstrap] Invitation queued but immediate delivery failed: '.$mailError->getMessage());
             }
@@ -2367,7 +2373,7 @@ return $this->badRequest('An internal error occurred.');
         $remittanceId = (int) ($id ?? $data['id'] ?? 0);
         if (!$remittanceId || empty($data['agency_account_id'])) return $this->badRequest('Remittance ID and agency_account_id are required');
         try {
-            $result = (new StatutoryRemittanceService($this->db))->initiate($remittanceId, (int) $this->access->staffId(), $data);
+            $result = ($this->contract('App\API\Services\payments\StatutoryRemittanceService', $this->db))->initiate($remittanceId, (int) $this->access->staffId(), $data);
             return $this->success($result, 'Statutory payment submitted for confirmation');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[StaffController] initiate statutory payment: ' . $e->getMessage());

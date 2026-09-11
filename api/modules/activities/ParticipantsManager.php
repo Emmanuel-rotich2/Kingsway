@@ -18,19 +18,6 @@ class ParticipantsManager extends BaseAPI
     }
 
     /**
-     * Next manual id for a table without AUTO_INCREMENT (e.g. activity_participants).
-     *
-     * @param string $table Table name
-     * @return int
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
-    /**
      * Resolve a student's current active academic enrollment id.
      *
      * @param int $studentId Student ID
@@ -288,25 +275,22 @@ class ParticipantsManager extends BaseAPI
                 $transactionStarted = true;
             }
 
-            $participantId = $this->nextId('activity_participants');
-
             $sql = "
                 INSERT INTO activity_participants (
-                    id,
                     activity_id,
                     student_academic_enrollment_id,
                     status,
                     joined_at
-                ) VALUES (?, ?, ?, ?, NOW())
+                ) VALUES (?, ?, ?, NOW())
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $participantId,
                 $data['activity_id'],
                 $enrollmentId,
                 $data['status'] ?? 'active'
             ]);
+            $participantId = (int) $this->db->lastInsertId();
 
             if ($transactionStarted) {
                 $this->db->commit();

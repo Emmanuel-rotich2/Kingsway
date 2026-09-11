@@ -114,7 +114,7 @@ class FinanceAPI extends BaseAPI
         $this->kcbTransfer = new KcbFundsTransferService();
 
         // Initialize Communications
-        $this->communicationsApi = new CommunicationsAPI();
+        $this->communicationsApi = $this->contract('App\API\Modules\communications\CommunicationsAPI');
     }
 
     /**
@@ -957,15 +957,16 @@ class FinanceAPI extends BaseAPI
                 return formatResponse(false, null, 'A valid payroll month and year are required');
             }
 
-            $existingStmt = $this->db->prepare('SELECT id, status FROM payroll_runs WHERE month = ? AND year = ? AND data_scope=? LIMIT 1');
-            $existingStmt->execute([$month, $year, $dataScope]);
-            $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
-            if ($existing) {
+            $insertRun = $this->db->prepare(
+                "INSERT INTO payroll_runs
+                    (month, year, data_scope, status, workflow, created_by)
+                 VALUES (?, ?, ?, 'draft', 'draft', ?)
+                 ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
+            );
+            $insertRun->execute([$month, $year, $dataScope, $createdBy ?: null]);
+            if ($insertRun->rowCount() !== 1) {
                 return formatResponse(false, null, 'A payroll run already exists for this period');
             }
-
-            $this->db->prepare("INSERT INTO payroll_runs (month, year, data_scope, status, workflow, created_by) VALUES (?, ?, ?, 'draft', 'draft', ?)")
-                ->execute([$month, $year, $dataScope, $createdBy ?: null]);
             $runId = (int) $this->db->lastInsertId();
 
             $staffIds = $data['staff_ids'] ?? null;
@@ -2282,7 +2283,7 @@ class FinanceAPI extends BaseAPI
                             LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                             LEFT JOIN classes c ON c.id = ayc.class_id
                             LEFT JOIN streams sn ON sn.id = aycs.stream_id
-                            LEFT JOIN vw_student_fee_balances vfb
+                            LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                                 ON vfb.student_id = st.id
                                 AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE id = ? LIMIT 1)
                                 AND vfb.academic_year_term_id = ?
@@ -2470,7 +2471,7 @@ class FinanceAPI extends BaseAPI
 
                         $invoiceRow = null;
                         if ($feeInvoiceId) {
-                            $invStmt = $this->db->prepare("SELECT student_academic_enrollment_id AS id, balance FROM vw_student_fee_balances WHERE student_academic_enrollment_id = ? LIMIT 1");
+                            $invStmt = $this->db->prepare("SELECT student_academic_enrollment_id AS id, balance FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " WHERE student_academic_enrollment_id = ? LIMIT 1");
                             $invStmt->execute([$feeInvoiceId]);
                             $invoiceRow = $invStmt->fetch(PDO::FETCH_ASSOC);
                             if (!$invoiceRow) {
@@ -2480,7 +2481,7 @@ class FinanceAPI extends BaseAPI
 
                         if (!$feeInvoiceId && $academicYearId && $dedTermId) {
                             $invStmt = $this->db->prepare("
-                                SELECT student_academic_enrollment_id AS id, balance FROM vw_student_fee_balances
+                                SELECT student_academic_enrollment_id AS id, balance FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . "
                                 WHERE student_id = ?
                                   AND academic_year = (SELECT year_code FROM academic_years WHERE id = ? LIMIT 1)
                                   AND academic_year_term_id = ?
@@ -2545,9 +2546,19 @@ class FinanceAPI extends BaseAPI
             $runStmt->execute([$payrollMonth, $payrollYear, $dataScope]);
             $runId = $runStmt->fetchColumn();
             if (!$runId) {
-                $runId = $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM payroll_runs")->fetchColumn();
-                $insRun = $this->db->prepare("INSERT INTO payroll_runs (id, month, year, data_scope, status, created_by) VALUES (?, ?, ?, ?, 'draft', ?)");
-                $insRun->execute([$runId, $payrollMonth, $payrollYear, $dataScope, $processedBy ?: $this->getCurrentUserId()]);
+                $insRun = $this->db->prepare(
+                    "INSERT INTO payroll_runs
+                        (month, year, data_scope, status, created_by)
+                     VALUES (?, ?, ?, 'draft', ?)
+                     ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)"
+                );
+                $insRun->execute([
+                    $payrollMonth,
+                    $payrollYear,
+                    $dataScope,
+                    $processedBy ?: $this->getCurrentUserId()
+                ]);
+                $runId = (int) $this->db->lastInsertId();
             }
             if (!empty($data['source_financial_account_id']) && $isTestWorkspace) {
                 throw new \DomainException('Live source accounts cannot be assigned in the test workspace');
@@ -2681,7 +2692,7 @@ class FinanceAPI extends BaseAPI
                        vfb.academic_year_term_id AS term_id,
                        COALESCE(vfb.balance, 0) AS fee_balance
                 FROM staff_children sc
-                LEFT JOIN vw_student_fee_balances vfb
+                LEFT JOIN " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " vfb
                   ON vfb.student_id = sc.student_id
                  AND vfb.academic_year = (SELECT year_code FROM academic_years WHERE is_current = 1 LIMIT 1)
                  AND vfb.academic_year_term_id = (SELECT ayt.id FROM academic_year_terms ayt

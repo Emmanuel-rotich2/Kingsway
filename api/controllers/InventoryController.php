@@ -22,7 +22,7 @@ class InventoryController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new InventoryAPI();
+        $this->api = $this->contract('App\API\Modules\inventory\InventoryAPI');
     }
 
     private function guardInventory(string $permission = 'inventory.view'): ?array
@@ -1332,7 +1332,7 @@ class InventoryController extends BaseController
      */
     public function getUniformItems($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->listUniformItems($data);
         return $this->handleResponse($result);
     }
@@ -1346,7 +1346,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Uniform item ID is required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformSizes($id);
         return $this->handleResponse($result);
     }
@@ -1366,7 +1366,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Student ID and item ID are required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->registerUniformSale($student_id, $item_id, $data);
         return $this->handleResponse($result);
     }
@@ -1380,7 +1380,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Student ID is required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getStudentUniformSales($id);
         return $this->handleResponse($result);
     }
@@ -1399,7 +1399,7 @@ class InventoryController extends BaseController
 
         $payment_status = $data['payment_status'] ?? 'paid';
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->updateUniformSalePayment($id, $payment_status);
         return $this->handleResponse($result);
     }
@@ -1409,7 +1409,7 @@ class InventoryController extends BaseController
      */
     public function getUniformDashboard($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformSalesDashboard();
         return $this->handleResponse($result);
     }
@@ -1419,7 +1419,7 @@ class InventoryController extends BaseController
      */
     public function getUniformPaymentSummary($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformPaymentSummary();
         return $this->handleResponse($result);
     }
@@ -1436,7 +1436,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Student ID is required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->updateStudentUniformProfile($id, $data);
         return $this->handleResponse($result);
     }
@@ -1450,7 +1450,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Student ID is required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getStudentUniformProfile($id);
         return $this->handleResponse($result);
     }
@@ -1460,7 +1460,7 @@ class InventoryController extends BaseController
      */
     public function getUniformSalesList($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->listAllUniformSales($data);
         return $this->handleResponse($result);
     }
@@ -1473,7 +1473,7 @@ class InventoryController extends BaseController
         if ($guard = $this->guardInventoryWrite()) return $guard;
 
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->restockUniformSize($data);
         return $this->handleResponse($result);
     }
@@ -1483,7 +1483,7 @@ class InventoryController extends BaseController
      */
     public function getUniformLowStock($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getLowStockUniforms();
         return $this->handleResponse($result);
     }
@@ -1493,7 +1493,7 @@ class InventoryController extends BaseController
      */
     public function getUniformSalesReport($id = null, $data = [], $segments = [])
     {
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->getUniformSalesReport($data);
         return $this->handleResponse($result);
     }
@@ -1510,7 +1510,7 @@ class InventoryController extends BaseController
             return $this->badRequest('Sale ID is required');
         }
 
-        $uniformsApi = new \App\API\Modules\inventory\UniformSalesManager();
+        $uniformsApi = $this->contract('App\API\Modules\inventory\UniformSalesManager');
         $result = $uniformsApi->deleteUniformSale($id);
         return $this->handleResponse($result);
     }
@@ -1572,7 +1572,7 @@ class InventoryController extends BaseController
     {
         if ($guard = $this->guardInventoryWrite()) return $guard;
         try {
-            $service = new UniformPaymentService(Database::getInstance()->getConnection());
+            $service = $this->contract('App\API\Services\payments\UniformPaymentService', Database::getInstance()->getConnection());
             $result = !empty($data['accumulated'])
                 ? $service->initiateAccumulated($data, (int) $this->getCurrentUserId())
                 : $service->initiate($data, (int) $this->getCurrentUserId());
@@ -1587,7 +1587,7 @@ class InventoryController extends BaseController
     public function getUniformPaymentIntents($id = null, $data = [], $segments = [])
     {
         if ($id === null) return $this->badRequest('Uniform payment intent ID is required');
-        return $this->handleResponse((new UniformPaymentService(Database::getInstance()->getConnection()))->get((int) $id));
+        return $this->handleResponse(($this->contract('App\API\Services\payments\UniformPaymentService', Database::getInstance()->getConnection()))->get((int) $id));
     }
 
     /** GET /api/inventory/uniform-catalog */
@@ -1598,7 +1598,7 @@ class InventoryController extends BaseController
         $managementView = $canManage && !empty($data['management']);
         $scope = $managementView ? ['staff' => true] : ['internal' => true];
         return $this->success([
-            'products' => (new UniformCatalogService(Database::getInstance()->getConnection()))->list($scope + $data),
+            'products' => ($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->list($scope + $data),
             'can_manage' => $canManage,
         ]);
     }
@@ -1607,7 +1607,7 @@ class InventoryController extends BaseController
     public function postUniformCatalogProducts($id = null, $data = [], $segments = [])
     {
         if ($guard = $this->guardUniformCatalogManage()) return $guard;
-        try { return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->saveProduct($data, (int)$this->getCurrentUserId()), 'Uniform catalogue product saved'); }
+        try { return $this->created(($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->saveProduct($data, (int)$this->getCurrentUserId()), 'Uniform catalogue product saved'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -1616,18 +1616,18 @@ class InventoryController extends BaseController
     {
         if ($guard = $this->guardUniformCatalogManage()) return $guard;
         $productId=(int)($data['product_id']??$id??0); if(!$productId||empty($_FILES['file']))return $this->badRequest('product_id and image file are required');
-        try { $stored=(new UploadService())->store($_FILES['file'],'uniform_catalog_image',['owner_id'=>(string)$productId,'prefix'=>'uniform']); return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->addImage($productId,(string)($stored['relative_path']??''),$data['alt_text']??null,!empty($data['is_primary']),(int)($data['variant_id']??0)?:null,(string)($data['view_type']??'catalog')),'Uniform catalogue image uploaded'); }
+        try { $stored=($this->contract('App\API\Services\UploadService'))->store($_FILES['file'],'uniform_catalog_image',['owner_id'=>(string)$productId,'prefix'=>'uniform']); return $this->created(($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->addImage($productId,(string)($stored['relative_path']??''),$data['alt_text']??null,!empty($data['is_primary']),(int)($data['variant_id']??0)?:null,(string)($data['view_type']??'catalog')),'Uniform catalogue image uploaded'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
     public function postUniformCatalogVariants($id = null, $data = [], $segments = [])
-    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->saveVariant($data),'Catalogue variant saved');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{return $this->created(($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->saveVariant($data),'Catalogue variant saved');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function postUniformCatalogSizes($id = null, $data = [], $segments = [])
-    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{return $this->created((new UniformCatalogService(Database::getInstance()->getConnection()))->saveSize($data),'Catalogue size and stock saved');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{return $this->created(($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->saveSize($data),'Catalogue size and stock saved');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     public function deleteUniformCatalogImages($id = null, $data = [], $segments = [])
-    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{(new UniformCatalogService(Database::getInstance()->getConnection()))->deleteImage((int)($id??0));return $this->success([], 'Catalogue image removed');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
+    { if ($guard=$this->guardUniformCatalogManage()) return $guard; try{($this->contract('App\API\Services\payments\UniformCatalogService', Database::getInstance()->getConnection()))->deleteImage((int)($id??0));return $this->success([], 'Catalogue image removed');}catch(\Throwable $e){return $this->badRequest($e->getMessage());} }
 
     /** POST /api/inventory/uniform-catalog-purchases — authorised staff sale */
     public function postUniformCatalogPurchases($id = null, $data = [], $segments = [])
@@ -1635,7 +1635,7 @@ class InventoryController extends BaseController
         if ($guard = $this->guardUniformCatalogManage()) return $guard;
         $studentId=(int)($data['student_id']??0);$productId=(int)($data['product_id']??0);$variantId=(int)($data['variant_id']??0)?:null;$sizeId=(int)($data['size_id']??0);$quantity=(int)($data['quantity']??0);
         if(!$studentId||!$productId||!$sizeId||$quantity<1)return $this->badRequest('student_id, product_id, size_id and quantity are required');
-        try{$pdo=Database::getInstance()->getConnection();$s=$pdo->prepare('SELECT i.id AS item_id,us.size,us.unit_price FROM uniform_catalog_products cp LEFT JOIN uniform_catalog_variants v ON v.id=? AND v.product_id=cp.id JOIN inventory_items i ON i.id=COALESCE(v.item_id,cp.item_id) JOIN uniform_sizes us ON us.item_id=i.id WHERE cp.id=? AND us.id=? AND (v.id IS NULL OR v.status=\'active\') AND us.quantity_available-us.quantity_reserved>=?');$s->execute([$variantId,$productId,$sizeId,$quantity]);$size=$s->fetch(\PDO::FETCH_ASSOC);if(!$size)return $this->badRequest('Selected variant or size is unavailable');$manager=new \App\API\Modules\inventory\UniformSalesManager();return $this->created($manager->registerUniformSale($studentId,(int)$size['item_id'],['size'=>$size['size'],'quantity'=>$quantity,'unit_price'=>$size['unit_price'],'sold_by'=>$this->getCurrentUserId(),'notes'=>'Internal catalogue purchase']), 'Uniform purchase created');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}
+        try{$pdo=Database::getInstance()->getConnection();$s=$pdo->prepare('SELECT i.id AS item_id,us.size,us.unit_price FROM uniform_catalog_products cp LEFT JOIN uniform_catalog_variants v ON v.id=? AND v.product_id=cp.id JOIN inventory_items i ON i.id=COALESCE(v.item_id,cp.item_id) JOIN uniform_sizes us ON us.item_id=i.id WHERE cp.id=? AND us.id=? AND (v.id IS NULL OR v.status=\'active\') AND us.quantity_available-us.quantity_reserved>=?');$s->execute([$variantId,$productId,$sizeId,$quantity]);$size=$s->fetch(\PDO::FETCH_ASSOC);if(!$size)return $this->badRequest('Selected variant or size is unavailable');$manager=$this->contract('App\API\Modules\inventory\UniformSalesManager');return $this->created($manager->registerUniformSale($studentId,(int)$size['item_id'],['size'=>$size['size'],'quantity'=>$quantity,'unit_price'=>$size['unit_price'],'sold_by'=>$this->getCurrentUserId(),'notes'=>'Internal catalogue purchase']), 'Uniform purchase created');}catch(\Throwable $e){return $this->badRequest($e->getMessage());}
     }
 
     /** POST /api/inventory/uniform-payment-intent-confirm/{id} */
@@ -1644,7 +1644,7 @@ class InventoryController extends BaseController
         if ($guard = $this->guardInventoryWrite()) return $guard;
         if ($id === null) return $this->badRequest('Uniform payment intent ID is required');
         try {
-            $service = new UniformPaymentService(Database::getInstance()->getConnection());
+            $service = $this->contract('App\API\Services\payments\UniformPaymentService', Database::getInstance()->getConnection());
             return $this->success($service->confirmManual((int) $id, (int) $this->getCurrentUserId()), 'Uniform payment confirmed');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[InventoryController] uniform payment confirm: ' . $e->getMessage());

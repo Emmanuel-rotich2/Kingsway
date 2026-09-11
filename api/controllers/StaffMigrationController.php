@@ -14,7 +14,7 @@ final class StaffMigrationController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->service = new StaffMigrationService($this->db->getConnection());
+        $this->service = $this->contract('App\API\Services\StaffMigrationService', $this->db->getConnection());
     }
 
     public function getReferenceData($id = null, $data = [], $segments = [])

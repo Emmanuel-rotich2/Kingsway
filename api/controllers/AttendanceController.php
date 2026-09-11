@@ -23,12 +23,12 @@ class AttendanceController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new AttendanceAPI();
-        $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->studentAttendanceService = new AttendanceStudentService($this->api);
-        $this->staffAttendanceService = new AttendanceStaffService($this->api);
-        $this->permissionService = new AttendancePermissionService($this->api);
-        $this->manager = new AttendanceManager();
+        $this->api = $this->contract('App\API\Modules\attendance\AttendanceAPI');
+        $this->staffAccess = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->studentAttendanceService = $this->contract('App\API\Modules\attendance\AttendanceStudentService', $this->api);
+        $this->staffAttendanceService = $this->contract('App\API\Modules\attendance\AttendanceStaffService', $this->api);
+        $this->permissionService = $this->contract('App\API\Modules\attendance\AttendancePermissionService', $this->api);
+        $this->manager = $this->contract('App\API\Modules\attendance\AttendanceManager');
     }
     public function guardStaffAttendance(string $permission, array $roles = [])
     {
@@ -90,7 +90,7 @@ class AttendanceController extends BaseController
     public function getTrends($id = null, $data = [], $segments = [])
     {
         try {
-            $service = new \App\API\Services\DirectorAnalyticsService();
+            $service = $this->contract('App\API\Services\DirectorAnalyticsService');
             $trends = $service->getAttendanceTrends();
             if (!is_array($trends)) {
                 return $this->serverError('Attendance trends not available');
@@ -559,7 +559,7 @@ return $this->serverError('An internal error occurred.');
             if (!empty($scope['restricted'])) {
                 $data['stream_ids'] = $scope['stream_ids'];
             }
-            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection());
             return $this->success($service->list($data), 'Expected attendance registers retrieved');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AttendanceController] expected registers failed: ' . $e->getMessage());
@@ -576,7 +576,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Invalid worker credential');
         }
         try {
-            $service = new \App\API\Services\AttendanceRegisterService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\AttendanceRegisterService', $this->getDb()->getConnection());
             return $this->success($service->process($data['date'] ?? null), 'Attendance registers reconciled');
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AttendanceController] register worker failed: ' . $e->getMessage());
@@ -594,7 +594,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Invalid gate device signature');
         }
         try {
-            $service = new \App\API\Services\StaffGateAttendanceService($this->getDb()->getConnection());
+            $service = $this->contract('App\API\Services\StaffGateAttendanceService', $this->getDb()->getConnection());
             return $this->success($service->record($data), 'Gate attendance event processed');
         } catch (\InvalidArgumentException $e) {
             return $this->badRequest($e->getMessage());

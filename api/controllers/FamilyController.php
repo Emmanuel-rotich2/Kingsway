@@ -19,7 +19,7 @@ final class FamilyController extends BaseController
         $s->execute([$userId]); $parentId=(int)$s->fetchColumn();
         if(!$parentId) throw new \RuntimeException('This staff account is not linked to an active parent profile.',403);
         $_SERVER['parent_auth']=['parent_id'=>$parentId,'user_id'=>$userId,'staff_family_context'=>true];
-        $this->parent=new ParentPortalManager();
+        $this->parent=$this->contract('App\API\Modules\parent\ParentPortalManager');
     }
 
     private function call(string $method, array $args=[]): array { return $this->handleApiResponse($this->parent->{$method}(...$args)); }

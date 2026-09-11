@@ -661,7 +661,7 @@ class CommunicationsManager extends FileLifecycleBase
         $fileSize = $fileData['file_size'] ?? null;
         $mediaId = null;
         try {
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $uploadFile = $fileData['file'] ?? ($_FILES['file'] ?? null);
             $uploader = $fileData['uploaded_by'] ?? $fileData['uploader_id'] ?? $fileData['user_id'] ?? null;
             if ($uploadFile) {
@@ -1075,6 +1075,21 @@ class CommunicationsManager extends FileLifecycleBase
         $channel = $data['channel'];
         $code = $data['code'];
         if (!in_array($channel, ['email','sms','whatsapp','portal','in_app'], true)) return;
+        // Version numbering is serialized per template: the FOR UPDATE gap-lock
+        // must hold through the INSERT, which requires a wrapping transaction.
+        $this->db->beginTransaction();
+        try {
+            $this->syncCanonicalTemplateVersionLocked($data, $code);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    private function syncCanonicalTemplateVersionLocked(array $data, string $code): void
+    {
+        $channel = $data['channel'];
         $this->db->prepare(
             "INSERT INTO communication_template_catalog (code, name, purpose, status, created_by)
              VALUES (?, ?, ?, 'active', ?)
@@ -1083,7 +1098,7 @@ class CommunicationsManager extends FileLifecycleBase
         $stmt = $this->db->prepare("SELECT id FROM communication_template_catalog WHERE code = ?");
         $stmt->execute([$code]);
         $catalogId = (int) $stmt->fetchColumn();
-        $next = $this->db->prepare("SELECT COALESCE(MAX(version_no), 0) + 1 FROM communication_template_versions WHERE template_id = ?");
+        $next = $this->db->prepare("SELECT COALESCE(MAX(version_no), 0) FROM communication_template_versions WHERE template_id = ? FOR UPDATE");
         $next->execute([$catalogId]);
         $version = (int) $next->fetchColumn();
         $this->db->prepare("UPDATE communication_template_versions SET status = 'retired' WHERE template_id = ? AND status = 'active'")->execute([$catalogId]);

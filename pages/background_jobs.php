@@ -1,5 +1,9 @@
 <?php
 /** Kingsway System Administrator: Background Jobs. */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') { $appBase = ''; }
+}
 ?>
 <div class="container-fluid py-4"
      data-system-admin-page

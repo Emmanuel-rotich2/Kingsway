@@ -19,7 +19,7 @@ class ReportsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new ReportsAPI();
+        $this->api = $this->contract('App\API\Modules\reports\ReportsAPI');
     }
 
     public function index()

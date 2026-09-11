@@ -19,8 +19,8 @@ class ActivitiesController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new ActivitiesAPI();
-        $this->sports = new SportsManager();
+        $this->api = $this->contract('App\API\Modules\activities\ActivitiesAPI');
+        $this->sports = $this->contract('App\API\Modules\activities\SportsManager');
     }
 
     public function index()

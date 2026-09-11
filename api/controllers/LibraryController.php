@@ -33,7 +33,7 @@ class LibraryController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new LibraryAPI();
+        $this->api = $this->contract('App\API\Modules\library\LibraryAPI');
     }
 
     // ----------------------------------------------------------------

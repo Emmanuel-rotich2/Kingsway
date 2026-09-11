@@ -27,7 +27,7 @@ class CounselingController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new CounselingAPI();
+        $this->api = $this->contract('App\API\Modules\counseling\CounselingAPI');
     }
 
     private function guardCounseling(): ?array

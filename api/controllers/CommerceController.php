@@ -10,7 +10,7 @@ final class CommerceController extends BaseController
 {
     private CatalogCommerceService $commerce;
     private CatalogStockService $stock;
-    public function __construct(){parent::__construct();$db=Database::getInstance()->getConnection();$this->commerce=new CatalogCommerceService($db);$this->stock=new CatalogStockService($db);}
+    public function __construct(){parent::__construct();$db=Database::getInstance()->getConnection();$this->commerce=$this->contract('App\API\Services\catalog\CatalogCommerceService', $db);$this->stock=$this->contract('App\API\Services\catalog\CatalogStockService', $db);}
     private function staffId(): int { $id=(int)($this->user['id']??$this->user['user_id']??0);if(!$id)throw new \RuntimeException('Authentication required');return $id; }
     private function manager(): ?array { if(!$this->userHasAny([], [3,4,14], ['director','school administrator','uniform store manager']))return $this->forbidden('Catalogue sales oversight is restricted');return null; }
     private function storeManager(): ?array { if(!$this->userHasAny([], [4,14], ['school administrator','uniform store manager']))return $this->forbidden('Uniform Store management is required');return null; }

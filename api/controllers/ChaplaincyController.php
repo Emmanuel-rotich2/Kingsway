@@ -28,7 +28,7 @@ class ChaplaincyController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new ChaplaincyAPI();
+        $this->api = $this->contract('App\API\Modules\chaplaincy\ChaplaincyAPI');
     }
 
     /**

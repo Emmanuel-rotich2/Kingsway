@@ -28,8 +28,8 @@ class PrintController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->portfolioManager = new PortfolioManager($this->db->getConnection());
-        $this->analyticsExports = new AnalyticsExportAuditService($this->db->getConnection());
+        $this->portfolioManager = $this->contract('App\API\Modules\students\PortfolioManager', $this->db->getConnection());
+        $this->analyticsExports = $this->contract('App\API\Services\AnalyticsExportAuditService', $this->db->getConnection());
     }
 
     private function guardPrint(): ?array

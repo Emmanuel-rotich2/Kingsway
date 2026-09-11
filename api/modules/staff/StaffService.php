@@ -46,7 +46,7 @@ class StaffService extends BaseAPI
      */
     private function initializeManagers()
     {
-        $this->payrollManager = new StaffPayrollManager();
+        $this->payrollManager = $this->contract('App\API\Modules\staff\StaffPayrollManager');
         $this->onboardingManager = new StaffOnboardingManager();
         $this->performanceManager = new StaffPerformanceManager();
         $this->leaveManager = new StaffLeaveManager();

@@ -9,6 +9,7 @@ use App\API\Services\DownloadService;
 use App\API\Services\payments\MpesaPaymentService;
 use App\API\Services\payments\KcbMpesaExpressService;
 use App\API\Services\payments\FinancialAccountService;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 
@@ -89,11 +90,23 @@ class ParentPortalManager extends BaseAPI
             $stmt = $this->db->prepare(
                 "SELECT u.id AS user_id, pr.id AS parent_id,
                         p.first_name, p.last_name, p.email,
-                        u.password_hash, u.status AS user_status
-                 FROM users u
-                 JOIN persons p ON p.id = u.person_id
-                 JOIN parents pr ON pr.person_id = u.person_id
-                 WHERE p.email = :email AND pr.status = 'active'
+                       u.password_hash, u.status AS user_status,
+                       u.data_scope AS user_data_scope, p.data_scope AS person_data_scope
+                FROM users u
+                JOIN persons p ON p.id = u.person_id
+                JOIN parents pr ON pr.person_id = u.person_id
+                WHERE p.email = :email
+                  AND pr.status = 'active'
+                  AND u.status = 'active'
+                  AND u.data_scope = p.data_scope
+                  AND EXISTS (
+                      SELECT 1
+                      FROM user_roles ur
+                      JOIN roles r ON r.id = ur.role_id
+                      WHERE ur.user_id = u.id
+                        AND r.id = 73
+                        AND r.name = 'Parent'
+                  )
                  LIMIT 1"
             );
             $stmt->execute([':email' => $email]);
@@ -110,10 +123,6 @@ class ParentPortalManager extends BaseAPI
 
             if (!password_verify($password, $parent['password_hash'])) {
                 return $this->errorResponse('Invalid email or password', 401);
-            }
-
-            if (!empty($parent['user_status']) && $parent['user_status'] !== 'active') {
-                return $this->errorResponse('Your portal account is ' . $parent['user_status'], 403);
             }
 
             $otpSessionId = $this->sendParentEmailOtp((int)$parent['user_id'], (string)$parent['email']);
@@ -198,7 +207,7 @@ class ParentPortalManager extends BaseAPI
 
             $parent = $this->getParentByUserId((int)$session['user_id']);
             if (!$parent) {
-                return $this->errorResponse('Parent account not found', 404);
+                return $this->errorResponse('Parent account is not authorized', 403);
             }
 
             $session = $this->createSession((int)$parent['user_id']);
@@ -283,10 +292,11 @@ class ParentPortalManager extends BaseAPI
 
         try {
             $children = [];
+            $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
             $stmt = $this->db->prepare(
                 "SELECT s.id, ps.first_name, ps.last_name, s.admission_no, s.status,
                         c.name AS class_name, sl.name AS level_name,
-                        COALESCE((SELECT SUM(fb.balance) FROM vw_student_fee_balances fb
+                        COALESCE((SELECT SUM(fb.balance) FROM $feeBalView fb
                                   WHERE fb.student_id = s.id), 0) AS current_balance,
                         (SELECT MAX(pt.payment_date) FROM vw_payment_transactions_with_amount pt
                          WHERE pt.student_id = s.id
@@ -300,7 +310,13 @@ class ParentPortalManager extends BaseAPI
                  LEFT JOIN academic_year_classes ayc ON ayc.id = aycs.academic_year_class_id
                  LEFT JOIN classes c ON c.id = ayc.class_id
                  LEFT JOIN school_levels sl ON sl.id = c.level_id
+                 JOIN persons parent_person ON parent_person.id = (
+                     SELECT parent_record.person_id
+                     FROM parents parent_record
+                     WHERE parent_record.id = sp.parent_id
+                 )
                  WHERE sp.parent_id = :pid
+                   AND ps.data_scope = parent_person.data_scope
                  ORDER BY ps.first_name, ps.last_name"
             );
             $stmt->execute([':pid' => $this->parentId]);
@@ -421,13 +437,14 @@ class ParentPortalManager extends BaseAPI
         }
 
         try {
+            $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
             $stmt = $this->db->prepare(
                 "SELECT academic_year, term_id,
                         SUM(amount_due) AS total_due,
                         SUM(amount_paid) AS total_paid,
                         SUM(balance) AS balance,
                         MAX(payment_status) AS payment_status
-                 FROM vw_student_fee_balances
+                 FROM $feeBalView
                  WHERE student_id = :sid
                  GROUP BY academic_year, term_id
                  ORDER BY academic_year DESC, term_id ASC"
@@ -1034,9 +1051,10 @@ class ParentPortalManager extends BaseAPI
             }
 
             // Get current fee balance
+            $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
             $stmt = $this->db->prepare(
                 "SELECT COALESCE(SUM(balance), 0) AS total_balance
-                 FROM vw_student_fee_balances
+                 FROM $feeBalView
                  WHERE student_id = :sid"
             );
             $stmt->execute([':sid' => $studentId]);
@@ -1174,6 +1192,17 @@ class ParentPortalManager extends BaseAPI
              JOIN persons p ON p.id = u.person_id
              JOIN parents pr ON pr.person_id = u.person_id
              WHERE u.id = :uid
+               AND u.status = 'active'
+               AND pr.status = 'active'
+               AND u.data_scope = p.data_scope
+               AND EXISTS (
+               SELECT 1
+               FROM user_roles ur
+               JOIN roles r ON r.id = ur.role_id
+               WHERE ur.user_id = u.id
+                 AND r.id = 73
+                 AND r.name = 'Parent'
+               )
              LIMIT 1"
         );
         $stmt->execute([':uid' => $userId]);
@@ -1209,8 +1238,15 @@ class ParentPortalManager extends BaseAPI
     {
         try {
             $stmt = $this->db->prepare(
-                "SELECT student_id FROM student_parents
-                 WHERE parent_id = :pid AND student_id = :sid
+                "SELECT sp.student_id
+                 FROM student_parents sp
+                 JOIN students s ON s.id = sp.student_id
+                 JOIN persons child_person ON child_person.id = s.person_id
+                 JOIN parents parent_record ON parent_record.id = sp.parent_id
+                 JOIN persons parent_person ON parent_person.id = parent_record.person_id
+                 WHERE sp.parent_id = :pid
+                   AND sp.student_id = :sid
+                   AND child_person.data_scope = parent_person.data_scope
                  LIMIT 1"
             );
             $stmt->execute([':pid' => $this->parentId, ':sid' => $studentId]);
@@ -1333,13 +1369,14 @@ class ParentPortalManager extends BaseAPI
         $obligations = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Term-level paid/balance/waived from the ledger view
+        $feeBalView = ReadReplicaService::qualifiedRef('student_fee_balances');
         $stmt = $this->db->prepare(
             "SELECT academic_year_term_id,
                     SUM(amount_due)   AS total_due,
                     SUM(amount_waived) AS total_waived,
                     SUM(amount_paid)  AS total_paid,
                     SUM(balance)      AS total_balance
-             FROM vw_student_fee_balances
+             FROM $feeBalView
              WHERE student_id = :sid
              GROUP BY academic_year_term_id"
         );

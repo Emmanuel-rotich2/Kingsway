@@ -604,8 +604,12 @@
         { key: "id", label: "#" },
         { key: "queue", label: "Queue" },
         { key: "payload_type", label: "Type" },
-        { key: "status", label: "Status", badge: true, badgeMap: { pending: "secondary", processing: "info", completed: "success", failed: "danger" } },
+        { key: "status", label: "Status", badge: true, badgeMap: { pending: "secondary", processing: "info", done: "success", completed: "success", failed: "danger", dead_letter: "dark", cancelled: "warning", queued: "secondary", retrying: "info" } },
         { key: "attempts", label: "Attempts" },
+        { key: "max_attempts", label: "Max" },
+        { key: "backoff_seconds", label: "Backoff (s)" },
+        { key: "last_error", label: "Last Error" },
+        { key: "dead_letter_reason", label: "Dead Letter" },
         { key: "created_at", label: "Created" },
         { key: "completed_at", label: "Completed" }
       ],
@@ -621,10 +625,13 @@
       columns: [
         { key: "id", label: "#" },
         { key: "queue", label: "Queue" },
-        { key: "payload", label: "Payload" },
-        { key: "status", label: "Status", badge: true, badgeMap: { pending: "secondary", processing: "info", completed: "success", failed: "danger" } },
-        { key: "exception", label: "Exception" },
+        { key: "payload_type", label: "Type" },
+        { key: "status", label: "Status", badge: true, badgeMap: { pending: "secondary", processing: "info", done: "success", completed: "success", failed: "danger", dead_letter: "dark", cancelled: "warning", queued: "secondary", retrying: "info" } },
         { key: "attempts", label: "Attempts" },
+        { key: "max_attempts", label: "Max" },
+        { key: "last_error", label: "Exception" },
+        { key: "dead_letter_reason", label: "Dead Letter" },
+        { key: "available_at", label: "Available" },
         { key: "created_at", label: "Created" }
       ],
       extract: function (r) { return Array.isArray(r) ? r : r && r.data ? r.data : []; }

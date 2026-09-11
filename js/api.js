@@ -2748,6 +2748,11 @@ async function apiCallDirect(
       headers: {
         "X-Request-ID": requestId,
         "X-Browser-Session-Id": getBrowserSessionId(),
+        ...(upperMethod !== "GET" &&
+          upperMethod !== "HEAD" &&
+          !options.headers?.["Idempotency-Key"] && {
+            "Idempotency-Key": requestId,
+          }),
         ...(options.isFile ? {} : { "Content-Type": "application/json" }),
         Accept: "application/json",
         ...(token && {
@@ -3151,6 +3156,54 @@ window.API = {
   state: APIState,
   appState: AppState,
   permissions: PermissionContract,
+
+  // ── JSON-RPC facade (roadmap §4.2) ──────────────────────────────────
+  // Methods resolve server-side through the RpcRegistry after the standard
+  // middleware stack (Auth, CSRF, RBAC). The transport reuses apiCall(), so
+  // every call is automatically correlated with X-Request-ID, carries the
+  // CSRF token, gets a fresh Idempotency-Key for mutations, and benefits from
+  // token refresh. `call()` returns the JSON-RPC envelope
+  // { jsonrpc, result|error, id }; `callResult()` unwraps it and throws on error.
+  rpc: {
+    call: async (method, params = {}, options = {}) => {
+      const requestId = options.requestId || generateRequestId();
+      const response = await apiCall(
+        "/rpc",
+        "POST",
+        {
+          jsonrpc: "2.0",
+          id: options.id ?? requestId,
+          method,
+          params: params || {},
+        },
+        {},
+        { ...options, requestId, checkPermission: false },
+      );
+      return response && typeof response === "object" ? response.data : response;
+    },
+    callResult: async (method, params = {}, options = {}) => {
+      const envelope = await window.API.rpc.call(method, params, options);
+      if (!envelope || envelope.error) {
+        const rpcError = new Error(
+          envelope?.error?.message || "RPC call failed",
+        );
+        rpcError.code = envelope?.error?.code;
+        rpcError.rpcError = envelope?.error;
+        throw rpcError;
+      }
+      return envelope.result;
+    },
+    methods: async (options = {}) => {
+      const response = await apiCall("/rpc", "GET", null, {}, {
+        ...options,
+        checkPermission: false,
+      });
+      const result = response && response.data ? response.data.result : null;
+      return result && Array.isArray(result.methods) ? result.methods : [];
+    },
+    status: (jobId, options = {}) =>
+      window.API.rpc.callResult("system.job.status", { job_id: jobId }, options),
+  },
 
   // Request-ID correlation helpers shared with the frontend logger.
   getRequestId: () => getCurrentRequestId(),

@@ -26,7 +26,7 @@ class PublicController extends BaseAPI
     public function __construct()
     {
         parent::__construct('public');
-        $this->manager = new WebsiteManager();
+        $this->manager = $this->contract('App\API\Modules\website\WebsiteManager');
     }
 
     public function postJobApplications($id = null, $data = [], $segments = [])
@@ -119,7 +119,7 @@ class PublicController extends BaseAPI
             'special_needs'        => trim($data['special_needs'] ?? ''),
         ];
 
-        $workflow = new \App\API\Modules\admission\StudentAdmissionWorkflow();
+        $workflow = $this->contract('App\API\Modules\admission\StudentAdmissionWorkflow');
         $result = $workflow->submitApplication($payload, $mappedFiles);
 
         if (($result['code'] ?? 0) < 400) {
@@ -152,7 +152,7 @@ class PublicController extends BaseAPI
     public function getUniformCatalog($id = null, $data = [], $segments = [])
     {
         $pdo = Database::getInstance()->getConnection();
-        $svc = new UniformCatalogService($pdo);
+        $svc = $this->contract('App\API\Services\payments\UniformCatalogService', $pdo);
 
         // Single product — includes all images and sizes
         if ($id !== null && is_numeric($id)) {
@@ -164,7 +164,7 @@ class PublicController extends BaseAPI
             $imgSt = $pdo->prepare('SELECT id, variant_id, url, alt_text, view_type, is_primary, display_order FROM uniform_catalog_images WHERE product_id = ? ORDER BY is_primary DESC, display_order, id');
             $imgSt->execute([(int) $id]);
             $product['images'] = $imgSt->fetchAll(\PDO::FETCH_ASSOC);
-            $uploadService = new \App\API\Services\UploadService();
+            $uploadService = $this->contract('App\API\Services\UploadService');
             foreach ($product['images'] as &$image) {
                 $image['url'] = $uploadService->publicUrl($image['url'] ?? null);
             }
@@ -176,7 +176,7 @@ class PublicController extends BaseAPI
             $szSt = $pdo->prepare('SELECT us.id AS size_id,NULL AS variant_id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved AS available FROM uniform_sizes us WHERE us.item_id=? AND us.quantity_available>us.quantity_reserved UNION ALL SELECT us.id,v.id,us.size,us.size_label,us.size_type,us.unit_price,us.quantity_available-us.quantity_reserved FROM uniform_catalog_variants v JOIN uniform_sizes us ON us.item_id=v.item_id WHERE v.product_id=? AND v.status=\'active\' AND us.quantity_available>us.quantity_reserved ORDER BY variant_id,unit_price,size');
             $szSt->execute([$product['item_id'],(int)$id]);
             $product['sizes'] = $szSt->fetchAll(\PDO::FETCH_ASSOC);
-            $product['reviews'] = (new \App\API\Services\catalog\CatalogCommerceService($pdo))->reviews((int)$id);
+            $product['reviews'] = ($this->contract('App\API\Services\catalog\CatalogCommerceService', $pdo))->reviews((int)$id);
 
             return $this->successResponse(['product' => $product], 'Product details');
         }

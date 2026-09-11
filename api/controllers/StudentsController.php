@@ -138,18 +138,18 @@ class StudentsController extends BaseController
     {
         parent::__construct();
         $connection = $this->db->getConnection();
-        $this->mediaManager = new MediaManager($connection);
-        $this->studentService = new StudentService($connection);
-        $this->familyGroupsManager = new FamilyGroupsManager();
-        $this->promotionManager = new PromotionManager($connection, new AcademicYearManager($connection));
-        $this->studentInsightsService = new StudentInsightsService($connection, $this->studentService);
-        $this->api = new StudentsAPI();
-        $this->idCardService = new StudentIDCardService($this->api, $this->studentService);
-        $this->transferService = new StudentTransferService($this->api);
-        $this->promotionService = new StudentPromotionService($this->api, $this->promotionManager);
-        $this->parentService = new StudentParentService($this->api, $this->familyGroupsManager);
-        $this->leadershipService = new StudentLeadershipService($connection);
-        $this->studentProfileManager = new StudentProfileManager();
+        $this->mediaManager = $this->contract('App\API\Modules\system\MediaManager', $connection);
+        $this->studentService = $this->contract('App\API\Modules\students\StudentService', $connection);
+        $this->familyGroupsManager = $this->contract('App\API\Modules\students\FamilyGroupsManager');
+        $this->promotionManager = $this->contract('App\API\Modules\students\PromotionManager', $connection, $this->contract('App\API\Modules\academic\AcademicYearManager', $connection));
+        $this->studentInsightsService = $this->contract('App\API\Modules\students\StudentInsightsService', $connection, $this->studentService);
+        $this->api = $this->contract('App\API\Modules\students\StudentsAPI');
+        $this->idCardService = $this->contract('App\API\Modules\students\StudentIDCardService', $this->api, $this->studentService);
+        $this->transferService = $this->contract('App\API\Modules\students\StudentTransferService', $this->api);
+        $this->promotionService = $this->contract('App\API\Modules\students\StudentPromotionService', $this->api, $this->promotionManager);
+        $this->parentService = $this->contract('App\API\Modules\students\StudentParentService', $this->api, $this->familyGroupsManager);
+        $this->leadershipService = $this->contract('App\API\Modules\students\StudentLeadershipService', $connection);
+        $this->studentProfileManager = $this->contract('App\API\Modules\students\StudentProfileManager');
     }
 
     public function authorizeStudents(array $permissions, string $message = 'Insufficient permissions')
@@ -1729,7 +1729,7 @@ class StudentsController extends BaseController
         if ($auth = $this->authorizeStudents(self::LEADERSHIP_MANAGE_PERMS, 'Insufficient permission to print certificates')) {
             return $auth;
         }
-        $service = new \App\API\Modules\students\AwardCertificateService($this->db->getConnection());
+        $service = $this->contract('App\API\Modules\students\AwardCertificateService', $this->db->getConnection());
         $operatorId = (int) $this->getUserId();
         $awardIds = $data['award_ids'] ?? [];
         if (is_array($awardIds) && !empty($awardIds)) {
@@ -2711,6 +2711,15 @@ return $this->badRequest('An internal error occurred.');
     public function getFamilyGroup($id = null, $data = [], $segments = [])
     {
         return $this->parentService->getFamilyGroup($id, $data, $segments, $this);
+    }
+
+    /**
+     * GET /api/students/family-groups/stats
+     */
+    // TODO: Delegate to StudentParentService
+    public function getFamilyGroupsStats($id = null, $data = [], $segments = [])
+    {
+        return $this->parentService->getFamilyGroupsStats($id, $data, $segments, $this);
     }
 
     /**

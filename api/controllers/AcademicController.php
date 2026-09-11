@@ -140,22 +140,22 @@ class AcademicController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->academicManager = new AcademicManager();
-        $this->api = new AcademicAPI();
-        $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->teachingAssignments = new StaffTeachingAssignmentService();
+        $this->academicManager = $this->contract('App\API\Modules\academic\AcademicManager');
+        $this->api = $this->contract('academic');
+        $this->staffAccess = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->teachingAssignments = $this->contract('App\API\Services\StaffTeachingAssignmentService');
 
         // Initialize Academic Context Service
-        $this->contextService = new AcademicContextService();
+        $this->contextService = $this->contract('App\API\Services\AcademicContextService');
 
         // Initialize Cohort Projection Service (Admission Stage 5)
-        $this->cohortProjectionService = new AcademicCohortProjectionService();
-        $this->examService = new AcademicExamService($this->api);
-        $this->reportService = new AcademicReportService($this->api);
-        $this->curriculumService = new AcademicCurriculumService($this->api);
-        $this->yearService = new AcademicYearService($this->api);
-        $this->curriculumScopeService = new TeacherCurriculumScopeService($this->db->getConnection());
-        $this->curriculumProposalService = new CurriculumProposalService(
+        $this->cohortProjectionService = $this->contract('App\API\Modules\academic\AcademicCohortProjectionService');
+        $this->examService = $this->contract('App\API\Modules\academic\AcademicExamService', $this->api);
+        $this->reportService = $this->contract('App\API\Modules\academic\AcademicReportService', $this->api);
+        $this->curriculumService = $this->contract('App\API\Modules\academic\AcademicCurriculumService', $this->api);
+        $this->yearService = $this->contract('App\API\Modules\academic\AcademicYearService', $this->api);
+        $this->curriculumScopeService = $this->contract('App\API\Services\TeacherCurriculumScopeService', $this->db->getConnection());
+        $this->curriculumProposalService = $this->contract('App\API\Services\CurriculumProposalService', 
             $this->db->getConnection(),
             $this->curriculumScopeService
         );
@@ -404,7 +404,7 @@ return $this->error('An internal error occurred.');
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $kpis = $analytics->getAcademicKPIs();
 
             return $this->success([
@@ -428,7 +428,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Director access only');
         }
         try {
-            $analytics = new DirectorAnalyticsService();
+            $analytics = $this->contract('App\API\Services\DirectorAnalyticsService');
             $matrix = $analytics->getPerformanceMatrix();
 
             return $this->success([
@@ -1338,7 +1338,7 @@ return $this->serverError('An internal error occurred.');
         }
         if (!$studentIds) return $this->badRequest('student_ids or class_id is required');
 
-        $service = new ReportCardReleaseService($this->db->getConnection());
+        $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
         $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
         $generated = [];
         $failed = [];
@@ -1373,7 +1373,7 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
-                $service = new ReportCardReleaseService($this->db->getConnection());
+                $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
                 return $this->success($service->approve((int) $data['release_id'], $actor), 'Report card approved');
             } catch (RuntimeException $e) {
@@ -1395,7 +1395,7 @@ return $this->serverError('An internal error occurred.');
 
         if (!empty($data['release_id'])) {
             try {
-                $service = new ReportCardReleaseService($this->db->getConnection());
+                $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
                 $actor = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
                 $channels = $data['channels'] ?? ['sms', 'email', 'whatsapp'];
                 return $this->success(
@@ -1416,7 +1416,7 @@ return $this->serverError('An internal error occurred.');
         try {
             $filters = array_merge($_GET, is_array($data) ? $data : []);
             if ($id !== null) $filters['student_id'] = (int) $id;
-            $service = new ReportCardReleaseService($this->db->getConnection());
+            $service = $this->contract('App\API\Services\ReportCardReleaseService', $this->db->getConnection());
             return $this->success($service->list($filters));
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[AcademicController] report card releases: ' . $e->getMessage());
@@ -3478,7 +3478,7 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Access to my teachers is not available for this account');
         }
         try {
-            $studentIds = (new StudentProfileManager())->resolveStudentIds($this->user);
+            $studentIds = ($this->contract('App\API\Modules\students\StudentProfileManager'))->resolveStudentIds($this->user);
             if (empty($studentIds)) {
                 return $this->success([], 'No student profile is linked to the current user');
             }
@@ -3503,12 +3503,12 @@ return $this->serverError('An internal error occurred.');
             return $this->forbidden('Access to class teacher contacts is not available for this account');
         }
         try {
-            $profileManager = new StudentProfileManager();
+            $profileManager = $this->contract('App\API\Modules\students\StudentProfileManager');
             $parentIds = $profileManager->resolveParentIds($this->user);
             if (empty($parentIds)) {
                 return $this->success([], 'No linked student profiles found for the current user');
             }
-            $children = (new FamilyGroupsManager())->getChildrenForParentIds($parentIds);
+            $children = ($this->contract('App\API\Modules\students\FamilyGroupsManager'))->getChildrenForParentIds($parentIds);
             $studentIds = ($children['success'] ?? false) ? ($children['data'] ?? []) : [];
             $contacts = [];
             foreach ($studentIds as $studentId) {

@@ -2,6 +2,7 @@
 
 namespace App\API\Services;
 
+use App\API\Services\RpcRegistry;
 use PDO;
 use RuntimeException;
 
@@ -62,6 +63,68 @@ class JobHandlerRegistry
                 if ($remaining === 0) {
                     $pdo->exec("ALTER TABLE system_realtime_events AUTO_INCREMENT = 1");
                 }
+            },
+            // Read-replica integrity canary (roadmap §4.5): replica projections are VIEWS
+            // over master, so they are always current - there is nothing to
+            // rebuild. This job verifies replica-vs-master parity (and records
+            // the check in the file journal) rather than doing a materialized
+            // rebuild that could introduce staleness.
+            'rebuild.read.replica' => static function (array $payload, PDO $pdo): void {
+                $results = \App\API\Services\ReadReplicaService::freshness();
+                $bad = array_values(array_filter($results, static fn(array $r) => empty($r['realtime'])));
+                \App\API\Includes\FileLogger::write('reads', [
+                    'event' => 'replica.verify',
+                    'checked' => (int) count($results),
+                    'mismatches' => (int) count($bad),
+                    'request_id' => (string) ($payload['request_id'] ?? ''),
+                ]);
+                if ($bad !== []) {
+                    throw new \RuntimeException('Read-replica parity mismatch on: ' . implode(', ', array_column($bad, 'projection')));
+                }
+            },
+            // Async RPC execution (roadmap §4.2): a queued rpc.async.dispatch
+            // job re-resolves the registered method and runs it in the worker.
+            // Async methods declare a `worker` (a synchronously executable sync
+            // method) which performs the actual work after the facade returned
+            // {job_id}. The original requester (user_id) is carried for the
+            // audit trail; scope-sensitive methods must remain idempotent and
+            // safe to rerun.
+            'rpc.async.dispatch' => static function (array $payload, PDO $pdo): void {
+                $method = isset($payload['method']) ? (string) $payload['method'] : '';
+                if ($method === '') {
+                    throw new RuntimeException('rpc.async.dispatch: missing method in payload');
+                }
+                $def = RpcRegistry::resolve($method);
+                if ($def === null) {
+                    throw new RuntimeException("rpc.async.dispatch: method '{$method}' not found");
+                }
+                // Async façade methods delegate execution to their sync `worker`
+                // target; plain sync methods execute themselves.
+                $target = (string) ($def['_worker'] ?? $method);
+                $tdef = RpcRegistry::resolve($target);
+                if ($tdef === null) {
+                    throw new RuntimeException("rpc.async.dispatch: worker '{$target}' not found for '{$method}'");
+                }
+                if (($tdef['_mode'] ?? 'sync') !== 'sync' || !is_callable($tdef['handler'])) {
+                    throw new RuntimeException("rpc.async.dispatch: method '{$method}' is not synchronously executable");
+                }
+                $params = isset($payload['params']) && is_array($payload['params']) ? $payload['params'] : [];
+                $ctx = [
+                    'user_id' => (int) ($payload['user_id'] ?? 0),
+                    'roles' => [],
+                    'request_id' => isset($payload['request_id']) ? (string) $payload['request_id'] : '',
+                    'db' => $pdo,
+                    'async' => true,
+                ];
+                $result = call_user_func($tdef['handler'], $params, $ctx);
+                \App\API\Includes\FileLogger::write('rpc', [
+                    'type' => 'async_call',
+                    'method' => $method,
+                    'worker' => $target,
+                    'user_id' => (int) ($ctx['user_id'] ?? 0),
+                    'status' => 'success',
+                    'result_keys' => array_keys(is_array($result) ? $result : []),
+                ]);
             },
             // Extend here with 'generate_report_card' => ..., 'send_bulk_sms' => ...
             // only once the producing workflow pushes and consumes them.

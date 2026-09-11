@@ -3,7 +3,6 @@ namespace App\API\Services;
 
 use App\Database\Database;
 use App\API\Includes\AuditLogger;
-use App\API\Modules\users\UserPermissionManager;
 use Exception;
 
 class DelegationService
@@ -290,7 +289,7 @@ class DelegationService
             return $r['permission_id'];
         }, $stmt2->fetchAll());
 
-        $permissionManager = new UserPermissionManager($this->db->getConnection());
+        $permissionManager = ServiceContractBroker::contract('App\API\Modules\users\UserPermissionManager', [], $this->db->getConnection());
 
         foreach ($permIds as $pid) {
             $checkStmt = $this->db->query(

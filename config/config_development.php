@@ -63,6 +63,12 @@ define('DB_PORT', (int) ($_ENV['DB_PORT'] ?? 3306));
 // WARNING: This default is insecure and MUST be overridden in .env for any non-development environment.
 define('DB_PASS', $_ENV['DB_PASS'] ?? 'CHANGE_ME_IN_ENV_FILE');
 
+// Auxiliary namespace schemas (roadmap §4.1). Optional overrides for local
+// environments that use renamed/prefixed schemas; defaults match ConnectionManager.
+define('DB_BUFFERS_NAME', trim((string) ($_ENV['DB_BUFFERS_NAME'] ?? '')) ?: 'KingsWayBuffers');
+define('DB_READS_NAME', trim((string) ($_ENV['DB_READS_NAME'] ?? '')) ?: 'KingsWayReads');
+define('DB_LOGS_NAME', trim((string) ($_ENV['DB_LOGS_NAME'] ?? '')) ?: 'KingsWayLogs');
+
 /*
 |--------------------------------------------------------------------------
 | Academic year and term — read from database, fall back to calendar

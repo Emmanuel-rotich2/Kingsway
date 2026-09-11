@@ -3,9 +3,8 @@ declare(strict_types=1);
 
 namespace App\API\Services\payments;
 
-use App\API\Modules\communications\CommunicationsManager;
-use App\API\Modules\transport\StudentTransportEntitlementManager;
 use App\API\Services\FinancialPostingCoordinator;
+use App\API\Services\ServiceContractBroker;
 use PDO;
 use RuntimeException;
 
@@ -19,7 +18,7 @@ class TransportPaymentService
     public function __construct(PDO $db)
     {
         $this->db = $db;
-        $this->entitlements = new StudentTransportEntitlementManager($db);
+        $this->entitlements = ServiceContractBroker::contract('App\API\Modules\transport\StudentTransportEntitlementManager', [], $db);
         $this->accounts = new FinancialAccountService($db);
     }
 
@@ -178,7 +177,7 @@ class TransportPaymentService
         try {
             $s=$this->db->prepare("SELECT p.phone,p.email FROM students st JOIN persons p ON p.id=st.person_id WHERE st.id=?"); $s->execute([$studentId]); $p=$s->fetch(PDO::FETCH_ASSOC) ?: [];
             $body='Kingsway transport payment received: KES '.number_format($amount,2).' (Ref '.$reference.'). View your parent portal for the transport receipt.';
-            $m=new CommunicationsManager($this->db);
+            $m=ServiceContractBroker::contract('App\API\Modules\communications\CommunicationsManager', [], $this->db);
             foreach (['sms'=>'phone','whatsapp'=>'phone','email'=>'email'] as $type=>$field) if (!empty($p[$field])) $m->createCommunication(['sender_id'=>1,'subject'=>'Transport payment received','body'=>$body,'type'=>$type,'status'=>'queued','priority'=>'normal','recipients'=>[$p[$field]]]);
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[TransportPaymentService] notification failed: '.$e->getMessage()); }
     }

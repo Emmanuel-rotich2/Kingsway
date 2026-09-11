@@ -73,6 +73,7 @@ register_shutdown_function(function () use ($emitError) {
 // ============================================================
 
 use App\API\Router\Router;
+use App\API\Services\RequestIdempotencyService;
 use App\Config\Config;
 
 require_once __DIR__ . '/../vendor/autoload.php';
@@ -129,13 +130,95 @@ if (!headers_sent()) {
     header_remove('X-Powered-By');
 }
 
-$router = new Router();
-$response = $router->handle();
+$idempotencyKey = null;
+$idempotencyHash = null;
+$idempotencyPayloadHash = null;
+$idempotencyOwnerToken = null;
+$idempotencyDb = null;
+$idempotencyConflict = false;
+$idempotencyInProgress = false;
+$requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if (in_array($requestMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+    $idempotencyKey = RequestIdempotencyService::keyFromRequest();
+    if ($idempotencyKey !== null) {
+        try {
+            $idempotencyDb = \App\Database\Database::getInstance()->getConnection();
+            $idempotencyHash = RequestIdempotencyService::requestHash($idempotencyKey);
+            $idempotencyPayloadHash = RequestIdempotencyService::payloadHash(
+                (string) file_get_contents('php://input')
+            );
+            $reservation = RequestIdempotencyService::reserve(
+                $idempotencyDb,
+                $idempotencyHash,
+                $idempotencyPayloadHash
+            );
+            if ($reservation['type'] === 'owner') {
+                $idempotencyOwnerToken = $reservation['owner_token'];
+            } elseif ($reservation['type'] === 'replay') {
+                http_response_code($reservation['status_code']);
+                $response = $reservation['response'];
+                $replayed = true;
+            } else {
+                $idempotencyInProgress = true;
+                $response = [
+                    'success' => false,
+                    'status' => 'error',
+                    'data' => null,
+                    'message' => 'An identical request is already being processed. Retry with the same Idempotency-Key.',
+                    'errors' => [],
+                    'code' => 409,
+                ];
+                http_response_code(409);
+            }
+        } catch (\DomainException $e) {
+            $idempotencyConflict = true;
+            $response = [
+                'success' => false,
+                'status' => 'error',
+                'data' => null,
+                'message' => $e->getMessage(),
+                'errors' => [],
+                'code' => 409,
+            ];
+            http_response_code(409);
+        } catch (\Throwable $e) {
+            $idempotencyDb = null;
+            $idempotencyHash = null;
+            \App\API\Services\Logger::warning('idempotency', 'Idempotency lookup unavailable', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+}
+
+if (!isset($response)) {
+    $router = new Router();
+    $response = $router->handle();
+}
 $response = \App\API\Includes\ApiResponse::normalize(
     is_array($response) ? $response : ['data' => $response]
 );
 if (!headers_sent() && !$response['success']) {
     http_response_code((int) ($response['code'] ?? 500));
+}
+
+if ($idempotencyDb !== null && $idempotencyHash !== null
+    && $idempotencyPayloadHash !== null && $idempotencyOwnerToken !== null
+    && !isset($replayed) && !$idempotencyConflict && !$idempotencyInProgress) {
+    try {
+        RequestIdempotencyService::complete(
+            $idempotencyDb,
+            $idempotencyHash,
+            $idempotencyPayloadHash,
+            $idempotencyOwnerToken,
+            $response,
+            http_response_code() ?: (int) ($response['code'] ?? 200)
+        );
+    } catch (\Throwable $e) {
+        \App\API\Services\Logger::warning('idempotency', 'Idempotency response could not be stored', [
+            'error' => $e->getMessage(),
+        ]);
+    }
 }
 
 ob_end_clean();

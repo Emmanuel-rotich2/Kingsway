@@ -304,7 +304,7 @@ final class CurriculumProposalService
         $snapshot=$this->snapshot($entity,$target);
         $current=$this->db->prepare('UPDATE curriculum_entity_versions SET valid_to=NOW() WHERE entity_type=? AND entity_id=? AND valid_to IS NULL');
         $current->execute([$entity,$target]);
-        $num=$this->db->prepare('SELECT COALESCE(MAX(version_number),0)+1 FROM curriculum_entity_versions WHERE entity_type=? AND entity_id=?');
+        $num=$this->db->prepare('SELECT COALESCE(MAX(version_number),0)+1 FROM curriculum_entity_versions WHERE entity_type=? AND entity_id=? FOR UPDATE');
         $num->execute([$entity,$target]); $version=(int)$num->fetchColumn();
         $life=$action==='remove'?'removed':(($snapshot['status']??'active')==='active'?'active':'inactive');
         $insert=$this->db->prepare('INSERT INTO curriculum_entity_versions

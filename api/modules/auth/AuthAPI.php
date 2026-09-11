@@ -37,12 +37,12 @@ class AuthAPI extends BaseAPI
     public function __construct()
     {
         parent::__construct('auth');
-        $this->usersApi = new UsersAPI();
-        $this->roleManager = new RoleManager($this->db);
-        $this->permissionManager = new PermissionManager($this->db);
-        $this->userRoleManager = new UserRoleManager($this->db);
-        $this->userPermissionManager = new UserPermissionManager($this->db);
-        $this->communicationsApi = new CommunicationsAPI();
+        $this->usersApi = $this->contract('App\API\Modules\users\UsersAPI');
+        $this->roleManager = $this->contract('App\API\Modules\users\RoleManager', $this->db);
+        $this->permissionManager = $this->contract('App\API\Modules\users\PermissionManager', $this->db);
+        $this->userRoleManager = $this->contract('App\API\Modules\users\UserRoleManager', $this->db);
+        $this->userPermissionManager = $this->contract('App\API\Modules\users\UserPermissionManager', $this->db);
+        $this->communicationsApi = $this->contract('App\API\Modules\communications\CommunicationsAPI');
         $this->authSessionService = new AuthSessionService($this->db);
 
         // Sidebar navigation is file-driven through SidebarConfigReader.

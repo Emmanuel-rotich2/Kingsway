@@ -134,28 +134,25 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             $workflowId = $this->db->lastInsertId();
 
             // Create participant record with pending status
-            $participantId = $this->nextId('activity_participants');
-
             $stmt = $this->db->prepare("
                 INSERT INTO activity_participants (
-                    id,
                     activity_id,
                     student_academic_enrollment_id,
                     role,
                     status,
                     notes,
                     joined_at
-                ) VALUES (?, ?, ?, ?, ?, ?, NOW())
+                ) VALUES (?, ?, ?, ?, ?, NOW())
             ");
 
             $stmt->execute([
-                $participantId,
                 $data['activity_id'],
                 $enrollmentId,
                 $data['role'] ?? 'participant',
                 'pending',
                 $data['notes'] ?? null
             ]);
+            $participantId = (int) $this->db->lastInsertId();
 
             // Record workflow history
             $this->recordHistory($workflowId, 'apply', 'Application submitted', $userId);
@@ -530,19 +527,6 @@ class ActivityRegistrationWorkflow extends WorkflowHandler
             throw $e;
         }
     }
-    /**
-     * Next manual id for a table without AUTO_INCREMENT (e.g. activity_participants).
-     *
-     * @param string $table Table name
-     * @return int
-     */
-    private function nextId(string $table): int
-    {
-        $stmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM {$table}");
-        $stmt->execute();
-        return (int) $stmt->fetchColumn();
-    }
-
     /**
      * Resolve a student's current active academic enrollment id.
      *

@@ -172,21 +172,16 @@ class ChaplaincyAPI extends BaseAPI
         // Insert assignment (borrowed membership). The unique constraint is
         // (staff_id, department_id, effective_from); if the same person is
         // re-assigned with a new start date a second row is created.
-        // NOTE: staff_department_assignments.id is NOT auto-increment; it is
-        // derived from MAX(id)+1, same convention as the staff services.
         $ins = $this->db->prepare(
             "INSERT INTO staff_department_assignments
-                (id, staff_id, department_id, role, effective_from, effective_to)
+                (staff_id, department_id, role, effective_from, effective_to)
              VALUES
-                (?, ?, ?, ?, ?, ?)
+                (?, ?, ?, ?, ?)
              ON DUPLICATE KEY UPDATE role = VALUES(role), effective_to = VALUES(effective_to)"
         );
         $assigned = [];
         foreach ($staffIds as $staffId) {
-            $nextId = (int) $this->db->query(
-                'SELECT COALESCE(MAX(id), 0) + 1 FROM staff_department_assignments'
-            )->fetchColumn();
-            $ins->execute([$nextId, $staffId, $deptId, $role, $effFrom, $effTo]);
+            $ins->execute([$staffId, $deptId, $role, $effFrom, $effTo]);
             $this->logAction('chaplaincy_team_add_member', $staffId, 'Assigned staff to Chaplaincy team');
             $assigned[] = $staffId;
         }
@@ -338,15 +333,12 @@ class ChaplaincyAPI extends BaseAPI
                     $summary['skipped'][] = ['type' => 'staff', 'id' => (int) $staffId, 'reason' => 'unknown or inactive staff'];
                     continue;
                 }
-                $nextId = (int) $this->db->query(
-                    'SELECT COALESCE(MAX(id), 0) + 1 FROM staff_department_assignments'
-                )->fetchColumn();
                 $this->db->prepare(
                     "INSERT INTO staff_department_assignments
-                        (id, staff_id, department_id, role, effective_from, effective_to)
-                     VALUES (?, ?, ?, ?, ?, ?)
+                        (staff_id, department_id, role, effective_from, effective_to)
+                     VALUES (?, ?, ?, ?, ?)
                      ON DUPLICATE KEY UPDATE role = VALUES(role), effective_to = VALUES(effective_to)"
-                )->execute([$nextId, (int) $staffId, $this->departmentId(), $role['name'], $gFrom, $gTo]);
+                )->execute([(int) $staffId, $this->departmentId(), $role['name'], $gFrom, $gTo]);
                 $this->logAction('chaplaincy_team_add_member', (int) $staffId, 'Assigned staff to Chaplaincy team');
                 $summary['staff'][] = (int) $staffId;
             }
@@ -402,7 +394,7 @@ class ChaplaincyAPI extends BaseAPI
             }
             $ids = $this->positiveIds($g['ids'] ?? $g['id'] ?? []);
             $gFrom = $g['effective_from'] ?? $from;
-            $leadership = new StudentLeadershipService($this->db);
+            $leadership = $this->contract('App\API\Modules\students\StudentLeadershipService', $this->db);
             foreach ($ids as $studentId) {
                 $resp = $leadership->create([
                     'student_id' => (int) $studentId,

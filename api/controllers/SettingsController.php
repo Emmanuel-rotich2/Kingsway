@@ -31,8 +31,8 @@ class SettingsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->roleManager = new RoleManager($this->db->getConnection());
-        $this->systemApi = new SystemAPI();
+        $this->roleManager = $this->contract('App\API\Modules\users\RoleManager', $this->db->getConnection());
+        $this->systemApi = $this->contract('App\API\Modules\system\SystemAPI');
     }
 
     /**

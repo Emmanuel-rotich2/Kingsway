@@ -3,6 +3,10 @@
  * System Administrator — User Accounts
  * Controller: js/pages/manage_users.js
  */
+if (!isset($appBase)) {
+    $appBase = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '')), '/');
+    if ($appBase === '.') $appBase = '';
+}
 ?>
 <div class="container-fluid py-4" id="manageUsersPage">
     <style>
@@ -179,6 +183,25 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="bulkRoleApplyBtn">Assign role</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="manageRolesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manageRolesModalTitle">Manage roles</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">Select every role this user should hold. Unchecking a role revokes it immediately.</p>
+                <div id="manageRolesList" class="border rounded"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="manageRolesSaveBtn">Save changes</button>
             </div>
         </div>
     </div>

@@ -29,7 +29,7 @@
 
 namespace App\API\Controllers;
 
-use App\API\Modules\System\SystemConfigAPI;
+use App\API\Modules\system\SystemConfigAPI;
 use Exception;
 
 class SystemConfigController extends BaseController
@@ -41,7 +41,7 @@ class SystemConfigController extends BaseController
         parent::__construct();
         $userId = $this->user['id'] ?? $this->user['user_id'] ?? null;
         $roleId = $this->getPrimaryRoleId();
-        $this->api = new SystemConfigAPI($userId, $roleId);
+        $this->api = $this->contract('App\API\Modules\system\SystemConfigAPI', $userId, $roleId);
     }
 
     /**

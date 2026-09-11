@@ -470,18 +470,15 @@ class SchedulesAPI extends BaseAPI {
                 }
             }
 
-            $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-
             $sql = "
                 INSERT INTO timetable_entries (
-                    id, academic_year_class_stream_id, academic_year_term_id, day_of_week,
+                    academic_year_class_stream_id, academic_year_term_id, day_of_week,
                     time_slot_id, learning_area_id, teacher_id, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')
+                ) VALUES (?, ?, ?, ?, ?, ?, 'scheduled')
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $entryId,
                 $classStreamId,
                 $termId,
                 $dayNum,
@@ -489,6 +486,8 @@ class SchedulesAPI extends BaseAPI {
                 $learningAreaId,
                 (int) $data['teacher_id']
             ]);
+
+            $entryId = (int) $this->db->lastInsertId();
 
             return successResponse(['id' => $entryId, 'message' => 'Timetable entry created successfully'], 201);
         } catch (Exception $e) {
@@ -1097,13 +1096,8 @@ class SchedulesAPI extends BaseAPI {
                 ? $data['end_date'] . ' ' . ($data['end_time'] ?? '23:59:59')
                 : $startAt;
 
-            $nextIdStmt = $this->db->prepare("SELECT COALESCE(MAX(id), 0) + 1 FROM school_events");
-            $nextIdStmt->execute();
-            $eventId = (int)$nextIdStmt->fetchColumn();
-
             $sql = "
                 INSERT INTO school_events (
-                    id,
                     title,
                     description,
                     start_at,
@@ -1112,12 +1106,11 @@ class SchedulesAPI extends BaseAPI {
                     location,
                     status,
                     source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'manual')
             ";
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $eventId,
                 $title,
                 $data['description'] ?? null,
                 $startAt,
@@ -1126,6 +1119,8 @@ class SchedulesAPI extends BaseAPI {
                 $data['location'] ?? null,
                 $data['status'] ?? 'upcoming'
             ]);
+
+            $eventId = (int) $this->db->lastInsertId();
 
             $link = $this->calendarSync->applyEventToCalendar($eventId, $data);
 
@@ -1321,13 +1316,11 @@ class SchedulesAPI extends BaseAPI {
                 return errorResponse('Invalid holiday type', 400);
             }
 
-            $id = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM school_holidays")->fetchColumn();
             $stmt = $this->db->prepare(
-                "INSERT INTO school_holidays (id, name, holiday_type, start_date, end_date, description, is_active)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)"
+                "INSERT INTO school_holidays (name, holiday_type, start_date, end_date, description, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?)"
             );
             $stmt->execute([
-                $id,
                 $name,
                 $type,
                 $start,
@@ -1335,6 +1328,8 @@ class SchedulesAPI extends BaseAPI {
                 $data['description'] ?? null,
                 isset($data['is_active']) ? (int) $data['is_active'] : 1,
             ]);
+
+            $id = (int) $this->db->lastInsertId();
 
             return successResponse(['id' => $id, 'message' => 'Holiday created'], 201);
         } catch (Exception $e) {
@@ -1426,7 +1421,7 @@ class SchedulesAPI extends BaseAPI {
                 return errorResponse('No academic year found', 404);
             }
 
-            $calendarService = new \App\API\Modules\academic\AcademicCalendarService($this->db);
+            $calendarService = $this->contract('App\API\Modules\academic\AcademicCalendarService', $this->db);
             $result = $calendarService->generateYearCalendar($yearId);
             $this->calendarSync->syncAcademicYear($yearId);
 
@@ -2282,9 +2277,8 @@ class SchedulesAPI extends BaseAPI {
         $stmt = $this->db->prepare("SELECT academic_year_term_id FROM timetable_drafts WHERE id = ?"); $stmt->execute([$draftId]); $term = (int)$stmt->fetchColumn();
         $this->db->prepare("DELETE te FROM timetable_entries te JOIN timetable_draft_entries de ON de.academic_year_class_stream_id = te.academic_year_class_stream_id AND de.day_of_week = te.day_of_week AND de.time_slot_id = te.time_slot_id WHERE de.draft_id = ? AND te.academic_year_term_id = ?")->execute([$draftId,$term]);
         $rows = $this->db->prepare("SELECT * FROM timetable_draft_entries WHERE draft_id = ?"); $rows->execute([$draftId]);
-        $next = (int)$this->db->query("SELECT COALESCE(MAX(id),0) FROM timetable_entries")->fetchColumn();
-        $insert = $this->db->prepare("INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scheduled')");
-        foreach ($rows as $row) $insert->execute([++$next,$row['academic_year_class_stream_id'],$row['academic_year_class_stream_learning_area_id'],$term,$row['day_of_week'],$row['time_slot_id'],$row['learning_area_id'],$row['teacher_id']]);
+        $insert = $this->db->prepare("INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')");
+        foreach ($rows as $row) $insert->execute([$row['academic_year_class_stream_id'],$row['academic_year_class_stream_learning_area_id'],$term,$row['day_of_week'],$row['time_slot_id'],$row['learning_area_id'],$row['teacher_id']]);
     }
 
     /**

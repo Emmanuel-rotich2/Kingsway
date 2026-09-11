@@ -111,31 +111,28 @@ class RealtimeController extends BaseAPI
         }
 
         $limit = max(1, min(50, (int) ($data['limit'] ?? 10)));
-        JobQueue::recoverStale($this->db);
-        $ids = JobQueue::claimBatch($this->db, $limit);
+        JobQueue::recoverStale();
+        $ids = JobQueue::claimBatch($limit);
         $done = 0;
         $failed = 0;
         $retried = 0;
 
         foreach ($ids as $id) {
-            $stmt = $this->db->prepare("SELECT id, job_type, payload FROM jobs_queue WHERE id = ?");
-            $stmt->execute([$id]);
-            $job = $stmt->fetch();
-            if (!$job) {
+            $job = JobQueue::fetchJob($id);
+            if ($job === null) {
                 continue;
             }
-            $payload = json_decode((string) $job['payload'], true);
-            $payload = is_array($payload) ? $payload : [];
+            $payload = $job['payload'];
             try {
                 $handler = JobHandlerRegistry::resolve($job['job_type']);
                 if ($handler === null) {
                     throw new \RuntimeException("No registered handler for job_type '{$job['job_type']}'");
                 }
                 $handler($payload, $this->db);
-                JobQueue::markDone($this->db, $id);
+                JobQueue::markDone($id);
                 $done++;
             } catch (\Throwable $e) {
-                $failureStatus = JobQueue::markFailed($this->db, $id, $e->getMessage());
+                $failureStatus = JobQueue::markFailed($id, $e->getMessage());
                 if ($failureStatus === JobQueue::STATUS_PENDING) {
                     $retried++;
                 } else {
@@ -168,19 +165,7 @@ class RealtimeController extends BaseAPI
             'buffers_purged' => EventBroadcaster::purgeOldBufferFiles(48),
         ];
 
-        $stmt = $this->db->prepare(
-            "DELETE FROM jobs_queue
-             WHERE status IN ('done','cancelled') AND updated_at < NOW() - INTERVAL 24 HOUR"
-        );
-        $stmt->execute();
-        $report['jobs_purged'] = $stmt->rowCount();
-
-        $stmt = $this->db->prepare(
-            "DELETE FROM jobs_queue
-             WHERE status = 'failed' AND updated_at < NOW() - INTERVAL 7 DAY"
-        );
-        $stmt->execute();
-        $report['failed_jobs_purged'] = $stmt->rowCount();
+        $report = array_merge($report, JobQueue::purgeOld());
 
         $stmt = $this->db->prepare(
             "DELETE FROM system_realtime_events

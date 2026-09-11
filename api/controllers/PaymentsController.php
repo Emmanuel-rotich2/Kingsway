@@ -13,7 +13,7 @@ class PaymentsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new PaymentsAPI();
+        $this->api = $this->contract('App\API\Modules\payments\PaymentsAPI');
     }
 
     public function index()

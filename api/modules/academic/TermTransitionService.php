@@ -183,8 +183,6 @@ class TermTransitionService
         $source->execute([$fromTermId]);
         $entries = $source->fetchAll(PDO::FETCH_ASSOC);
 
-        $maxId = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) FROM timetable_entries")->fetchColumn();
-
         // Idempotency: never duplicate a slot already present on the target term.
         $exists = $this->db->prepare(
             "SELECT COUNT(*) FROM timetable_entries
@@ -194,9 +192,9 @@ class TermTransitionService
 
         $insert = $this->db->prepare(
             "INSERT INTO timetable_entries (
-                id, academic_year_class_stream_id, academic_year_term_id,
+                academic_year_class_stream_id, academic_year_term_id,
                 day_of_week, time_slot_id, learning_area_id, teacher_id, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)"
         );
 
         $copied = 0;
@@ -212,7 +210,6 @@ class TermTransitionService
             }
 
             $insert->execute([
-                ++$maxId,
                 (int) $entry['academic_year_class_stream_id'],
                 $toTermId,
                 (int) $entry['day_of_week'],

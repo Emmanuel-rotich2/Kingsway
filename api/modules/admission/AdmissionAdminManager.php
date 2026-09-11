@@ -892,9 +892,9 @@ class AdmissionAdminManager extends BaseAPI
             $stmt->execute([$title, $notes, $openAt, $endAt, $eventStatus, $eventId]);
             return;
         }
-        $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM school_events')->fetchColumn();
-        $stmt = $this->db->prepare("INSERT INTO school_events (id, title, description, start_at, end_at, type, location, status, source) VALUES (?, ?, ?, ?, ?, 'admissions', 'Admissions Office', ?, 'manual')");
-        $stmt->execute([$eventId, $title, $notes, $openAt, $endAt, $eventStatus]);
+        $stmt = $this->db->prepare("INSERT INTO school_events (title, description, start_at, end_at, type, location, status, source) VALUES (?, ?, ?, ?, 'admissions', 'Admissions Office', ?, 'manual')");
+        $stmt->execute([$title, $notes, $openAt, $endAt, $eventStatus]);
+        $eventId = (int) $this->db->lastInsertId();
         $this->db->prepare('UPDATE admission_windows SET calendar_event_id = ? WHERE id = ?')->execute([$eventId, $windowId]);
     }
 
@@ -1063,8 +1063,8 @@ class AdmissionAdminManager extends BaseAPI
             if ($eventId) {
                 $this->db->prepare("UPDATE school_events SET title=?, start_at=?, end_at=?, type='admissions_interview', status='upcoming', updated_at=NOW() WHERE id=?")->execute([$title, $date . ' ' . $start, $date . ' ' . $end, $eventId]);
             } else {
-                $eventId = (int) $this->db->query('SELECT COALESCE(MAX(id),0)+1 FROM school_events')->fetchColumn();
-                $this->db->prepare("INSERT INTO school_events (id,title,description,start_at,end_at,type,location,status,source) VALUES (?,?,?,?,?,'admissions_interview',?,'upcoming','manual')")->execute([$eventId, $title, $data['notes'] ?? null, $date . ' ' . $start, $date . ' ' . $end, $venue]);
+                $this->db->prepare("INSERT INTO school_events (title,description,start_at,end_at,type,location,status,source) VALUES (?,?,?,?,'admissions_interview',?,'upcoming','manual')")->execute([$title, $data['notes'] ?? null, $date . ' ' . $start, $date . ' ' . $end, $venue]);
+                $eventId = (int) $this->db->lastInsertId();
                 $this->db->prepare('UPDATE admission_interview_sessions SET calendar_event_id=? WHERE id=?')->execute([$eventId, $id]);
             }
             return $this->successResponse(['id' => $id, 'calendar_event_id' => $eventId], 'Interview session saved');

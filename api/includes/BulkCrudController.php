@@ -1,7 +1,7 @@
 <?php
 namespace App\API\Includes;
 
-use App\API\Modules\system\MediaManager;
+use App\API\Services\ServiceContractBroker;
 
 class BulkCrudController {
     private $db;
@@ -77,7 +77,7 @@ class BulkCrudController {
                 elseif ($action === 'upload_profile_pic' && $id && isset($extra['profile_pic_column'])) {
                     if (!empty($_FILES['profile_pic'])) {
                         try {
-                            $mediaManager = new MediaManager($this->db);
+                            $mediaManager = ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
                             $mediaId = $mediaManager->upload($_FILES['profile_pic'], $table, $id, null, null, 'profile picture');
                             $preview = $mediaManager->getPreviewUrl($mediaId);
                             // Update existing profile column with preview path for backward compatibility
@@ -96,7 +96,7 @@ class BulkCrudController {
                 elseif ($action === 'upload_document' && $id && isset($extra['document_table'])) {
                     if (!empty($_FILES['document'])) {
                         try {
-                            $mediaManager = new MediaManager($this->db);
+                            $mediaManager = ServiceContractBroker::contract('App\API\Modules\system\MediaManager', [], $this->db);
                             $mediaId = $mediaManager->upload($_FILES['document'], 'documents', $id, null, null, 'document upload');
                             $preview = $mediaManager->getPreviewUrl($mediaId);
                             $stmt = $this->db->prepare("INSERT INTO {$extra['document_table']} ({$extra['document_ref_column']}, filename, uploaded_at, media_id) VALUES (?, ?, NOW(), ?)");

@@ -52,7 +52,7 @@ class StudentIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'Student not found');
             }
 
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $mediaId = $mediaManager->upload(
                 $fileData,
                 'students/images',

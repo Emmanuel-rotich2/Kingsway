@@ -9,6 +9,7 @@ use App\API\Middleware\DeviceMiddleware;
 use App\API\Middleware\IpAccessControlMiddleware;
 use App\API\Middleware\RBACMiddleware;
 use App\API\Middleware\RateLimitMiddleware;
+use App\API\Middleware\ResponseCacheMiddleware;
 use App\API\Middleware\RouteAuthorization;
 use Exception;
 
@@ -60,9 +61,15 @@ class Router
             // 8. Device - Log device fingerprint and check blacklist
             DeviceMiddleware::handle();
 
-            // ===== DELEGATE TO CONTROLLER ROUTER =====
-            // ControllerRouter handles all RESTful routing and controller dispatch
-            return $this->controllerRouter->route();
+            // 9. Response cache (g4) - sits AFTER auth so entries are keyed on
+            // the authenticated user. All guards above still run on a cache HIT;
+            // only the controller dispatch below is skipped. Non-GET and
+            // non-allowlisted paths pass straight through with zero overhead.
+            return ResponseCacheMiddleware::handle(
+                function (): array {
+                    return $this->controllerRouter->route();
+                }
+            );
 
         } catch (Exception $e) {
             $code = (int) $e->getCode();

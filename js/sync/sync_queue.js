@@ -161,7 +161,13 @@ const SyncQueue = (function() {
 
     // Use centralized API from /js/api.js
     if (typeof window.API !== 'undefined' && typeof window.API.apiCall === 'function') {
-      return await window.API.apiCall(endpoint, method, payload);
+      return await window.API.apiCall(
+        endpoint,
+        method,
+        payload,
+        {},
+        { headers: { "Idempotency-Key": operation.idempotency_key } },
+      );
     }
 
     throw new Error('Centralized API (window.API.apiCall) not available');
@@ -204,7 +210,7 @@ const SyncQueue = (function() {
       
       // Remove from queue after successful sync (cleanup)
       setTimeout(() => {
-        KingswayDB.delete('sync_outbox', id);
+        KingswayDB.remove('sync_outbox', id);
       }, 60000); // Keep for 1 minute for debugging
     }
   }
@@ -273,7 +279,7 @@ const SyncQueue = (function() {
       const failedOps = await KingswayDB.getByIndex('sync_outbox', 'status', 'failed');
       
       for (const op of failedOps) {
-        await KingswayDB.delete('sync_outbox', op.id);
+        await KingswayDB.remove('sync_outbox', op.id);
       }
       
       console.log('[SyncQueue] Cleared', failedOps.length, 'failed operations');

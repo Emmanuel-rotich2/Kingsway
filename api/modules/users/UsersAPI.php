@@ -28,11 +28,11 @@ class UsersAPI extends BaseAPI
     public function __construct()
     {
         parent::__construct('users');
-        $this->communicationsApi = new CommunicationsAPI();
-        $this->roleManager = new RoleManager($this->db);
-        $this->permissionManager = new PermissionManager($this->db);
-        $this->userRoleManager = new UserRoleManager($this->db);
-        $this->userPermissionManager = new UserPermissionManager($this->db);
+        $this->communicationsApi = $this->contract('App\API\Modules\communications\CommunicationsAPI');
+        $this->roleManager = $this->contract('App\API\Modules\users\RoleManager', $this->db);
+        $this->permissionManager = $this->contract('App\API\Modules\users\PermissionManager', $this->db);
+        $this->userRoleManager = $this->contract('App\API\Modules\users\UserRoleManager', $this->db);
+        $this->userPermissionManager = $this->contract('App\API\Modules\users\UserPermissionManager', $this->db);
         $this->auditLogger = new AuditLogger($this->db);
     }
 
@@ -250,7 +250,9 @@ class UsersAPI extends BaseAPI
         $stmt->execute([TestAccountAccessService::environment(), $id]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($user) {
-            return ['success' => true, 'data' => $user];
+            $single = [$user];
+            $this->attachRolesToUsers($single);
+            return ['success' => true, 'data' => $single[0]];
         } else {
             return ['success' => false, 'error' => 'User not found'];
         }
@@ -292,7 +294,50 @@ class UsersAPI extends BaseAPI
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
         $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $this->attachRolesToUsers($users);
         return ['success' => true, 'data' => $users];
+    }
+
+    /**
+     * Attach a `roles` array (all active roles, each with id/name/is_active)
+     * to each user row while preserving `role_name`/`role_id` as the primary.
+     */
+    private function attachRolesToUsers(array &$users)
+    {
+        if (empty($users)) {
+            return;
+        }
+        $ids = array_values(array_unique(array_map('intval', array_column($users, 'id'))));
+        if (empty($ids)) {
+            return;
+        }
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "SELECT ur.user_id, r.id AS role_id, r.name AS role_name, r.is_active
+             FROM user_roles ur
+             INNER JOIN roles r ON r.id = ur.role_id
+             WHERE ur.user_id IN ($in)
+             ORDER BY ur.user_id, ur.id"
+        );
+        $stmt->execute($ids);
+        $rolesByUser = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $rolesByUser[(int) $row['user_id']][] = [
+                'id' => (int) $row['role_id'],
+                'name' => $row['role_name'],
+                'role_name' => $row['role_name'],
+                'is_active' => (int) $row['is_active'],
+            ];
+        }
+        foreach ($users as &$user) {
+            $uid = (int) $user['id'];
+            $user['roles'] = $rolesByUser[$uid] ?? [];
+            if (empty($user['role_name']) && !empty($user['roles'])) {
+                $user['role_id'] = $user['roles'][0]['id'];
+                $user['role_name'] = $user['roles'][0]['name'];
+            }
+        }
+        unset($user);
     }
     public function create($data)
     {
@@ -395,13 +440,11 @@ class UsersAPI extends BaseAPI
             $primaryRoleId = $roleIds[0];
 
             // STEP 1: Create the person record (identity: names + email)
-            $personId = $this->nextId('persons');
             $personStmt = $this->db->prepare(
-                'INSERT INTO persons (id, first_name, middle_name, last_name, email, data_scope)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                'INSERT INTO persons (first_name, middle_name, last_name, email, data_scope)
+                 VALUES (?, ?, ?, ?, ?)'
             );
             $personOk = $personStmt->execute([
-                $personId,
                 $validatedData['first_name'] ?? '',
                 $data['middle_name'] ?? null,
                 $validatedData['last_name'] ?? '',
@@ -411,15 +454,14 @@ class UsersAPI extends BaseAPI
             if (!$personOk) {
                 throw new Exception('Person creation failed');
             }
+            $personId = (int)$this->db->lastInsertId();
 
             // STEP 2: Create user record linked to the person (roles via user_roles)
-            $userId = $this->nextId('users');
-            $sql = 'INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
+            $sql = 'INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())';
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
-                $userId,
                 $validatedData['username'],
                 password_hash($validatedData['password'], PASSWORD_DEFAULT),
                 $personId,
@@ -431,6 +473,7 @@ class UsersAPI extends BaseAPI
                 $accountType,
                 $dataScope,
             ]);
+            $userId = (int)$this->db->lastInsertId();
 
             if (!$ok) {
                 throw new Exception('User creation failed');
@@ -467,6 +510,19 @@ class UsersAPI extends BaseAPI
                     }
                 }
             }
+
+            // Parent accounts must always carry the canonical Parent role,
+            // even when provisioned through a generic user-creation workflow.
+            $parentRole = $this->db->prepare(
+                "INSERT INTO user_roles (user_id, role_id)
+                 SELECT ?, r.id
+                 FROM roles r
+                 JOIN persons p ON p.id = ?
+                 JOIN parents pr ON pr.person_id = p.id AND pr.status = 'active'
+                 WHERE r.id = 73 AND r.name = 'Parent'
+                 ON DUPLICATE KEY UPDATE user_id = user_id"
+            );
+            $parentRole->execute([$userId, $personId]);
 
             // STEP 4: Override permissions if explicitly provided
             if (isset($data['permissions']) && is_array($data['permissions'])) {
@@ -593,8 +649,8 @@ class UsersAPI extends BaseAPI
         $failed = [];
 
         try {
-            $personStmt = $this->db->prepare('INSERT INTO persons (id, first_name, middle_name, last_name, email, data_scope) VALUES (?, ?, ?, ?, ?, ?)');
-            $stmt = $this->db->prepare('INSERT INTO users (id, username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
+            $personStmt = $this->db->prepare('INSERT INTO persons (first_name, middle_name, last_name, email, data_scope) VALUES (?, ?, ?, ?, ?)');
+            $stmt = $this->db->prepare('INSERT INTO users (username, password_hash, person_id, status, last_login, password_changed_at, force_password_change, is_test_user, account_type, data_scope, two_factor_enabled, two_factor_method, two_factor_verified_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, \'email\', NULL, NOW(), NOW())');
 
             foreach ($data['users'] as $index => $userData) {
                 // Normalize top-level staff fields into staff_info for each user record
@@ -674,9 +730,7 @@ class UsersAPI extends BaseAPI
                     }
 
                     // Create person record
-                    $personId = $this->nextId('persons');
                     $personOk = $personStmt->execute([
-                        $personId,
                         $userData['first_name'] ?? '',
                         $userData['middle_name'] ?? null,
                         $userData['last_name'] ?? '',
@@ -686,11 +740,10 @@ class UsersAPI extends BaseAPI
                     if (!$personOk) {
                         throw new Exception('Person creation failed');
                     }
+                    $personId = (int)$this->db->lastInsertId();
 
                     // Create user
-                    $userId = $this->nextId('users');
                     $ok = $stmt->execute([
-                        $userId,
                         $userData['username'],
                         password_hash($userData['password'], PASSWORD_DEFAULT),
                         $personId,
@@ -702,6 +755,7 @@ class UsersAPI extends BaseAPI
                         $accountType,
                         $dataScope,
                     ]);
+                    $userId = (int)$this->db->lastInsertId();
 
                     if (!$ok) {
                         throw new Exception('User creation failed');
@@ -1951,15 +2005,13 @@ class UsersAPI extends BaseAPI
                 $this->db->prepare('UPDATE persons SET ' . implode(', ', $personSets) . ' WHERE id = ?')->execute($personParams);
             }
 
-            // Insert staff record (id is manual, identity via person_id)
-            $staffId = $this->nextId('staff');
-            $sql = 'INSERT INTO staff (id, person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, data_scope, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
+            // Insert staff record (AUTO_INCREMENT id, identity via person_id)
+            $sql = 'INSERT INTO staff (person_id, staff_type_id, staff_category_id, staff_no, position, contract_type, employment_date, status, data_scope, supervisor_id, salary, bank_name, bank_account, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())';
 
             $stmt = $this->db->prepare($sql);
 
             $ok = $stmt->execute([
-                $staffId,
                 $user['person_id'],
                 $staffInfo['staff_type_id'] ?? $staffTypeId,
                 $staffInfo['staff_category_id'] ?? $staffCategoryId,
@@ -1978,14 +2030,15 @@ class UsersAPI extends BaseAPI
             if (!$ok) {
                 return false;
             }
+            $staffId = (int) $this->db->lastInsertId();
 
             // Department assignment (join table)
             if (!empty($departmentId)) {
                 $deptCheck = $this->db->prepare('SELECT id FROM staff_department_assignments WHERE staff_id = ? AND department_id = ?');
                 $deptCheck->execute([$staffId, $departmentId]);
                 if (!$deptCheck->fetch()) {
-                    $this->db->prepare('INSERT INTO staff_department_assignments (id, staff_id, department_id, role, effective_from) VALUES (?, ?, ?, ?, ?)')
-                        ->execute([$this->nextId('staff_department_assignments'), $staffId, $departmentId, $staffInfo['position'] ?? null, $staffInfo['employment_date'] ?? date('Y-m-d')]);
+                    $this->db->prepare('INSERT INTO staff_department_assignments (staff_id, department_id, role, effective_from) VALUES (?, ?, ?, ?)')
+                        ->execute([$staffId, $departmentId, $staffInfo['position'] ?? null, $staffInfo['employment_date'] ?? date('Y-m-d')]);
                 }
             }
 
@@ -2016,11 +2069,6 @@ class UsersAPI extends BaseAPI
             \App\API\Services\Logger::legacyError("Error adding staff record: " . $e->getMessage());
             return false;
         }
-    }
-
-    private function nextId($table)
-    {
-        return (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM `$table`")->fetchColumn();
     }
 
 }

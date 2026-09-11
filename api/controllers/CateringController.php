@@ -21,7 +21,7 @@ class CateringController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->reports = new MealReportManager();
+        $this->reports = $this->contract('App\API\Modules\reports\MealReportManager');
     }
 
     private function guardCatering(): ?array

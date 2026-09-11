@@ -25,16 +25,16 @@ class SystemController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new SystemAPI();
-        $this->systemAdminManager = new SystemAdminManager();
-        $this->dashboardRegistryManager = new DashboardRegistryManager();
-        $this->authSessionService = new AuthSessionService(
+        $this->api = $this->contract('App\API\Modules\system\SystemAPI');
+        $this->systemAdminManager = $this->contract('App\API\Modules\system\SystemAdminManager');
+        $this->dashboardRegistryManager = $this->contract('App\API\Modules\system\DashboardRegistryManager');
+        $this->authSessionService = $this->contract('App\API\Services\AuthSessionService', 
             $this->db->getConnection()
         );
-        $this->ipAccessControlService = new IpAccessControlService(
+        $this->ipAccessControlService = $this->contract('App\API\Services\IpAccessControlService', 
             $this->db->getConnection()
         );
-        $this->systemAdminAnalytics = new SystemAdminAnalyticsService();
+        $this->systemAdminAnalytics = $this->contract('App\API\Services\SystemAdminAnalyticsService');
     }
 
     public function index()
@@ -786,7 +786,7 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         return $this->success(
-            (new OperatingModeService($this->db->getConnection()))->current(),
+            ($this->contract('App\API\Services\OperatingModeService', $this->db->getConnection()))->current(),
             'Operating mode retrieved'
         );
     }
@@ -799,7 +799,7 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         return $this->success(
-            (new EnvironmentPhaseService($this->db->getConnection()))->current(),
+            ($this->contract('App\API\Services\EnvironmentPhaseService', $this->db->getConnection()))->current(),
             'Environment phase retrieved'
         );
     }
@@ -814,7 +814,7 @@ class SystemController extends BaseController
         try {
             $actorId = (int) ($this->getUserId() ?? 0);
             $host = (string) ($data['host'] ?? '');
-            $result = (new EnvironmentPhaseService($this->db->getConnection()))->setPhase(
+            $result = ($this->contract('App\API\Services\EnvironmentPhaseService', $this->db->getConnection()))->setPhase(
                 $actorId,
                 $host,
                 isset($data['phase']) ? (string) $data['phase'] : null,
@@ -835,7 +835,7 @@ class SystemController extends BaseController
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
             $actorId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
-            $result = (new OperatingModeService($this->db->getConnection()))->change(
+            $result = ($this->contract('App\API\Services\OperatingModeService', $this->db->getConnection()))->change(
                 (string) ($data['mode'] ?? ''),
                 $actorId,
                 (string) ($data['reason'] ?? ''),
@@ -855,7 +855,7 @@ class SystemController extends BaseController
     {
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         return $this->success(
-            (new TestDataManagementService($this->db->getConnection()))->inventory(),
+            ($this->contract('App\API\Services\TestDataManagementService', $this->db->getConnection()))->inventory(),
             'Test-data inventory retrieved'
         );
     }
@@ -866,7 +866,7 @@ class SystemController extends BaseController
         if ($auth = $this->ensureSystemAdminAccess()) return $auth;
         try {
             $actorId = (int) ($this->user['user_id'] ?? $this->user['id'] ?? 0);
-            $result = (new TestDataManagementService($this->db->getConnection()))->purgeAll(
+            $result = ($this->contract('App\API\Services\TestDataManagementService', $this->db->getConnection()))->purgeAll(
                 $actorId,
                 (string) ($data['confirmation'] ?? ''),
                 (string) ($data['reason'] ?? '')

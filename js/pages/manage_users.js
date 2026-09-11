@@ -8,6 +8,7 @@ const ManageUsersController = {
     users: [],
     roles: [],
     editingUserId: null,
+    manageRolesUserId: null,
     initialized: false,
     eventsBound: false,
     initializationPromise: null,
@@ -21,11 +22,15 @@ const ManageUsersController = {
   elements: {},
 
   async init() {
+    if (window.__KINGSWAY_MANAGE_USERS_INITIALIZED__) {
+      return window.__KINGSWAY_MANAGE_USERS_INITIALIZED__;
+    }
     if (this.state.initializationPromise) {
       return this.state.initializationPromise;
     }
 
     this.state.initializationPromise = this.initialize();
+    window.__KINGSWAY_MANAGE_USERS_INITIALIZED__ = this.state.initializationPromise;
     return this.state.initializationPromise;
   },
 
@@ -106,6 +111,9 @@ const ManageUsersController = {
       bulkRoleSelect: document.getElementById("bulkRoleSelect"),
       bulkRoleCount: document.getElementById("bulkRoleCount"),
       bulkRoleApplyBtn: document.getElementById("bulkRoleApplyBtn"),
+      manageRolesModalElement: document.getElementById("manageRolesModal"),
+      manageRolesList: document.getElementById("manageRolesList"),
+      manageRolesSaveBtn: document.getElementById("manageRolesSaveBtn"),
       bulkGrantModalElement: document.getElementById("bulkGrantModal"),
       bulkGrantForm: document.getElementById("bulkGrantForm"),
       bulkGrantCount: document.getElementById("bulkGrantCount"),
@@ -181,6 +189,9 @@ const ManageUsersController = {
     this.elements.bulkGrantBtn.addEventListener("click", () => this.openBulkGrant());
     this.elements.bulkRevokeBtn.addEventListener("click", () => this.openBulkRevoke());
     this.elements.bulkRoleBtn.addEventListener("click", () => this.openBulkRole());
+    if (this.elements.manageRolesSaveBtn) {
+      this.elements.manageRolesSaveBtn.addEventListener("click", () => void this.saveManageRoles());
+    }
     this.elements.bulkClearBtn.addEventListener("click", () => this.clearSelection());
     this.elements.bulkRoleApplyBtn.addEventListener("click", () => void this.applyBulkRole());
     this.elements.bulkGrantForm.addEventListener("submit", (event) => {
@@ -472,7 +483,14 @@ const ManageUsersController = {
       this.notify("No accounts selected.", "error");
       return;
     }
-    const ids = users.map((u) => Number(u.id ?? u.user_id ?? 0));
+    const ids = [...new Set(users
+      .filter((user) => Number(user.is_test_user || 0) === 1 || user.account_type === "test")
+      .map((u) => Number(u.id ?? u.user_id ?? 0))
+      .filter((id) => id > 0))];
+    if (!ids.length) {
+      this.notify("Select at least one test account.", "error");
+      return;
+    }
     this.elements.bulkGrantApplyBtn.disabled = true;
     try {
       const result = await window.API.users.bulkTestAccess(ids, "grant", {
@@ -605,16 +623,48 @@ const ManageUsersController = {
   },
 
   // ---------------------------------------------------------------------------
+  // Role display helpers (all roles assigned to a user)
+  // ---------------------------------------------------------------------------
+
+  userRoles(user) {
+    if (Array.isArray(user?.roles) && user.roles.length) return user.roles;
+    if (user?.role_id || user?.role_name) {
+      return [{ id: user.role_id, name: user.role_name }];
+    }
+    return [];
+  },
+
+  allRoleNames(user) {
+    return this.userRoles(user)
+      .map((role) => role?.name || role?.role_name || "Unnamed role")
+      .filter(Boolean);
+  },
+
+  renderRoleBadges(user) {
+    const roles = this.userRoles(user);
+    if (!roles.length) {
+      return `<span class="text-muted">Unassigned</span>`;
+    }
+    const badges = roles
+      .map((role) => {
+        const name = role?.name || role?.role_name || "Unnamed role";
+        return `<span class="badge text-bg-${Number(role?.is_active ?? 1) === 1 ? "secondary" : "dark"} d-inline-block text-wrap mb-1 me-1">${this.escapeHtml(name)}</span>`;
+      })
+      .join("");
+    return badges;
+  },
+
+  // ---------------------------------------------------------------------------
   // CSV / PDF export
   // ---------------------------------------------------------------------------
 
   exportCsv() {
-    const header = ["User", "Email", "Username", "Primary role", "Account type", "Status", "Last login"];
+    const header = ["User", "Email", "Username", "Roles", "Account type", "Status", "Last login"];
     const rows = this.state.users.map((user) => [
       `${user.first_name || ""} ${user.last_name || ""}`.trim() || user.username || "",
       user.email || "",
       user.username || "",
-      user.role_name || "Unassigned",
+      this.allRoleNames(user).join("; ") || "Unassigned",
       Number(user.is_test_user || 0) === 1 || user.account_type === "test" ? "Test" : "Real",
       this.formatStatus(user.status),
       this.formatDateTime(user.last_login),
@@ -741,7 +791,7 @@ const ManageUsersController = {
         </th>
         <th>User</th>
         <th>Email</th>
-        <th>Primary role</th>
+        <th>Roles</th>
         <th>Account type</th>
         <th>Status</th>
         <th>Last login</th>
@@ -788,7 +838,7 @@ const ManageUsersController = {
               <div class="small text-muted">@${this.escapeHtml(user.username || "")}</div>
             </td>
             <td>${this.escapeHtml(user.email || "—")}</td>
-            <td>${this.escapeHtml(user.role_name || "Unassigned")}</td>
+            <td>${this.renderRoleBadges(user)}</td>
             <td>
               <span class="badge text-bg-${isTestUser ? "warning" : "success"}">
                 ${isTestUser ? "Test" : "Real"}
@@ -810,6 +860,15 @@ const ManageUsersController = {
                 ${!isTestUser || !["scheduled", "active"].includes(String(user.test_access_status || "").toLowerCase()) ? "disabled" : ""}
               >
                 <i class="fas fa-ban me-1"></i>Revoke test access
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                data-user-action="manage-roles"
+                data-user-id="${userId}"
+                title="View or change all roles assigned to this user"
+              >
+                <i class="fas fa-user-tag me-1"></i>Manage roles
               </button>
               <button
                 type="button"
@@ -861,6 +920,11 @@ const ManageUsersController = {
 
     if (button.dataset.userAction === "edit") {
       this.openUserForm(user);
+      return;
+    }
+
+    if (button.dataset.userAction === "manage-roles") {
+      this.openManageRoles(user);
       return;
     }
 
@@ -1173,6 +1237,125 @@ const ManageUsersController = {
     }
   },
 
+  openManageRoles(user) {
+    const userId = Number(user.id ?? user.user_id ?? 0);
+    this.state.manageRolesUserId = userId;
+    const modalElement = this.elements.manageRolesModalElement;
+    if (!modalElement) {
+      this.notify("Role management is unavailable on this page.", "error");
+      return;
+    }
+    const modal = this.elements.manageRolesModal ||
+      window.bootstrap.Modal.getOrCreateInstance(modalElement);
+    this.elements.manageRolesModal = modal;
+    const assigned = new Set(
+      this.userRoles(user)
+        .map((role) => String(role?.id ?? role?.role_id ?? "")),
+    );
+    const title = document.getElementById("manageRolesModalTitle");
+    if (title) {
+      const name =
+        `${user.first_name || ""} ${user.last_name || ""}`.trim() ||
+        user.username ||
+        `user ${userId}`;
+      title.textContent = `Manage roles — ${name}`;
+    }
+    const list = document.getElementById("manageRolesList");
+    if (list) {
+      const active = this.state.roles.filter(
+        (role) => Number(role.is_active ?? 1) === 1,
+      );
+      list.innerHTML = active.length
+        ? active
+            .map((role) => {
+              const roleId = Number(role.id ?? role.role_id ?? 0);
+              const checked = assigned.has(String(roleId)) ? "checked" : "";
+              const label = role.name || role.role_name || "Unnamed role";
+              return `
+                <div class="form-check border-bottom py-2">
+                  <input class="form-check-input" type="checkbox"
+                    value="${roleId}" id="manageRole_${roleId}"
+                    data-manage-role-id="${roleId}" ${checked}>
+                  <label class="form-check-label ms-2" for="manageRole_${roleId}">
+                    ${this.escapeHtml(label)}
+                  </label>
+                </div>`;
+            })
+            .join("")
+        : `<div class="text-muted py-3">No active roles are available to assign.</div>`;
+    }
+    const saveBtn = document.getElementById("manageRolesSaveBtn");
+    if (saveBtn) saveBtn.disabled = false;
+    modal.show();
+  },
+
+  async saveManageRoles() {
+    const userId = this.state.manageRolesUserId;
+    const list = document.getElementById("manageRolesList");
+    if (!userId || !list) return;
+    const selected = new Set();
+    list.querySelectorAll("[data-manage-role-id]").forEach((checkbox) => {
+      if (checkbox.checked) selected.add(checkbox.value);
+    });
+    const user = this.state.users.find(
+      (record) => Number(record.id ?? record.user_id) === userId,
+    );
+    const current = new Set(
+      this.userRoles(user).map((role) => String(role?.id ?? role?.role_id ?? "")),
+    );
+    const toAdd = [...selected].filter((roleId) => !current.has(roleId));
+    const toRemove = [...current].filter((roleId) => !selected.has(roleId));
+
+    if (!toAdd.length && !toRemove.length) {
+      this.notify("No role changes were made.", "info");
+      this.elements.manageRolesModal?.hide();
+      return;
+    }
+
+    const saveBtn = document.getElementById("manageRolesSaveBtn");
+    let succeeded = 0;
+    let failed = 0;
+    try {
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Saving...';
+      }
+      for (const roleId of toAdd) {
+        try {
+          await window.API.users.assignRoleToUser(userId, Number(roleId));
+          succeeded += 1;
+        } catch (error) {
+          failed += 1;
+          console.error("[ManageUsersController] Role assign failed:", error);
+        }
+      }
+      for (const roleId of toRemove) {
+        try {
+          await window.API.users.revokeRoleFromUser(userId, Number(roleId));
+          succeeded += 1;
+        } catch (error) {
+          failed += 1;
+          console.error("[ManageUsersController] Role revoke failed:", error);
+        }
+      }
+      if (failed) {
+        this.notify(`${succeeded} role change(s) applied; ${failed} failed.`, "warning");
+      } else {
+        this.notify("User roles updated successfully.", "success");
+      }
+      this.elements.manageRolesModal?.hide();
+      await this.loadData();
+    } catch (error) {
+      console.error("[ManageUsersController] Role management failed:", error);
+      this.notify(this.formatError(error, "Role management failed."), "error");
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = 'Save changes';
+      }
+    }
+  },
+
   resetForm() {
     this.state.editingUserId = null;
     this.elements.form.reset();
@@ -1348,8 +1531,15 @@ const ManageUsersController = {
   },
 };
 
-document.addEventListener("DOMContentLoaded", () =>
-  ManageUsersController.init(),
-);
+const bootManageUsers = () => {
+  if (!document.getElementById("manageUsersPage")) return;
+  void ManageUsersController.init();
+};
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", bootManageUsers, { once: true });
+} else {
+  bootManageUsers();
+}
 
 window.ManageUsersController = ManageUsersController;

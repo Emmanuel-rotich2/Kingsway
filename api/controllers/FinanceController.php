@@ -36,11 +36,11 @@ class FinanceController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new FinanceAPI();
-        $this->expenseManager = new ExpenseManager();
-        $this->allowanceTemplateApi = new AllowanceTemplateAPI();
-        $this->staffAccess = new StaffDomainAccessService($this->user);
-        $this->crud = new FinanceCrudService(Database::getInstance()->getConnection());
+        $this->api = $this->contract('App\API\Modules\finance\FinanceAPI');
+        $this->expenseManager = $this->contract('App\API\Modules\finance\ExpenseManager');
+        $this->allowanceTemplateApi = $this->contract('App\API\Modules\finance\AllowanceTemplateAPI');
+        $this->staffAccess = $this->contract('App\API\Services\StaffDomainAccessService', $this->user);
+        $this->crud = $this->contract('App\API\Services\FinanceCrudService', Database::getInstance()->getConnection());
     }
 
     public function index()
@@ -165,7 +165,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.view', 'finance_view'], [10])) return $this->forbidden('Insufficient permissions');
         try {
-            return $this->success(['lines' => (new FinancialReconciliationService($this->db))->unresolved((int)($data['limit'] ?? 200))]);
+            return $this->success(['lines' => ($this->contract('App\API\Services\FinancialReconciliationService', $this->db))->unresolved((int)($data['limit'] ?? 200))]);
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement lines: '.$e->getMessage()); return $this->badRequest('Statement reconciliation is not available.'); }
     }
 
@@ -174,7 +174,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile', 'finance.manage', 'finance_manage'], [10])) return $this->forbidden('Insufficient permissions');
         try {
-            $result = (new FinancialReconciliationService($this->db))->import((string)($data['provider'] ?? ''), (int)($data['financial_account_id'] ?? 0), (array)($data['rows'] ?? []), (int)$this->getUserId());
+            $result = ($this->contract('App\API\Services\FinancialReconciliationService', $this->db))->import((string)($data['provider'] ?? ''), (int)($data['financial_account_id'] ?? 0), (array)($data['rows'] ?? []), (int)$this->getUserId());
             return $this->success($result, 'Statement imported and matching attempted.');
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement import: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
@@ -184,7 +184,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.reconcile', 'finance_reconcile'], [10])) return $this->forbidden('Insufficient permissions');
         try {
-            $result = (new FinancialReconciliationService($this->db))->resolve((int)$id, (string)($data['matching_status'] ?? ''), (int)$this->getUserId(), (string)($data['reason'] ?? ''), $data['matched_reference'] ?? null);
+            $result = ($this->contract('App\API\Services\FinancialReconciliationService', $this->db))->resolve((int)$id, (string)($data['matching_status'] ?? ''), (int)$this->getUserId(), (string)($data['reason'] ?? ''), $data['matched_reference'] ?? null);
             return $this->success($result, 'Statement line resolution recorded.');
         } catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] statement resolve: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
@@ -201,7 +201,7 @@ class FinanceController extends BaseController
                 'exceptions_only' => $_GET['exceptions_only'] ?? ($data['exceptions_only'] ?? false),
                 'limit' => $_GET['limit'] ?? ($data['limit'] ?? 100),
             ]);
-            return $this->success(['disbursements' => (new KcbTransferReconciliationService($this->db->getConnection()))->list($filters)]);
+            return $this->success(['disbursements' => ($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->list($filters)]);
         } catch (\Throwable $e) {
             \App\API\Services\Logger::legacyError('[FinanceController] KCB reconciliation list: ' . $e->getMessage());
             return $this->badRequest('KCB reconciliation queue is not available. Apply the latest database migrations.');
@@ -216,7 +216,7 @@ class FinanceController extends BaseController
         }
         try {
             return $this->success(
-                (new KcbTransferReconciliationService($this->db->getConnection()))->inquire((int) $id, (int) $this->getUserId(), 'manual'),
+                ($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->inquire((int) $id, (int) $this->getUserId(), 'manual'),
                 'KCB transfer status checked and reconciled.'
             );
         } catch (\Throwable $e) {
@@ -233,7 +233,7 @@ class FinanceController extends BaseController
         }
         try {
             return $this->success(
-                (new KcbTransferReconciliationService($this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
+                ($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
                 'Due KCB transfers checked.'
             );
         } catch (\Throwable $e) {
@@ -252,7 +252,7 @@ class FinanceController extends BaseController
         }
         try {
             return $this->success(
-                (new KcbTransferReconciliationService($this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
+                ($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->pollDue((int) ($data['limit'] ?? 25)),
                 'KCB reconciliation worker completed.'
             );
         } catch (\Throwable $e) {
@@ -269,7 +269,7 @@ class FinanceController extends BaseController
         }
         try {
             return $this->accepted(
-                (new KcbTransferReconciliationService($this->db->getConnection()))->retry((int) $id, (int) $this->getUserId()),
+                ($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->retry((int) $id, (int) $this->getUserId()),
                 'A linked, idempotent KCB retry was submitted.'
             );
         } catch (\Throwable $e) {
@@ -285,7 +285,7 @@ class FinanceController extends BaseController
             return $this->forbidden('Senior finance reconciliation permission required');
         }
         try {
-            return $this->success((new KcbTransferReconciliationService($this->db->getConnection()))->resolveManually(
+            return $this->success(($this->contract('App\API\Services\payments\KcbTransferReconciliationService', $this->db->getConnection()))->resolveManually(
                 (int) $id,
                 (string) ($data['outcome'] ?? ''),
                 (string) ($data['evidence'] ?? ''),
@@ -304,7 +304,7 @@ class FinanceController extends BaseController
             return $this->forbidden('Payment integration configuration access required');
         }
         try {
-            $result = (new KcbFundsTransferService())->revokeAccessToken();
+            $result = ($this->contract('App\API\Services\payments\KcbFundsTransferService'))->revokeAccessToken();
             \App\API\Includes\FileLogger::write('payments', [
                 'type' => 'security', 'source' => 'kcb_oauth', 'user_id' => (int) $this->getUserId(),
                 'action' => 'access_token_revoked', 'status' => 'success',
@@ -425,7 +425,7 @@ class FinanceController extends BaseController
         }
         $items = $data['items'] ?? [];
         if (!is_array($items) || !$items) return $this->badRequest('At least one supplier payment is required.');
-        $service = new SupplierDisbursementService(Database::getInstance()->getConnection());
+        $service = $this->contract('App\API\Services\payments\SupplierDisbursementService', Database::getInstance()->getConnection());
         $results = [];
         foreach ($items as $item) {
             $expenseId = (int) ($item['expense_id'] ?? 0);
@@ -470,7 +470,7 @@ class FinanceController extends BaseController
     public function postParentRefundRequests($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        try { $service = new ParentRefundService(Database::getInstance()->getConnection()); $items = $data['items'] ?? [$data]; $results = []; foreach ($items as $item) { $results[] = $service->createRequest((int) ($item['fee_credit_note_id'] ?? 0), (int) $this->getUserId(), $item); } return $this->success(['results' => $results], 'Refund submitted for approval.'); }
+        try { $service = $this->contract('App\API\Services\payments\ParentRefundService', Database::getInstance()->getConnection()); $items = $data['items'] ?? [$data]; $results = []; foreach ($items as $item) { $results[] = $service->createRequest((int) ($item['fee_credit_note_id'] ?? 0), (int) $this->getUserId(), $item); } return $this->success(['results' => $results], 'Refund submitted for approval.'); }
         catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent refund request: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
@@ -478,28 +478,28 @@ class FinanceController extends BaseController
     public function getStudentFundTransfers($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        return $this->success(['transfers' => (new StudentFundTransferService(Database::getInstance()->getConnection()))->list(['status' => $_GET['status'] ?? null])]);
+        return $this->success(['transfers' => ($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->list(['status' => $_GET['status'] ?? null])]);
     }
 
     /** GET /api/finance/student-fund-sources */
     public function getStudentFundSources($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->sources());
+        return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->sources());
     }
 
     /** GET /api/finance/payment-routing-cases */
     public function getPaymentRoutingCases($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        return $this->success(['cases' => (new PaymentRoutingService(Database::getInstance()->getConnection()))->listUnmatchedCases(['status' => $_GET['status'] ?? 'unmatched'])]);
+        return $this->success(['cases' => ($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->listUnmatchedCases(['status' => $_GET['status'] ?? 'unmatched'])]);
     }
 
     /** POST /api/finance/payment-references */
     public function postPaymentReferences($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        try { return $this->created((new PaymentRoutingService(Database::getInstance()->getConnection()))->generateReference((string)($data['purpose'] ?? ''), (int)($data['student_id'] ?? 0), !empty($data['transport_intent_id']) ? (int)$data['transport_intent_id'] : null, !empty($data['uniform_sale_id']) ? (int)$data['uniform_sale_id'] : null), 'Payment reference generated'); }
+        try { return $this->created(($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->generateReference((string)($data['purpose'] ?? ''), (int)($data['student_id'] ?? 0), !empty($data['transport_intent_id']) ? (int)$data['transport_intent_id'] : null, !empty($data['uniform_sale_id']) ? (int)$data['uniform_sale_id'] : null), 'Payment reference generated'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -507,14 +507,14 @@ class FinanceController extends BaseController
     public function getPaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10]) && !$this->canConfigurePaymentIntegrations()) return $this->forbidden('Insufficient permissions');
-        return $this->success(['routes' => (new PaymentRoutingService(Database::getInstance()->getConnection()))->listRoutes()]);
+        return $this->success(['routes' => ($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->listRoutes()]);
     }
 
     /** POST /api/finance/payment-collection-routes */
     public function postPaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
         if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
-        try { return $this->created((new PaymentRoutingService(Database::getInstance()->getConnection()))->saveRoute($data), 'Collection route saved'); }
+        try { return $this->created(($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->saveRoute($data), 'Collection route saved'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -522,7 +522,7 @@ class FinanceController extends BaseController
     public function putPaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
         if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
-        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->updateRoute((int)$id, $data), 'Collection route updated'); }
+        try { return $this->success(($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->updateRoute((int)$id, $data), 'Collection route updated'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -530,7 +530,7 @@ class FinanceController extends BaseController
     public function deletePaymentCollectionRoutes($id = null, $data = [], $segments = [])
     {
         if (!$this->canConfigurePaymentIntegrations()) return $this->forbidden('Payment integration configuration access required');
-        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->deleteRoute((int)$id), 'Collection route deactivated'); }
+        try { return $this->success(($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->deleteRoute((int)$id), 'Collection route deactivated'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -539,7 +539,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.reconcile', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
         if (!$id) return $this->badRequest('Case ID is required');
-        try { return $this->success((new PaymentRoutingService(Database::getInstance()->getConnection()))->resolveCase((int)$id, $data, (int)$this->getUserId()), 'Payment case resolved and allocated'); }
+        try { return $this->success(($this->contract('App\API\Services\payments\PaymentRoutingService', Database::getInstance()->getConnection()))->resolveCase((int)$id, $data, (int)$this->getUserId()), 'Payment case resolved and allocated'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -547,7 +547,7 @@ class FinanceController extends BaseController
     public function postStudentFundTransfers($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        try { return $this->created((new StudentFundTransferService(Database::getInstance()->getConnection()))->create($data, (int)$this->getUserId()), 'Fund transfer submitted for approval'); }
+        try { return $this->created(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->create($data, (int)$this->getUserId()), 'Fund transfer submitted for approval'); }
         catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] fund transfer create: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
@@ -556,7 +556,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3, 4, 10])) return $this->forbidden('Only authorized finance approvers may decide fund transfers');
         if (!$id) return $this->badRequest('Transfer ID is required');
-        try { return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->decide((int)$id, strtolower((string)($data['decision'] ?? $data['status'] ?? '')), (int)$this->getUserId()), 'Transfer decision recorded'); }
+        try { return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->decide((int)$id, strtolower((string)($data['decision'] ?? $data['status'] ?? '')), (int)$this->getUserId()), 'Transfer decision recorded'); }
         catch (\Throwable $e) { return $this->badRequest($e->getMessage()); }
     }
 
@@ -565,7 +565,7 @@ class FinanceController extends BaseController
     {
         if (!$this->userHasAny(['finance.approve', 'finance_approve'], [3, 4, 10])) return $this->forbidden('Only authorized finance approvers may post fund transfers');
         if (!$id) return $this->badRequest('Transfer ID is required');
-        try { return $this->success((new StudentFundTransferService(Database::getInstance()->getConnection()))->post((int)$id, (int)$this->getUserId()), 'Fund transfer posted'); }
+        try { return $this->success(($this->contract('App\API\Services\payments\StudentFundTransferService', Database::getInstance()->getConnection()))->post((int)$id, (int)$this->getUserId()), 'Fund transfer posted'); }
         catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] fund transfer post: '.$e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
@@ -584,7 +584,7 @@ class FinanceController extends BaseController
     public function postParentRefundRequestsSubmit($id = null, $data = [], $segments = [])
     {
         if (!$this->userHasAny(['finance.manage', 'finance_manage'], [3, 4, 10])) return $this->forbidden('Insufficient permissions');
-        try { $result = (new ParentRefundService(Database::getInstance()->getConnection()))->submit((int) $id, (int) $this->getUserId()); return $this->success($result, 'Parent refund submitted for provider processing.'); }
+        try { $result = ($this->contract('App\API\Services\payments\ParentRefundService', Database::getInstance()->getConnection()))->submit((int) $id, (int) $this->getUserId()); return $this->success($result, 'Parent refund submitted for provider processing.'); }
         catch (\Throwable $e) { \App\API\Services\Logger::legacyError('[FinanceController] parent refund submit: ' . $e->getMessage()); return $this->badRequest($e->getMessage()); }
     }
 
@@ -1561,6 +1561,9 @@ class FinanceController extends BaseController
      */
     public function getFeesPendingReviews($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
         $result = $this->api->getPendingReviews();
         return $this->handleResponse($result);
     }
@@ -1570,8 +1573,11 @@ class FinanceController extends BaseController
      */
     public function getFeesAnnualSummary($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
         $academicYear = $_GET['academic_year'] ?? $data['academic_year'] ?? null;
-        
+
         if ($academicYear === null) {
             return $this->badRequest('Academic year is required');
         }
@@ -1586,6 +1592,9 @@ class FinanceController extends BaseController
      */
     public function getFeeStructuresList($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view', 'fee_structure_view', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
         $filters = array_merge($_GET, $data);
         $page = $filters['page'] ?? 1;
         $limit = $filters['limit'] ?? 20;
@@ -1600,6 +1609,9 @@ class FinanceController extends BaseController
      */
     public function getFeeStructuresGet($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['finance.view', 'finance_view', 'fee_structure_view', 'fee_structure_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions');
+        }
         $structureId = $id ?? $data['id'] ?? null;
 
         if ($structureId === null) {
@@ -1616,6 +1628,9 @@ class FinanceController extends BaseController
      */
     public function postFeesStructures($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_edit', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions to manage fee structures');
+        }
         $result = $this->api->createFeeStructure($data);
         return $this->handleResponse($result);
     }
@@ -1626,6 +1641,9 @@ class FinanceController extends BaseController
      */
     public function putFeeStructures($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['fee_structure_manage', 'fee_structure_edit', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions to manage fee structures');
+        }
         $structureId = $id ?? $data['id'] ?? null;
 
         if ($structureId === null) {
@@ -1642,6 +1660,9 @@ class FinanceController extends BaseController
      */
     public function deleteFeeStructures($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['fee_structure_manage', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions to manage fee structures');
+        }
         $structureId = $id ?? $data['id'] ?? null;
 
         if ($structureId === null) {
@@ -1658,6 +1679,9 @@ class FinanceController extends BaseController
      */
     public function postFeeStructuresDuplicate($id = null, $data = [], $segments = [])
     {
+        if (!$this->userHasAny(['fee_structure_manage', 'finance.manage', 'finance_manage'], [3, 4, 10])) {
+            return $this->forbidden('Insufficient permissions to manage fee structures');
+        }
         $structureId = $id ?? $data['id'] ?? null;
 
         if ($structureId === null) {
@@ -1813,7 +1837,7 @@ class FinanceController extends BaseController
         }
 
         try {
-            $recon = new PaymentReconciliationAPI();
+            $recon = $this->contract('App\API\Modules\finance\PaymentReconciliationAPI');
             $result = $recon->listUnreconciled($data);
             return $this->handleResponse($result);
         } catch (Exception $e) {
@@ -2441,7 +2465,7 @@ return $this->error('An internal error occurred.');
 
         if ($action === 'refund') {
             try {
-                $request = (new ParentRefundService(Database::getInstance()->getConnection()))->createRequest((int) $id, (int) $this->getUserId(), $data);
+                $request = ($this->contract('App\API\Services\payments\ParentRefundService', Database::getInstance()->getConnection()))->createRequest((int) $id, (int) $this->getUserId(), $data);
                 return $this->success($request, 'Refund submitted for approval; no money has been sent yet.');
             } catch (\Throwable $e) {
                 return $this->badRequest($e->getMessage());

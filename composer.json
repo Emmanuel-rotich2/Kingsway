@@ -28,9 +28,6 @@
             "App\\API\\Controllers\\": "api/controllers/",
             "App\\API\\Router\\": "api/router/"
 },
-        "classmap": [
-            "api/modules/system/SystemConfigAPI.php"
-        ],
         "files": [
             "api/includes/helpers.php",
             "config/asset_helpers.php",

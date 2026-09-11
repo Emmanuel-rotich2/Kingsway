@@ -217,7 +217,7 @@ class StaffAssignmentManager extends BaseAPI
     public function getStaffWorkload($staffId, $academicYearId = null)
     {
         try {
-            $stmt = $this->db->prepare("SELECT * FROM vw_staff_workload WHERE staff_id = ?");
+            $stmt = $this->db->prepare("SELECT * FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('staff_workload') . " WHERE staff_id = ?");
             $stmt->execute([$staffId]);
             $workload = $stmt->fetch(PDO::FETCH_ASSOC);
 

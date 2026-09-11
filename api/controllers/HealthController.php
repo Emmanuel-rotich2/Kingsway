@@ -29,7 +29,7 @@ class HealthController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new HealthAPI();
+        $this->api = $this->contract('App\API\Modules\health\HealthAPI');
     }
 
     private function userId()

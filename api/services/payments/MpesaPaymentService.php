@@ -3,6 +3,7 @@
 namespace App\API\Services\payments;
 
 use App\Database\Database;
+use App\API\Services\ReadReplicaService;
 use PDO;
 use Exception;
 use function App\API\Includes\formatResponse;
@@ -575,14 +576,14 @@ class MpesaPaymentService
             }
 
             $term = $db->prepare(
-                "SELECT balance FROM vw_student_fee_balances
+                "SELECT balance FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
                  WHERE student_id = :sid AND academic_year_term_id = :ayt LIMIT 1"
             );
             $term->execute(['sid' => $studentId, 'ayt' => $current['ayt_id']]);
             $termBalance = $term->fetchColumn();
 
             $annual = $db->prepare(
-                "SELECT SUM(balance) FROM vw_student_fee_balances
+                "SELECT SUM(balance) FROM " . ReadReplicaService::qualifiedRef('student_fee_balances') . "
                  WHERE student_id = :sid AND academic_year = :ay_code"
             );
             $annual->execute(['sid' => $studentId, 'ay_code' => $current['ay_code']]);

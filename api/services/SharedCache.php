@@ -42,6 +42,37 @@ class SharedCache
      * Fetch a cached value, or compute it with $compute() and store it.
      * $compute receives no args and must return a serializable value.
      */
+    /**
+     * Direct read for response caching: returns null on miss/expiry/corruption.
+     * Unlike remember(), this lets callers distinguish HIT from MISS.
+     */
+    public function get(string $key): mixed
+    {
+        $cached = $this->read($this->pathFor($key));
+        if ($cached === null || $cached['expires'] <= time()) {
+            return null;
+        }
+        return $cached['value'];
+    }
+
+    /**
+     * Direct write for response caching. Returns false when the value is not
+     * JSON-serializable so the caller can skip caching rather than poison.
+     */
+    public function set(string $key, mixed $value, ?int $ttl = null): bool
+    {
+        $ttl = $ttl ?? self::DEFAULT_TTL;
+        $payload = json_encode([
+            'expires' => time() + $ttl,
+            'value' => $value,
+        ], JSON_UNESCAPED_UNICODE);
+        if ($payload === false) {
+            return false;
+        }
+        $this->storage->atomicWrite($this->pathFor($key), $payload);
+        return true;
+    }
+
     public function remember(string $key, callable $compute, ?int $ttl = null): mixed
     {
         $ttl = $ttl ?? self::DEFAULT_TTL;

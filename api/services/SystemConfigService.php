@@ -102,12 +102,10 @@ class SystemConfigService
     public function createRoute(array $data): int
     {
         $this->db->beginTransaction();
-        $nextId = (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM routes_registry")->fetchColumn();
         $stmt = $this->db->query(
-            "INSERT INTO routes_registry (id, name, url, domain, description, controller, action, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO routes_registry (name, url, domain, description, controller, action, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
-                $nextId,
                 $data['name'],
                 $data['url'],
                 $data['domain'] ?? 'SCHOOL',
@@ -117,8 +115,9 @@ class SystemConfigService
                 $data['is_active'] ?? 1
             ]
         );
+        $routeId = (int) $this->db->lastInsertId();
         $this->db->commit();
-        return $nextId;
+        return $routeId;
     }
 
     /**

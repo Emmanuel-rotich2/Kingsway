@@ -166,7 +166,7 @@ class CommunicationsController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->api = new CommunicationsAPI();
+        $this->api = $this->contract('App\API\Modules\communications\CommunicationsAPI');
     }
 
     public function index()
@@ -189,7 +189,7 @@ class CommunicationsController extends BaseController
             return $this->forbidden('Invalid worker credential');
         }
         $limit = max(1, min(100, (int) ($data['limit'] ?? 25)));
-        $result = (new \App\API\Services\CommunicationOutboxService($this->getDb()->getConnection()))->processPending($limit);
+        $result = ($this->contract('App\API\Services\CommunicationOutboxService', $this->getDb()->getConnection()))->processPending($limit);
         return $this->success($result, 'Communication outbox processed');
     }
 

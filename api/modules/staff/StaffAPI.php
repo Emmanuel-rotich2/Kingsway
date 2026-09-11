@@ -4,7 +4,6 @@ namespace App\API\Modules\staff;
 
 use App\API\Includes\BaseAPI;
 use App\API\Modules\staff\StaffService;
-use App\API\Modules\system\MediaManager;
 use App\API\Services\StaffMigrationService;
 use App\API\Services\DataScopeService;
 use PDO;
@@ -18,7 +17,7 @@ class StaffAPI extends BaseAPI {
     public function __construct() {
         parent::__construct('staff');
         $this->service = new StaffService();
-        $this->mediaManager = new MediaManager($this->db);
+        $this->mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
     }
 
     // --- Media Operations ---
@@ -1073,7 +1072,7 @@ class StaffAPI extends BaseAPI {
             // Delegate user+staff creation to UsersAPI (do not duplicate staff insert here)
 
             // Create user account via UsersAPI using canonical payload (role_ids + staff_info)
-            $usersApi = new UsersAPI();
+            $usersApi = $this->contract('App\API\Modules\users\UsersAPI');
             $roleIds = [];
             if (!empty($data['role_ids']) && is_array($data['role_ids'])) {
                 $roleIds = $data['role_ids'];
@@ -1416,7 +1415,7 @@ class StaffAPI extends BaseAPI {
                              ->execute([$data['user_status'], $userId]);
                 }
                 if (!empty($data['role_id'])) {
-                    (new UsersAPI())->assignRoleToUser($userId, (int)$data['role_id']);
+                    $this->contract('App\API\Modules\users\UsersAPI')->assignRoleToUser($userId, (int)$data['role_id']);
                 }
             }
 
@@ -1537,10 +1536,9 @@ class StaffAPI extends BaseAPI {
                 $exists->execute([$personId, $contactName]);
                 if (!$exists->fetchColumn()) {
                     $this->db->prepare(
-                        'INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
-                         VALUES (?, ?, ?, ?, ?, NOW())'
+                        'INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                         VALUES (?, ?, ?, ?, NOW())'
                     )->execute([
-                        (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
                         $personId,
                         $contactName,
                         $data['emergency_contact_phone'] ?? null,
@@ -1564,11 +1562,10 @@ class StaffAPI extends BaseAPI {
                         "UPDATE staff_department_assignments SET effective_to = CURDATE()
                          WHERE staff_id = ? AND effective_to IS NULL"
                     )->execute([$id]);
-                    $deptNextId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_department_assignments")->fetchColumn();
                     $this->db->prepare(
-                        "INSERT INTO staff_department_assignments (id, staff_id, department_id, role, effective_from, created_at)
-                         VALUES (?, ?, ?, ?, CURDATE(), NOW())"
-                    )->execute([$deptNextId, $id, $newDept, $data['department_role'] ?? 'member']);
+                        "INSERT INTO staff_department_assignments (staff_id, department_id, role, effective_from, created_at)
+                         VALUES (?, ?, ?, CURDATE(), NOW())"
+                    )->execute([$id, $newDept, $data['department_role'] ?? 'member']);
                 }
             }
 
@@ -2049,11 +2046,10 @@ class StaffAPI extends BaseAPI {
             if ($contextId <= 0) {
                 return $this->response(['status' => 'error', 'message' => 'Learning area is not configured for the selected class stream'], 400);
             }
-            $entryId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM timetable_entries")->fetchColumn();
-            $sql = "INSERT INTO timetable_entries (id, academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
-                    VALUES (?, ?, ?, ?, 1, ?, ?, ?, 'scheduled')";
+            $sql = "INSERT INTO timetable_entries (academic_year_class_stream_id, academic_year_class_stream_learning_area_id, academic_year_term_id, day_of_week, time_slot_id, learning_area_id, teacher_id, status)
+                    VALUES (?, ?, ?, 1, ?, ?, ?, 'scheduled')";
             $stmt = $this->db->prepare($sql);
-            $stmt->execute([$entryId, $classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
+            $stmt->execute([$classStreamId, $contextId, $termId, $timeSlotId, $learningAreaId, $id]);
 
             return $this->response([
                 'status' => 'success',
@@ -2129,17 +2125,15 @@ class StaffAPI extends BaseAPI {
                 ], 400);
             }
 
-            $attendanceId = (int) $this->db->query("SELECT COALESCE(MAX(id),0)+1 FROM staff_attendance")->fetchColumn();
             $sql = "
                 INSERT INTO staff_attendance (
-                    id,
                     staff_id,
                     date,
                     status,
                     check_in,
                     check_out,
                     notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 ON DUPLICATE KEY UPDATE
                     status = VALUES(status),
                     check_in = VALUES(check_in),
@@ -2149,7 +2143,6 @@ class StaffAPI extends BaseAPI {
 
             $stmt = $this->db->prepare($sql);
             $stmt->execute([
-                $attendanceId,
                 $data['staff_id'],
                 $data['date'],
                 $data['status'],
@@ -2512,10 +2505,9 @@ class StaffAPI extends BaseAPI {
             $exists->execute([$personId, (string)$ecName]);
             if (!$exists->fetchColumn()) {
                 $this->db->prepare("
-                    INSERT INTO emergency_contacts (id, person_id, name, phone, relationship, created_at)
-                    VALUES (?, ?, ?, ?, ?, NOW())
+                    INSERT INTO emergency_contacts (person_id, name, phone, relationship, created_at)
+                    VALUES (?, ?, ?, ?, NOW())
                 ")->execute([
-                    (int)$this->db->query('SELECT COALESCE(MAX(id), 0) + 1 FROM emergency_contacts')->fetchColumn(),
                     $personId,
                     $ecName ?: 'Emergency Contact',
                     $ecPhone,

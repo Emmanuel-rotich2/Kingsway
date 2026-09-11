@@ -55,7 +55,7 @@ final class StaffIDCardGenerator extends BaseAPI
                 return formatResponse(false, null, 'Staff member not found.');
             }
 
-            $mediaManager = new \App\API\Modules\system\MediaManager($this->db);
+            $mediaManager = $this->contract('App\API\Modules\system\MediaManager', $this->db);
             $mediaId = $mediaManager->upload(
                 $fileData,
                 'staff/profile_pictures',

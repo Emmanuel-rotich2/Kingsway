@@ -247,9 +247,64 @@ class SystemAdminManager extends BaseAPI
     public function getBackgroundJobs()
     {
         try {
-            $rows = $this->tableExists('system_background_jobs')
-                ? $this->fetchRows('system_background_jobs', 200, 'created_at DESC')
-                : [];
+            $rows = [];
+
+            // Live offload queue (KingsWayBuffers schema) - the real work queue.
+            foreach (\App\API\Services\JobQueue::listRecent(200) as $job) {
+                $rows[] = [
+                    'id' => 'job-' . (int) ($job['id'] ?? 0),
+                    'queue' => 'jobs_queue',
+                    'payload_type' => (string) ($job['job_type'] ?? ''),
+                    'status' => (string) ($job['status'] ?? ''),
+                    'attempts' => (int) ($job['attempts'] ?? 0),
+                    'max_attempts' => (int) ($job['max_attempts'] ?? 0),
+                    'backoff_seconds' => (int) ($job['backoff_seconds'] ?? 0),
+                    'available_at' => $job['available_at'] ?? null,
+                    'created_at' => $job['created_at'] ?? null,
+                    'completed_at' => ($job['status'] ?? '') === 'done' ? ($job['updated_at'] ?? null) : null,
+                    'last_error' => $job['failed_reason'] ?? null,
+                    'dead_letter_reason' => $job['dead_letter_reason'] ?? null,
+                ];
+            }
+
+            // Poisoned jobs awaiting review/requeue.
+            foreach (\App\API\Services\JobQueue::listDeadLetter(200) as $job) {
+                $rows[] = [
+                    'id' => 'dead-' . (int) ($job['id'] ?? 0),
+                    'queue' => 'dead_letter',
+                    'payload_type' => (string) ($job['job_type'] ?? ''),
+                    'status' => 'dead_letter',
+                    'attempts' => (int) ($job['attempts'] ?? 0),
+                    'max_attempts' => (int) ($job['max_attempts'] ?? 0),
+                    'backoff_seconds' => 0,
+                    'available_at' => null,
+                    'created_at' => $job['dead_lettered_at'] ?? null,
+                    'completed_at' => null,
+                    'last_error' => $job['reason'] ?? null,
+                    'dead_letter_reason' => $job['reason'] ?? null,
+                ];
+            }
+
+            // Legacy system-job table surfaced for backward compatibility.
+            if ($this->tableExists('system_background_jobs')) {
+                foreach ($this->fetchRows('system_background_jobs', 200, 'created_at DESC') as $job) {
+                    $rows[] = [
+                        'id' => 'system-' . (int) ($job['id'] ?? 0),
+                        'queue' => 'system',
+                        'payload_type' => (string) ($job['job_type'] ?? ''),
+                        'status' => (string) ($job['status'] ?? ''),
+                        'attempts' => (int) ($job['attempts'] ?? 0),
+                        'max_attempts' => (int) ($job['max_attempts'] ?? 3),
+                        'backoff_seconds' => 0,
+                        'available_at' => $job['next_attempt_at'] ?? null,
+                        'created_at' => $job['created_at'] ?? null,
+                        'completed_at' => $job['completed_at'] ?? null,
+                        'last_error' => $job['last_error'] ?? null,
+                        'dead_letter_reason' => null,
+                    ];
+                }
+            }
+
             return $this->successResponse($rows, 'Background jobs retrieved');
         } catch (Exception $e) {
             \App\API\Services\Logger::legacyError('[SystemAdminManager] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());

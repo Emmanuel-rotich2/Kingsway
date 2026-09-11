@@ -30,7 +30,7 @@ class BoardingController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->manager = new BoardingManager();
+        $this->manager = $this->contract('App\API\Modules\boarding\BoardingManager');
     }
 
     public function get($id = null, $data = [], $segments = [])

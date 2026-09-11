@@ -3,7 +3,6 @@
 namespace App\API\Modules\academic;
 
 use App\API\Includes\BaseAPI;
-use App\API\Modules\system\MediaManager;
 use App\API\Services\CalendarSyncService;
 use App\API\Services\ExtraChargeService;
 use App\API\Services\TermResultsService;
@@ -1448,7 +1447,7 @@ class AcademicManager extends BaseAPI
         }
         $sql = "SELECT att.student_id, att.student_name, att.admission_no, att.class_name,
                        att.session_name, att.date, att.status, att.absence_reason
-                FROM vw_student_attendance_summary att";
+                FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_attendance_summary') . " att";
         if ($where) {
             $sql .= ' WHERE ' . implode(' AND ', $where);
         }
@@ -2750,7 +2749,7 @@ class AcademicManager extends BaseAPI
                 "SELECT COALESCE(SUM(fb.amount_due), 0) AS amount_due,
                         COALESCE(SUM(fb.amount_paid), 0) AS amount_paid,
                         COALESCE(SUM(fb.balance), 0) AS balance
-                 FROM vw_student_fee_balances fb
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                  JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                  WHERE sae.student_id = ?",
                 [$studentId]
@@ -3035,7 +3034,7 @@ class AcademicManager extends BaseAPI
         try {
             $feeCheck = $this->dbQuery(
                 "SELECT COALESCE(SUM(fb.balance),0) AS outstanding
-                 FROM vw_student_fee_balances fb
+                 FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                  JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                  WHERE sae.student_id = ?
                    AND sae.academic_year_id = (SELECT id FROM academic_years WHERE is_current = 1)",
@@ -3188,7 +3187,7 @@ class AcademicManager extends BaseAPI
             )->fetchColumn();
 
             $outstandingFees = $this->dbQuery(
-                "SELECT COUNT(DISTINCT fb.student_id) FROM vw_student_fee_balances fb
+                "SELECT COUNT(DISTINCT fb.student_id) FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                  JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                  WHERE sae.academic_year_id = ? AND fb.balance > 0",
                 [$currentYear['id']]
@@ -3254,7 +3253,7 @@ class AcademicManager extends BaseAPI
                     "SELECT sae.student_id,
                             SUM(fb.balance) AS outstanding,
                             SUM(CASE WHEN fb.balance < 0 THEN ABS(fb.balance) ELSE 0 END) AS surplus
-                     FROM vw_student_fee_balances fb
+                     FROM " . \App\API\Services\ReadReplicaService::qualifiedRef('student_fee_balances') . " fb
                      JOIN student_academic_enrollments sae ON sae.id = fb.student_academic_enrollment_id
                      WHERE sae.academic_year_id = ?
                      GROUP BY sae.student_id",
@@ -3344,26 +3343,24 @@ class AcademicManager extends BaseAPI
                     $result['note'] = "Academic year $newYearCode already exists";
                     $result['new_year_id'] = $existing['id'];
                 } else {
-                    $newYearId = (int) $this->dbQuery("SELECT COALESCE(MAX(id),0)+1 FROM academic_years")->fetchColumn();
                     $this->dbQuery(
-                        "INSERT INTO academic_years (id, year_code, year_name, start_date, end_date, status)
-                         VALUES (?, ?, ?, ?, ?, 'planning')",
+                        "INSERT INTO academic_years (year_code, year_name, start_date, end_date, status)
+                         VALUES (?, ?, ?, ?, 'planning')",
                         [
-                            $newYearId,
                             $newYearCode,
                             "$newYearCode Academic Year",
                             $yearStart,
                             $yearEnd,
                         ]
                     );
+                    $newYearId = (int) $this->db->lastInsertId();
 
                     foreach ($normalisedTerms as [$termNo, $start, $end]) {
-                        $aytId = (int) $this->dbQuery("SELECT COALESCE(MAX(id),0)+1 FROM academic_year_terms")->fetchColumn();
                         $this->dbQuery(
-                            "INSERT INTO academic_year_terms (id, academic_year_id, term_id, status, opening_date, closing_date)
-                             SELECT ?, ?, t.id, 'upcoming', ?, ?
+                            "INSERT INTO academic_year_terms (academic_year_id, term_id, status, opening_date, closing_date)
+                             SELECT ?, t.id, 'upcoming', ?, ?
                              FROM terms t WHERE t.code = ?",
-                            [$aytId, $newYearId, $start, $end, "T$termNo"]
+                            [$newYearId, $start, $end, "T$termNo"]
                         );
                     }
 
@@ -3378,15 +3375,12 @@ class AcademicManager extends BaseAPI
                         [$currentYear['id']]
                     )->fetchAll(PDO::FETCH_ASSOC);
                     foreach ($sourceClasses as $sourceClass) {
-                        $newClassId = (int) $this->dbQuery(
-                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_classes"
-                        )->fetchColumn();
                         $this->dbQuery(
-                            "INSERT INTO academic_year_classes (id, academic_year_id, class_id, status)
-                             VALUES (?, ?, ?, 'planning')",
-                            [$newClassId, $newYearId, (int) $sourceClass['class_id']]
+                            "INSERT INTO academic_year_classes (academic_year_id, class_id, status)
+                             VALUES (?, ?, 'planning')",
+                            [$newYearId, (int) $sourceClass['class_id']]
                         );
-                        $classMap[(int) $sourceClass['id']] = $newClassId;
+                        $classMap[(int) $sourceClass['id']] = (int) $this->db->lastInsertId();
                     }
 
                     $sourceStreams = $this->dbQuery(
@@ -3397,15 +3391,11 @@ class AcademicManager extends BaseAPI
                          ") ORDER BY id"
                     )->fetchAll(PDO::FETCH_ASSOC);
                     foreach ($sourceStreams as $sourceStream) {
-                        $newStreamId = (int) $this->dbQuery(
-                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_streams"
-                        )->fetchColumn();
                         $this->dbQuery(
                             "INSERT INTO academic_year_class_streams
-                                (id, academic_year_class_id, stream_id, room_id, class_teacher_id, status)
-                             VALUES (?, ?, ?, ?, ?, 'planning')",
+                                (academic_year_class_id, stream_id, room_id, class_teacher_id, status)
+                             VALUES (?, ?, ?, ?, 'planning')",
                             [
-                                $newStreamId,
                                 $classMap[(int) $sourceStream['academic_year_class_id']],
                                 (int) $sourceStream['stream_id'],
                                 $sourceStream['room_id'] ?: null,
@@ -3424,16 +3414,12 @@ class AcademicManager extends BaseAPI
                          ") ORDER BY id"
                     )->fetchAll(PDO::FETCH_ASSOC);
                     foreach ($sourceLearningAreas as $sourceArea) {
-                        $newAreaId = (int) $this->dbQuery(
-                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_learning_areas"
-                        )->fetchColumn();
                         $this->dbQuery(
                             "INSERT INTO academic_year_class_learning_areas
-                                (id, academic_year_class_id, learning_area_id, strand_id,
+                                (academic_year_class_id, learning_area_id, strand_id,
                                  sub_strand_id, status, planned_weeks, notes)
-                             VALUES (?, ?, ?, ?, ?, 'planned', ?, ?)",
+                             VALUES (?, ?, ?, ?, 'planned', ?, ?)",
                             [
-                                $newAreaId,
                                 $classMap[(int) $sourceArea['academic_year_class_id']],
                                 (int) $sourceArea['learning_area_id'],
                                 $sourceArea['strand_id'] ?: null,
@@ -3442,7 +3428,7 @@ class AcademicManager extends BaseAPI
                                 $sourceArea['notes'] ?? null,
                             ]
                         );
-                        $learningAreaMap[(int) $sourceArea['id']] = $newAreaId;
+                        $learningAreaMap[(int) $sourceArea['id']] = (int) $this->db->lastInsertId();
                     }
 
                     $targetTerms = [];
@@ -3467,15 +3453,11 @@ class AcademicManager extends BaseAPI
                         )->fetchColumn();
                         $targetTermId = $targetTerms[(int) $sourceTerm] ?? null;
                         if (!$targetTermId) continue;
-                        $newTeacherId = (int) $this->dbQuery(
-                            "SELECT COALESCE(MAX(id), 0) + 1 FROM academic_year_class_learning_area_teachers"
-                        )->fetchColumn();
                         $this->dbQuery(
                             "INSERT INTO academic_year_class_learning_area_teachers
-                                (id, academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
-                             VALUES (?, ?, ?, ?, ?)",
+                                (academic_year_class_learning_area_id, academic_year_term_id, staff_id, role)
+                             VALUES (?, ?, ?, ?)",
                             [
-                                $newTeacherId,
                                 $learningAreaMap[(int) $sourceTeacher['academic_year_class_learning_area_id']],
                                 $targetTermId,
                                 (int) $sourceTeacher['staff_id'],
@@ -3605,16 +3587,14 @@ class AcademicManager extends BaseAPI
                 continue;
             }
 
-            $enrollmentId = (int) $this->dbQuery(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM student_academic_enrollments"
-            )->fetchColumn();
             $this->dbQuery(
                 "INSERT INTO student_academic_enrollments
-                    (id, student_id, academic_year_id, academic_year_class_stream_id,
+                    (student_id, academic_year_id, academic_year_class_stream_id,
                      enrolled_on, enrollment_status)
-                 VALUES (?, ?, ?, ?, CURDATE(), 'active')",
-                [$enrollmentId, (int) $row['student_id'], $toYearId, (int) $targetAycs]
+                 VALUES (?, ?, ?, CURDATE(), 'active')",
+                [(int) $row['student_id'], $toYearId, (int) $targetAycs]
             );
+            $enrollmentId = (int) $this->db->lastInsertId();
 
             try {
                 $call = $this->db->prepare(
@@ -6218,7 +6198,7 @@ class AcademicManager extends BaseAPI
             $mediaId = null;
             if (!empty($file) && is_array($file) && ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
                 try {
-                    $media = new MediaManager($this->db);
+                    $media = $this->contract('App\API\Modules\system\MediaManager', $this->db);
                     $mediaId = $media->upload(
                         $file,
                         'students/portfolios',
@@ -6319,7 +6299,7 @@ class AcademicManager extends BaseAPI
                 : ($art['artifact_title'] ?? 'artifact');
 
             try {
-                $media = new MediaManager($this->db);
+                $media = $this->contract('App\API\Modules\system\MediaManager', $this->db);
                 $newMediaId = $media->upload(
                     $file,
                     'students/portfolios',
@@ -6375,7 +6355,7 @@ class AcademicManager extends BaseAPI
 
             if ($mediaId) {
                 try {
-                    (new MediaManager($this->db))->deleteMedia($mediaId);
+                    $this->contract('App\API\Modules\system\MediaManager', $this->db)->deleteMedia($mediaId);
                 } catch (Throwable $deleteError) {
                     $this->logError($deleteError, 'AcademicManager::deletePortfolioArtifactDelete');
                 }

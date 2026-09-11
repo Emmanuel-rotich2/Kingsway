@@ -132,7 +132,7 @@ class TransportAPI extends BaseAPI
         $this->paymentManager = new StudentTransportPaymentManager($this->db);
         $this->statusManager = new StudentTransportStatusManager($this->db);
         $this->vehicleManager = new VehicleManager($this->db);
-        $this->entitlementManager = new StudentTransportEntitlementManager($this->db);
+        $this->entitlementManager = $this->contract('App\API\Modules\transport\StudentTransportEntitlementManager', $this->db);
     }
 
     // Assign a route to a student or entity (stub, adjust as needed)

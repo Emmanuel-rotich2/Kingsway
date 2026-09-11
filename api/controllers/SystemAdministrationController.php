@@ -11,7 +11,7 @@ final class SystemAdministrationController extends BaseController
     public function __construct()
     {
         parent::__construct();
-        $this->service = new SystemAdministrationService($this->db->getConnection());
+        $this->service = $this->contract('App\API\Services\SystemAdministrationService', $this->db->getConnection());
     }
 
     private function guard(array $permissions = [])

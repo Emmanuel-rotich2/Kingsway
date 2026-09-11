@@ -18,7 +18,7 @@ class UsersController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->api = new UsersAPI();
+        $this->api = $this->contract('App\API\Modules\users\UsersAPI');
     }
 
 
@@ -639,11 +639,17 @@ class UsersController extends BaseController
 
     // --- Bulk Permission Operations ---
     public function postPermissionsBulkAssignToRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if (empty($data['role_id'])) return $this->badRequest('role_id required');
         $result = $this->api->bulkAssignPermissionsToRole($data['role_id'], $data['permissions'] ?? []);
         return $this->handleResponse($result);
     }
     public function deletePermissionsBulkRevokeFromRole($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if (empty($data['role_id'])) return $this->badRequest('role_id required');
         $result = $this->api->bulkRevokePermissionsFromRole($data['role_id'], $data['permissions'] ?? []);
         return $this->handleResponse($result);
@@ -711,11 +717,17 @@ class UsersController extends BaseController
 
     // --- Fine-grained assign/revoke endpoints ---
     public function postRoleAssignToUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if (empty($data['user_id']) || empty($data['role_id'])) return $this->badRequest('user_id and role_id required');
         $result = $this->api->assignRoleToUser($data['user_id'], $data['role_id']);
         return $this->handleResponse($result);
     }
     public function deleteRoleRevokeFromUser($id = null, $data = [], $segments = []) {
+        if ($auth = $this->ensureUserManagementAccess()) {
+            return $auth;
+        }
         if (empty($data['user_id']) || empty($data['role_id'])) return $this->badRequest('user_id and role_id required');
         $result = $this->api->revokeRoleFromUser($data['user_id'], $data['role_id']);
         return $this->handleResponse($result);

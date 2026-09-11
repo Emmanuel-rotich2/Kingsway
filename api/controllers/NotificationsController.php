@@ -187,7 +187,7 @@ class NotificationsController extends BaseController
         }
 
         try {
-            $service = new NotificationService($this->db->getConnection());
+            $service = $this->contract('App\API\Services\NotificationService', $this->db->getConnection());
             $inserted = $service->push($recipients, $type, $title, $message, $priority);
             return $this->success(
                 ['inserted' => $inserted],
@@ -326,7 +326,7 @@ class NotificationsController extends BaseController
 
     private function ensureEventReminder(\PDO $pdo, int $userId): void
     {
-        $service = new NotificationService($pdo);
+        $service = $this->contract('App\API\Services\NotificationService', $pdo);
         foreach ([['7_days', 3, 7], ['3_days', 1, 3], ['24_hours', 0, 1]] as [$window, $lower, $upper]) {
             $stmt = $pdo->prepare(
                 "SELECT id, title, start_at, location FROM school_events

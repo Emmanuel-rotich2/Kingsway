@@ -33,11 +33,6 @@ class TransferWorkflow extends WorkflowHandler
         return in_array($type, $this->clearanceTypes(), true) ? $type : null;
     }
 
-    private function nextTransitionId(): int
-    {
-        return (int) $this->db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM student_transitions")->fetchColumn();
-    }
-
     public function __construct()
     {
         parent::__construct('student_transfer');
@@ -112,25 +107,24 @@ class TransferWorkflow extends WorkflowHandler
 
             $transitionType = $data['transfer_type'] === 'internal' ? 'internal' : ($data['transfer_type'] === 'graduation' ? 'graduation' : 'transfer');
 
-            $transferId = $this->nextTransitionId();
             $currentUserId = $this->getCurrentUserId();
 
             // Create the transition (transfer request)
             $stmt = $this->db->prepare("
-                INSERT INTO student_transitions (id, student_id, academic_year_id, transition_type, reason, decided_by, decided_at)
-                SELECT ?, ?, ay.id, ?, ?, ?, ?
+                INSERT INTO student_transitions (student_id, academic_year_id, transition_type, reason, decided_by, decided_at)
+                SELECT ?, ay.id, ?, ?, ?, ?
                 FROM academic_years ay
                 WHERE ay.is_current = 1
                 LIMIT 1
             ");
             $stmt->execute([
-                $transferId,
                 $data['student_id'],
                 $transitionType,
                 $data['transfer_reason'],
                 $currentUserId,
                 $data['request_date'],
             ]);
+            $transferId = (int) $this->db->lastInsertId();
 
             if ($stmt->rowCount() === 0) {
                 $this->db->rollBack();

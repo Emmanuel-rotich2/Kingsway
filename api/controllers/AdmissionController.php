@@ -26,8 +26,8 @@ class AdmissionController extends BaseController
 
     public function __construct() {
         parent::__construct();
-        $this->admin = new AdmissionAdminManager();
-        $this->policy = new AdmissionPolicy();
+        $this->admin = $this->contract('App\API\Modules\admission\AdmissionAdminManager');
+        $this->policy = $this->contract('App\API\Modules\admission\AdmissionPolicy');
     }
 
     public function index()
@@ -264,7 +264,7 @@ class AdmissionController extends BaseController
         }
 
         try {
-            $result = (new PaymentsAPI())->triggerStkPush([
+            $result = ($this->contract('App\API\Modules\payments\PaymentsAPI'))->triggerStkPush([
                 'account_reference' => (string) ($application['application_no'] ?? ''),
                 'phone' => $phone,
                 'amount' => $amount,

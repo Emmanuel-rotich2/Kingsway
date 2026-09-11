@@ -422,8 +422,8 @@ final class StaffMigrationService
                 $this->db->prepare("DELETE FROM emergency_contacts WHERE person_id=?")->execute([$pid]);
             }
             if(!empty($data['emergency_contact_name'])){
-                $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
-                    ->execute([$this->nextId('emergency_contacts'),$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
+                $this->db->prepare("INSERT INTO emergency_contacts(person_id,name,phone,created_at) VALUES(?,?,?,NOW())")
+                    ->execute([$pid,$data['emergency_contact_name'],$data['emergency_contact_phone']??null]);
             }
             $this->db->prepare("UPDATE users SET profile_completed_at=NOW() WHERE id=?")->execute([$userId]);
             $this->audit($userId,'staff_profile_completed','staff',$sid);$this->db->commit();return $this->onboardingForUser($userId);
@@ -439,12 +439,12 @@ final class StaffMigrationService
         $roleIds=$this->roleIdsForStaff($role,$r['role_name'],$type);
         $username=UsernameService::generate($this->db,$r['email'],$r['first_name'],$r['last_name']);
         $temporary=$this->generateTemporaryPassword();
-        $pid=$this->nextId('persons');
-        $this->db->prepare("INSERT INTO persons(id,first_name,middle_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?,?)")
-            ->execute([$pid,$r['first_name'],$this->null($r,'middle_name'),$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
-        $uid=$this->nextId('users');
-        $this->db->prepare("INSERT INTO users(id,person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,?,'active',1,NOW(),NOW())")
-            ->execute([$uid,$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
+        $this->db->prepare("INSERT INTO persons(first_name,middle_name,last_name,dob,gender,email,phone) VALUES(?,?,?,?,?,?,?)")
+            ->execute([$r['first_name'],$this->null($r,'middle_name'),$r['last_name'],$this->null($r,'date_of_birth'),$this->null($r,'gender'),strtolower($r['email']),$r['phone']]);
+        $pid=(int)$this->db->lastInsertId();
+        $this->db->prepare("INSERT INTO users(person_id,username,password_hash,status,force_password_change,created_at,updated_at) VALUES(?,?,?,'active',1,NOW(),NOW())")
+            ->execute([$pid,$username,password_hash($temporary,PASSWORD_DEFAULT)]);
+        $uid=(int)$this->db->lastInsertId();
         $roleStmt=$this->db->prepare("INSERT INTO user_roles(user_id,role_id,created_at) VALUES(?,?,NOW())");
         foreach($roleIds as $roleId)$roleStmt->execute([$uid,$roleId]);
         // Auto-generate staff_no when blank; validate format when provided.
@@ -455,12 +455,12 @@ final class StaffMigrationService
         } elseif (!$staffNoSvc->isValid($staffNo)) {
             throw new RuntimeException("Row: staff_no '$staffNo' does not match the configured format");
         }
-        $sid=$this->nextId('staff');
         $supervisorId=$this->supervisorId($r['supervisor_staff_no']??'');
-        $this->db->prepare("INSERT INTO staff(id,person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,supervisor_id,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?)")
-            ->execute([$sid,$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$supervisorId,$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
-        $this->db->prepare("INSERT INTO staff_department_assignments(id,staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
-            ->execute([$this->nextId('staff_department_assignments'),$sid,$dept,$r['position'],$r['employment_date']]);
+        $this->db->prepare("INSERT INTO staff(person_id,staff_type_id,staff_category_id,staff_no,position,contract_type,employment_date,status,supervisor_id,salary,bank_name,bank_account) VALUES(?,?,?,?,?,?,?,?,'active',?,?,?,?)")
+            ->execute([$pid,$type,$cat,$staffNo,$r['position'],strtolower($r['contract_type']),$r['employment_date'],$supervisorId,$this->decimal($r,'salary'),$this->null($r,'bank_name'),$this->null($r,'bank_account')]);
+        $sid=(int)$this->db->lastInsertId();
+        $this->db->prepare("INSERT INTO staff_department_assignments(staff_id,department_id,role,effective_from,effective_to,created_at) VALUES(?,?,?,?,?,NULL,NOW())")
+            ->execute([$sid,$dept,$r['position'],$r['employment_date']]);
         $this->db->prepare("INSERT INTO staff_employment_profiles(staff_id,department_id,position,employment_date,contract_type,status,created_at,updated_at) VALUES(?,?,?,?,?,'active',NOW(),NOW())")
             ->execute([$sid,$dept,$r['position'],$r['employment_date'],strtolower($r['contract_type'])]);
         $this->db->prepare("INSERT INTO staff_attendance_profiles(staff_id,work_start_time,work_end_time,late_threshold_minutes,is_active,created_at,updated_at) VALUES(?,?,?,?,1,NOW(),NOW())")
@@ -490,8 +490,8 @@ final class StaffMigrationService
                 ->execute([$pid,trim($r['communication_phone'])]);
         }
         if(!empty($r['emergency_contact_name']??'')){
-            $this->db->prepare("INSERT INTO emergency_contacts(id,person_id,name,phone,created_at) VALUES(?,?,?,?,NOW())")
-                ->execute([$this->nextId('emergency_contacts'),$pid,$r['emergency_contact_name'],$r['emergency_contact_phone']??null]);
+            $this->db->prepare("INSERT INTO emergency_contacts(person_id,name,phone,created_at) VALUES(?,?,?,NOW())")
+                ->execute([$pid,$r['emergency_contact_name'],$r['emergency_contact_phone']??null]);
         }
         $token=$this->createInvitation($uid,$sid,$r['email'],$actorId);
         $baseUrl=(defined('BASE_URL')?BASE_URL:(defined('APP_URL')?APP_URL:''));$url=rtrim($baseUrl,'/').'/reset_default_password.php?token='.rawurlencode($token);
@@ -659,7 +659,6 @@ final class StaffMigrationService
     private function decimal(array$r,string$k):?float{$v=trim((string)($r[$k]??''));return$v===''?null:(float)$v;}
     private function yes(string$v):bool{return in_array(strtolower(trim($v)),['1','yes','true','y'],true);}
     private function generateTemporaryPassword(): string{return 'Kwps-'.substr(bin2hex(random_bytes(4)),0,8).'!';}
-    private function nextId(string $table): int{$s=$this->db->prepare("SELECT COALESCE(MAX(id),0)+1 FROM `$table`");$s->execute();return(int)$s->fetchColumn();}
     private function templateSample(): array
     {
         return [
